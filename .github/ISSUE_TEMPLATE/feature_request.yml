@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose a feature (will likely need an RFC)
+title: "feature: "
+labels: ["type:feature", "triage:reviewed"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most feature requests of meaningful scope require an RFC. See
+        [`CONTRIBUTING.md`](../../CONTRIBUTING.md#rfc-discipline) for the bar.
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem does this solve? Reference a spec or RFC where applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Proposed design
+      description: A short sketch; the full design will live in an RFC.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - v0.1 (Phase 1)
+        - v0.2 (Phase 2)
+        - v0.3 (Phase 3)
+        - v0.4 / Phase 4
+        - Post-1.0
+    validations:
+      required: true

@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a defect in GenoLeWM
+title: "bug: "
+labels: ["type:bug", "triage:needs-info"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please follow these rules:
+        - **Do not include real personal genome data.** Synthetic reproducers only.
+        - For **security issues**, do not open this template — see [`SECURITY.md`](../../SECURITY.md).
+        - For **privacy issues** that look like data exfiltration, see [`SECURITY.md`](../../SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: GenoLeWM version
+      description: Output of `geno-lewm-train --version` (or commit hash).
+      placeholder: "0.1.0 / commit abc1234"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Python library
+        - CLI
+        - Desktop app
+        - Documentation / spec / RFC
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, backend (CUDA / Core ML / ONNX / CPU)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Synthetic reproducer
+      description: Minimal steps that reproduce the bug.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error class and `code` if available.
+    validations:
+      required: true
+  - type: textarea
+    id: spec-link
+    attributes:
+      label: Spec / RFC reference
+      description: Which spec section or RFC does this defect relate to?
+    validations:
+      required: false

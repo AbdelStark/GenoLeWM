@@ -1,0 +1,33 @@
+name: RFC discussion thread
+description: Open a discussion thread tied to a draft RFC PR
+title: "rfc: "
+labels: ["type:rfc", "triage:reviewed"]
+body:
+  - type: input
+    id: rfc-id
+    attributes:
+      label: RFC number (or "new")
+      placeholder: "0020"
+    validations:
+      required: true
+  - type: input
+    id: pr
+    attributes:
+      label: Linked RFC PR
+      placeholder: "#NN"
+    validations:
+      required: false
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph.
+    validations:
+      required: true
+  - type: textarea
+    id: questions
+    attributes:
+      label: Open questions
+      description: List the OQ-* identifiers this thread addresses.
+    validations:
+      required: false

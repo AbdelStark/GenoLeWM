@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/AbdelStark/GenoLeWM/security/advisories/new
+    about: Report a security or privacy issue privately (do not open a public issue).
+  - name: SPEC.md
+    url: https://github.com/AbdelStark/GenoLeWM/blob/main/SPEC.md
+    about: The specification corpus index.
+  - name: CONTRIBUTING.md
+    url: https://github.com/AbdelStark/GenoLeWM/blob/main/CONTRIBUTING.md
+    about: Read before opening an issue or PR.
