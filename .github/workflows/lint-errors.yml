@@ -1,10 +1,11 @@
-# Per-PR enforcement of the error contract (RFC-0012 §3.3).
+# Per-PR enforcement of the error + observability contracts
+# (RFC-0012 §3.3, RFC-0013 INV-OBS-1/2, RFC-0015 §3.4).
 #
-# Standalone workflow on purpose: keeps the check live before the full
+# Standalone workflow on purpose: keeps the checks live before the full
 # per-PR CI workflow (#86) lands and stays low-overhead. When #86
-# arrives, this job can either fold into it or remain as a fast,
-# dependency-free fence.
-name: lint-errors
+# arrives, these jobs can fold into it or remain as fast, dependency-free
+# fences.
+name: lint
 
 on:
   pull_request:
@@ -20,10 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Run check_error_codes
         run: python -m tools.lint.check_error_codes
+
+  check-event-names:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run check_event_names
+        run: python -m tools.lint.check_event_names
