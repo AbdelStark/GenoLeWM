@@ -73,6 +73,7 @@ dev = [
 geno-lewm-train = "geno_lewm.cli.train:main"
 geno-lewm-score = "geno_lewm.cli.score:main"
 geno-lewm-rollout = "geno_lewm.cli.rollout:main"
+geno-lewm-verify = "geno_lewm.cli.verify:main"
 geno-lewm-plan = "geno_lewm.cli.plan:main"
 
 [project.urls]
