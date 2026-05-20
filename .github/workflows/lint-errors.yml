@@ -1,0 +1,29 @@
+# Per-PR enforcement of the error contract (RFC-0012 §3.3).
+#
+# Standalone workflow on purpose: keeps the check live before the full
+# per-PR CI workflow (#86) lands and stays low-overhead. When #86
+# arrives, this job can either fold into it or remain as a fast,
+# dependency-free fence.
+name: lint-errors
+
+on:
+  pull_request:
+    paths:
+      - "geno_lewm/**"
+      - "tools/lint/**"
+      - ".github/workflows/lint-errors.yml"
+  push:
+    branches: [main]
+
+jobs:
+  check-error-codes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run check_error_codes
+        run: python -m tools.lint.check_error_codes
