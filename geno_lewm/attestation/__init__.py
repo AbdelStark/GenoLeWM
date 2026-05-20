@@ -21,6 +21,17 @@ from geno_lewm.attestation.manifest import (
     load_manifest,
     write_manifest,
 )
+from geno_lewm.attestation.receipt import (
+    RECEIPT_SCHEMA_VERSION,
+    SUPPORTED_ATTESTATION_KINDS,
+    Receipt,
+    ReceiptAttestation,
+    ReceiptOutput,
+    ReceiptRuntime,
+    compute_output_commitment,
+    read_receipt,
+    write_receipt,
+)
 
 __all__ = [
     "DtypeConfig",
@@ -29,11 +40,20 @@ __all__ = [
     "ManifestEncoder",
     "ManifestTraining",
     "PoolingConfig",
+    "RECEIPT_SCHEMA_VERSION",
+    "Receipt",
+    "ReceiptAttestation",
+    "ReceiptOutput",
+    "ReceiptRuntime",
     "SCHEMA_VERSION",
+    "SUPPORTED_ATTESTATION_KINDS",
     "canonical_json_sha256",
     "compute_input_commitment",
+    "compute_output_commitment",
     "load_manifest",
+    "read_receipt",
     "sha256_bytes",
     "sha256_file",
     "write_manifest",
+    "write_receipt",
 ]
