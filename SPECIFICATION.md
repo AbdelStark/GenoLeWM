@@ -1,14 +1,21 @@
-# GenoLeWM — Specification
+# GenoLeWM — Specification (synthesized canonical view)
 
 - **Version:** 0.1.0-draft
 - **Date:** 2026-05-20
 - **Status:** Design phase. No reference implementation yet.
-- **Authoritative source:** this document plus the RFCs in [`rfcs/`](rfcs/).
+- **Authoritative sources:** the RFCs in [`rfcs/`](rfcs/) and the
+  per-section spec corpus under [`docs/spec/`](docs/spec/). This document
+  synthesizes them for readers who want a single end-to-end view.
 
-This specification is the synthesized canonical view. The RFCs are the
-source of truth for individual subsystems and contain the rationale,
-trade-offs, and unresolved questions. If this document and an RFC
-disagree, the RFC wins; please open a PR against this document.
+> **Quick navigation.** New readers start at [`SPEC.md`](SPEC.md) —
+> the top-level index points into the per-section corpus
+> ([`docs/spec/00-overview.md`](docs/spec/00-overview.md) →
+> [`docs/spec/10-glossary.md`](docs/spec/10-glossary.md)) and the 19
+> RFCs ([`rfcs/README.md`](rfcs/README.md)). The corpus is normative; this
+> document is a synthesized view of the same material.
+
+If this document and an RFC or spec section disagree, the RFC / section
+wins; please open a PR against this document.
 
 ---
 
