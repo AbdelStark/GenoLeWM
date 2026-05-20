@@ -48,3 +48,23 @@ jobs:
           python-version: "3.12"
       - name: Diff committed snapshot vs current surface
         run: python -m tools.api.snapshot check
+
+  check-no-print:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run check_no_print
+        run: python -m tools.lint.check_no_print
+
+  check-network-confined:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run check_network_confined
+        run: python -m tools.lint.check_network_confined
