@@ -32,6 +32,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_DIR = REPO_ROOT / "geno_lewm"
 OBSERVABILITY_MODULE = PACKAGE_DIR / "observability.py"
+METRICS_MODULE = PACKAGE_DIR / "metrics.py"
 
 _LOGGER_LEVEL_METHODS: frozenset[str] = frozenset({"debug", "info", "warn", "warning", "error"})
 _METRIC_METHODS: frozenset[str] = frozenset({"inc", "observe", "set"})
@@ -96,11 +97,12 @@ def discover_registered_events(module: Path = OBSERVABILITY_MODULE) -> set[str]:
     return _read_tuple_of_calls(tree, "EVENTS", "EventSpec")
 
 
-def discover_registered_metrics(module: Path = OBSERVABILITY_MODULE) -> set[str] | None:
+def discover_registered_metrics(module: Path = METRICS_MODULE) -> set[str] | None:
     """Return registered metric names, or ``None`` if METRICS is absent.
 
     Returning ``None`` lets the caller skip the metric check entirely
-    until #25 lands.
+    until the metrics module ships (#25). When the module lands, the
+    check arms automatically.
     """
     if not module.is_file():
         return None
@@ -263,9 +265,9 @@ def run(paths: Sequence[Path] | None = None) -> list[Violation]:
 
     violations: list[Violation] = []
     for file in _walk_python_files(targets):
-        # The observability module itself defines the registries — its
-        # own EventSpec/MetricSpec literals would otherwise self-trigger.
-        if file.resolve() == OBSERVABILITY_MODULE.resolve():
+        # Skip the registry modules themselves — their own EventSpec /
+        # MetricSpec literals would otherwise self-trigger.
+        if file.resolve() in {OBSERVABILITY_MODULE.resolve(), METRICS_MODULE.resolve()}:
             continue
         violations.extend(check_file(file, events=events, metrics=metrics))
     return violations
