@@ -1,0 +1,53 @@
+# Environment and local state
+.env
+.env.*
+!.env.example
+.envrc
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# uv / pip
+.venv/
+venv/
+.python-version
+uv.lock
+
+# Local agent harness (not part of the public repo)
+.agents/
+.claude/
+
+# GenoLeWM caches and outputs (per docs/spec/05-observability.md)
+.geno-lewm-cache/
+.geno-lewm-logs/
+runs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS-generated thumbnails
+Thumbs.db
