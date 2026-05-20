@@ -196,7 +196,7 @@ def test_logged_run_book_ends_emit(tmp_log_dir: Path) -> None:
         log_dir=tmp_log_dir,
         start_event="training.run.start",
         end_event="training.run.end",
-        start_data={"cfg": "x"},
+        start_data={"config_path": "x"},
     ) as lg:
         lg.info("training.step", step=1)
     obs.shutdown_run("rb", tmp_log_dir)
@@ -205,7 +205,7 @@ def test_logged_run_book_ends_emit(tmp_log_dir: Path) -> None:
     events = [r["event"] for r in recs]
     assert events[0] == "training.run.start"
     assert events[-1] == "training.run.end"
-    assert recs[0]["data"] == {"cfg": "x"}
+    assert recs[0]["data"] == {"config_path": "x"}
 
 
 def test_records_survive_crash(tmp_log_dir: Path) -> None:

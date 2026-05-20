@@ -70,37 +70,159 @@ _VALID_SEVERITIES: frozenset[str] = frozenset(_SEVERITY_ORDER)
 
 @dataclass(frozen=True)
 class EventSpec:
-    """A single row in the :data:`EVENTS` registry."""
+    """A single row in the :data:`EVENTS` registry.
+
+    ``allowed_keys`` lists the ``data`` keys that the per-event redaction
+    allowlist permits (RFC-0013 §3.5). Standardized fields (``step``,
+    ``epoch``, ``phase``, ``duration_ms``, ``trace_id``, ``span_id``,
+    ``error_code``) are promoted out of ``data`` before redaction and
+    are always allowed at the top level — they need not appear here.
+    """
 
     name: str
     severity: Severity
     summary: str
+    allowed_keys: frozenset[str] = frozenset()
 
 
 #: Canonical events for v0.1. Order matches ``docs/spec/05-observability.md``.
+#:
+#: Each ``allowed_keys`` enumerates the per-event redaction allowlist.
+#: New keys for an existing event are a MINOR change; tightening the set
+#: is MAJOR.
 EVENTS: tuple[EventSpec, ...] = (
-    EventSpec("training.run.start", "info", "trainer initialized"),
-    EventSpec("training.run.end", "info", "trainer exited"),
-    EventSpec("training.step", "debug", "every training step (sampled)"),
-    EventSpec("training.epoch.end", "info", "every epoch"),
-    EventSpec("training.checkpoint.write", "info", "checkpoint saved"),
-    EventSpec("training.collapse.alert", "warn", "collapse alert criterion tripped"),
-    EventSpec("training.metric", "info", "scalar metric logged"),
-    EventSpec("eval.run.start", "info", "benchmark started"),
-    EventSpec("eval.run.end", "info", "benchmark finished"),
-    EventSpec("eval.regression", "error", "smoke eval regression"),
-    EventSpec("data.cache.hit", "debug", "cache hit"),
-    EventSpec("data.cache.miss", "debug", "cache miss"),
-    EventSpec("data.shard.write", "info", "new shard written"),
-    EventSpec("inference.score.start", "debug", "scoring call entered"),
-    EventSpec("inference.score.end", "debug", "scoring call returned"),
-    EventSpec("inference.batch.end", "info", "batch finished"),
-    EventSpec("inference.network.blocked", "error", "fail-closed network guard tripped"),
-    EventSpec("attestation.receipt.write", "info", "receipt written"),
-    EventSpec("attestation.verify.start", "info", "verifier started"),
-    EventSpec("attestation.verify.end", "info", "verifier returned"),
-    EventSpec("attestation.verify.mismatch", "error", "a hash check failed"),
-    EventSpec("error", "error", "a GenoLeWMError raised inside a logged span"),
+    EventSpec(
+        "training.run.start",
+        "info",
+        "trainer initialized",
+        frozenset({"config_path", "model_id", "device", "world_size", "git_sha"}),
+    ),
+    EventSpec(
+        "training.run.end",
+        "info",
+        "trainer exited",
+        frozenset({"reason", "best_step", "best_loss"}),
+    ),
+    EventSpec(
+        "training.step",
+        "debug",
+        "every training step (sampled)",
+        frozenset({"loss", "loss_pred", "loss_reg", "lr", "grad_norm"}),
+    ),
+    EventSpec(
+        "training.epoch.end",
+        "info",
+        "every epoch",
+        frozenset({"loss", "loss_pred", "loss_reg", "lr", "samples"}),
+    ),
+    EventSpec(
+        "training.checkpoint.write",
+        "info",
+        "checkpoint saved",
+        frozenset({"path", "size_bytes", "tag"}),
+    ),
+    EventSpec(
+        "training.collapse.alert",
+        "warn",
+        "collapse alert criterion tripped",
+        frozenset({"criterion", "value", "threshold"}),
+    ),
+    EventSpec(
+        "training.metric",
+        "info",
+        "scalar metric logged",
+        frozenset({"name", "value", "unit", "kind"}),
+    ),
+    EventSpec(
+        "eval.run.start",
+        "info",
+        "benchmark started",
+        frozenset({"benchmark", "dataset", "n_items"}),
+    ),
+    EventSpec(
+        "eval.run.end",
+        "info",
+        "benchmark finished",
+        frozenset({"benchmark", "metrics", "elapsed_s"}),
+    ),
+    EventSpec(
+        "eval.regression",
+        "error",
+        "smoke eval regression",
+        frozenset({"metric", "baseline", "current", "delta", "threshold"}),
+    ),
+    EventSpec(
+        "data.cache.hit",
+        "debug",
+        "cache hit",
+        frozenset({"shard_id", "key"}),
+    ),
+    EventSpec(
+        "data.cache.miss",
+        "debug",
+        "cache miss",
+        frozenset({"shard_id", "key"}),
+    ),
+    EventSpec(
+        "data.shard.write",
+        "info",
+        "new shard written",
+        frozenset({"shard_id", "path", "n_rows", "size_bytes"}),
+    ),
+    EventSpec(
+        "inference.score.start",
+        "debug",
+        "scoring call entered",
+        frozenset({"variant_id", "model_id"}),
+    ),
+    EventSpec(
+        "inference.score.end",
+        "debug",
+        "scoring call returned",
+        frozenset({"variant_id", "score", "category"}),
+    ),
+    EventSpec(
+        "inference.batch.end",
+        "info",
+        "batch finished",
+        frozenset({"n", "batch_id", "throughput_per_s"}),
+    ),
+    EventSpec(
+        "inference.network.blocked",
+        "error",
+        "fail-closed network guard tripped",
+        frozenset({"url_host", "operation"}),
+    ),
+    EventSpec(
+        "attestation.receipt.write",
+        "info",
+        "receipt written",
+        frozenset({"path", "model_id", "n_outputs"}),
+    ),
+    EventSpec(
+        "attestation.verify.start",
+        "info",
+        "verifier started",
+        frozenset({"path", "model_id"}),
+    ),
+    EventSpec(
+        "attestation.verify.end",
+        "info",
+        "verifier returned",
+        frozenset({"path", "ok"}),
+    ),
+    EventSpec(
+        "attestation.verify.mismatch",
+        "error",
+        "a hash check failed",
+        frozenset({"kind", "expected", "got"}),
+    ),
+    EventSpec(
+        "error",
+        "error",
+        "a GenoLeWMError raised inside a logged span",
+        frozenset({"message", "details", "remediation"}),
+    ),
 )
 
 _EVENTS_BY_NAME: dict[str, EventSpec] = {e.name: e for e in EVENTS}
@@ -355,7 +477,15 @@ class GenoLeWMLogger:
         # Everything else goes into ``data``. We copy so callers can
         # reuse their kwarg dict freely without aliasing the record.
         reserved = {"step", "epoch", "phase", "duration_ms", "error_code"}
-        data = {k: v for k, v in fields.items() if k not in reserved}
+        raw_data = {k: v for k, v in fields.items() if k not in reserved}
+
+        # The redaction filter is the single chokepoint between callers
+        # and the sink (RFC-0013 §3.5, INV-OBS-3). Unknown events get an
+        # empty allowlist → every payload key is soft-dropped.
+        from geno_lewm._redaction import redact as _redact
+
+        allowed = spec.allowed_keys if spec is not None else frozenset()
+        data = _redact(event, raw_data, allowed_keys=allowed)
 
         trace_id, span_id = current_trace_context()
 
