@@ -1,0 +1,70 @@
+# GenoLeWM training config — Phase 1 default (RFC-0017 §3.3).
+#
+# The fields documented here MUST track ``geno_lewm.config.schema``. The
+# loader rejects any top-level key not in the schema with
+# ``UnknownTopLevelKeyError``; sub-block keys are similarly closed.
+
+run_id: phase1-default
+seed: 0
+phase: phase1
+deterministic: false
+schema_version: 1.0.0
+
+encoder:
+  model_id: HuggingFaceBio/Carbon-500M
+  revision: main@deadbeef
+  dtype: bf16
+  state_layer: 20
+  pool_type: centered_mean
+  pool_radius: 8
+  normalize: true
+
+predictor:
+  architecture: cross_attention
+  n_layers: 6
+  n_heads: 8
+  d_state: 512
+  d_action: 64
+  dtype: bf16
+
+action:
+  d_action: 64
+  max_len: 16
+  sub_encoders:
+    - snv
+    - ins
+    - del
+    - mnv
+
+optimizer:
+  name: adamw
+  lr: 3.0e-4
+  beta1: 0.9
+  beta2: 0.95
+  weight_decay: 0.1
+  grad_clip: 1.0
+  warmup_steps: 1000
+  schedule: wsd
+
+data:
+  corpus_id: HuggingFaceBio/carbon-pretraining-corpus
+  corpus_revision: main@cafef00d
+  batch_size: 64
+  num_workers: 4
+  shuffle_buffer: 4096
+
+eval:
+  benchmarks:
+    - clinvar_coding
+    - clinvar_noncoding
+    - rollout
+  smoke_variants: 1000
+
+observability:
+  log_level: info
+  redaction_strict: true
+  wandb_project: null
+
+runtime:
+  backend: torch
+  device: cpu

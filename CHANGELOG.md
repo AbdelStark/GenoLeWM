@@ -12,6 +12,31 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
+- **Configuration schema and YAML defaults** (issue #28; RFC-0017).
+  - `geno_lewm/config/schema.py` — frozen dataclasses for every
+    subsystem (`EncoderConfig`, `PredictorConfig`,
+    `ActionEncoderConfig`, `OptimizerConfig`, `DataConfig`,
+    `EvalConfig`, `ObservabilityConfig`, `RuntimeConfig`) plus the
+    top-level `GenoLeWMConfig`. RFC-0017 §3.2 left the choice of
+    Pydantic vs dataclasses open; dataclasses keep the base runtime
+    dep footprint minimal (only `pyyaml` was added).
+  - `geno_lewm/config/loader.py` — YAML loader + typed validator.
+    Coerces YAML payloads through the schema, rejects unknown top-
+    level keys with the new `UnknownTopLevelKeyError`
+    (`CONFIG.UNKNOWN_TOP_LEVEL_KEY`), and rejects unknown sub-fields
+    with `ConfigError`. Type coercion handles `Literal` enums,
+    `tuple[str, ...]` (from YAML lists), `bool`/`int`/`float`/`str`,
+    and `X | None` unions.
+  - `geno_lewm/config/defaults/{train,score,eval,plan}.yaml` —
+    canonical Phase 1 defaults mirroring every field in the schema.
+  - `write_resolved_config()` emits the resolved config as canonical
+    YAML so `${run_id}/config.resolved.yaml` is byte-stable
+    (RFC-0017 §3.5).
+  - `describe_field()` returns `{name, type, default, doc}` for any
+    dotted-key in the schema; consumed by the `--explain` CLI flag
+    (PR #29 wiring still to come).
+  - `pyyaml>=6` and `types-PyYAML>=6` added to base / dev deps.
+
 - **CLI dispatcher and stub command surface** (issues #30, #31;
   RFC-0018).
   - `geno_lewm/cli/_dispatch.py` — shared Typer dispatch helpers:

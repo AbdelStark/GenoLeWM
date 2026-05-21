@@ -87,6 +87,16 @@ def _signature_for(obj: Any) -> str:
             return f"callable{sig!s}"
     except (TypeError, ValueError):
         pass
+    # Normalise platform-conditional types so the snapshot stays
+    # byte-stable across CI runners. The only case today is
+    # :class:`pathlib.PurePath` (``PosixPath`` on Linux/macOS,
+    # ``WindowsPath`` on Windows); we collapse them to the abstract
+    # base name. Add additional cases here if other platform-conditional
+    # types appear on the public surface.
+    import pathlib  # local import — snapshot is a CLI helper.
+
+    if isinstance(obj, pathlib.PurePath):
+        return "value:Path"
     return f"value:{type(obj).__name__}"
 
 
