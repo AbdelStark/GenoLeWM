@@ -12,6 +12,25 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
+- **Release tooling** (issue #102; `tools/release/`).
+  - `tools/release/bump.py` rewrites the canonical `__version__`
+    assignment in `geno_lewm/__init__.py` after validating the new
+    string against the project's PEP 440 subset (release,
+    `aN`/`bN`/`rcN`, `.postN`, `.devN`) and enforcing strict-monotone
+    ordering. `--dry-run` emits the unified diff without touching the
+    tree; `--show` prints the current version.
+  - `tools/release/changelog.py` synthesises a Keep-a-Changelog 1.1.0
+    section from `git log <since>..<until>`, mapping conventional /
+    area-prefixed commits to `Added` / `Changed` / `Deprecated` /
+    `Removed` / `Fixed` / `Security` buckets and flagging breaking
+    (`feat!:` / `fix!:`) commits. Default `--dry-run` mode prints the
+    section to stdout; `--write` lifts the existing `[Unreleased]`
+    block in `CHANGELOG.md` into a dated `[X.Y.Z]` heading and
+    re-opens an empty placeholder.
+  - Both helpers are pure stdlib and run as `python -m
+    tools.release.{bump,changelog}` so the release runner does not
+    need optional dependencies installed.
+
 - **Distribution & packaging.**
   - PEP 440-compliant version (`0.1.0.dev0`) sourced dynamically by
     Hatch from `geno_lewm/__init__.py` so package metadata and the
