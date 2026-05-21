@@ -17,6 +17,7 @@ app = build_stub_app(
     ),
     command="plan",
     issue="#61",
+    default_config_name="plan",
 )
 
 cli_main = make_cli_main(app)
