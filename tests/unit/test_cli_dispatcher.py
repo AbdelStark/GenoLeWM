@@ -73,7 +73,7 @@ def test_banner_suppressed_only_when_both_flags_set() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _finalize(**overrides: object) -> _dispatch.SharedOptions:
+def _finalize(**overrides: object) -> _dispatch.SharedOptions | None:
     """Call ``finalize_shared`` with sensible defaults; override per-test."""
     base: dict[str, object] = {
         "config": None,
@@ -280,6 +280,70 @@ def test_banner_appears_with_single_suppression_flag(
     _dispatch.run_app(mod.app, argv=["--quiet"])
     captured = capsys.readouterr()
     assert "research tool" in captured.err, f"banner missing under --quiet alone for {entry}"
+
+
+# ---------------------------------------------------------------------------
+# Discovery flags (#29; RFC-0017 §3.8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("entry", "module"), TYPER_SCRIPTS)
+def test_print_config_emits_resolved_yaml(
+    entry: str,
+    module: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--print-config` dumps the resolved config to stdout and exits 0."""
+    mod = importlib.import_module(module)
+    rc = _dispatch.run_app(mod.app, argv=["--print-config"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "run_id:" in captured.out
+    assert "encoder:" in captured.out
+    assert "schema_version: 1.0.0" in captured.out
+
+
+@pytest.mark.parametrize(("entry", "module"), TYPER_SCRIPTS)
+def test_print_config_tree_includes_source_comment(
+    entry: str,
+    module: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--print-config-tree` adds a ``# resolved from:`` provenance line."""
+    mod = importlib.import_module(module)
+    rc = _dispatch.run_app(mod.app, argv=["--print-config-tree"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "# resolved from:" in captured.out
+    assert "encoder:" in captured.out
+
+
+@pytest.mark.parametrize(("entry", "module"), TYPER_SCRIPTS)
+def test_explain_emits_type_default_doc(
+    entry: str,
+    module: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--explain encoder.dtype` returns the schema docstring + default + type."""
+    mod = importlib.import_module(module)
+    rc = _dispatch.run_app(mod.app, argv=["--explain", "encoder.dtype"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "encoder.dtype:" in captured.out
+    assert "default:" in captured.out
+    assert "type:" in captured.out
+
+
+def test_explain_unknown_key_returns_config_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A bad ``--explain`` key surfaces a CONFIG.MISSING_FIELD exit code (3)."""
+    from geno_lewm.cli.train import app
+
+    rc = _dispatch.run_app(app, argv=["--explain", "nope.nada"])
+    captured = capsys.readouterr()
+    assert rc == 3  # ConfigError family
+    assert "not found" in captured.err
 
 
 # ---------------------------------------------------------------------------

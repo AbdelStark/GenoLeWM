@@ -29,13 +29,22 @@ from geno_lewm.cli._dispatch import (
 _S = shared_option_decls()
 
 
-def build_stub_app(*, name: str, help_text: str, command: str, issue: str) -> typer.Typer:
+def build_stub_app(
+    *,
+    name: str,
+    help_text: str,
+    command: str,
+    issue: str,
+    default_config_name: str = "train",
+) -> typer.Typer:
     """Construct a fully-wired Typer app for a Phase 1 stub command.
 
     ``name`` and ``help_text`` populate the Typer metadata. ``command``
     is the bare command name (e.g., ``"train"``) and ``issue`` is the
     GitHub tracking issue (``"#44"``) where the real implementation is
-    being built.
+    being built. ``default_config_name`` selects which canonical YAML
+    template (``train`` / ``score`` / ``eval`` / ``plan``) the
+    discovery flags load when invoked.
     """
 
     app = typer.Typer(
@@ -80,6 +89,7 @@ def build_stub_app(*, name: str, help_text: str, command: str, issue: str) -> ty
             quiet=quiet,
             no_banner=no_banner,
             version=version,
+            default_config_name=default_config_name,
         )
         # ``finalize_shared`` returns None when --version was passed; the
         # callback then returns silently and Typer treats it as exit 0.

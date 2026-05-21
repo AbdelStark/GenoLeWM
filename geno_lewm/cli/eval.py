@@ -17,6 +17,7 @@ app = build_stub_app(
     ),
     command="eval",
     issue="#56",
+    default_config_name="eval",
 )
 
 cli_main = make_cli_main(app)

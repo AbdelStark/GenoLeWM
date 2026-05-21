@@ -190,13 +190,18 @@ def finalize_shared(
     quiet: bool,
     no_banner: bool,
     version: bool,
+    default_config_name: str = "train",
 ) -> SharedOptions | None:
-    """Validate inputs, handle ``--version``, print the banner, return options.
+    """Validate inputs, handle discovery flags, print the banner, return options.
 
-    Returns ``None`` when ``--version`` was passed — the caller treats
-    that as a clean exit and returns from its callback without further
-    work (Typer maps the empty return to exit code 0). Anything else
-    returns a populated :class:`SharedOptions`.
+    The function returns ``None`` for every flag that documents itself
+    as "print and exit" (``--version``, ``--print-config``,
+    ``--print-config-tree``, ``--explain``). Typer treats the empty
+    return as exit code 0.
+
+    ``default_config_name`` selects the canonical YAML template
+    (``train`` / ``score`` / ``eval`` / ``plan``) loaded for the
+    discovery flags. Per-command stubs override this.
 
     Raises:
         InputError: if ``--log-level`` is outside :data:`VALID_LOG_LEVELS`.
@@ -210,6 +215,21 @@ def finalize_shared(
             "invalid --log-level",
             details={"got": log_level, "allowed": list(VALID_LOG_LEVELS)},
         )
+
+    # Discovery flags: handled before banner so they exit cleanly under
+    # `--quiet --no-banner` regardless. ``--explain`` is the cheapest
+    # and runs without loading a config.
+    if explain is not None:
+        _emit_explain(explain)
+        return None
+
+    if print_config or print_config_tree:
+        _emit_resolved_config(
+            default_name=default_config_name,
+            config_path=config,
+            include_source=print_config_tree,
+        )
+        return None
 
     print_banner(quiet=quiet, no_banner=no_banner)
 
@@ -229,6 +249,51 @@ def finalize_shared(
         quiet=quiet,
         no_banner=no_banner,
     )
+
+
+# ---------------------------------------------------------------------------
+# Discovery flag implementations (RFC-0017 §3.8)
+# ---------------------------------------------------------------------------
+
+
+def _emit_explain(key: str) -> None:
+    """Render the schema docstring + default + type for a dotted key."""
+    from geno_lewm.config import describe_field
+
+    info = describe_field(key)
+    sys.stdout.write(f"{key}:\n")
+    sys.stdout.write(f"  type:    {info['type']}\n")
+    sys.stdout.write(f"  default: {info['default']!r}\n")
+    sys.stdout.write(f"  doc:     {info['doc']}\n")
+
+
+def _emit_resolved_config(
+    *,
+    default_name: str,
+    config_path: str | None,
+    include_source: bool,
+) -> None:
+    """Print the resolved config as YAML to stdout (``--print-config[-tree]``)."""
+    import yaml
+
+    from geno_lewm.config import config_to_dict, load_config, load_default
+    from geno_lewm.config.loader import DEFAULTS_DIR
+
+    if config_path is not None:
+        cfg = load_config(config_path)
+        source = config_path
+    else:
+        cfg = load_default(default_name)
+        source = str(DEFAULTS_DIR / f"{default_name}.yaml")
+
+    payload = config_to_dict(cfg)
+    if include_source:
+        # ``--print-config-tree`` annotates every value with its source.
+        # Phase 1 has exactly one source per value (the loaded YAML);
+        # the Hydra-style multi-source composition (#) lands when the
+        # loader gains a ``defaults:`` block.
+        sys.stdout.write(f"# resolved from: {source}\n")
+    sys.stdout.write(yaml.safe_dump(payload, sort_keys=True, default_flow_style=False))
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,23 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
+- **CLI discovery flags wired to the config layer** (issue #29;
+  RFC-0017 §3.8 + RFC-0018 §3.2).
+  - `--print-config` renders the resolved config of the invoked
+    command as canonical YAML on stdout.
+  - `--print-config-tree` prepends a `# resolved from: <path>`
+    provenance comment (single source today; Hydra-style multi-source
+    composition lands with future work).
+  - `--explain encoder.dtype` (or any dotted-key) renders the schema
+    docstring + type + default — implemented via
+    `geno_lewm.config.describe_field`.
+  - Each Typer stub now passes `default_config_name` through to the
+    dispatcher (`train`/`score`/`eval`/`plan`) so the right YAML
+    template loads when the discovery flags fire.
+  - `tests/unit/test_cli_dispatcher.py` extended with parametrised
+    coverage of each flag against every stub (34 new cases) plus a
+    targeted `--explain unknown.key` → exit code 3 test.
+
 - **Configuration schema and YAML defaults** (issue #28; RFC-0017).
   - `geno_lewm/config/schema.py` — frozen dataclasses for every
     subsystem (`EncoderConfig`, `PredictorConfig`,

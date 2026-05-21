@@ -17,6 +17,7 @@ app = build_stub_app(
     ),
     command="rollout",
     issue="#42",
+    default_config_name="score",
 )
 
 cli_main = make_cli_main(app)
