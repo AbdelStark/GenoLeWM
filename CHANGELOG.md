@@ -12,6 +12,29 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
+- **Test pyramid scaffold and shared fixtures** (issue #85; RFC-0015
+  §3.6).
+  - `tests/conftest.py` resolves `PYTEST_RANDOM_SEED` (env override, or
+    `HEAD` SHA mod 2**32 by default) and surfaces it in the pytest
+    header for reproducible failures. Exposes the resolved value via
+    the `random_seed` fixture; `seeded_random` returns a per-test
+    `random.Random` so randomness never leaks across tests.
+  - New synthetic fixtures usable by every test layer:
+    `synthetic_window` (4 kB `ACGT`), `synthetic_edit_spec`,
+    `synthetic_pooling_config`, `synthetic_dtype_config`,
+    `synthetic_receipt_output`, `fixtures_dir`, `utc_now`,
+    `stable_isoformat`.
+  - New test directories created (per RFC-0015 §3.1):
+    `tests/ml/`, `tests/integration/`, `tests/eval/`,
+    `tests/typecheck/`, `tests/fixtures/`. Each ships an `__init__.py`
+    that documents the layer's purpose. `tests/typecheck/` already
+    holds runtime checks for the `py.typed` marker and the
+    sortedness / completeness of `geno_lewm.__all__`.
+  - `tests/fixtures/sample_window.fa` and
+    `tests/fixtures/sample_receipt.json` — small canned data files;
+    `tests/integration/test_fixtures_load.py` smokes them through the
+    public `read_receipt` loader.
+
 - **Performance harness, microbench suite, and regression detector**
   (issues #90, #91, #92; RFC-0016).
   - `bench/_harness.py` — stdlib-only timing library. `time_callable`
