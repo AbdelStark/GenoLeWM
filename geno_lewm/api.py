@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Public-API lifetime decorators (RFC-0014 §3.3, §3.6).
 
 Two decorators mark stability on the public surface:

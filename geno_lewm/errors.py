@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """GenoLeWM exception hierarchy and error-code registry.
 
 This module is the single source of truth for the runtime error model

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """``network_confined`` AST linter (RFC-0015 §3.4).
 
 Restrict network-capable imports to the two files that legitimately

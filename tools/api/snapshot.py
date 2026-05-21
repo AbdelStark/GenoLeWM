@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Resolve the public surface of ``geno_lewm`` and serialize it.
 
 Defined by RFC-0014 §3.7. The output is a deterministic JSON document

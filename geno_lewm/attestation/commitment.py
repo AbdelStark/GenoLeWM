@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Input commitments for scoring calls (RFC-0011 §3.2).
 
 For every inference call the inputs are committed via:

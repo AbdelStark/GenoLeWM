@@ -1,0 +1,110 @@
+# Declarative issue / PR label config. Synced by `.github/workflows/labels.yml`
+# so the labels referenced from issue templates, CONTRIBUTING.md, and
+# triage docs are always present.
+
+# Triage workflow
+- name: "triage:needs-info"
+  description: Author has not yet provided enough context.
+  color: c5def5
+- name: "triage:reproduction"
+  description: A synthetic reproducer would unblock triage.
+  color: c5def5
+- name: "triage:reviewed"
+  description: Triaged into the backlog.
+  color: 0e8a16
+- name: "triage:wontfix"
+  description: Closed with reason; not actionable.
+  color: cccccc
+
+# Type
+- name: "type:bug"
+  description: A defect in shipped behaviour.
+  color: d73a4a
+- name: "type:feature"
+  description: New user-visible capability.
+  color: a2eeef
+- name: "type:refactor"
+  description: Internal change, no user-visible behaviour delta.
+  color: cfd3d7
+- name: "type:docs"
+  description: Documentation, spec, or RFC.
+  color: 0075ca
+- name: "type:ci"
+  description: CI / build / release tooling.
+  color: 1d76db
+- name: "type:dependency"
+  description: Dependency upgrade or addition.
+  color: 0366d6
+- name: "type:test"
+  description: Test changes only.
+  color: bfd4f2
+- name: "type:rfc"
+  description: An RFC PR or RFC-process change.
+  color: 7057ff
+- name: "type:performance"
+  description: Latency, throughput, or memory budget.
+  color: e99695
+- name: "type:security"
+  description: Security or supply-chain.
+  color: b60205
+
+# Area
+- name: "area:errors"
+  color: fef2c0
+- name: "area:observability"
+  color: fef2c0
+- name: "area:attestation"
+  color: fef2c0
+- name: "area:action"
+  color: fef2c0
+- name: "area:training"
+  color: fef2c0
+- name: "area:eval"
+  color: fef2c0
+- name: "area:deploy"
+  color: fef2c0
+- name: "area:cli"
+  color: fef2c0
+- name: "area:docs"
+  color: fef2c0
+- name: "area:ci"
+  color: fef2c0
+
+# Priority
+- name: "priority:high"
+  description: Should land within the current iteration.
+  color: b60205
+- name: "priority:medium"
+  description: Should land within the current phase.
+  color: e99695
+- name: "priority:low"
+  description: Nice-to-have.
+  color: fbca04
+
+# Effort
+- name: "effort:small"
+  description: One sitting.
+  color: 0e8a16
+- name: "effort:medium"
+  description: A few days.
+  color: fbca04
+- name: "effort:large"
+  description: One or more weeks.
+  color: b60205
+
+# Status
+- name: "status:blocked"
+  color: 5319e7
+- name: "status:in-progress"
+  color: 1d76db
+- name: "status:in-review"
+  color: 1d76db
+- name: "status:waiting-on-author"
+  color: e99695
+
+# Good first / help-wanted
+- name: "good first issue"
+  description: A new contributor's onboarding ramp.
+  color: 7057ff
+- name: "help wanted"
+  color: 008672

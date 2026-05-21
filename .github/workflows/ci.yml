@@ -88,6 +88,8 @@ jobs:
         run: python -m tools.lint.check_no_print
       - name: check_network_confined (RFC-0010)
         run: python -m tools.lint.check_network_confined
+      - name: check_license_headers (SPDX)
+        run: python -m tools.lint.check_license_headers
       - name: public-API snapshot (RFC-0014)
         run: python -m tools.api.snapshot check
 

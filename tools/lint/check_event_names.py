@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Enforce the observability contract at PR time.
 
 Two AST checks (RFC-0013 INV-OBS-1/2, RFC-0015 §3.4):

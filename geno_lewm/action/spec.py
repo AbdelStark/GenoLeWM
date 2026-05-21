@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Canonical edit types — ``EditSpec``, ``EditType``, ``RelEdit``.
 
 Defined by RFC-0003 §3.1–§3.3 and ``docs/spec/03-data-model.md#editspec``.

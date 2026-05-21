@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Receipt writer / reader (RFC-0011 §3.3).
 
 Receipt schema v1.0.0. The on-disk format is canonical JSON so two

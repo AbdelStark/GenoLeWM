@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Structured logging for GenoLeWM.
 
 This module is the single source of truth for the JSONL logging format

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """GenoLeWM command-line entry points.
 
 Today this package ships only the verify CLI (#77). The full

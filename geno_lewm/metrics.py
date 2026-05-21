@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """GenoLeWM metrics registry and minimal Prometheus textfile exporter.
 
 Defined by RFC-0013 §3.3 / 4 and ``docs/spec/05-observability.md``.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Action representation for GenoLeWM.
 
 Public surface defined by RFC-0003. The package ships the canonical

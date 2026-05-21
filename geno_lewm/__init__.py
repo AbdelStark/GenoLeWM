@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """GenoLeWM — action-conditioned JEPA world model for DNA.
 
 GenoLeWM treats genetic edits as first-class actions and learns latent

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pure-Python ``apply_edit`` / ``apply_edits`` helpers.
 
 These functions produce the post-edit window string used to encode the

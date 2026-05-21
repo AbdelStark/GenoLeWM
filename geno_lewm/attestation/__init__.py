@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Verifiable-inference primitives for GenoLeWM (RFC-0011).
 
 Today this package exposes the content-addressed model identifiers and

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Content-addressing primitives for GenoLeWM artifacts (RFC-0011 §3.1).
 
 Two functions:

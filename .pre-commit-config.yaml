@@ -76,6 +76,13 @@ repos:
         pass_filenames: false
         files: ^geno_lewm/.*\.py$
 
+      - id: check-license-headers
+        name: check_license_headers (SPDX)
+        entry: python -m tools.lint.check_license_headers
+        language: system
+        pass_filenames: false
+        files: ^(geno_lewm|tools)/.*\.py$
+
       - id: check-public-surface
         name: public-API snapshot drift (RFC-0014)
         entry: python -m tools.api.snapshot check

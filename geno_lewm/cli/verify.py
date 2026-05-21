@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """``geno-lewm-verify`` CLI — checksum-mode receipt verifier (RFC-0011 §3.4).
 
 The CLI takes a receipt JSON path and validates the receipt against a

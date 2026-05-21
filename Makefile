@@ -59,6 +59,7 @@ gates:  ## Run every custom AST gate + the public-surface snapshot.
 	$(ACTIVATE) && $(PY) -m tools.lint.check_event_names
 	$(ACTIVATE) && $(PY) -m tools.lint.check_no_print
 	$(ACTIVATE) && $(PY) -m tools.lint.check_network_confined
+	$(ACTIVATE) && $(PY) -m tools.lint.check_license_headers
 	$(ACTIVATE) && $(PY) -m tools.api.snapshot check
 
 .PHONY: snapshot

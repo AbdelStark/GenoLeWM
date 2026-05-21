@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic edit samplers (RFC-0003 §3.8).
 
 These samplers produce :class:`RelEdit` objects keyed to an existing

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Redaction filter for the GenoLeWM structured logger.
 
 Single chokepoint between callers and the JSONL sink. Defined by

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """``no_print`` AST linter (RFC-0015 §3.4).
 
 Disallow bare ``print(...)`` calls in ``geno_lewm/``. Production code

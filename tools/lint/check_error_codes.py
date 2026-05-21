@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Enforce the GenoLeWM error contract at PR time.
 
 Two AST checks, both required by RFC-0012 §3.3 and RFC-0015 §3.4:
