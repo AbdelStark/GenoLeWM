@@ -108,6 +108,10 @@ jobs:
             python: "3.12"
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Fetch enough history for the changed-files coverage gate to
+          # diff against the PR base branch (`origin/<base_ref>`).
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
@@ -142,6 +146,21 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Changed-files coverage gate (PRs only)
+        # RFC-0015 §3.7. Runs on the canonical matrix combo only — one
+        # signal is enough. Skipped on pushes to main / tags because
+        # there is no PR base to diff against.
+        if: >-
+          github.event_name == 'pull_request' &&
+          matrix.os == 'ubuntu-latest' &&
+          matrix.python == '3.12'
+        run: |
+          git fetch --no-tags --depth=50 origin "${{ github.base_ref }}"
+          python -m tools.ci.coverage_gate \
+            --coverage-xml coverage.xml \
+            --base "origin/${{ github.base_ref }}" \
+            --threshold 0.9
+        shell: bash
 
   build:
     name: Build (sdist + wheel)
