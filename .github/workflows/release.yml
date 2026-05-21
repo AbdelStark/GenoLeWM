@@ -45,7 +45,7 @@ jobs:
         with:
           fetch-depth: 0  # for Hatch to see the version tag context
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
