@@ -8,7 +8,7 @@ dependencies are noted under "Cross-cutting dependencies."
 
 The full label taxonomy, milestones, and CI gates are documented in
 [`../spec/09-release-and-versioning.md`](../spec/09-release-and-versioning.md)
-and [RFC-0015](../../rfcs/0015-testing-strategy.md).
+and [RFC-0015](../rfcs/0015-testing-strategy.md).
 
 ## Milestones
 

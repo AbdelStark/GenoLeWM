@@ -32,7 +32,9 @@ def test_identical_inputs_produce_identical_commitments() -> None:
 def test_distinct_pool_radius_changes_commitment() -> None:
     w = "ACGT" * 3072
     a = compute_input_commitment(w, _edit(), _pool(), _dtype())
-    pool_b = PoolingConfig(state_layer=12, pool_type="centered_mean", pool_radius=32, normalize=True)
+    pool_b = PoolingConfig(
+        state_layer=12, pool_type="centered_mean", pool_radius=32, normalize=True
+    )
     b = compute_input_commitment(w, _edit(), pool_b, _dtype())
     assert a != b
 
@@ -56,7 +58,9 @@ def test_distinct_pool_type_changes_commitment() -> None:
 def test_distinct_normalize_flag_changes_commitment() -> None:
     w = "ACGT" * 3072
     a = compute_input_commitment(w, _edit(), _pool(), _dtype())
-    pool_b = PoolingConfig(state_layer=12, pool_type="centered_mean", pool_radius=24, normalize=False)
+    pool_b = PoolingConfig(
+        state_layer=12, pool_type="centered_mean", pool_radius=24, normalize=False
+    )
     b = compute_input_commitment(w, _edit(), pool_b, _dtype())
     assert a != b
 

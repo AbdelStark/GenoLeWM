@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Canonical edit types — ``EditSpec``, ``EditType``, ``RelEdit``.
 
 Defined by RFC-0003 §3.1–§3.3 and ``docs/spec/03-data-model.md#editspec``.
@@ -25,7 +26,7 @@ from enum import IntEnum
 
 from geno_lewm.errors import InvalidEditError, OutOfWindowError, UnsupportedEditError
 
-__all__ = ["EditType", "EditSpec", "RelEdit", "V1_MAX_LEN"]
+__all__ = ["V1_MAX_LEN", "EditSpec", "EditType", "RelEdit"]
 
 
 #: Maximum ``ref`` / ``alt`` length in v1. Edits longer than this are
@@ -206,9 +207,12 @@ class RelEdit:
                 details={"rel_pos": self.rel_pos},
             )
         # ``edit_type`` arrives as an IntEnum from EditSpec.relative_to;
-        # allow plain ints too for downstream serializers.
+        # allow plain ints too for downstream serializers. Static
+        # type-checkers see ``edit_type: EditType`` and call the
+        # else-branch unreachable; at runtime callers can pass ints, so
+        # we keep the coercion behind an explicit ignore.
         if not isinstance(self.edit_type, EditType):
-            try:
+            try:  # type: ignore[unreachable]
                 object.__setattr__(self, "edit_type", EditType(int(self.edit_type)))
             except (ValueError, TypeError) as exc:
                 raise InvalidEditError(

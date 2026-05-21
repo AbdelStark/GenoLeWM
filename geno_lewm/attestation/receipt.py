@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Receipt writer / reader (RFC-0011 §3.3).
 
 Receipt schema v1.0.0. The on-disk format is canonical JSON so two
@@ -14,7 +15,7 @@ support yet.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,13 +29,13 @@ from geno_lewm.errors import InputError, ReceiptSchemaError, SchemaCompatError
 __all__ = [
     "RECEIPT_SCHEMA_VERSION",
     "SUPPORTED_ATTESTATION_KINDS",
+    "Receipt",
+    "ReceiptAttestation",
     "ReceiptOutput",
     "ReceiptRuntime",
-    "ReceiptAttestation",
-    "Receipt",
-    "write_receipt",
-    "read_receipt",
     "compute_output_commitment",
+    "read_receipt",
+    "write_receipt",
 ]
 
 
@@ -44,9 +45,7 @@ RECEIPT_SCHEMA_VERSION: str = "1.0.0"
 #: ``stark`` are accepted in the schema for forward compatibility, but
 #: a checksum-only verifier (#77) emits an explicit unsupported-kind
 #: message rather than failing.
-SUPPORTED_ATTESTATION_KINDS: frozenset[str] = frozenset(
-    {"checksum_only", "tee", "stark"}
-)
+SUPPORTED_ATTESTATION_KINDS: frozenset[str] = frozenset({"checksum_only", "tee", "stark"})
 
 
 def _require_hash(name: str, value: str) -> None:
@@ -71,9 +70,7 @@ class ReceiptOutput:
         for name in ("sigma_raw", "sigma_calibrated", "confidence"):
             v = getattr(self, name)
             if not isinstance(v, int | float) or isinstance(v, bool):
-                raise InputError(
-                    f"{name} must be float", details={"name": name, "value": v}
-                )
+                raise InputError(f"{name} must be float", details={"name": name, "value": v})
         if not self.bucket_id:
             raise InputError("bucket_id must be non-empty", details={"bucket_id": self.bucket_id})
 
@@ -91,9 +88,7 @@ class ReceiptRuntime:
         for name in ("backend", "device", "geno_lewm_version", "carbon_revision"):
             v = getattr(self, name)
             if not v:
-                raise InputError(
-                    f"runtime.{name} must be non-empty", details={name: v}
-                )
+                raise InputError(f"runtime.{name} must be non-empty", details={name: v})
 
 
 @dataclass(frozen=True, slots=True)

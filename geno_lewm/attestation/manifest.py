@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Manifest schema for GenoLeWM artifacts (RFC-0011 §3.7).
 
 A manifest is the trust anchor: every byte downstream of the model
@@ -30,12 +31,12 @@ from geno_lewm.errors import InputError, SchemaCompatError
 
 __all__ = [
     "SCHEMA_VERSION",
+    "Manifest",
     "ManifestArtifact",
     "ManifestEncoder",
     "ManifestTraining",
-    "Manifest",
-    "write_manifest",
     "load_manifest",
+    "write_manifest",
 ]
 
 

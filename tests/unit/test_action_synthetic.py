@@ -9,8 +9,8 @@ import pytest
 
 from geno_lewm.action import (
     DEFAULT_EDGE_MARGIN,
-    EditType,
     V1_MAX_LEN,
+    EditType,
     indel,
     mnv,
     uniform_snv,
@@ -105,7 +105,7 @@ def test_property_indel_positions_respect_edge_margin() -> None:
         w = _rand_window(rng, n=rng.randint(256, 1024))
         edits = indel(w, 32, rng=rng)
         for e in edits:
-            assert DEFAULT_EDGE_MARGIN <= e.rel_pos
+            assert e.rel_pos >= DEFAULT_EDGE_MARGIN
             # For DEL, the ref segment extends right of rel_pos; that
             # extension must not cross the right margin either.
             assert e.rel_pos + len(e.ref_bases) <= len(w) - DEFAULT_EDGE_MARGIN
@@ -117,7 +117,7 @@ def test_property_mnv_positions_respect_edge_margin() -> None:
         w = _rand_window(rng, n=rng.randint(256, 1024))
         edits = mnv(w, 16, rng=rng)
         for e in edits:
-            assert DEFAULT_EDGE_MARGIN <= e.rel_pos
+            assert e.rel_pos >= DEFAULT_EDGE_MARGIN
             assert e.rel_pos + len(e.ref_bases) <= len(w) - DEFAULT_EDGE_MARGIN
 
 
@@ -199,7 +199,7 @@ def test_property_mnv_alt_differs_at_every_position() -> None:
     for e in edits:
         assert e.edit_type is EditType.MNV
         assert len(e.ref_bases) == len(e.alt_bases)
-        for a, b in zip(e.ref_bases, e.alt_bases):
+        for a, b in zip(e.ref_bases, e.alt_bases, strict=True):
             assert a != b
 
 

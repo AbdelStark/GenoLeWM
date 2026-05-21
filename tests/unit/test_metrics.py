@@ -11,7 +11,6 @@ import pytest
 from geno_lewm import metrics as m
 from geno_lewm.errors import InputError
 
-
 # Canonical names from docs/spec/05-observability.md — locking the public
 # contract here. Editing this set is a public-API change.
 CANONICAL_METRIC_NAMES = {
@@ -35,9 +34,9 @@ CANONICAL_METRIC_NAMES = {
 
 @pytest.fixture(autouse=True)
 def _reset() -> Any:
-    m._reset_for_tests()  # noqa: SLF001
+    m._reset_for_tests()
     yield
-    m._reset_for_tests()  # noqa: SLF001
+    m._reset_for_tests()
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +129,8 @@ def test_histogram_bytes_unit_uses_bytes_buckets() -> None:
     # than through the public accessor.
     spec = m.MetricSpec("test.histogram.bytes", "histogram", "bytes", "")
     th = m.Histogram(spec)
-    assert th._buckets[-1] == float("inf")  # noqa: SLF001
-    assert th._buckets[0] == m.DEFAULT_HISTOGRAM_BUCKETS_BYTES[0]  # noqa: SLF001
+    assert th._buckets[-1] == float("inf")
+    assert th._buckets[0] == m.DEFAULT_HISTOGRAM_BUCKETS_BYTES[0]
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +196,9 @@ def test_exporter_textfile_is_well_formed(tmp_path: Path) -> None:
         r"\s+"
         r"([0-9eE.+\-]+|\+Inf|-Inf|NaN)\s*$"
     )
-    type_re = re.compile(r"^# TYPE [a-zA-Z_:][a-zA-Z0-9_:]*\s+(counter|gauge|histogram|summary|untyped)\s*$")
+    type_re = re.compile(
+        r"^# TYPE [a-zA-Z_:][a-zA-Z0-9_:]*\s+(counter|gauge|histogram|summary|untyped)\s*$"
+    )
     help_re = re.compile(r"^# HELP [a-zA-Z_:][a-zA-Z0-9_:]*\s+.+$")
 
     for line in body.splitlines():

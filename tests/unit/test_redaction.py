@@ -8,24 +8,23 @@ from typing import Any
 
 import pytest
 
-from geno_lewm import _redaction as red
-from geno_lewm import observability as obs
+from geno_lewm import _redaction as red, observability as obs
 from geno_lewm.errors import InvariantViolation
 
 
 @pytest.fixture(autouse=True)
 def _reset() -> Any:
     red.STATS.reset()
-    for sink in list(obs._SINKS.values()):  # noqa: SLF001
+    for sink in list(obs._SINKS.values()):
         sink.close()
-    obs._SINKS.clear()  # noqa: SLF001
-    obs._LOGGERS.clear()  # noqa: SLF001
+    obs._SINKS.clear()
+    obs._LOGGERS.clear()
     yield
     red.STATS.reset()
-    for sink in list(obs._SINKS.values()):  # noqa: SLF001
+    for sink in list(obs._SINKS.values()):
         sink.close()
-    obs._SINKS.clear()  # noqa: SLF001
-    obs._LOGGERS.clear()  # noqa: SLF001
+    obs._SINKS.clear()
+    obs._LOGGERS.clear()
 
 
 @pytest.fixture
@@ -223,7 +222,7 @@ def test_stats_total_and_as_dict(strict_off: None) -> None:
 def test_each_event_allowlist_round_trips(event_spec: obs.EventSpec, strict_on: None) -> None:
     # Build a sample payload using only the event's allowlist; every key
     # gets a benign scalar. The filter MUST let everything through.
-    sample = {k: "v" for k in event_spec.allowed_keys}
+    sample = dict.fromkeys(event_spec.allowed_keys, "v")
     out = red.redact(event_spec.name, sample, allowed_keys=event_spec.allowed_keys)
     assert out == sample
 
@@ -232,18 +231,14 @@ def test_each_event_allowlist_round_trips(event_spec: obs.EventSpec, strict_on: 
 # Wired through the logger end-to-end.
 
 
-def test_logger_path_drops_denied_fields_in_strict_mode(
-    tmp_path: Path, strict_on: None
-) -> None:
+def test_logger_path_drops_denied_fields_in_strict_mode(tmp_path: Path, strict_on: None) -> None:
     lg = obs.get_logger("runtime", run_id="rrd", log_dir=tmp_path)
     with pytest.raises(InvariantViolation):
         lg.info("training.run.start", user_email="x@y.z")
     obs.shutdown_run("rrd", tmp_path)
 
 
-def test_logger_path_drops_unallowed_keys_silently(
-    tmp_path: Path, strict_on: None
-) -> None:
+def test_logger_path_drops_unallowed_keys_silently(tmp_path: Path, strict_on: None) -> None:
     lg = obs.get_logger("runtime", run_id="rru", log_dir=tmp_path)
     lg.info("training.run.start", config_path="cfg", bogus_field=1)
     obs.shutdown_run("rru", tmp_path)

@@ -1,9 +1,9 @@
 # 08 — Performance budget
 
 - Status: Authoritative for v0.1
-- Companion RFCs: [RFC-0007](../../rfcs/0007-evaluation-suite.md),
-  [RFC-0010](../../rfcs/0010-on-device-personal-genome-deployment.md),
-  [RFC-0016](../../rfcs/0016-performance-budget.md)
+- Companion RFCs: [RFC-0007](../rfcs/0007-evaluation-suite.md),
+  [RFC-0010](../rfcs/0010-on-device-personal-genome-deployment.md),
+  [RFC-0016](../rfcs/0016-performance-budget.md)
 
 Performance is part of the public contract. Numbers here are commitments,
 not aspirations: a release that misses any of these targets is not

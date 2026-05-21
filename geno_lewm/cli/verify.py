@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """``geno-lewm-verify`` CLI — checksum-mode receipt verifier (RFC-0011 §3.4).
 
 The CLI takes a receipt JSON path and validates the receipt against a
@@ -36,6 +37,7 @@ import argparse
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import IO
 
 from geno_lewm.action.spec import EditSpec
 from geno_lewm.attestation import (
@@ -120,25 +122,28 @@ def _maybe_recompute_input_commitment(args: argparse.Namespace) -> str | None:
             "--input-window, --edit-{chrom,pos,ref,alt}, "
             "--state-layer, --pool-type, --pool-radius, "
             "--encoder-dtype, --predictor-dtype",
-            details={"missing": [
-                name
-                for name, val in zip(
-                    [
-                        "input_window",
-                        "edit_chrom",
-                        "edit_pos",
-                        "edit_ref",
-                        "edit_alt",
-                        "state_layer",
-                        "pool_type",
-                        "pool_radius",
-                        "encoder_dtype",
-                        "predictor_dtype",
-                    ],
-                    input_fields,
-                )
-                if val is None
-            ]},
+            details={
+                "missing": [
+                    name
+                    for name, val in zip(
+                        [
+                            "input_window",
+                            "edit_chrom",
+                            "edit_pos",
+                            "edit_ref",
+                            "edit_alt",
+                            "state_layer",
+                            "pool_type",
+                            "pool_radius",
+                            "encoder_dtype",
+                            "predictor_dtype",
+                        ],
+                        input_fields,
+                        strict=True,
+                    )
+                    if val is None
+                ]
+            },
         )
     edit = EditSpec(
         chrom=args.edit_chrom,
@@ -159,7 +164,7 @@ def _maybe_recompute_input_commitment(args: argparse.Namespace) -> str | None:
     return compute_input_commitment(args.input_window, edit, pool, dtype)
 
 
-def verify(args: argparse.Namespace, *, stream: "object | None" = None) -> None:
+def verify(args: argparse.Namespace, *, stream: IO[str] | None = None) -> None:
     """Run the verification protocol; raise on any failure.
 
     Side effect: writes a human-readable progress line per check to
@@ -172,8 +177,7 @@ def verify(args: argparse.Namespace, *, stream: "object | None" = None) -> None:
     print(f"reading receipt:  {args.receipt}", file=stream)
     receipt = read_receipt(args.receipt)
     print(
-        f"  schema_version={receipt.schema_version} "
-        f"attestation.kind={receipt.attestation.kind}",
+        f"  schema_version={receipt.schema_version} attestation.kind={receipt.attestation.kind}",
         file=stream,
     )
 

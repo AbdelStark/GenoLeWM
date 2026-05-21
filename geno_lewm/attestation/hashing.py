@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Content-addressing primitives for GenoLeWM artifacts (RFC-0011 §3.1).
 
 Two functions:
@@ -25,7 +26,7 @@ from typing import Any
 
 from geno_lewm.errors import InputError
 
-__all__ = ["canonical_json_sha256", "canonical_json_bytes", "sha256_file", "sha256_bytes"]
+__all__ = ["canonical_json_bytes", "canonical_json_sha256", "sha256_bytes", "sha256_file"]
 
 
 _PREFIX = "sha256:"

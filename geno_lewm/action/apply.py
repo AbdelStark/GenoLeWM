@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pure-Python ``apply_edit`` / ``apply_edits`` helpers.
 
 These functions produce the post-edit window string used to encode the
@@ -20,6 +21,7 @@ After applying edits the post-edit window length may change (indels).
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 
 from geno_lewm.action.spec import EditType, RelEdit
@@ -63,7 +65,7 @@ def apply_edit(window: str, edit: RelEdit, *, preserve_length: bool = False) -> 
             },
         )
 
-    observed = window[edit.rel_pos:end]
+    observed = window[edit.rel_pos : end]
     if observed.upper() != edit.ref_bases.upper():
         raise WindowMismatchError(
             "window bases do not match edit.ref_bases at locus",
@@ -135,7 +137,7 @@ def _assert_disjoint(edits: Sequence[RelEdit]) -> None:
         ((e.rel_pos, e.rel_pos + len(e.ref_bases), idx) for idx, e in enumerate(edits)),
         key=lambda t: t[0],
     )
-    for (s1, e1, i1), (s2, e2, i2) in zip(intervals, intervals[1:]):
+    for (s1, e1, i1), (s2, e2, i2) in itertools.pairwise(intervals):
         if s2 < e1:
             raise OverlappingEditsError(
                 "edits overlap in genomic coordinates",

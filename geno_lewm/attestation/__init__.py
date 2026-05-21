@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Verifiable-inference primitives for GenoLeWM (RFC-0011).
 
 Today this package exposes the content-addressed model identifiers and
@@ -34,19 +35,19 @@ from geno_lewm.attestation.receipt import (
 )
 
 __all__ = [
+    "RECEIPT_SCHEMA_VERSION",
+    "SCHEMA_VERSION",
+    "SUPPORTED_ATTESTATION_KINDS",
     "DtypeConfig",
     "Manifest",
     "ManifestArtifact",
     "ManifestEncoder",
     "ManifestTraining",
     "PoolingConfig",
-    "RECEIPT_SCHEMA_VERSION",
     "Receipt",
     "ReceiptAttestation",
     "ReceiptOutput",
     "ReceiptRuntime",
-    "SCHEMA_VERSION",
-    "SUPPORTED_ATTESTATION_KINDS",
     "canonical_json_sha256",
     "compute_input_commitment",
     "compute_output_commitment",

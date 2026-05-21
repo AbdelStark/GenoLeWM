@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """``no_print`` AST linter (RFC-0015 §3.4).
 
 Disallow bare ``print(...)`` calls in ``geno_lewm/``. Production code
@@ -52,7 +53,11 @@ def _is_allowlisted(file: Path) -> bool:
         rel = file.resolve().relative_to(PACKAGE_DIR.resolve())
     except ValueError:
         return False  # outside the canonical package — still scanned (test fixtures use tmp dirs)
-    return any(str(rel).startswith(str(p) + "/") or rel == p for p in _ALLOWED_PRINT_PATHS)
+    # Compare via path components, not str().startswith, so the
+    # allowlist matches the same way on Windows (backslashes) and
+    # POSIX (forward slashes).
+    rel_parts = rel.parts
+    return any(rel_parts[: len(p.parts)] == p.parts or rel == p for p in _ALLOWED_PRINT_PATHS)
 
 
 def check_file(path: Path) -> list[Violation]:

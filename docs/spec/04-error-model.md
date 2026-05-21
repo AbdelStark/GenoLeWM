@@ -1,7 +1,7 @@
 # 04 — Error model
 
 - Status: Authoritative for v0.1
-- Companion RFC: [RFC-0012](../../rfcs/0012-error-taxonomy.md)
+- Companion RFC: [RFC-0012](../rfcs/0012-error-taxonomy.md)
 
 The error model is the contract on how subsystems fail. The whole of
 GenoLeWM raises typed exceptions from a single hierarchy rooted at

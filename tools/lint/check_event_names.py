@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Enforce the observability contract at PR time.
 
 Two AST checks (RFC-0013 INV-OBS-1/2, RFC-0015 §3.4):
@@ -60,9 +61,7 @@ class Violation:
 # Registry discovery
 
 
-def _read_tuple_of_calls(
-    tree: ast.AST, assign_name: str, ctor_name: str
-) -> set[str]:
+def _read_tuple_of_calls(tree: ast.AST, assign_name: str, ctor_name: str) -> set[str]:
     """Return the set of first-arg string literals from ``CTOR(...)``
     elements appearing in a tuple assigned to ``ASSIGN_NAME``."""
     out: set[str] = set()

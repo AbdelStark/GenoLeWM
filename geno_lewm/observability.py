@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Structured logging for GenoLeWM.
 
 This module is the single source of truth for the JSONL logging format
@@ -47,14 +48,14 @@ except ImportError:  # pragma: no cover - 3.10 still ships json
     raise
 
 __all__ = [
-    "EventSpec",
     "EVENTS",
-    "Severity",
+    "EventSpec",
     "GenoLeWMLogger",
     "LogRecord",
+    "Severity",
+    "current_trace_context",
     "get_logger",
     "logged_run",
-    "current_trace_context",
     "set_trace_context",
 ]
 
@@ -490,9 +491,9 @@ class GenoLeWMLogger:
         trace_id, span_id = current_trace_context()
 
         rec = LogRecord(
-            ts=datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds").replace(
-                "+00:00", "Z"
-            ),
+            ts=datetime.now(tz=timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z"),
             severity=severity,
             event=event,
             run_id=self.run_id,
@@ -611,8 +612,6 @@ def logged_run(
     record is emitted before the exception propagates.
     """
     logger = get_logger(component, run_id=run_id, log_dir=log_dir)
-    rid = logger.run_id
-    ldir = logger.log_dir
     if start_event:
         logger.info(start_event, **(dict(start_data) if start_data else {}))
     try:
@@ -629,19 +628,14 @@ def logged_run(
                 remediation=exc.remediation,
             )
         # Always flush the sink before the exception unwinds the stack.
-        try:
+        with contextlib.suppress(Exception):
             logger._sink.stream.flush()
-        except Exception:  # pragma: no cover - flush is best effort on crash
-            pass
         raise
     else:
         if end_event:
             logger.info(end_event)
-    finally:
-        # Close the sink iff no other logger is still bound to it.
-        # We do not aggressively close so concurrent components can
-        # share the run; explicit teardown is via ``shutdown_run``.
-        pass
+    # Note: we do not close the sink here so concurrent components can
+    # share the run; explicit teardown is via ``shutdown_run``.
 
 
 def shutdown_run(run_id: str, log_dir: str | os.PathLike[str] | None = None) -> None:

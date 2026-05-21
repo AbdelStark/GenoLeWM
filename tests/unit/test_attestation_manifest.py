@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from geno_lewm.attestation import (
+    SCHEMA_VERSION,
     Manifest,
     ManifestArtifact,
     ManifestEncoder,
     ManifestTraining,
-    SCHEMA_VERSION,
     canonical_json_sha256,
     load_manifest,
     sha256_bytes,
@@ -22,7 +21,6 @@ from geno_lewm.attestation import (
 )
 from geno_lewm.attestation.hashing import canonical_json_bytes, looks_like_sha256
 from geno_lewm.errors import InputError, SchemaCompatError
-
 
 _SHA = "sha256:" + "0" * 64
 
@@ -87,7 +85,8 @@ def test_canonical_json_sha256_is_byte_stable() -> None:
 def test_sha256_bytes_matches_known_value() -> None:
     # Empty input — well-known SHA-256.
     assert (
-        sha256_bytes(b"") == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        sha256_bytes(b"")
+        == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     )
 
 

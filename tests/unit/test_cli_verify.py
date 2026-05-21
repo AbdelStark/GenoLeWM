@@ -9,18 +9,18 @@ import pytest
 
 from geno_lewm.action import EditSpec
 from geno_lewm.attestation import (
+    RECEIPT_SCHEMA_VERSION,
+    SCHEMA_VERSION,
     DtypeConfig,
     Manifest,
     ManifestArtifact,
     ManifestEncoder,
     ManifestTraining,
     PoolingConfig,
-    RECEIPT_SCHEMA_VERSION,
     Receipt,
     ReceiptAttestation,
     ReceiptOutput,
     ReceiptRuntime,
-    SCHEMA_VERSION,
     compute_input_commitment,
     compute_output_commitment,
     write_manifest,
@@ -125,7 +125,9 @@ def test_tampered_manifest_exit_8(tmp_path: Path, capsys: pytest.CaptureFixture[
 def test_tampered_output_exit_8(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     mpath, rpath, _m, _r = _make_pair(tmp_path)
     raw = json.loads(rpath.read_text())
-    raw["output"]["sigma_calibrated"] = 0.999  # changes output_commitment, but receipt's stored one is unchanged
+    raw["output"]["sigma_calibrated"] = (
+        0.999  # changes output_commitment, but receipt's stored one is unchanged
+    )
     # Re-serialise canonical-style.
     rpath.write_text(
         json.dumps(raw, separators=(",", ":"), sort_keys=True),
@@ -174,9 +176,7 @@ def test_tampered_input_commitment_exit_8(
     assert "ATTESTATION.INPUT_COMMITMENT_MISMATCH" in err
 
 
-def test_input_recomputation_happy_path(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_input_recomputation_happy_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     mpath, rpath, _m, _r = _make_pair(tmp_path)
     rc = verify_cli.main(
         [

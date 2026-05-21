@@ -1,0 +1,32 @@
+# Sync GitHub issue / PR labels from .github/labels.yml.
+#
+# Runs on every push that touches labels.yml so the live labels in the
+# repository always match the declarative config. The action used
+# (micnncim/action-label-syncer) is small, deterministic, and only
+# requires read access plus the labels write scope.
+name: Labels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/labels.yml"
+      - ".github/workflows/labels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: micnncim/action-label-syncer@v1
+        with:
+          manifest: .github/labels.yml
+          prune: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

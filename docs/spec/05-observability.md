@@ -1,7 +1,7 @@
 # 05 — Observability
 
 - Status: Authoritative for v0.1
-- Companion RFC: [RFC-0013](../../rfcs/0013-observability.md)
+- Companion RFC: [RFC-0013](../rfcs/0013-observability.md)
 
 GenoLeWM's observability surface has three layers — logging, metrics,
 tracing — plus a strict redaction filter that runs over all of them.

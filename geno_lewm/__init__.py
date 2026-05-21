@@ -1,13 +1,202 @@
+# SPDX-License-Identifier: Apache-2.0
 """GenoLeWM — action-conditioned JEPA world model for DNA.
 
-This package is currently in design phase. The reference implementation
-will be added incrementally; see ROADMAP.md.
+GenoLeWM treats genetic edits as first-class actions and learns latent
+transitions on top of a frozen DNA foundation model. The package today
+ships the production infrastructure layer (typed errors, structured
+observability with privacy redaction, content-addressed attestation,
+canonical edit specs, the verify CLI). The training, predictor, and
+deployment surfaces land incrementally — see ``ROADMAP.md`` and the
+``rfcs/`` corpus.
 
-At the spec stage, this module intentionally exposes nothing. Importing
-it succeeds (so that `pip install -e .` works for tooling), but the
-public API is defined only in the SPECIFICATION and the RFCs.
+The public Python surface is enumerated below in ``__all__``. Every
+symbol's stability is governed by ``RFC-0014`` (api stability) and the
+``tests/api/public_surface.json`` snapshot is the binding contract.
 """
 
-__version__ = "0.1.0-draft"
+from __future__ import annotations
 
-__all__: list[str] = []
+# Single source of truth for the package version. Hatch reads this
+# value (see ``[tool.hatch.version]`` in pyproject.toml) so the metadata
+# and the runtime constant cannot drift.
+__version__ = "0.1.0.dev0"
+
+from geno_lewm.action import (
+    DEFAULT_EDGE_MARGIN,
+    V1_MAX_LEN,
+    EditSpec,
+    EditType,
+    RelEdit,
+    apply_edit,
+    apply_edits,
+    indel,
+    mnv,
+    uniform_snv,
+)
+from geno_lewm.api import deprecated, experimental
+from geno_lewm.attestation import (
+    RECEIPT_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    SUPPORTED_ATTESTATION_KINDS,
+    DtypeConfig,
+    Manifest,
+    ManifestArtifact,
+    ManifestEncoder,
+    ManifestTraining,
+    PoolingConfig,
+    Receipt,
+    ReceiptAttestation,
+    ReceiptOutput,
+    ReceiptRuntime,
+    canonical_json_sha256,
+    compute_input_commitment,
+    compute_output_commitment,
+    load_manifest,
+    read_receipt,
+    sha256_bytes,
+    sha256_file,
+    write_manifest,
+    write_receipt,
+)
+from geno_lewm.errors import (
+    ERROR_CODES,
+    AttestationError,
+    AttestationKindUnsupportedError,
+    BackendUnsupportedError,
+    CacheCorruptError,
+    CollapseDetectedError,
+    ConfigError,
+    DataLoaderError,
+    DeployError,
+    DiskFullError,
+    ErrorCodeEntry,
+    EvalDatasetError,
+    EvalError,
+    EvalRegressionError,
+    ExportFormatError,
+    GenoLeWMError,
+    InputCommitmentMismatchError,
+    InputError,
+    InternalError,
+    InvalidEditError,
+    InvariantViolation,
+    ManifestHashMismatchError,
+    MissingConfigError,
+    ModelNotFoundError,
+    NaNLossError,
+    NetworkCallProhibitedError,
+    OutOfMemoryError,
+    OutOfWindowError,
+    OutputCommitmentMismatchError,
+    OverlappingEditsError,
+    QuantizationError,
+    ReceiptSchemaError,
+    ResourceError,
+    RuntimeSetupError,
+    SchemaCompatError,
+    TrainingError,
+    UnreachableError,
+    UnsupportedEditError,
+    VcfParseError,
+    WindowMismatchError,
+    exit_code_for,
+)
+from geno_lewm.observability import (
+    EVENTS,
+    EventSpec,
+    GenoLeWMLogger,
+    LogRecord,
+    Severity,
+    current_trace_context,
+    get_logger,
+    logged_run,
+    set_trace_context,
+)
+
+__all__ = [
+    "DEFAULT_EDGE_MARGIN",
+    "ERROR_CODES",
+    "EVENTS",
+    "RECEIPT_SCHEMA_VERSION",
+    "SCHEMA_VERSION",
+    "SUPPORTED_ATTESTATION_KINDS",
+    "V1_MAX_LEN",
+    "AttestationError",
+    "AttestationKindUnsupportedError",
+    "BackendUnsupportedError",
+    "CacheCorruptError",
+    "CollapseDetectedError",
+    "ConfigError",
+    "DataLoaderError",
+    "DeployError",
+    "DiskFullError",
+    "DtypeConfig",
+    "EditSpec",
+    "EditType",
+    "ErrorCodeEntry",
+    "EvalDatasetError",
+    "EvalError",
+    "EvalRegressionError",
+    "EventSpec",
+    "ExportFormatError",
+    "GenoLeWMError",
+    "GenoLeWMLogger",
+    "InputCommitmentMismatchError",
+    "InputError",
+    "InternalError",
+    "InvalidEditError",
+    "InvariantViolation",
+    "LogRecord",
+    "Manifest",
+    "ManifestArtifact",
+    "ManifestEncoder",
+    "ManifestHashMismatchError",
+    "ManifestTraining",
+    "MissingConfigError",
+    "ModelNotFoundError",
+    "NaNLossError",
+    "NetworkCallProhibitedError",
+    "OutOfMemoryError",
+    "OutOfWindowError",
+    "OutputCommitmentMismatchError",
+    "OverlappingEditsError",
+    "PoolingConfig",
+    "QuantizationError",
+    "Receipt",
+    "ReceiptAttestation",
+    "ReceiptOutput",
+    "ReceiptRuntime",
+    "ReceiptSchemaError",
+    "RelEdit",
+    "ResourceError",
+    "RuntimeSetupError",
+    "SchemaCompatError",
+    "Severity",
+    "TrainingError",
+    "UnreachableError",
+    "UnsupportedEditError",
+    "VcfParseError",
+    "WindowMismatchError",
+    "__version__",
+    "apply_edit",
+    "apply_edits",
+    "canonical_json_sha256",
+    "compute_input_commitment",
+    "compute_output_commitment",
+    "current_trace_context",
+    "deprecated",
+    "exit_code_for",
+    "experimental",
+    "get_logger",
+    "indel",
+    "load_manifest",
+    "logged_run",
+    "mnv",
+    "read_receipt",
+    "set_trace_context",
+    "sha256_bytes",
+    "sha256_file",
+    "uniform_snv",
+    "write_manifest",
+    "write_receipt",
+]

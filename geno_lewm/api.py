@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Public-API lifetime decorators (RFC-0014 §3.3, §3.6).
 
 Two decorators mark stability on the public surface:
@@ -25,7 +26,7 @@ import warnings
 from collections.abc import Callable
 from typing import Any, TypeVar, cast, overload
 
-__all__ = ["experimental", "deprecated"]
+__all__ = ["deprecated", "experimental"]
 
 F = TypeVar("F", bound=Callable[..., Any])
 T = TypeVar("T")
@@ -100,11 +101,11 @@ def experimental(obj: Any = None, *, reason: str = "") -> Any:
             sentinel = id(target)
 
             @functools.wraps(original_init)
-            def __init__(self: Any, *args: Any, **kwargs: Any) -> None:
+            def __init__(self: Any, *args: Any, **kwargs: Any) -> None:  # noqa: N807
                 _emit_once(sentinel, FutureWarning, msg, stacklevel=2)
                 original_init(self, *args, **kwargs)
 
-            target.__init__ = __init__
+            setattr(target, "__init__", __init__)  # noqa: B010
             target.__geno_lewm_experimental__ = True
             return target
 
@@ -144,7 +145,7 @@ def deprecated(reason: str = "") -> Callable[[F], F]:
     actionable string ("use X instead").
     """
     if not isinstance(reason, str):
-        from geno_lewm.errors import InputError
+        from geno_lewm.errors import InputError  # type: ignore[unreachable]
 
         raise InputError(
             "deprecated(reason) must be str",
@@ -158,10 +159,10 @@ def deprecated(reason: str = "") -> Callable[[F], F]:
 
         is_class = inspect.isclass(target)
         if is_class:
-            original_init = target.__init__  # type: ignore[misc]
+            original_init: Callable[..., None] = target.__init__
 
             @functools.wraps(original_init)
-            def __init__(self: Any, *args: Any, **kwargs: Any) -> None:
+            def __init__(self: Any, *args: Any, **kwargs: Any) -> None:  # noqa: N807
                 file, line = _caller_site(depth=2)
                 _emit_once(
                     (id(target), file, line),
@@ -171,7 +172,7 @@ def deprecated(reason: str = "") -> Callable[[F], F]:
                 )
                 original_init(self, *args, **kwargs)
 
-            target.__init__ = __init__  # type: ignore[misc]
+            setattr(target, "__init__", __init__)  # noqa: B010
             target.__geno_lewm_deprecated__ = True  # type: ignore[attr-defined]
             return target
 

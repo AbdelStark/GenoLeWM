@@ -1,9 +1,9 @@
 # 06 — Security
 
 - Status: Authoritative for v0.1
-- Companion RFCs: [RFC-0010](../../rfcs/0010-on-device-personal-genome-deployment.md),
-  [RFC-0011](../../rfcs/0011-verifiable-inference-attestation.md),
-  [RFC-0014](../../rfcs/0014-public-api-and-stability.md)
+- Companion RFCs: [RFC-0010](../rfcs/0010-on-device-personal-genome-deployment.md),
+  [RFC-0011](../rfcs/0011-verifiable-inference-attestation.md),
+  [RFC-0014](../rfcs/0014-public-api-and-stability.md)
 
 GenoLeWM operates over the most sensitive consumer data category there
 is: personal genome data. The security model is therefore conservative,
@@ -83,7 +83,7 @@ loader verifies its hash on startup.
   `NetworkCallProhibitedError` if any call is attempted outside the
   documented allowlist.
 - The desktop app has no cloud sync, no accounts, no telemetry. See
-  [RFC-0010 §3.7](../../rfcs/0010-on-device-personal-genome-deployment.md#37-privacy-contract).
+  [RFC-0010 §3.7](../rfcs/0010-on-device-personal-genome-deployment.md#37-privacy-contract).
 
 ### 2. Content-addressed weights
 
@@ -121,7 +121,7 @@ loader verifies its hash on startup.
 - GitHub releases are signed via Sigstore / GitHub provenance attestations.
 - macOS binaries are notarized; Linux binaries are signed with the
   project's GPG key.
-- The signing key fingerprints are published in [`SECURITY.md`](../../SECURITY.md)
+- The signing key fingerprints are published in [`SECURITY.md`](../security.md)
   at the repo root.
 
 ### 7. Dependency hygiene
@@ -162,7 +162,7 @@ audited toolchain.
 ## Disclosure policy
 
 - Security issues are reported privately via GitHub Security Advisories
-  or `security@<project domain>` (see [`SECURITY.md`](../../SECURITY.md)).
+  or `security@<project domain>` (see [`SECURITY.md`](../security.md)).
 - Acknowledgement target: 72 hours.
 - Triaged-fix target: 30 days for high; 90 days for medium.
 - Coordinated disclosure with an embargo window of up to 90 days.

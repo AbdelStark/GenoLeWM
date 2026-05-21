@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Resolve the public surface of ``geno_lewm`` and serialize it.
 
 Defined by RFC-0014 §3.7. The output is a deterministic JSON document
@@ -11,12 +12,16 @@ against a freshly-computed one:
   explicitly updated.
 - Changed signature → MAJOR required. CI **fails**.
 
-"Public" means anything in ``geno_lewm.__all__`` (at any depth)
-excluding submodules whose name starts with ``_``.
+"Public" means anything reachable from ``geno_lewm`` (or any
+non-underscore submodule). Signatures are normalized so they are
+stable across Python releases — enums in particular surface as
+``enum(<MEMBER>=<value>, ...)`` instead of the synthesized
+``__init__`` signature that varies between 3.10 / 3.11 / 3.12 / 3.13.
 """
 
 from __future__ import annotations
 
+import enum
 import importlib
 import inspect
 import json
@@ -43,13 +48,33 @@ def _iter_public_modules() -> Iterable[str]:
         yield info.name
 
 
+def _enum_signature(obj: type[enum.Enum]) -> str:
+    """Return a Python-version-stable signature for an ``enum.Enum`` subclass.
+
+    Inspect's signature for an ``IntEnum`` reflects ``__init__`` of the
+    underlying machinery, which changes shape between Python releases
+    (``(*values)`` in 3.10, ``(value, names=None, ...)`` in 3.11+,
+    ``(value, names=None, ..., boundary=None)`` in 3.12+, etc.). The
+    members themselves are what users depend on; pin those.
+    """
+    # ``obj`` is the enum class; ``obj.__mro__`` is (Class, BaseEnum, ..., object).
+    mro = obj.__mro__
+    base = mro[1].__name__ if len(mro) > 1 else "Enum"  # e.g. "IntEnum"
+    members = ", ".join(f"{m.name}={m.value!r}" for m in obj)
+    return f"enum[{base}]({members})"
+
+
 def _signature_for(obj: Any) -> str:
     """Return a stable string signature for ``obj``.
 
     For callables we use :func:`inspect.signature`; for classes we
-    include the ``__init__`` signature. Anything else is recorded as
-    its type name.
+    include the ``__init__`` signature. Enums get a hand-rolled,
+    version-stable rendering. Anything else is recorded as its type
+    name.
     """
+    if inspect.isclass(obj) and issubclass(obj, enum.Enum):
+        return _enum_signature(obj)
+
     try:
         if inspect.isclass(obj):
             try:
@@ -107,7 +132,8 @@ def write_snapshot(path: Path = SNAPSHOT_PATH) -> Path:
 
 
 def load_snapshot(path: Path = SNAPSHOT_PATH) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return data
 
 
 def diff_snapshots(
@@ -121,9 +147,7 @@ def diff_snapshots(
     n = current.get("symbols", {})
     added = sorted(set(n) - set(c))
     removed = sorted(set(c) - set(n))
-    changed = sorted(
-        (sym, c[sym], n[sym]) for sym in set(c) & set(n) if c[sym] != n[sym]
-    )
+    changed = sorted((sym, c[sym], n[sym]) for sym in set(c) & set(n) if c[sym] != n[sym])
     return added, removed, changed
 
 
@@ -132,7 +156,8 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="Manage the GenoLeWM public-API snapshot.")
     parser.add_argument(
-        "command", choices=["write", "show", "check"],
+        "command",
+        choices=["write", "show", "check"],
         help="write: regenerate the snapshot file; "
         "show: print the current snapshot to stdout; "
         "check: diff committed vs current and exit non-zero on removal/change.",
