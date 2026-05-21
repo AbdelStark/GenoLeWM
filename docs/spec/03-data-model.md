@@ -1,11 +1,11 @@
 # 03 — Data model
 
 - Status: Authoritative for v0.1
-- Companion RFCs: [RFC-0002](../../rfcs/0002-state-encoder-carbon-integration.md),
-  [RFC-0003](../../rfcs/0003-action-representation-genomic-edits.md),
-  [RFC-0006](../../rfcs/0006-data-pipeline.md),
-  [RFC-0009](../../rfcs/0009-surprise-based-pathogenicity-scoring.md),
-  [RFC-0011](../../rfcs/0011-verifiable-inference-attestation.md)
+- Companion RFCs: [RFC-0002](../rfcs/0002-state-encoder-carbon-integration.md),
+  [RFC-0003](../rfcs/0003-action-representation-genomic-edits.md),
+  [RFC-0006](../rfcs/0006-data-pipeline.md),
+  [RFC-0009](../rfcs/0009-surprise-based-pathogenicity-scoring.md),
+  [RFC-0011](../rfcs/0011-verifiable-inference-attestation.md)
 
 Every persistent type, schema, and on-disk format that crosses a process
 boundary is specified here. Schema versions are part of every artifact;
@@ -180,7 +180,7 @@ VUS is included for completeness but excluded from eval label sets.
 
 - **Path inside the checkpoint:** `calibration.parquet`
 - **Built by:** `geno-lewm-cache-windows --build-calibration`
-- **Schema** ([RFC-0009 §3.4](../../rfcs/0009-surprise-based-pathogenicity-scoring.md#34-calibration-distribution)):
+- **Schema** ([RFC-0009 §3.4](../rfcs/0009-surprise-based-pathogenicity-scoring.md#34-calibration-distribution)):
 
 | column          | type           | description |
 |-----------------|----------------|-------------|
@@ -208,7 +208,7 @@ geno-lewm-v0.1.0-carbon-500m-r1/
 ```
 
 The `manifest.json` schema is normative and frozen at v0.1; see
-[RFC-0011 §3.7](../../rfcs/0011-verifiable-inference-attestation.md#37-manifest-schema).
+[RFC-0011 §3.7](../rfcs/0011-verifiable-inference-attestation.md#37-manifest-schema).
 
 All weight files use `safetensors`. Canonical serialization for hashing
 sorts the state dict by key (UTF-8 lexicographic) before encoding.
@@ -221,7 +221,7 @@ sorts the state dict by key (UTF-8 lexicographic) before encoding.
 
 Canonical JSON: keys sorted lexicographically, no whitespace, UTF-8.
 Schema is normative at version `1.0.0`; see
-[RFC-0011 §3.3](../../rfcs/0011-verifiable-inference-attestation.md#33-output-receipt).
+[RFC-0011 §3.3](../rfcs/0011-verifiable-inference-attestation.md#33-output-receipt).
 
 ## Wire formats
 

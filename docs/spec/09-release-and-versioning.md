@@ -1,8 +1,8 @@
 # 09 — Release and versioning
 
 - Status: Authoritative for v0.1
-- Companion RFC: [RFC-0017](../../rfcs/0017-configuration-system.md),
-  [RFC-0014](../../rfcs/0014-public-api-and-stability.md)
+- Companion RFC: [RFC-0017](../rfcs/0017-configuration-system.md),
+  [RFC-0014](../rfcs/0014-public-api-and-stability.md)
 
 Versioning is a contract with users. A score reproduced from
 `geno-lewm-v0.1.0-carbon-500m-r1` six months from now must agree with
@@ -79,7 +79,7 @@ Rules:
 - A new revision invalidates downstream caches keyed on `encoder_hash`.
 
 The full identifier is paired with a `model_id` (SHA-256 of the manifest;
-see [RFC-0011 §3.7](../../rfcs/0011-verifiable-inference-attestation.md#37-manifest-schema))
+see [RFC-0011 §3.7](../rfcs/0011-verifiable-inference-attestation.md#37-manifest-schema))
 that is the cryptographic source of truth.
 
 ## Schema versioning
@@ -132,7 +132,7 @@ MAJOR boundary**.
   paired with a migration guide.
 
 No automatic background updates; user-initiated via `geno-lewm-update`
-(see [RFC-0010 §3.8](../../rfcs/0010-on-device-personal-genome-deployment.md#38-update-mechanism)).
+(see [RFC-0010 §3.8](../rfcs/0010-on-device-personal-genome-deployment.md#38-update-mechanism)).
 
 ## Release process
 

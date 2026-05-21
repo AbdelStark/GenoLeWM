@@ -51,3 +51,6 @@ runs/
 
 # OS-generated thumbnails
 Thumbs.db
+
+# MkDocs build artifact
+/site/

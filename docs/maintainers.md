@@ -16,9 +16,9 @@ a new maintainer require sign-off from at least one existing maintainer.
 - **Project lead.** Final say on RFC acceptance, release approval, and
   scope disputes. Stewards the overall direction.
 - **Subsystem maintainer.** Owns one of the subsystems listed in
-  [`rfcs/README.md`](../rfcs/README.md); reviews PRs in that area.
+  [`rfcs/README.md`](rfcs/README.md); reviews PRs in that area.
 - **Security contact.** Receives reports via GitHub Security Advisories
-  or the address in [`SECURITY.md`](../SECURITY.md).
+  or the address in [`SECURITY.md`](security.md).
 
 ## How to become a maintainer
 

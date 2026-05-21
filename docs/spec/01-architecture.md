@@ -1,13 +1,13 @@
 # 01 — Architecture
 
 - Status: Authoritative for v0.1
-- Companion RFCs: [RFC-0002](../../rfcs/0002-state-encoder-carbon-integration.md),
-  [RFC-0003](../../rfcs/0003-action-representation-genomic-edits.md),
-  [RFC-0004](../../rfcs/0004-predictor-architecture.md),
-  [RFC-0008](../../rfcs/0008-latent-planning.md),
-  [RFC-0009](../../rfcs/0009-surprise-based-pathogenicity-scoring.md),
-  [RFC-0010](../../rfcs/0010-on-device-personal-genome-deployment.md)
-- Narrative companion: [`ARCHITECTURE.md`](../../ARCHITECTURE.md)
+- Companion RFCs: [RFC-0002](../rfcs/0002-state-encoder-carbon-integration.md),
+  [RFC-0003](../rfcs/0003-action-representation-genomic-edits.md),
+  [RFC-0004](../rfcs/0004-predictor-architecture.md),
+  [RFC-0008](../rfcs/0008-latent-planning.md),
+  [RFC-0009](../rfcs/0009-surprise-based-pathogenicity-scoring.md),
+  [RFC-0010](../rfcs/0010-on-device-personal-genome-deployment.md)
+- Narrative companion: [`ARCHITECTURE.md`](https://github.com/AbdelStark/GenoLeWM/blob/main/ARCHITECTURE.md)
 
 ## Module boundaries
 

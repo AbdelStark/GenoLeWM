@@ -1,0 +1,28 @@
+# Normalize line endings across platforms.
+* text=auto eol=lf
+
+# Vendored / generated content: do not gate on diff noise.
+tests/api/public_surface.json linguist-generated=true
+docs/_build/** linguist-generated=true
+site/** linguist-generated=true
+
+# Binary / large blobs.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.safetensors binary
+*.onnx binary
+*.bin binary
+*.gguf binary
+*.parquet binary
+*.feather binary
+
+# Documentation is the bulk of this repo today — let GitHub's
+# linguist render it accurately rather than letting code files
+# dominate the language stats.
+*.md linguist-detectable=true
+docs/** linguist-documentation=true
+rfcs/** linguist-documentation=true

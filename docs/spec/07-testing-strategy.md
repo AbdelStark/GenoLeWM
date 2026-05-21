@@ -1,7 +1,7 @@
 # 07 — Testing strategy
 
 - Status: Authoritative for v0.1
-- Companion RFC: [RFC-0015](../../rfcs/0015-testing-strategy.md)
+- Companion RFC: [RFC-0015](../rfcs/0015-testing-strategy.md)
 
 GenoLeWM uses a five-layer test pyramid that covers correctness,
 property invariants, ML-specific failure modes, integration paths, and

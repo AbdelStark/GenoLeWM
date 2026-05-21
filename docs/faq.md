@@ -14,7 +14,7 @@ If you have a question that should be here, open a PR adding it.
 A discriminative scorer requires labels (which are scarce and biased),
 does not support multi-edit rollout, and does not give a surprise
 signal. A JEPA gets all of those out of the box. The details are in
-[RFC-0001 §4.1](../rfcs/0001-project-scope-and-goals.md).
+[RFC-0001 §4.1](rfcs/0001-project-scope-and-goals.md).
 
 ### Why action-conditioned JEPA instead of a masked-prediction JEPA?
 
@@ -23,7 +23,7 @@ representation-learning models that do masked prediction. They produce
 embeddings but cannot reason about interventions. The whole point of
 the action-conditioned formulation is to make edits a first-class
 input the model is conditioned on, which is what unlocks rollout,
-planning, and surprise scoring. See [RFC-0001 §4.2](../rfcs/0001-project-scope-and-goals.md).
+planning, and surprise scoring. See [RFC-0001 §4.2](rfcs/0001-project-scope-and-goals.md).
 
 ### Why is the encoder frozen?
 
@@ -31,8 +31,8 @@ Compute and stability. With a frozen Carbon-500M, GenoLeWM trains on
 a single H100 in hours, and representation collapse is mechanically
 impossible (the targets are fixed by a frozen encoder). Phase 2
 optionally enables LoRA, at which point the LeJEPA regularizer becomes
-a live training term. See [RFC-0002 §4.2](../rfcs/0002-state-encoder-carbon-integration.md)
-and [RFC-0005 §3.3](../rfcs/0005-training-objective.md).
+a live training term. See [RFC-0002 §4.2](rfcs/0002-state-encoder-carbon-integration.md)
+and [RFC-0005 §3.3](rfcs/0005-training-objective.md).
 
 ### What's the trainable parameter count?
 
@@ -62,7 +62,7 @@ complements rather than replaces it.
 
 No trusted setup, post-quantum, arithmetic-circuit shape matches
 Transformer inference. The full argument is in
-[RFC-0011 §4.2](../rfcs/0011-verifiable-inference-attestation.md).
+[RFC-0011 §4.2](rfcs/0011-verifiable-inference-attestation.md).
 
 ### Can I swap Carbon for another DNA encoder?
 
@@ -88,12 +88,12 @@ The same suite Carbon uses: ClinVar coding, ClinVar non-coding, BRCA2
 (Findlay et al. saturation editing), TraitGym Mendelian. We report on
 the same metrics (AUROC, AUPRC, Spearman ρ where applicable). Direct
 side-by-side with Carbon is the point. See
-[RFC-0007](../rfcs/0007-evaluation-suite.md).
+[RFC-0007](rfcs/0007-evaluation-suite.md).
 
 ### How does it handle structural variants?
 
 It doesn't, in v1. Edits are capped at 16 bp for both ref and alt. A
-separate SV adapter is planned for v2 ([RFC-0003 §3.5](../rfcs/0003-action-representation-genomic-edits.md)).
+separate SV adapter is planned for v2 ([RFC-0003 §3.5](rfcs/0003-action-representation-genomic-edits.md)).
 This covers > 95% of clinically relevant short variants.
 
 ### What populations is the calibration valid for?
@@ -108,7 +108,7 @@ workstream; documented as an explicit limitation in the meantime.
 
 Yes. `geno-lewm-score --vcf my.vcf.gz --output scores.parquet`. With
 Carbon-500M on an M3 Max, expect ~30 minutes for 100k variants. See
-[RFC-0010 §3.5](../rfcs/0010-on-device-personal-genome-deployment.md).
+[RFC-0010 §3.5](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### How does the surprise score compare to CADD / AlphaMissense / Carbon-likelihood?
 
@@ -132,7 +132,7 @@ ClinVar coding so non-coding performance is visible.
 To make the state vector edit-local. A globally-pooled state would
 dilute the edit's effect across 12,288 bp; the centered mean
 concentrates the state around the ~3 kbp where edits actually act.
-See [RFC-0002 §3.4](../rfcs/0002-state-encoder-carbon-integration.md).
+See [RFC-0002 §3.4](rfcs/0002-state-encoder-carbon-integration.md).
 
 ### Is GenoLeWM applicable to non-human genomes?
 
@@ -150,7 +150,7 @@ extended to mouse, fly, yeast benchmarks (planned for v2).
 No. The inference runs entirely on your device. The runtime fails
 closed on network calls: if any inference path attempts to phone home,
 it raises an error rather than silently degrading to online mode. See
-[RFC-0010 §3.7](../rfcs/0010-on-device-personal-genome-deployment.md).
+[RFC-0010 §3.7](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Does Anthropic / Hugging Face / anyone see what I score?
 
@@ -164,7 +164,7 @@ user-initiated updates.
 Yes. The primary on-device target is Apple Silicon (M3 Max or better
 recommended). With int4 quantization of Carbon-500M and int8 of the
 predictor, the model fits in ~600 MB of memory and scores single
-variants in < 200 ms. See [RFC-0010 §3.5](../rfcs/0010-on-device-personal-genome-deployment.md).
+variants in < 200 ms. See [RFC-0010 §3.5](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Can I run it on Windows / Linux?
 
@@ -176,7 +176,7 @@ CPU-only is supported as an accessibility fallback (slower).
 By design, you can roll back. Updates are explicit; previous model
 versions are preserved as side-by-side installs. Published results
 referencing `geno-lewm-v0.1.0-carbon-500m-r1` will keep producing the
-same scores months later. See [RFC-0010 §3.8](../rfcs/0010-on-device-personal-genome-deployment.md).
+same scores months later. See [RFC-0010 §3.8](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Can I prove to someone that my score came from the real model?
 
@@ -184,7 +184,7 @@ In v1: yes, via a checksum-only receipt. Anyone with the same model
 weights and the same input can re-run the inference and verify a
 bit-match (on supported backends). In Phase 4, the receipt will
 include a STARK proof that no re-run is needed for verification.
-See [RFC-0011](../rfcs/0011-verifiable-inference-attestation.md).
+See [RFC-0011](rfcs/0011-verifiable-inference-attestation.md).
 
 ### Will there be an iOS app?
 
@@ -201,7 +201,7 @@ GenoLeWM the project will remain on-device-first.
 
 The runtime accepts those formats directly and converts them locally to
 VCF for scoring. Conversion never leaves your machine. See
-[RFC-0010 §3.9](../rfcs/0010-on-device-personal-genome-deployment.md).
+[RFC-0010 §3.9](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Should I act on a high surprise score?
 
@@ -242,4 +242,4 @@ project matures, we will adopt a more formal governance model
 
 ### What's the license?
 
-Apache 2.0. See [LICENSE](../LICENSE).
+Apache 2.0. See [LICENSE](https://github.com/AbdelStark/GenoLeWM/blob/main/LICENSE).

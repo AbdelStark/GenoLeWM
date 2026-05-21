@@ -1,0 +1,44 @@
+# Static security analysis via GitHub CodeQL.
+#
+# Runs on every push to main, every PR touching code, and on a weekly
+# schedule so the database stays current with rule updates.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "geno_lewm/**"
+      - "tools/**"
+      - ".github/workflows/codeql.yml"
+  schedule:
+    - cron: "23 7 * * 1"  # Monday 07:23 UTC
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  analyze:
+    name: Analyze Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-extended
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

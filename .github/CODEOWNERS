@@ -1,0 +1,27 @@
+# CODEOWNERS — auto-assigns reviewers on PRs.
+# Order matters: later patterns override earlier ones.
+#
+# When you add a maintainer, add them in docs/maintainers.md too.
+
+# Default owner: project lead.
+*                              @AbdelStark
+
+# Specifications and RFCs need lead review.
+/SPEC.md                       @AbdelStark
+/SPECIFICATION.md              @AbdelStark
+/ARCHITECTURE.md               @AbdelStark
+/ROADMAP.md                    @AbdelStark
+/docs/spec/                    @AbdelStark
+/rfcs/                         @AbdelStark
+
+# Privacy / security posture.
+/PRIVACY.md                    @AbdelStark
+/SECURITY.md                   @AbdelStark
+/docs/spec/06-security.md      @AbdelStark
+/geno_lewm/_redaction.py       @AbdelStark
+/geno_lewm/attestation/        @AbdelStark
+
+# Build, release, and CI.
+/pyproject.toml                @AbdelStark
+/.github/                      @AbdelStark
+/.pre-commit-config.yaml       @AbdelStark

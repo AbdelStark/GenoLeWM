@@ -1,7 +1,7 @@
 # 02 — Public API
 
 - Status: Authoritative for v0.1
-- Companion RFC: [RFC-0014](../../rfcs/0014-public-api-and-stability.md)
+- Companion RFC: [RFC-0014](../rfcs/0014-public-api-and-stability.md)
 - Versioning policy: [`09-release-and-versioning.md`](09-release-and-versioning.md)
 
 The "public API" is the contract on which downstream code may depend.
@@ -53,7 +53,7 @@ class CarbonStateEncoder:
     def d_state(self) -> int: ...
 ```
 
-Defined by [RFC-0002 §3.8](../../rfcs/0002-state-encoder-carbon-integration.md#38-encoder-api).
+Defined by [RFC-0002 §3.8](../rfcs/0002-state-encoder-carbon-integration.md#38-encoder-api).
 
 ### `geno_lewm.action`
 
@@ -99,7 +99,7 @@ def apply_edit(window: str, edit: RelEdit) -> str: ...
 def apply_edits(window: str, edits: list[RelEdit]) -> str: ...
 ```
 
-Defined by [RFC-0003 §3](../../rfcs/0003-action-representation-genomic-edits.md#3-specification).
+Defined by [RFC-0003 §3](../rfcs/0003-action-representation-genomic-edits.md#3-specification).
 
 ### `geno_lewm.predictor`
 
@@ -119,7 +119,7 @@ class ARPredictor(nn.Module):
                 action_sequence: list[Tensor]) -> list[Tensor]: ...
 ```
 
-Defined by [RFC-0004 §3](../../rfcs/0004-predictor-architecture.md#3-specification).
+Defined by [RFC-0004 §3](../rfcs/0004-predictor-architecture.md#3-specification).
 
 ### `geno_lewm.surprise`
 
@@ -148,7 +148,7 @@ def score_vcf(vcf_path: Path,
               show_progress: bool = True) -> None: ...
 ```
 
-Defined by [RFC-0009 §3.10](../../rfcs/0009-surprise-based-pathogenicity-scoring.md#310-scorer-api).
+Defined by [RFC-0009 §3.10](../rfcs/0009-surprise-based-pathogenicity-scoring.md#310-scorer-api).
 
 ### `geno_lewm.planning`
 
@@ -183,7 +183,7 @@ def plan(initial_state: Tensor,
          config: PlanningConfig | None = None) -> PlanningResult: ...
 ```
 
-Defined by [RFC-0008 §3.8](../../rfcs/0008-latent-planning.md#38-planning-api).
+Defined by [RFC-0008 §3.8](../rfcs/0008-latent-planning.md#38-planning-api).
 
 ### `geno_lewm.deploy`
 
@@ -202,7 +202,7 @@ class GenoLeWMRuntime:
     def predict(self, state: Tensor, edits: list[RelEdit]) -> Tensor: ...
 ```
 
-Defined by [RFC-0010 §3.4](../../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract).
+Defined by [RFC-0010 §3.4](../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract).
 
 ### `geno_lewm.attestation`
 
@@ -226,7 +226,7 @@ def verify_receipt(receipt: Receipt,
                    rerun: bool = False) -> VerificationResult: ...
 ```
 
-Defined by [RFC-0011 §3.3, §3.4](../../rfcs/0011-verifiable-inference-attestation.md).
+Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-verifiable-inference-attestation.md).
 
 ## Stable CLI surface (v0.1)
 
@@ -249,7 +249,7 @@ All commands accept `--config FILE` (Hydra-compatible), `--seed INT`,
 `--log-level {debug,info,warn,error}`, and `--receipt PATH | --no-receipt`
 where receipts are applicable.
 
-Defined by [RFC-0018](../../rfcs/0018-cli-design.md).
+Defined by [RFC-0018](../rfcs/0018-cli-design.md).
 
 ## Runtime backends
 
@@ -258,7 +258,7 @@ backend ∈ {"auto", "coreml", "cuda", "onnx", "cpu"}
 ```
 
 `auto` selects the best available in the order documented in
-[RFC-0010 §3.4](../../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract).
+[RFC-0010 §3.4](../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract).
 
 ## Type-stub contract
 
@@ -304,7 +304,7 @@ convenient that might be:
 - The contents of `geno_lewm.config.defaults.*` (Hydra defaults are
   internal to the CLI; user configs override them).
 - The Hydra YAML schema is internal except as documented in
-  [RFC-0017](../../rfcs/0017-configuration-system.md).
+  [RFC-0017](../rfcs/0017-configuration-system.md).
 - Test fixtures under `tests/fixtures/`.
 
 ## Open questions

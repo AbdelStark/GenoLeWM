@@ -182,7 +182,7 @@ skeleton.
 pass. The North Star.
 
 **RFC.** Request for Comments. A numbered design document under
-[`rfcs/`](../../rfcs/). The source of truth for individual design
+[`rfcs/`](../rfcs/). The source of truth for individual design
 decisions.
 
 **Tracking issue.** A GitHub issue tagged `type:tracking` that lists

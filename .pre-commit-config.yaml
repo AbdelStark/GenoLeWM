@@ -1,0 +1,84 @@
+# Pre-commit hooks for GenoLeWM.
+#
+# Install:  pre-commit install
+# Run:      pre-commit run --all-files
+#
+# Mirrors the CI gates: every check that fails locally also fails CI,
+# and vice-versa. Keep the local pass under ~3 seconds.
+
+minimum_pre_commit_version: "3.7.0"
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-merge-conflict
+      - id: check-json
+      - id: check-yaml
+      - id: check-toml
+      - id: check-symlinks
+      - id: end-of-file-fixer
+        exclude: ^tests/api/public_surface\.json$
+      - id: trailing-whitespace
+        args: ["--markdown-linebreak-ext=md"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        additional_dependencies: []
+        args: ["--config-file=pyproject.toml"]
+        files: ^(geno_lewm|tools)/
+
+  - repo: local
+    hooks:
+      - id: check-error-codes
+        name: check_error_codes (RFC-0012)
+        entry: python -m tools.lint.check_error_codes
+        language: system
+        pass_filenames: false
+        files: ^(geno_lewm|tools)/.*\.py$
+
+      - id: check-event-names
+        name: check_event_names (RFC-0013)
+        entry: python -m tools.lint.check_event_names
+        language: system
+        pass_filenames: false
+        files: ^(geno_lewm|tools)/.*\.py$
+
+      - id: check-no-print
+        name: check_no_print (RFC-0015)
+        entry: python -m tools.lint.check_no_print
+        language: system
+        pass_filenames: false
+        files: ^geno_lewm/.*\.py$
+
+      - id: check-network-confined
+        name: check_network_confined (RFC-0010)
+        entry: python -m tools.lint.check_network_confined
+        language: system
+        pass_filenames: false
+        files: ^geno_lewm/.*\.py$
+
+      - id: check-public-surface
+        name: public-API snapshot drift (RFC-0014)
+        entry: python -m tools.api.snapshot check
+        language: system
+        pass_filenames: false
+        files: ^(geno_lewm/|tools/api/snapshot\.py$|tests/api/public_surface\.json$)
