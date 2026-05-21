@@ -12,63 +12,124 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
-- Top-level [`SPEC.md`](SPEC.md) as the canonical entry point into the
-  specification corpus.
-- Eleven-section spec corpus at [`docs/spec/`](docs/spec/) covering
-  overview, architecture, public API, data model, error model,
-  observability, security, testing strategy, performance budget, release
-  and versioning, and glossary.
-- Cross-cutting RFCs 0012–0019 covering error taxonomy, observability,
-  public API stability, testing strategy, performance budget,
-  configuration system, CLI design, and the reference desktop app.
-- Open-source process documents: [`SECURITY.md`](SECURITY.md),
-  [`PRIVACY.md`](PRIVACY.md), [`CONTRIBUTING.md`](CONTRIBUTING.md),
-  [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), and `CHANGELOG.md` (this
-  file).
-- Implementation tracker at
-  [`docs/roadmap/IMPLEMENTATION.md`](docs/roadmap/IMPLEMENTATION.md).
-- `docs/rfcs/` symlink to `rfcs/` so both canonical paths resolve.
+- **Distribution & packaging.**
+  - PEP 440-compliant version (`0.1.0.dev0`) sourced dynamically by
+    Hatch from `geno_lewm/__init__.py` so package metadata and the
+    runtime `__version__` cannot drift.
+  - `py.typed` marker so downstream type checkers honour the
+    package's mypy-strict signatures.
+  - Curated top-level `geno_lewm.__all__` re-exporting the
+    implemented surface (errors, observability, attestation, action
+    specs, decorators).
+  - `tools/__init__.py` so `python -m tools.*` runs as documented.
+  - Optional dependency groups split into `train` / `eval` / `deploy` /
+    `dev` / `docs` / `all`.
+
+- **Modern quality tooling.**
+  - Ruff lint+format with the full B, C4, UP, N, RUF, SIM, PIE, PTH,
+    PL, PERF, FURB, LOG, ASYNC rule set; zero remaining findings.
+  - Mypy `--strict` clean across `geno_lewm/` and `tools/` (25 source
+    files, 0 errors).
+  - `[tool.pytest.ini_options]` with strict markers / strict config /
+    `filterwarnings = ["error"]`.
+  - Branch coverage at a 95 % gate.
+  - Pre-commit configuration mirroring every CI gate
+    (`.pre-commit-config.yaml`).
+  - `.editorconfig` and `.gitattributes` for cross-editor / cross-OS
+    consistency.
+
+- **CI/CD pipeline.**
+  - `.github/workflows/ci.yml` — matrix tests on Python 3.10 / 3.11 /
+    3.12 / 3.13 across Linux / macOS / Windows, ruff lint+format,
+    mypy --strict, the five contract gates (errors / events / surface
+    / no-print / network), `mkdocs --strict` build, sdist+wheel build
+    with import-sanity smoke test, codecov upload, single
+    required-check fan-in.
+  - `.github/workflows/release.yml` — tag-driven PyPI publish via OIDC
+    Trusted Publishing, TestPyPI dry-run on manual dispatch, GitHub
+    release with extracted changelog notes.
+  - `.github/workflows/codeql.yml` — weekly + per-PR static analysis
+    (security-extended queries).
+  - `.github/workflows/docs.yml` — GitHub Pages deploy.
+
+- **Documentation site (mkdocs-material).**
+  - `https://abdelstark.github.io/GenoLeWM/` with material theme,
+    mkdocstrings, dark/light palette, search, and code annotations.
+  - Auto-generated API reference, error-code table, log-event table.
+  - RFC corpus rendered into the docs tree at build time with
+    rewritten cross-links.
+  - `docs/quickstart.md` walking through every shipped module.
+
+- **Open-source hygiene.**
+  - `.github/CODEOWNERS` mapping spec / RFC / privacy / security paths
+    to project lead review.
+  - `.github/dependabot.yml` for weekly minor/patch updates + security
+    advisories on pip and GitHub Actions.
+  - `.github/FUNDING.yml`.
+  - README badges (CI, CodeQL, docs, PyPI, Python, license, mypy
+    strict, ruff, pre-commit).
 
 ### Changed
 
-- [`SPECIFICATION.md`](SPECIFICATION.md) header now points readers to
-  [`SPEC.md`](SPEC.md) and the per-section corpus as the authoritative
-  entry points; the file remains as the synthesized canonical view.
-- RFC index ([`rfcs/README.md`](rfcs/README.md)) updated with the eight
-  new cross-cutting RFCs and a subsystem column.
-
-### Security
-
-- Network fail-closed contract documented in
-  [`docs/spec/06-security.md`](docs/spec/06-security.md) and enforced by
-  CI AST checks specified in [RFC-0015](rfcs/0015-testing-strategy.md).
-- Redaction-by-default observability filter specified in
-  [RFC-0013](rfcs/0013-observability.md); `GENO_LEWM_REDACTION_STRICT=1`
-  is the documented default.
-
-### Deprecated
-
-_None._
+- `tools/api/snapshot.py` now emits a Python-version-stable signature
+  for enums (`enum[IntEnum](SNV=0, INS=1, …)` instead of the
+  synthesized `__init__` signature that drifted between 3.10, 3.11,
+  3.12, 3.13). The committed snapshot at
+  `tests/api/public_surface.json` was regenerated.
+- `geno_lewm.observability.logged_run` drops two unused locals and
+  uses `contextlib.suppress` for the on-crash flush path.
+- `geno_lewm.metrics.Histogram.snapshot` returns a typed
+  `HistogramSnapshot` `TypedDict` rather than `dict[str, object]`.
+- `geno_lewm.cli.verify.verify` accepts `stream: IO[str] | None`
+  (was untyped `object | None`).
 
 ### Removed
 
-_None._
+- Legacy `.github/workflows/lint-errors.yml` (subsumed by the new
+  multi-job `ci.yml`).
+- `docs/rfcs` filesystem symlink (replaced by a docs-build-time
+  generator that emits a docs-tree mirror with rewritten links).
 
-### Fixed
+### Security
 
-_None._
+- PyPI Trusted Publishing (OIDC) on the release workflow — no
+  long-lived API tokens are stored in repository secrets.
+- CodeQL Python analysis on every PR + weekly schedule.
 
 ## [0.1.0-draft] — 2026-05-20
 
 ### Added
 
 - Initial repository scaffold.
-- 11 design RFCs (0001–0011) covering scope, encoder, action,
+- 19 design RFCs (0001–0019) covering scope, encoder, action,
   predictor, training, data, eval, planning, surprise, deployment,
-  attestation.
+  attestation, error taxonomy, observability, API stability, testing,
+  performance budget, configuration, CLI, and the desktop app.
 - `SPECIFICATION.md` synthesized canonical view.
+- `SPEC.md` top-level index of the specification corpus.
 - `ARCHITECTURE.md` narrative walk-through.
 - `ROADMAP.md` phase plan.
+- Eleven-section spec corpus at [`docs/spec/`](docs/spec/) covering
+  overview, architecture, public API, data model, error model,
+  observability, security, testing strategy, performance budget,
+  release and versioning, and glossary.
+- Open-source process documents: [`SECURITY.md`](SECURITY.md),
+  [`PRIVACY.md`](PRIVACY.md), [`CONTRIBUTING.md`](CONTRIBUTING.md),
+  [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+- Implementation tracker at
+  [`docs/roadmap/IMPLEMENTATION.md`](docs/roadmap/IMPLEMENTATION.md).
 - Glossary, FAQ, design-decision log under [`docs/`](docs/).
 - Apache-2.0 license.
 - `pyproject.toml` package stub.
+- Phase 1 infrastructure modules implemented and tested
+  (`errors`, `observability`, `_redaction`, `metrics`, `action`,
+  `attestation`, `cli.verify`, `api`).
+
+### Security
+
+- Network fail-closed contract documented in
+  [`docs/spec/06-security.md`](docs/spec/06-security.md) and enforced
+  by the `check_network_confined` AST linter.
+- Redaction-by-default observability filter; the
+  `GENO_LEWM_REDACTION_STRICT=1` strict mode is the documented
+  default.
