@@ -47,11 +47,15 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-# Core dependencies are intentionally minimal: the implemented surface
+# Core dependencies are intentionally minimal. The implemented surface
 # (errors, observability, redaction, attestation, action specs, verify
-# CLI) has zero third-party runtime dependencies. Heavier ML deps are
-# pulled in via the `train`, `eval`, `deploy` extras.
-dependencies = []
+# CLI, dispatcher) depends only on Typer for the CLI scaffolds —
+# Typer is small, has no native-code dependencies, and is mandated by
+# RFC-0018 §3.8. Heavier ML deps stay in the `train` / `eval` /
+# `deploy` extras.
+dependencies = [
+    "typer>=0.12",
+]
 
 [project.optional-dependencies]
 train = [
@@ -106,7 +110,20 @@ all = [
 ]
 
 [project.scripts]
+# Stable identifiers — renaming any of these is a MAJOR change
+# (RFC-0018 §4.1).
 geno-lewm-verify = "geno_lewm.cli.verify:main"
+geno-lewm-train = "geno_lewm.cli.train:cli_main"
+geno-lewm-score = "geno_lewm.cli.score:cli_main"
+geno-lewm-rollout = "geno_lewm.cli.rollout:cli_main"
+geno-lewm-plan = "geno_lewm.cli.plan:cli_main"
+geno-lewm-eval = "geno_lewm.cli.eval:cli_main"
+geno-lewm-eval-all = "geno_lewm.cli.eval_all:cli_main"
+geno-lewm-export = "geno_lewm.cli.export:cli_main"
+geno-lewm-cache-windows = "geno_lewm.cli.cache_windows:cli_main"
+geno-lewm-prepare-gnomad = "geno_lewm.cli.prepare_gnomad:cli_main"
+geno-lewm-prepare-clinvar = "geno_lewm.cli.prepare_clinvar:cli_main"
+geno-lewm-update = "geno_lewm.cli.update:cli_main"
 
 [project.urls]
 Homepage = "https://github.com/AbdelStark/GenoLeWM"

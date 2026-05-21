@@ -63,6 +63,27 @@ pre-commit install
 pytest tests/unit tests/property tests/ml
 ```
 
+## Shell completion
+
+Every Typer-based console script (everything in `[project.scripts]`
+*except* `geno-lewm-verify`, which predates the dispatcher) ships
+shell completion. Pick the command you reach for most often — the
+completion script registers all 11 of them at once because they share
+the same Click backend.
+
+```bash
+# bash (auto-detected from $SHELL)
+geno-lewm-train --install-completion
+
+# Or write the script to disk and source it manually:
+geno-lewm-train --show-completion > ~/.geno-lewm.bash
+echo 'source ~/.geno-lewm.bash' >> ~/.bashrc
+```
+
+zsh and fish are detected the same way; pass `--install-completion`
+under the target shell to install. RFC-0018 §3.6 documents this as
+the only completion mechanism in v1.
+
 ## Style and tooling
 
 - Formatter: `ruff format` (configured in `pyproject.toml`).
