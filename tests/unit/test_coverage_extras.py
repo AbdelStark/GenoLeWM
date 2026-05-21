@@ -93,8 +93,10 @@ def test_exporter_default_path_uses_env(monkeypatch: pytest.MonkeyPatch, tmp_pat
 def test_metrics_path_falls_back_to_home(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GENO_LEWM_LOG_DIR", raising=False)
     p = m.metrics_path()
+    # Compare path components so the test holds on Windows
+    # (backslashes) as well as POSIX (forward slashes).
     assert p.name == "metrics.prom"
-    assert str(p).endswith(".geno-lewm/logs/metrics.prom")
+    assert p.parts[-3:] == (".geno-lewm", "logs", "metrics.prom")
 
 
 # ---------------------------------------------------------------------------
