@@ -19,18 +19,22 @@ concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
       - name: Install
-        run: uv pip install --system -e ".[docs]"
+        run: uv pip install -e ".[docs]"
       - name: Build site (strict)
         run: mkdocs build --strict
       - name: Upload Pages artifact

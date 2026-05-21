@@ -7,11 +7,11 @@
 #   gates      — custom AST linters + public-API snapshot
 #   build      — package build smoke test (sdist + wheel)
 #   docs       — mkdocs strict build
-#   summary    — required-check fan-in
+#   ci-required — required-check fan-in
 #
 # All jobs run on every PR and on pushes to main. The matrix is
-# intentionally lean on PRs (Linux only) and full on main / releases
-# (Linux + macOS + Windows, supported Pythons).
+# intentionally lean on PRs (Linux only by default; macOS/Windows
+# included via matrix.include) and full on main / releases.
 name: CI
 
 on:
@@ -34,6 +34,9 @@ env:
   PYTHONUNBUFFERED: "1"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   FORCE_COLOR: "1"
+  # uv looks for a Python interpreter on PATH when called with
+  # --system; setup-python places one there. The two work together.
+  UV_SYSTEM_PYTHON: "1"
 
 jobs:
   lint:
@@ -41,13 +44,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
       - name: Install
-        run: uv pip install --system -e ".[dev]"
+        run: uv pip install -e ".[dev]"
       - name: ruff format --check
         run: ruff format --check geno_lewm tools tests
       - name: ruff check
@@ -58,28 +62,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
       - name: Install
-        run: uv pip install --system -e ".[dev]"
+        run: uv pip install -e ".[dev]"
       - name: mypy
         run: mypy geno_lewm tools
 
   gates:
-    name: Contract gates (errors / events / surface / net / print)
+    name: Contract gates (errors / events / surface / net / print / spdx)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
       - name: Install
-        run: uv pip install --system -e ".[dev]"
+        run: uv pip install -e ".[dev]"
       - name: check_error_codes (RFC-0012)
         run: python -m tools.lint.check_error_codes
       - name: check_event_names (RFC-0013)
@@ -108,13 +114,14 @@ jobs:
             python: "3.12"
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Set up Python ${{ matrix.python }}
-        run: uv python install ${{ matrix.python }}
       - name: Install
-        run: uv pip install --system -e ".[dev]"
+        run: uv pip install -e ".[dev]"
       - name: pytest
         run: pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto
       - name: Upload coverage to Codecov
@@ -130,20 +137,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
       - name: Install build deps
-        run: uv pip install --system build twine
+        run: uv pip install build twine
       - name: Build
         run: python -m build
       - name: Twine check
         run: twine check dist/*
       - name: Smoke install
         run: |
-          uv pip install --system dist/*.whl
+          uv pip install dist/*.whl
           python -c "import geno_lewm; print(geno_lewm.__version__)"
           python -c "from geno_lewm import EditSpec, apply_edit; print(EditSpec(chrom='1', pos=1, ref='A', alt='T'))"
       - name: Upload dist artifacts
@@ -158,13 +166,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
       - name: Install
-        run: uv pip install --system -e ".[docs]"
+        run: uv pip install -e ".[docs]"
       - name: Build docs (strict)
         run: mkdocs build --strict
       - name: Upload site artifact

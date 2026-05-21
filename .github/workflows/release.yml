@@ -36,6 +36,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   build:
     name: Build distributions
@@ -45,21 +48,23 @@ jobs:
         with:
           fetch-depth: 0  # for Hatch to see the version tag context
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
 
-      - name: Set up Python
-        run: uv python install 3.12
-
       - name: Install build tooling
-        run: uv pip install --system build twine
+        run: uv pip install build twine
 
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           tag="${GITHUB_REF##*/}"
           tag="${tag#v}"
+          uv pip install -e .
           pkg=$(python -c "import geno_lewm; print(geno_lewm.__version__)")
           echo "tag=$tag pkg=$pkg"
           if [ "$tag" != "$pkg" ]; then
@@ -75,7 +80,7 @@ jobs:
 
       - name: Generate CycloneDX SBOM
         run: |
-          uv pip install --system cyclonedx-bom
+          uv pip install cyclonedx-bom
           cyclonedx-py environment --output-format json --output-file dist/sbom.cdx.json
 
       - name: Compute artifact digests
