@@ -12,6 +12,35 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
+- **Performance harness, microbench suite, and regression detector**
+  (issues #90, #91, #92; RFC-0016).
+  - `bench/_harness.py` — stdlib-only timing library. `time_callable`
+    returns a `BenchResult` with samples / median / IQR (P25, P75) and
+    a metadata block (commit, machine, Python, platform, dtype).
+    `write_result` persists JSON at
+    `bench/results/<machine>/<benchmark>.json`. Machine slug honours
+    `GENO_LEWM_BENCH_MACHINE` so CI runners write to distinct trees.
+  - `bench/inference.py`, `bench/training.py`, `bench/planning.py`,
+    `bench/profile.py` — per-target benchmark scripts and profiler
+    invocations. Planning emits placeholder JSON until the CEM solver
+    lands (#59 / #60 / #61).
+  - `tests/benchmark/test_microbench.py` — `pytest-benchmark` suite
+    over the hot paths (canonical-JSON hashing, sha256 file/bytes,
+    receipt commitments, `EditSpec` validation, `apply_edit` /
+    `apply_edits` batches). Marked `bench` and deselected from the
+    default `pytest` run; the nightly job opts in with
+    `pytest -m bench --benchmark-only --benchmark-json=...`.
+  - `tools/ci/perf_regression.py` — diffs current results against the
+    committed baseline at `bench/results/baseline/`. Handles both the
+    bench-harness JSON shape and pytest-benchmark JSON; fails when any
+    benchmark's median exceeds the baseline by more than the
+    configured threshold (default 5 %, RFC-0016 §3.7). Treats missing
+    baselines as warm-up and never gates on new benchmarks.
+  - `.github/workflows/perf-nightly.yml` — daily cron that runs the
+    harness, the pytest microbench suite, and the regression detector,
+    uploading the result tree as a workflow artifact.
+  - `pytest-benchmark>=4` added to the `[dev]` optional extras.
+
 - **Changed-files coverage gate** (issue #88; `tools/ci/coverage_gate.py`).
   - Cobertura XML + `git diff origin/<base>...HEAD` → per-file coverage
     on the lines a PR adds or modifies; fails if any touched Python

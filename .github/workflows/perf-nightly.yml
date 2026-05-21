@@ -1,0 +1,81 @@
+# Nightly performance benchmarks (RFC-0016).
+#
+# Runs the bench harness scripts under ``bench/`` plus the
+# ``tests/benchmark/`` microbench suite, then diffs both against the
+# committed baseline at ``bench/results/baseline/``. A regression above
+# the 5 % threshold fails the job; the result artifacts are uploaded
+# so an engineer can bisect.
+#
+# This job is *not* gated on PRs — RFC-0016 §3.7 says PR-noise is too
+# high on shared runners to make the gate trustworthy. The signal is
+# the historical nightly trend.
+name: Perf nightly
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # 04:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  # Stable machine slug so the result tree on the runner is
+  # deterministic across runs (and matches the baseline directory).
+  GENO_LEWM_BENCH_MACHINE: "github-hosted-ubuntu"
+
+jobs:
+  bench:
+    name: Bench + regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: bench/inference.py
+        run: python -m bench.inference --iters 200 --warmup 20
+
+      - name: bench/training.py
+        run: python -m bench.training --iters 200 --warmup 20
+
+      - name: bench/planning.py
+        run: python -m bench.planning
+
+      - name: pytest microbench
+        run: |
+          pytest tests/benchmark/ -m bench --benchmark-only \
+            --benchmark-json=pytest-bench.json
+
+      - name: perf_regression (bench harness)
+        run: |
+          python -m tools.ci.perf_regression \
+            --current bench/results/${GENO_LEWM_BENCH_MACHINE} \
+            --baseline bench/results/baseline \
+            --threshold 0.05
+
+      - name: perf_regression (pytest-benchmark)
+        run: |
+          python -m tools.ci.perf_regression \
+            --current pytest-bench.json \
+            --baseline bench/results/baseline \
+            --threshold 0.05
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-nightly-results
+          path: |
+            bench/results/${{ env.GENO_LEWM_BENCH_MACHINE }}/
+            pytest-bench.json
+          retention-days: 30
+          if-no-files-found: ignore
