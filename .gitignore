@@ -54,3 +54,9 @@ Thumbs.db
 
 # MkDocs build artifact
 /site/
+
+# Local benchmark results (bench/_harness.py persists machine-specific
+# JSON under bench/results/<machine>/...; the canonical baseline lives
+# in bench/results/baseline/ and is committed).
+/bench/results/*/
+!/bench/results/baseline/
