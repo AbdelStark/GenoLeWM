@@ -48,7 +48,9 @@ def test_apply_deletion() -> None:
 
 
 def test_apply_mnv() -> None:
-    out = apply_edit("ACGT", RelEdit(rel_pos=1, edit_type=EditType.MNV, ref_bases="CG", alt_bases="TA"))
+    out = apply_edit(
+        "ACGT", RelEdit(rel_pos=1, edit_type=EditType.MNV, ref_bases="CG", alt_bases="TA")
+    )
     assert out == "ATAT"
 
 

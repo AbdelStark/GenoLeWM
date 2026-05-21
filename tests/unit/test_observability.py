@@ -51,10 +51,10 @@ def tmp_log_dir(tmp_path: Path) -> Path:
 
 
 def _reset_global_state() -> None:
-    for sink in list(obs._SINKS.values()):  # noqa: SLF001
+    for sink in list(obs._SINKS.values()):
         sink.close()
-    obs._SINKS.clear()  # noqa: SLF001
-    obs._LOGGERS.clear()  # noqa: SLF001
+    obs._SINKS.clear()
+    obs._LOGGERS.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -167,7 +167,9 @@ def test_logger_factory_is_cached(tmp_log_dir: Path) -> None:
     assert a is b
 
 
-def test_default_log_dir_resolves_env_or_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_default_log_dir_resolves_env_or_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("GENO_LEWM_LOG_DIR", str(tmp_path / "envlogs"))
     assert obs._resolve_log_dir(None) == tmp_path / "envlogs"
     monkeypatch.delenv("GENO_LEWM_LOG_DIR")

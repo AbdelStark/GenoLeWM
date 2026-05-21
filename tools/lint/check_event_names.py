@@ -60,9 +60,7 @@ class Violation:
 # Registry discovery
 
 
-def _read_tuple_of_calls(
-    tree: ast.AST, assign_name: str, ctor_name: str
-) -> set[str]:
+def _read_tuple_of_calls(tree: ast.AST, assign_name: str, ctor_name: str) -> set[str]:
     """Return the set of first-arg string literals from ``CTOR(...)``
     elements appearing in a tuple assigned to ``ASSIGN_NAME``."""
     out: set[str] = set()

@@ -20,14 +20,14 @@ from __future__ import annotations
 import random
 from collections.abc import Mapping, Sequence
 
-from geno_lewm.action.spec import EditType, RelEdit, V1_MAX_LEN
+from geno_lewm.action.spec import V1_MAX_LEN, EditType, RelEdit
 from geno_lewm.errors import InputError
 
 __all__ = [
     "DEFAULT_EDGE_MARGIN",
-    "uniform_snv",
     "indel",
     "mnv",
+    "uniform_snv",
 ]
 
 DEFAULT_EDGE_MARGIN: int = 64
@@ -112,7 +112,7 @@ def _draw_indel_length(
     probs = [w / total for w in weights]
     r = rng.random()
     cum = 0.0
-    for k, p in zip(lengths, probs):
+    for k, p in zip(lengths, probs, strict=True):
         cum += p
         if r <= cum:
             return k
@@ -188,7 +188,10 @@ def indel(
     if n < 0:
         raise InputError("n must be non-negative", details={"n": n})
     if any(p < 0 for p in type_mix) or sum(type_mix) <= 0:
-        raise InputError("type_mix must contain non-negative probs that sum > 0", details={"type_mix": list(type_mix)})
+        raise InputError(
+            "type_mix must contain non-negative probs that sum > 0",
+            details={"type_mix": list(type_mix)},
+        )
 
     p_ins = type_mix[0] / sum(type_mix)
 
@@ -263,7 +266,7 @@ def mnv(
         raise InputError("n must be non-negative", details={"n": n})
 
     if length_dist is None:
-        length_dist = {k: 1.0 for k in range(2, 9)}  # uniform on [2, 8]
+        length_dist = dict.fromkeys(range(2, 9), 1.0)  # uniform on [2, 8]
 
     out: list[RelEdit] = []
     for _ in range(n):

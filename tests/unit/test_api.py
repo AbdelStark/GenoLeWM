@@ -13,11 +13,11 @@ from geno_lewm.errors import InputError
 
 @pytest.fixture(autouse=True)
 def _reset() -> Any:
-    api._experimental_warned.clear()  # noqa: SLF001
-    api._deprecated_warned.clear()  # noqa: SLF001
+    api._experimental_warned.clear()
+    api._deprecated_warned.clear()
     yield
-    api._experimental_warned.clear()  # noqa: SLF001
-    api._deprecated_warned.clear()  # noqa: SLF001
+    api._experimental_warned.clear()
+    api._deprecated_warned.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,9 @@ def test_deprecated_emits_once_per_call_site() -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         # Two calls on the SAME line → one warning.
+        # fmt: off
         old(); old()  # noqa: E702
+        # fmt: on
     matched = [w for w in caught if issubclass(w.category, DeprecationWarning)]
     assert len(matched) == 1
     assert "use new_thing instead" in str(matched[0].message)
@@ -139,7 +141,9 @@ def test_deprecated_class_warns_per_instantiation_site() -> None:
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
+        # fmt: off
         a = OldC(1); a2 = OldC(2)  # noqa: E702  — same line, one warning
+        # fmt: on
         b = OldC(3)  # different line, another warning
     matched = [w for w in caught if issubclass(w.category, DeprecationWarning)]
     assert len(matched) == 2

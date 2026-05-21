@@ -19,7 +19,6 @@ from geno_lewm.attestation import (
 )
 from geno_lewm.errors import InputError, ReceiptSchemaError, SchemaCompatError
 
-
 _SHA = "sha256:" + "a" * 64
 _SHA_B = "sha256:" + "b" * 64
 _SHA_C = "sha256:" + "c" * 64

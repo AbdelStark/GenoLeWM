@@ -20,7 +20,7 @@ from geno_lewm.action.spec import EditSpec
 from geno_lewm.attestation.hashing import canonical_json_sha256
 from geno_lewm.errors import InputError
 
-__all__ = ["PoolingConfig", "DtypeConfig", "compute_input_commitment"]
+__all__ = ["DtypeConfig", "PoolingConfig", "compute_input_commitment"]
 
 
 @dataclass(frozen=True, slots=True)

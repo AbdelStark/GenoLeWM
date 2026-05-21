@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from geno_lewm.action import EditSpec, EditType, RelEdit, V1_MAX_LEN
+from geno_lewm.action import V1_MAX_LEN, EditSpec, EditType, RelEdit
 from geno_lewm.errors import InvalidEditError, OutOfWindowError, UnsupportedEditError
-
 
 # ---------------------------------------------------------------------------
 # Derived edit_type — exhaustive over the six categories.

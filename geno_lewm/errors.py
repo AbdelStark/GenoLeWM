@@ -19,61 +19,51 @@ Discipline (summary; see the spec for the full table):
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
 __all__ = [
-    # Root
-    "GenoLeWMError",
-    # Config
-    "ConfigError",
-    "SchemaCompatError",
-    "MissingConfigError",
-    # Input
-    "InputError",
-    "InvalidEditError",
-    "UnsupportedEditError",
-    "WindowMismatchError",
-    "OverlappingEditsError",
-    "OutOfWindowError",
-    "VcfParseError",
-    # Resource
-    "ResourceError",
-    "CacheCorruptError",
-    "DiskFullError",
-    "OutOfMemoryError",
-    "ModelNotFoundError",
-    "RuntimeSetupError",
-    "NetworkCallProhibitedError",
-    # Training
-    "TrainingError",
-    "CollapseDetectedError",
-    "NaNLossError",
-    "DataLoaderError",
-    # Eval
-    "EvalError",
-    "EvalDatasetError",
-    "EvalRegressionError",
-    # Deploy
-    "DeployError",
-    "ExportFormatError",
-    "QuantizationError",
-    "BackendUnsupportedError",
-    # Attestation
-    "AttestationError",
-    "ManifestHashMismatchError",
-    "InputCommitmentMismatchError",
-    "OutputCommitmentMismatchError",
-    "AttestationKindUnsupportedError",
-    "ReceiptSchemaError",
-    # Internal
-    "InternalError",
-    "InvariantViolation",
-    "UnreachableError",
-    # Registry / helpers
     "ERROR_CODES",
+    "AttestationError",
+    "AttestationKindUnsupportedError",
+    "BackendUnsupportedError",
+    "CacheCorruptError",
+    "CollapseDetectedError",
+    "ConfigError",
+    "DataLoaderError",
+    "DeployError",
+    "DiskFullError",
     "ErrorCodeEntry",
+    "EvalDatasetError",
+    "EvalError",
+    "EvalRegressionError",
+    "ExportFormatError",
+    "GenoLeWMError",
+    "InputCommitmentMismatchError",
+    "InputError",
+    "InternalError",
+    "InvalidEditError",
+    "InvariantViolation",
+    "ManifestHashMismatchError",
+    "MissingConfigError",
+    "ModelNotFoundError",
+    "NaNLossError",
+    "NetworkCallProhibitedError",
+    "OutOfMemoryError",
+    "OutOfWindowError",
+    "OutputCommitmentMismatchError",
+    "OverlappingEditsError",
+    "QuantizationError",
+    "ReceiptSchemaError",
+    "ResourceError",
+    "RuntimeSetupError",
+    "SchemaCompatError",
+    "TrainingError",
+    "UnreachableError",
+    "UnsupportedEditError",
+    "VcfParseError",
+    "WindowMismatchError",
     "exit_code_for",
 ]
 
@@ -408,7 +398,7 @@ class ErrorCodeEntry:
         self.exception_class = exception_class
         self.summary = summary
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Any]:
         # Allow tuple-style unpacking ``code, cls, summary = entry``.
         yield self.code
         yield self.exception_class
@@ -433,17 +423,25 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
     # Input
     ErrorCodeEntry("INPUT.GENERIC", InputError, "Caller-supplied input invalid"),
     ErrorCodeEntry("INPUT.INVALID_EDIT", InvalidEditError, "EditSpec invariants violated"),
-    ErrorCodeEntry("INPUT.UNSUPPORTED_EDIT", UnsupportedEditError, "Edit type or length out of scope"),
-    ErrorCodeEntry("INPUT.WINDOW_MISMATCH", WindowMismatchError, "Window ref bases differ from EditSpec.ref"),
+    ErrorCodeEntry(
+        "INPUT.UNSUPPORTED_EDIT", UnsupportedEditError, "Edit type or length out of scope"
+    ),
+    ErrorCodeEntry(
+        "INPUT.WINDOW_MISMATCH", WindowMismatchError, "Window ref bases differ from EditSpec.ref"
+    ),
     ErrorCodeEntry("INPUT.OVERLAPPING_EDITS", OverlappingEditsError, "Haplotype edits overlap"),
     ErrorCodeEntry("INPUT.OUT_OF_WINDOW", OutOfWindowError, "rel_pos outside window"),
     ErrorCodeEntry("INPUT.VCF_PARSE", VcfParseError, "Malformed VCF or FASTA"),
     # Resource
     ErrorCodeEntry("RESOURCE.GENERIC", ResourceError, "Capacity, IO, or network failure"),
-    ErrorCodeEntry("RESOURCE.CACHE_CORRUPT", CacheCorruptError, "Cache shard failed integrity check"),
+    ErrorCodeEntry(
+        "RESOURCE.CACHE_CORRUPT", CacheCorruptError, "Cache shard failed integrity check"
+    ),
     ErrorCodeEntry("RESOURCE.DISK_FULL", DiskFullError, "Storage exhausted during write"),
     ErrorCodeEntry("RESOURCE.OOM", OutOfMemoryError, "CUDA or host OOM with context"),
-    ErrorCodeEntry("RESOURCE.MODEL_NOT_FOUND", ModelNotFoundError, "Checkpoint missing or not downloadable"),
+    ErrorCodeEntry(
+        "RESOURCE.MODEL_NOT_FOUND", ModelNotFoundError, "Checkpoint missing or not downloadable"
+    ),
     ErrorCodeEntry("RESOURCE.RUNTIME_SETUP", RuntimeSetupError, "First-run network setup failed"),
     ErrorCodeEntry(
         "RESOURCE.NETWORK_PROHIBITED",
@@ -461,9 +459,13 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
     ErrorCodeEntry("EVAL.REGRESSION", EvalRegressionError, "Smoke-eval gate failed"),
     # Deploy
     ErrorCodeEntry("DEPLOY.GENERIC", DeployError, "Export or runtime backend failure"),
-    ErrorCodeEntry("DEPLOY.EXPORT_FORMAT", ExportFormatError, "ONNX/Core ML/GGUF conversion failed"),
+    ErrorCodeEntry(
+        "DEPLOY.EXPORT_FORMAT", ExportFormatError, "ONNX/Core ML/GGUF conversion failed"
+    ),
     ErrorCodeEntry("DEPLOY.QUANTIZATION_FAILED", QuantizationError, "int8/int4 calibration failed"),
-    ErrorCodeEntry("DEPLOY.BACKEND_UNSUPPORTED", BackendUnsupportedError, "Backend unavailable on host"),
+    ErrorCodeEntry(
+        "DEPLOY.BACKEND_UNSUPPORTED", BackendUnsupportedError, "Backend unavailable on host"
+    ),
     # Attestation
     ErrorCodeEntry("ATTESTATION.GENERIC", AttestationError, "Verifiable-inference failure"),
     ErrorCodeEntry(
@@ -489,8 +491,12 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
     ErrorCodeEntry("ATTESTATION.RECEIPT_SCHEMA", ReceiptSchemaError, "Receipt JSON invalid"),
     # Internal
     ErrorCodeEntry("INTERNAL.GENERIC", InternalError, "Internal error"),
-    ErrorCodeEntry("INTERNAL.INVARIANT_VIOLATION", InvariantViolation, "An INV-* invariant was breached"),
-    ErrorCodeEntry("INTERNAL.UNREACHABLE", UnreachableError, "Control reached an unreachable branch"),
+    ErrorCodeEntry(
+        "INTERNAL.INVARIANT_VIOLATION", InvariantViolation, "An INV-* invariant was breached"
+    ),
+    ErrorCodeEntry(
+        "INTERNAL.UNREACHABLE", UnreachableError, "Control reached an unreachable branch"
+    ),
 )
 
 

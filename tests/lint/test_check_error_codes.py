@@ -38,11 +38,7 @@ def test_bare_reraise_is_allowed(tmp_path: Path) -> None:
     f = write(
         tmp_path,
         "ok_bare.py",
-        "def f():\n"
-        "    try:\n"
-        "        1/0\n"
-        "    except Exception:\n"
-        "        raise\n",
+        "def f():\n    try:\n        1/0\n    except Exception:\n        raise\n",
     )
     assert linter.check_file(f, linter.discover_registered_classes()) == []
 
@@ -110,9 +106,7 @@ def test_attribute_call_uses_attr_name(tmp_path: Path) -> None:
     f = write(
         tmp_path,
         "ok_attr.py",
-        "from geno_lewm import errors\n"
-        "def f():\n"
-        "    raise errors.InvalidEditError('bad')\n",
+        "from geno_lewm import errors\ndef f():\n    raise errors.InvalidEditError('bad')\n",
     )
     assert linter.check_file(f, linter.discover_registered_classes()) == []
 

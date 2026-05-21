@@ -30,12 +30,12 @@ from geno_lewm.errors import InputError, SchemaCompatError
 
 __all__ = [
     "SCHEMA_VERSION",
+    "Manifest",
     "ManifestArtifact",
     "ManifestEncoder",
     "ManifestTraining",
-    "Manifest",
-    "write_manifest",
     "load_manifest",
+    "write_manifest",
 ]
 
 

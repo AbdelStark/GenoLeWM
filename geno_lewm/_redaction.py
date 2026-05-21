@@ -33,13 +33,13 @@ from typing import Any
 from geno_lewm.errors import InvariantViolation
 
 __all__ = [
-    "PERSONAL_DATA_FIELDS",
     "DNA_RE",
-    "RedactionStats",
+    "PERSONAL_DATA_FIELDS",
     "STATS",
-    "redaction_stats",
+    "RedactionStats",
     "is_strict",
     "redact",
+    "redaction_stats",
 ]
 
 
@@ -150,7 +150,7 @@ def _check_dna(value: Any, *, event: str, key: str, strict: bool) -> bool:
     if isinstance(value, str) and DNA_RE.match(value):
         if strict:
             _violate("DNA-like string in log payload", event=event, key=key, kind="dna")
-        STATS._inc("dropped_dna")  # noqa: SLF001
+        STATS._inc("dropped_dna")
         return True
     return False
 
@@ -164,20 +164,22 @@ def _check_type(value: Any, *, event: str, key: str, strict: bool) -> bool:
             return False
         if strict:
             _violate("non-scalar element in list value", event=event, key=key, kind="type")
-        STATS._inc("dropped_type")  # noqa: SLF001
+        STATS._inc("dropped_type")
         return True
     if isinstance(value, dict):
         # Only shallow dicts of scalars are allowed.
-        if all(isinstance(k, str) for k in value.keys()) and _scalars_only(value.values()):
+        if all(isinstance(k, str) for k in value) and _scalars_only(value.values()):
             return False
         if strict:
             _violate("nested or non-scalar dict value", event=event, key=key, kind="type")
-        STATS._inc("dropped_type")  # noqa: SLF001
+        STATS._inc("dropped_type")
         return True
     # bytes, bytearray, memoryview, set, frozenset, tensors, ndarrays, callables…
     if strict:
-        _violate(f"unsupported value type {type(value).__name__}", event=event, key=key, kind="type")
-    STATS._inc("dropped_type")  # noqa: SLF001
+        _violate(
+            f"unsupported value type {type(value).__name__}", event=event, key=key, kind="type"
+        )
+    STATS._inc("dropped_type")
     return True
 
 
@@ -187,10 +189,8 @@ def _check_dna_in_container(value: Any, *, event: str, key: str, strict: bool) -
         for v in value:
             if isinstance(v, str) and DNA_RE.match(v):
                 if strict:
-                    _violate(
-                        "DNA-like string in list value", event=event, key=key, kind="dna"
-                    )
-                STATS._inc("dropped_dna")  # noqa: SLF001
+                    _violate("DNA-like string in list value", event=event, key=key, kind="dna")
+                STATS._inc("dropped_dna")
                 return True
     elif isinstance(value, dict):
         for k, v in value.items():
@@ -202,14 +202,12 @@ def _check_dna_in_container(value: Any, *, event: str, key: str, strict: bool) -
                         key=f"{key}.{k}",
                         kind="denied",
                     )
-                STATS._inc("dropped_denied")  # noqa: SLF001
+                STATS._inc("dropped_denied")
                 return True
             if isinstance(v, str) and DNA_RE.match(v):
                 if strict:
-                    _violate(
-                        "DNA-like string in dict value", event=event, key=key, kind="dna"
-                    )
-                STATS._inc("dropped_dna")  # noqa: SLF001
+                    _violate("DNA-like string in dict value", event=event, key=key, kind="dna")
+                STATS._inc("dropped_dna")
                 return True
     return False
 
@@ -237,7 +235,7 @@ def redact(
         if key in PERSONAL_DATA_FIELDS:
             if strict:
                 _violate("personal-data field in log payload", event=event, key=key, kind="denied")
-            STATS._inc("dropped_denied")  # noqa: SLF001
+            STATS._inc("dropped_denied")
             continue
 
         # Rule 3: DNA pattern on raw string value.
@@ -255,16 +253,14 @@ def redact(
 
         # Rule 1: per-event allowlist. Soft drop — not a strict-mode raise.
         if key not in allowed_keys:
-            STATS._inc("dropped_keys")  # noqa: SLF001
+            STATS._inc("dropped_keys")
             continue
 
         # Defensive copy so the caller cannot mutate the record post-hoc
         # via shared references (matches test_data_is_independent_copy).
         if isinstance(value, dict):
             out[key] = dict(value)
-        elif isinstance(value, list):
-            out[key] = list(value)
-        elif isinstance(value, tuple):
+        elif isinstance(value, list | tuple):
             out[key] = list(value)
         else:
             out[key] = value

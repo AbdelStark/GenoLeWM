@@ -26,8 +26,7 @@ from typing import Any
 
 import pytest
 
-from geno_lewm import _redaction as red
-from geno_lewm import observability as obs
+from geno_lewm import _redaction as red, observability as obs
 from geno_lewm.errors import InvariantViolation
 
 # How many random payloads to throw at the filter.
@@ -69,9 +68,7 @@ def _rand_value(rng: random.Random, depth: int = 0) -> Any:
         return [_rand_value(rng, depth=depth + 1) for _ in range(n)]
     if choice == 8 and depth < 1:
         n = rng.randint(0, 4)
-        return {
-            _rand_string(rng, 4): _rand_value(rng, depth=depth + 1) for _ in range(n)
-        }
+        return {_rand_string(rng, 4): _rand_value(rng, depth=depth + 1) for _ in range(n)}
     if choice == 9:
         # Forbidden types — must drop.
         return rng.choice(
@@ -86,9 +83,7 @@ def _rand_value(rng: random.Random, depth: int = 0) -> Any:
 
 def _rand_key(rng: random.Random) -> str:
     pool: list[str] = (
-        list(red.PERSONAL_DATA_FIELDS)
-        + ALL_ALLOWED_KEYS
-        + [_rand_string(rng, 8) for _ in range(5)]
+        list(red.PERSONAL_DATA_FIELDS) + ALL_ALLOWED_KEYS + [_rand_string(rng, 8) for _ in range(5)]
     )
     return rng.choice(pool)
 

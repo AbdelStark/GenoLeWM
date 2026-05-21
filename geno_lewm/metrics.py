@@ -22,27 +22,42 @@ import math
 import os
 import threading
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Literal
+from typing import IO, Literal, TypedDict
 
 from geno_lewm.errors import InputError, InvariantViolation
 
+
+class HistogramSnapshot(TypedDict):
+    """Structured snapshot returned by :meth:`Histogram.snapshot`.
+
+    Buckets are cumulative upper bounds (the last bucket is always
+    ``+Inf``). ``counts[i]`` is the cumulative count of observations
+    ``<= buckets[i]`` since the last :meth:`Histogram.reset`.
+    """
+
+    buckets: list[float]
+    counts: list[int]
+    sum: float
+    count: int
+
+
 __all__ = [
-    "MetricKind",
-    "MetricSpec",
-    "METRICS",
-    "DEFAULT_HISTOGRAM_BUCKETS_MS",
     "DEFAULT_HISTOGRAM_BUCKETS_BYTES",
+    "DEFAULT_HISTOGRAM_BUCKETS_MS",
+    "METRICS",
     "Counter",
     "Gauge",
     "Histogram",
+    "MetricKind",
+    "MetricSpec",
+    "export_prometheus_textfile",
     "get_counter",
     "get_gauge",
     "get_histogram",
-    "snapshot_all",
-    "export_prometheus_textfile",
     "metrics_path",
+    "snapshot_all",
 ]
 
 MetricKind = Literal["counter", "gauge", "histogram"]
@@ -291,14 +306,14 @@ class Histogram(_Metric):
             self._sum += v
             self._count += 1
 
-    def snapshot(self) -> dict[str, object]:
+    def snapshot(self) -> HistogramSnapshot:
         with self._lock:
-            return {
-                "buckets": list(self._buckets),
-                "counts": list(self._counts),
-                "sum": self._sum,
-                "count": self._count,
-            }
+            return HistogramSnapshot(
+                buckets=list(self._buckets),
+                counts=list(self._counts),
+                sum=self._sum,
+                count=self._count,
+            )
 
     def reset(self) -> None:
         with self._lock:
@@ -436,15 +451,11 @@ def _write_metric_block(out: IO[str], inst: _Metric) -> None:
         return
     if isinstance(inst, Histogram):
         snap = inst.snapshot()
-        buckets = snap["buckets"]
-        counts = snap["counts"]
-        assert isinstance(buckets, list) and isinstance(counts, list)
-        cumulative = 0
-        for ub, c in zip(buckets, counts):
-            cumulative = c  # _counts is already cumulative by construction
-            out.write(f'{name}_bucket{{le="{_format_float(ub)}"}} {cumulative}\n')
-        out.write(f"{name}_sum {_format_float(float(snap['sum']))}\n")
-        out.write(f"{name}_count {int(snap['count'])}\n")
+        for ub, c in zip(snap["buckets"], snap["counts"], strict=True):
+            # _counts is already cumulative by construction.
+            out.write(f'{name}_bucket{{le="{_format_float(ub)}"}} {c}\n')
+        out.write(f"{name}_sum {_format_float(snap['sum'])}\n")
+        out.write(f"{name}_count {snap['count']}\n")
         return
     raise InvariantViolation(  # pragma: no cover - unreachable
         "unknown metric kind in exporter", details={"name": spec.name}

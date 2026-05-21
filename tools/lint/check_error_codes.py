@@ -118,10 +118,7 @@ def discover_registered_classes(errors_module: Path = ERRORS_MODULE) -> set[str]
             return True
         if name in stack or name not in classes:
             return False
-        for base in classes[name]:
-            if _collect(base, (*stack, name)):
-                return True
-        return False
+        return any(_collect(base, (*stack, name)) for base in classes[name])
 
     for name in classes:
         if _collect(name):
@@ -217,7 +214,7 @@ def check_file(path: Path, registered: set[str]) -> list[Violation]:
         if name in registered:
             continue
 
-        if name in _COMMON_BUILTIN_EXCS or name.endswith("Error") or name.endswith("Exception"):
+        if name in _COMMON_BUILTIN_EXCS or name.endswith(("Error", "Exception")):
             violations.append(
                 Violation(
                     path=path,
