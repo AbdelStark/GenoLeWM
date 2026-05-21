@@ -12,6 +12,34 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
+- **CLI dispatcher and stub command surface** (issues #30, #31;
+  RFC-0018).
+  - `geno_lewm/cli/_dispatch.py` — shared Typer dispatch helpers:
+    `SharedOptions` dataclass, `shared_option_decls`, `finalize_shared`,
+    `print_banner`, `run_app`, `not_yet_implemented`. Catches
+    `GenoLeWMError` at exactly one place and maps each subclass to the
+    exit code documented in `docs/spec/04-error-model.md` (2 / 3 / 4 /
+    5 / 6 / 7 / 8 / 9; 130 for `KeyboardInterrupt`).
+  - Eleven new Typer stub commands: `train`, `score`, `rollout`, `plan`,
+    `eval`, `eval-all`, `export`, `cache-windows`, `prepare-gnomad`,
+    `prepare-clinvar`, `update`. Each accepts the full shared flag set
+    from RFC-0018 §3.2, prints the non-dismissible safety banner
+    (RFC-0018 §3.7, suppressible only with both `--quiet` and
+    `--no-banner`), and exits with code 9 advertising the GitHub
+    tracking issue for the eventual implementation.
+  - `[project.scripts]` registers all 12 console scripts (the 11 new
+    stubs + the existing `geno-lewm-verify`).
+  - Shell completion (issue #31) via Typer's built-in
+    `--install-completion` / `--show-completion`; install steps
+    documented in CONTRIBUTING.md.
+  - `typer>=0.12` added to the base runtime dependency set; previously
+    the package shipped with zero runtime dependencies.
+  - `tests/unit/test_cli_dispatcher.py` — 84 tests covering the banner
+    contract, the shared-flag validator, exit-code mapping for every
+    error family, `--version` for every stub, the
+    `pyproject.toml` ↔ module-layout invariant, and the `--help`
+    smoke test for every console script.
+
 - **Test pyramid scaffold and shared fixtures** (issue #85; RFC-0015
   §3.6).
   - `tests/conftest.py` resolves `PYTEST_RANDOM_SEED` (env override, or
