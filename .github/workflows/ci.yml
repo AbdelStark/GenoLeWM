@@ -116,7 +116,25 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: pytest
-        run: pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto
+        # xdist on Windows uses spawn-based workers that re-import the
+        # package per worker; combined with module-level state in
+        # observability/metrics, this surfaces flaky failures on Windows
+        # specifically. Run serially on Windows, parallel elsewhere.
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -v --tb=long 2>&1 | tee pytest.out
+          else
+            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee pytest.out
+          fi
+        shell: bash
+      - name: Upload pytest output (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-${{ matrix.os }}-${{ matrix.python }}
+          path: pytest.out
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         uses: codecov/codecov-action@v5
