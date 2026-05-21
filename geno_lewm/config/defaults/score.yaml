@@ -1,0 +1,68 @@
+# GenoLeWM scoring config — Phase 1 default (RFC-0017 §3.3).
+#
+# Scoring resolves the predictor checkpoint by hash via the manifest;
+# the optimizer block is irrelevant but stays present so the schema
+# remains uniform across CLI commands.
+
+run_id: score-default
+seed: 0
+phase: phase1
+deterministic: true
+schema_version: 1.0.0
+
+encoder:
+  model_id: HuggingFaceBio/Carbon-500M
+  revision: main@deadbeef
+  dtype: bf16
+  state_layer: 20
+  pool_type: centered_mean
+  pool_radius: 8
+  normalize: true
+
+predictor:
+  architecture: cross_attention
+  n_layers: 6
+  n_heads: 8
+  d_state: 512
+  d_action: 64
+  dtype: bf16
+
+action:
+  d_action: 64
+  max_len: 16
+  sub_encoders:
+    - snv
+    - ins
+    - del
+    - mnv
+
+# Scoring does not train; lr=0 makes that fact load-bearing.
+optimizer:
+  name: adamw
+  lr: 0.0
+  beta1: 0.9
+  beta2: 0.95
+  weight_decay: 0.0
+  grad_clip: 0.0
+  warmup_steps: 0
+  schedule: constant
+
+data:
+  corpus_id: HuggingFaceBio/carbon-pretraining-corpus
+  corpus_revision: main@cafef00d
+  batch_size: 32
+  num_workers: 2
+  shuffle_buffer: 0
+
+eval:
+  benchmarks: []
+  smoke_variants: 0
+
+observability:
+  log_level: info
+  redaction_strict: true
+  wandb_project: null
+
+runtime:
+  backend: onnx
+  device: cpu

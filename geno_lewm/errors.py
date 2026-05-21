@@ -61,6 +61,7 @@ __all__ = [
     "RuntimeSetupError",
     "SchemaCompatError",
     "TrainingError",
+    "UnknownTopLevelKeyError",
     "UnreachableError",
     "UnsupportedEditError",
     "VcfParseError",
@@ -143,6 +144,12 @@ class MissingConfigError(ConfigError):
     """A required configuration field is absent."""
 
     code = "CONFIG.MISSING_FIELD"
+
+
+class UnknownTopLevelKeyError(ConfigError):
+    """A configuration payload contained a top-level key not in the schema."""
+
+    code = "CONFIG.UNKNOWN_TOP_LEVEL_KEY"
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +428,11 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
     ErrorCodeEntry("CONFIG.GENERIC", ConfigError, "Configuration error"),
     ErrorCodeEntry("CONFIG.SCHEMA_INCOMPAT", SchemaCompatError, "On-disk schema MAJOR mismatch"),
     ErrorCodeEntry("CONFIG.MISSING_FIELD", MissingConfigError, "Required config field absent"),
+    ErrorCodeEntry(
+        "CONFIG.UNKNOWN_TOP_LEVEL_KEY",
+        UnknownTopLevelKeyError,
+        "Top-level config key is not in the schema",
+    ),
     # Input
     ErrorCodeEntry("INPUT.GENERIC", InputError, "Caller-supplied input invalid"),
     ErrorCodeEntry("INPUT.INVALID_EDIT", InvalidEditError, "EditSpec invariants violated"),
