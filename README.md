@@ -37,9 +37,9 @@ of one equation.*
 
 ## Why GenoLeWM
 
-[Carbon](https://huggingface.co/collections/HuggingFaceBio/carbon) is a powerful
+[Carbon](https://huggingface.co/collections/HuggingFaceBio/carbon) is an
 autoregressive DNA foundation model that scores variants via `logP(alt) − logP(ref)`.
-That signal is strong, but the formulation has two structural limits:
+That formulation works, but it has two structural limits:
 
 1. **Edits are not inputs.** Every variant scoring call is a full re-encoding of
    `ref` and `alt`. The model has no representation of *an edit*.
@@ -57,17 +57,17 @@ regularizer), no EMA, no teacher network, ~15M trainable parameters.
 | Symbol | Meaning |
 |---|---|
 | `s_t ∈ ℝ^d` | a frozen Carbon embedding of a genomic window (the **state**) |
-| `a_t` | a structured genetic edit — SNV, indel, MNV (the **action**) |
+| `a_t` | a structured genetic edit (SNV, indel, MNV); the **action** |
 | `g(s_t, a_t) → ŝ_{t+1}` | a small trainable **predictor**, target `enc(edited_window)` |
 
 That single change unlocks:
 
 - **Variant-effect prediction** at a fraction of Carbon's per-variant cost.
-- **Multi-edit haplotype rollout** in latent space — compose actions without ever decoding back to DNA.
+- **Multi-edit haplotype rollout** in latent space: compose actions without ever decoding back to DNA.
 - **Planning** over edit sequences via latent MPC (e.g. *minimal edit set to restore a reference-like neighborhood*).
-- **Surprise-based pathogenicity scoring** — predictor residual `‖ŝ_{t+1} − s_{t+1}‖` as an unsupervised signal.
-- **On-device personal-genome inference** — Carbon-500M + a ~15M-parameter GenoLeWM head fits on a laptop.
-- **Verifiable inference** — content-addressed manifests, input/output commitments, and (Phase 4) STARK-proven forward passes.
+- **Surprise-based pathogenicity scoring**: predictor residual `‖ŝ_{t+1} − s_{t+1}‖` as an unsupervised signal.
+- **On-device personal-genome inference**: Carbon-500M + a ~15M-parameter GenoLeWM head fits on a laptop.
+- **Verifiable inference**: content-addressed manifests, input/output commitments, and (Phase 4) STARK-proven forward passes.
 
 ---
 
@@ -114,31 +114,31 @@ and runtime data flow: [`docs/spec/01-architecture.md`](docs/spec/01-architectur
 
 ## Status
 
-**Phase 1 — production infrastructure layer is implemented and shipping today.**
-The training, predictor, eval, and deployment surfaces land incrementally —
+**Phase 1: the production infrastructure layer is implemented.**
+The training, predictor, eval, and deployment surfaces land incrementally;
 see [ROADMAP.md](ROADMAP.md) and the [implementation tracker](docs/roadmap/IMPLEMENTATION.md).
 
 | Module | RFC | Status |
 | --- | --- | --- |
-| `geno_lewm.errors` — typed exception hierarchy + code registry | [RFC-0012](rfcs/0012-error-taxonomy.md) | ✅ stable |
-| `geno_lewm.observability` — JSONL logger + event registry | [RFC-0013](rfcs/0013-observability.md) | ✅ stable |
-| `geno_lewm._redaction` — privacy redaction filter | [RFC-0013 §3.5](rfcs/0013-observability.md) | ✅ stable |
-| `geno_lewm.metrics` — registered metrics + Prometheus textfile export | [RFC-0013](rfcs/0013-observability.md) | ✅ stable |
-| `geno_lewm.action` — `EditSpec` / `RelEdit`, `apply_edit`(s), synthetic samplers | [RFC-0003](rfcs/0003-action-representation-genomic-edits.md), [RFC-0006](rfcs/0006-data-pipeline.md) | ✅ stable |
-| `geno_lewm.attestation` — manifest schema, hashing, commitments, receipts | [RFC-0011](rfcs/0011-verifiable-inference-attestation.md) | ✅ stable |
-| `geno_lewm.cli.verify` — `geno-lewm-verify` checksum-mode receipt verifier | [RFC-0011](rfcs/0011-verifiable-inference-attestation.md) | ✅ stable |
-| `geno_lewm.api` — `@experimental` / `@deprecated` lifetime decorators | [RFC-0014](rfcs/0014-public-api-and-stability.md) | ✅ stable |
+| `geno_lewm.errors`: typed exception hierarchy + code registry | [RFC-0012](rfcs/0012-error-taxonomy.md) | ✅ stable |
+| `geno_lewm.observability`: JSONL logger + event registry | [RFC-0013](rfcs/0013-observability.md) | ✅ stable |
+| `geno_lewm._redaction`: privacy redaction filter | [RFC-0013 §3.5](rfcs/0013-observability.md) | ✅ stable |
+| `geno_lewm.metrics`: registered metrics + Prometheus textfile export | [RFC-0013](rfcs/0013-observability.md) | ✅ stable |
+| `geno_lewm.action`: `EditSpec` / `RelEdit`, `apply_edit`(s), synthetic samplers | [RFC-0003](rfcs/0003-action-representation-genomic-edits.md), [RFC-0006](rfcs/0006-data-pipeline.md) | ✅ stable |
+| `geno_lewm.attestation`: manifest schema, hashing, commitments, receipts | [RFC-0011](rfcs/0011-verifiable-inference-attestation.md) | ✅ stable |
+| `geno_lewm.cli.verify`: `geno-lewm-verify` checksum-mode receipt verifier | [RFC-0011](rfcs/0011-verifiable-inference-attestation.md) | ✅ stable |
+| `geno_lewm.api`: `@experimental` / `@deprecated` lifetime decorators | [RFC-0014](rfcs/0014-public-api-and-stability.md) | ✅ stable |
 | `encoder/`, `predictor/`, `data/`, `eval/`, `planning/`, `surprise/`, `deploy/` | [RFC-0002](rfcs/0002-state-encoder-carbon-integration.md)–[RFC-0010](rfcs/0010-on-device-personal-genome-deployment.md) | 🟡 designed, landing |
 
 ### Phase plan
 
 | Phase | Goal | Headline target | Status |
 |---|---|---|---|
-| **0 — Design** | Lock the spec and 19 RFCs | All RFCs `Accepted` | ✅ shipped |
-| **1 — Minimum viable predictor** | End-to-end SNV pipeline on Carbon-500M | ≥ 0.80 AUROC, ClinVar coding | 🚧 in progress |
-| **2 — Full edits + planning** | SNV+INS+DEL+MNV, LoRA, CEM planner, calibrated surprise | ≥ Carbon-500M zero-shot AUROC | ⏳ designed |
-| **3 — On-device** | ONNX / Core ML / GGUF, int4/int8, desktop app skeleton | < 200 ms / variant on M3 Max | ⏳ designed |
-| **4 — Verifiable inference** | STARK proof of the predictor forward pass | proof gen < 5 min, verify < 1 s | ⏳ designed |
+| **0. Design** | Lock the spec and 19 RFCs | All RFCs `Accepted` | ✅ shipped |
+| **1. Minimum viable predictor** | End-to-end SNV pipeline on Carbon-500M | ≥ 0.80 AUROC, ClinVar coding | 🚧 in progress |
+| **2. Full edits + planning** | SNV+INS+DEL+MNV, LoRA, CEM planner, calibrated surprise | ≥ Carbon-500M zero-shot AUROC | ⏳ designed |
+| **3. On-device** | ONNX / Core ML / GGUF, int4/int8, desktop app skeleton | < 200 ms / variant on M3 Max | ⏳ designed |
+| **4. Verifiable inference** | STARK proof of the predictor forward pass | proof gen < 5 min, verify < 1 s | ⏳ designed |
 
 See [`ROADMAP.md`](ROADMAP.md) for exit criteria, durations, and risks per phase.
 
@@ -192,11 +192,11 @@ assert snv.edit_type is EditType.SNV
 rel = snv.relative_to(window_start_bp=43_091_900, window_end_bp=43_092_100)
 print(rel.rel_pos)  # 82
 
-# Pure-Python apply — used to build the s_{t+1} target during training.
+# Pure-Python apply, used to build the s_{t+1} target during training.
 window = "ACGT" * 64
 edited = apply_edit(window, RelEdit(0, EditType.SNV, "A", "C"))
 
-# Multi-edit composition is order-invariant after the internal right-to-left sort.
+# Multi-edit composition is order-invariant; edits are sorted right-to-left internally.
 edited_haplotype = apply_edits(window, [
     RelEdit(rel_pos=0,  edit_type=EditType.SNV, ref_bases="A", alt_bases="T"),
     RelEdit(rel_pos=4,  edit_type=EditType.SNV, ref_bases="A", alt_bases="C"),
@@ -214,7 +214,7 @@ from geno_lewm import get_logger
 
 log = get_logger("inference", run_id="run-42")
 log.info("inference.batch.end", n=10, batch_id="b-1", throughput_per_s=87.2)
-# `sample_id` would be denied even with an allowlist hit — strict-mode raises.
+# `sample_id` would be denied even with an allowlist hit; strict-mode raises.
 ```
 
 JSONL on a pipe, pretty on a TTY. Four redaction rules (allowlist / type /
@@ -236,7 +236,7 @@ dtype = DtypeConfig(encoder_dtype="bf16", predictor_dtype="bf16")
 
 window = "ACGT" * 64
 print(compute_input_commitment(window, edit, pool, dtype))
-# 'sha256:0123…'  — byte-stable, content-addressed, reproducible
+# 'sha256:0123…' : byte-stable, content-addressed, reproducible
 ```
 
 ### 4. The verify CLI
@@ -259,7 +259,7 @@ Exit codes follow [`docs/spec/04-error-model.md`](docs/spec/04-error-model.md):
 
 ## Performance targets
 
-Performance is part of the public contract — these are commitments, not
+Performance is part of the public contract: these are commitments, not
 aspirations. A release that misses any of them is not shippable as v0.1 without
 an explicit RFC amendment. Full table: [`docs/spec/08-performance-budget.md`](docs/spec/08-performance-budget.md).
 
@@ -268,9 +268,9 @@ an explicit RFC amendment. Full table: [`docs/spec/08-performance-budget.md`](do
 | Single-variant scoring (warm cache) | < 5 ms | < 20 ms | < 200 ms | < 1.5 s |
 | Single-variant scoring (cold; Carbon call) | < 50 ms | < 100 ms | < 800 ms | < 6 s |
 | Predictor forward pass (bf16) | < 1 ms | < 3 ms | < 25 ms | < 200 ms |
-| 100k-variant VCF scoring | < 1 min | < 5 min | < 30 min | — |
-| Predictor + Carbon-500M (bf16) memory | < 3 GB | < 3 GB | < 8 GB | — |
-| Predictor + Carbon-500M (int4) memory | n/a | n/a | < 1 GB | — |
+| 100k-variant VCF scoring | < 1 min | < 5 min | < 30 min | n/a |
+| Predictor + Carbon-500M (bf16) memory | < 3 GB | < 3 GB | < 8 GB | n/a |
+| Predictor + Carbon-500M (int4) memory | n/a | n/a | < 1 GB | n/a |
 
 ---
 
@@ -318,30 +318,29 @@ GenoLeWM/
 | --- | --- |
 | **5 minutes** | this README, then skim [`SPEC.md`](SPEC.md) |
 | **30 minutes** | [`SPEC.md`](SPEC.md) end-to-end → [`ARCHITECTURE.md`](ARCHITECTURE.md) → RFC-0001 (scope), RFC-0005 (training objective) |
-| **an afternoon** | the full [RFC corpus](rfcs/) in numerical order — they are mutually consistent and assume each other |
+| **an afternoon** | the full [RFC corpus](rfcs/) in numerical order; they are mutually consistent and assume each other |
 | **contributing experiments** | RFC-0006 (data) → RFC-0007 (eval) → RFC-0009 (surprise) |
-| **the cypherpunk angle** | RFC-0010 (on-device) → RFC-0011 (verifiable inference) — these are what make GenoLeWM more than "another bio model" |
+| **the on-device + verifiable angle** | RFC-0010 (on-device) → RFC-0011 (verifiable inference) |
 
 ---
 
 ## Engineering discipline
 
-GenoLeWM is built to the standards we want every research code release to meet.
 Every gate below runs on every PR; `make ci` is the single command that rehearses
 the full pipeline locally.
 
 | Gate | Tool | Policy |
 |---|---|---|
 | Formatting | `ruff format --check` | zero diff |
-| Linting | `ruff check` | `E, W, F, I, B, C4, UP, N, RUF, SIM, PIE, PTH, TID, ARG, PL, PERF, FURB, LOG, ASYNC` — zero findings |
-| Typing | `mypy --strict` | strict mode across `geno_lewm/` and `tools/` — zero errors |
+| Linting | `ruff check` | `E, W, F, I, B, C4, UP, N, RUF, SIM, PIE, PTH, TID, ARG, PL, PERF, FURB, LOG, ASYNC`; zero findings |
+| Typing | `mypy --strict` | strict mode across `geno_lewm/` and `tools/`; zero errors |
 | Tests | `pytest -n auto` | 500+ unit, property, lint, and public-surface tests |
 | Coverage | `pytest --cov --cov-branch` | branch coverage ≥ 95% on the implemented surface |
-| Public API | `tools/api/snapshot.py` | committed snapshot — any change is a deliberate PR |
+| Public API | `tools/api/snapshot.py` | committed snapshot; any change is a deliberate PR |
 | Error codes | `tools/lint/check_error_codes.py` | every raised error has a registered code |
 | Log events | `tools/lint/check_event_names.py` | every emitted event is in the registry |
 | Network | `tools/lint/check_network_confined.py` | fail-closed: no `urllib` / `requests` / `httpx` outside allowlisted modules |
-| Print | `tools/lint/check_no_print.py` | no `print()` in library code — use the logger |
+| Print | `tools/lint/check_no_print.py` | no `print()` in library code; use the logger |
 | License | `tools/lint/check_license_headers.py` | SPDX header on every source file |
 | Build | `python -m build && twine check` | sdist + wheel build clean |
 | Docs | `mkdocs build --strict` | docs fail the build on any warning |
@@ -367,11 +366,11 @@ implementation PRs against the modules listed as designed-not-yet-implemented.
 
 - The PR template, RFC process, and review discipline are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - The expected behavior in project spaces is in [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-- Security reports go through GitHub Security Advisories — see [`SECURITY.md`](SECURITY.md).
+- Security reports go through GitHub Security Advisories; see [`SECURITY.md`](SECURITY.md).
 - Privacy guarantees and how they are enforced are in [`PRIVACY.md`](PRIVACY.md).
 
-The implementation tracker — issues, owners, and the current open-question
-registry — is at [`docs/roadmap/IMPLEMENTATION.md`](docs/roadmap/IMPLEMENTATION.md).
+The implementation tracker (issues, owners, and the current open-question
+registry) is at [`docs/roadmap/IMPLEMENTATION.md`](docs/roadmap/IMPLEMENTATION.md).
 
 ---
 
@@ -396,12 +395,12 @@ its two intellectual parents.
 
 GenoLeWM stands on two pieces of prior work:
 
-- **[LeWorldModel](https://github.com/lucas-maes/le-wm)** — Lucas Maes, Quentin
-  Le Lidec, Damien Scieur, Yann LeCun, Randall Balestriero — for the stable
+- **[LeWorldModel](https://github.com/lucas-maes/le-wm)** by Lucas Maes, Quentin
+  Le Lidec, Damien Scieur, Yann LeCun, and Randall Balestriero, for the stable
   end-to-end JEPA training recipe (LeJEPA) that GenoLeWM specializes to the
   symbolic / genomic domain.
-- **[Carbon](https://huggingface.co/collections/HuggingFaceBio/carbon)** — the
-  Hugging Face Bio team, Zhongguancun Academy, and TIGEM / Federico II — for the
+- **[Carbon](https://huggingface.co/collections/HuggingFaceBio/carbon)** by the
+  Hugging Face Bio team, Zhongguancun Academy, and TIGEM / Federico II, for the
   autoregressive DNA foundation model that serves as the frozen state encoder.
 
 And on the recipe of porting LeWM to a structured symbolic domain pioneered
