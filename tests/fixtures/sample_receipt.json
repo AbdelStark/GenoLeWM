@@ -1,0 +1,25 @@
+{
+  "attestation": {
+    "details": null,
+    "kind": "checksum_only"
+  },
+  "calibration_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "input_commitment": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "model_id": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "output": {
+    "bucket_id": "coding.missense",
+    "confidence": 0.94,
+    "low_confidence": false,
+    "sigma_calibrated": 0.812,
+    "sigma_raw": 0.7321
+  },
+  "output_commitment": "sha256:b9c6df8b676e8618ec627ced31c733a0a04ec8d900ec09fbc09a6a6ca23b38ab",
+  "runtime": {
+    "backend": "onnx-cpu",
+    "carbon_revision": "main@deadbeef",
+    "device": "cpu",
+    "geno_lewm_version": "0.1.0.dev0"
+  },
+  "schema_version": "1.0.0",
+  "timestamp": "2026-05-21T00:00:00+00:00"
+}
