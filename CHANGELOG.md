@@ -12,6 +12,20 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
+- **Changed-files coverage gate** (issue #88; `tools/ci/coverage_gate.py`).
+  - Cobertura XML + `git diff origin/<base>...HEAD` → per-file coverage
+    on the lines a PR adds or modifies; fails if any touched Python
+    file under `geno_lewm/` falls below the configured threshold
+    (default 90 %). Avoids the project-wide ratchet pathology called
+    out in RFC-0015 §4.2.
+  - Wired into `.github/workflows/ci.yml` as a step on the canonical
+    matrix combo (Ubuntu × Python 3.12), gated to `pull_request`
+    events. The `actions/checkout@v6` step now uses `fetch-depth: 0`
+    so the gate can resolve the base ref locally.
+  - Inputs are explicit (`--coverage-xml`, `--base`, `--threshold`,
+    `--prefix`, `--diff-file`) so the gate is unit-testable without a
+    real git repo.
+
 - **Release tooling** (issue #102; `tools/release/`).
   - `tools/release/bump.py` rewrites the canonical `__version__`
     assignment in `geno_lewm/__init__.py` after validating the new
