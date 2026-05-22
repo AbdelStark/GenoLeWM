@@ -233,10 +233,6 @@ if len(_EVENTS_BY_NAME) != len(EVENTS):  # pragma: no cover - tested via registr
     )
 
 
-def _is_registered_event(name: str) -> bool:
-    return name in _EVENTS_BY_NAME
-
-
 # ---------------------------------------------------------------------------
 # Trace context — a contextvar pair carrying OTel-shaped IDs.
 # Tracing is optional in v1 (RFC-0013 §"Tracing"); the logger just attaches
@@ -459,14 +455,11 @@ class GenoLeWMLogger:
         if _SEVERITY_ORDER[severity] < _SEVERITY_ORDER[self._level]:
             return None
 
+        # Unknown event names are an INV-OBS-1 contract violation that the
+        # AST linter (#27) catches at PR time. At runtime we still emit
+        # (with an empty redaction allowlist; see below) so a user run
+        # does not crash on a forgotten registry entry.
         spec = _EVENTS_BY_NAME.get(event)
-        if spec is None:
-            # Unknown event names are a contract violation but the
-            # AST linter (#27) catches them at PR time. At runtime we
-            # still emit, but tag the record so a downstream sink can
-            # alert. INV-OBS-1 is enforced by the linter; this code
-            # path remains best-effort to avoid crashing user runs.
-            pass
 
         # Pull spec-standardized fields out of the kwargs.
         step = fields.get("step")
