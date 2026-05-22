@@ -24,8 +24,14 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from geno_lewm.action.spec import EditSpec
+    from geno_lewm.attestation.commitment import DtypeConfig, PoolingConfig
+    from geno_lewm.attestation.receipt import ReceiptOutput
 
 # Tests need ``tests.fixtures`` importable so they can read the canned
 # JSON blobs. The directory ships with an ``__init__.py``; nothing else
@@ -104,7 +110,7 @@ def synthetic_window() -> str:
 
 
 @pytest.fixture()
-def synthetic_edit_spec():  # type: ignore[no-untyped-def]
+def synthetic_edit_spec() -> EditSpec:
     """A canonical SNV ``EditSpec`` at chr1:1000 A>T."""
     from geno_lewm.action.spec import EditSpec
 
@@ -112,7 +118,7 @@ def synthetic_edit_spec():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture()
-def synthetic_pooling_config():  # type: ignore[no-untyped-def]
+def synthetic_pooling_config() -> PoolingConfig:
     """A canonical ``PoolingConfig`` (centered_mean, layer 20)."""
     from geno_lewm.attestation.commitment import PoolingConfig
 
@@ -120,7 +126,7 @@ def synthetic_pooling_config():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture()
-def synthetic_dtype_config():  # type: ignore[no-untyped-def]
+def synthetic_dtype_config() -> DtypeConfig:
     """A canonical bf16/bf16 ``DtypeConfig``."""
     from geno_lewm.attestation.commitment import DtypeConfig
 
@@ -128,7 +134,7 @@ def synthetic_dtype_config():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture()
-def synthetic_receipt_output():  # type: ignore[no-untyped-def]
+def synthetic_receipt_output() -> ReceiptOutput:
     """A canonical ``ReceiptOutput`` (coding.missense, high confidence)."""
     from geno_lewm.attestation.receipt import ReceiptOutput
 

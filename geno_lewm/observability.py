@@ -32,6 +32,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import io
+import json
 import os
 import sys
 import threading
@@ -40,12 +41,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO, Any, Literal
-
-try:  # stdlib in 3.11+
-    import json
-except ImportError:  # pragma: no cover - 3.10 still ships json
-    raise
+from typing import IO, Any, Literal, cast
 
 __all__ = [
     "EVENTS",
@@ -237,10 +233,6 @@ if len(_EVENTS_BY_NAME) != len(EVENTS):  # pragma: no cover - tested via registr
     )
 
 
-def _is_registered_event(name: str) -> bool:
-    return name in _EVENTS_BY_NAME
-
-
 # ---------------------------------------------------------------------------
 # Trace context — a contextvar pair carrying OTel-shaped IDs.
 # Tracing is optional in v1 (RFC-0013 §"Tracing"); the logger just attaches
@@ -328,6 +320,10 @@ class _Sink:
             self.stream.write(line)
             if not line.endswith("\n"):
                 self.stream.write("\n")
+            self.stream.flush()
+
+    def flush(self) -> None:
+        with self.lock:
             self.stream.flush()
 
     def close(self) -> None:
@@ -459,14 +455,11 @@ class GenoLeWMLogger:
         if _SEVERITY_ORDER[severity] < _SEVERITY_ORDER[self._level]:
             return None
 
+        # Unknown event names are an INV-OBS-1 contract violation that the
+        # AST linter (#27) catches at PR time. At runtime we still emit
+        # (with an empty redaction allowlist; see below) so a user run
+        # does not crash on a forgotten registry entry.
         spec = _EVENTS_BY_NAME.get(event)
-        if spec is None:
-            # Unknown event names are a contract violation but the
-            # AST linter (#27) catches them at PR time. At runtime we
-            # still emit, but tag the record so a downstream sink can
-            # alert. INV-OBS-1 is enforced by the linter; this code
-            # path remains best-effort to avoid crashing user runs.
-            pass
 
         # Pull spec-standardized fields out of the kwargs.
         step = fields.get("step")
@@ -528,7 +521,7 @@ _LOGGERS_LOCK = threading.Lock()
 def _env_level() -> Severity:
     raw = os.environ.get("GENO_LEWM_LOG_LEVEL", "info").lower()
     if raw in _VALID_SEVERITIES:
-        return raw  # type: ignore[return-value]
+        return cast("Severity", raw)
     return "info"
 
 
@@ -629,7 +622,7 @@ def logged_run(
             )
         # Always flush the sink before the exception unwinds the stack.
         with contextlib.suppress(Exception):
-            logger._sink.stream.flush()
+            logger._sink.flush()
         raise
     else:
         if end_event:

@@ -55,13 +55,6 @@ _ALLOWED_PATHS: frozenset[Path] = frozenset(
     }
 )
 
-#: Modules from the forbidden set that we DON'T want to gate on
-#: top-level scope. ``asyncio`` is everywhere in modern Python; flag
-#: it only when explicitly used together with network primitives.
-#: For v1 keep the rule strict — listed modules are forbidden
-#: everywhere outside the allowlist.
-_STRICT_FORBIDDEN: frozenset[str] = _FORBIDDEN_MODULES
-
 
 @dataclass(frozen=True)
 class Violation:
@@ -113,7 +106,7 @@ def check_file(path: Path) -> list[Violation]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root_name = _first_part(alias.name)
-                if root_name in _STRICT_FORBIDDEN:
+                if root_name in _FORBIDDEN_MODULES:
                     out.append(
                         Violation(
                             path=path,
@@ -132,7 +125,7 @@ def check_file(path: Path) -> list[Violation]:
                 continue  # relative imports never refer to the forbidden top-level set
             mod = node.module or ""
             root_name = _first_part(mod)
-            if root_name in _STRICT_FORBIDDEN:
+            if root_name in _FORBIDDEN_MODULES:
                 out.append(
                     Violation(
                         path=path,

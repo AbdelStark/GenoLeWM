@@ -25,16 +25,6 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Iterable, Mapping
-
-__all__ = [
-    "DEFAULTS_DIR",
-    "config_to_dict",
-    "describe_field",
-    "iter_subsystem_names",
-    "load_config",
-    "load_default",
-    "write_resolved_config",
-]
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from types import UnionType
@@ -60,6 +50,16 @@ from geno_lewm.errors import (
     MissingConfigError,
     UnknownTopLevelKeyError,
 )
+
+__all__ = [
+    "DEFAULTS_DIR",
+    "config_to_dict",
+    "describe_field",
+    "iter_subsystem_names",
+    "load_config",
+    "load_default",
+    "write_resolved_config",
+]
 
 #: Filesystem directory holding the canonical YAML templates per CLI
 #: command. Each file declares the same schema; the differences are in

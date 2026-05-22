@@ -245,6 +245,10 @@ def build_section(
     return rendered
 
 
+class InputError(Exception):
+    """Raised on invalid arguments or missing prerequisites."""
+
+
 # Marker used by ``--write`` to lift the existing ``[Unreleased]``
 # entries into the new version section.
 _UNRELEASED_HEADER_RE: Final = re.compile(r"^## \[Unreleased\].*$", re.MULTILINE)
@@ -274,10 +278,6 @@ def lift_unreleased(
     tail = changelog_text[end:]
     placeholder = "## [Unreleased]\n\n"
     return f"{head}{placeholder}{rendered_section}\n{tail}"
-
-
-class InputError(Exception):
-    """Raised on invalid arguments or missing prerequisites."""
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:

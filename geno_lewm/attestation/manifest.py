@@ -152,12 +152,7 @@ class Manifest:
 # Disk I/O
 
 
-_ARTIFACT_KEYS: dict[str, type[ManifestArtifact]] = {
-    "predictor": ManifestArtifact,
-    "action_encoder": ManifestArtifact,
-    "calibration": ManifestArtifact,
-    "eval": ManifestArtifact,
-}
+_ARTIFACT_KEYS: tuple[str, ...] = ("predictor", "action_encoder", "calibration", "eval")
 
 
 def _build_artifact(name: str, blob: dict[str, Any]) -> ManifestArtifact:

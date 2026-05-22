@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -129,7 +129,3 @@ def looks_like_sha256(s: str) -> bool:
     if len(rest) != _HASH_HEX_LEN:
         return False
     return all(c in "0123456789abcdef" for c in rest)
-
-
-# Re-export so callers can validate strings without importing the constant.
-_ = (Sequence,)  # silence unused-import on isolated ruff runs

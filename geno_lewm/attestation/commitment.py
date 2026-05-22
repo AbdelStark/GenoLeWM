@@ -91,15 +91,15 @@ def compute_input_commitment(
     The canonical payload is a dict with fixed keys; canonical-JSON
     encoding handles ordering and stability.
     """
-    if not reference_window:
-        raise InputError(
-            "reference_window must be non-empty",
-            details={"len": 0},
-        )
     if not isinstance(reference_window, str):
         raise InputError(
             "reference_window must be a string of bases",
             details={"type": type(reference_window).__name__},
+        )
+    if not reference_window:
+        raise InputError(
+            "reference_window must be non-empty",
+            details={"len": 0},
         )
 
     payload = {

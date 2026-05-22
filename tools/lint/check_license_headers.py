@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """``license_headers`` AST linter.
 
 Every shipped ``.py`` file under ``geno_lewm/`` and ``tools/`` must

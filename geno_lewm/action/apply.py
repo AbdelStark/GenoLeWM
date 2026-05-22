@@ -24,7 +24,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Sequence
 
-from geno_lewm.action.spec import EditType, RelEdit
+from geno_lewm.action.spec import RelEdit
 from geno_lewm.errors import (
     OutOfWindowError,
     OverlappingEditsError,
@@ -179,8 +179,3 @@ def _truncate_or_pad(window: str, target_len: int, *, edit_locus: int) -> str:
     if trim_right:
         return window + _PAD_BASE * needed
     return _PAD_BASE * needed + window
-
-
-# RelEdit kept in the imports for re-export checks; suppress unused import
-# warning when ruff scans this module in isolation.
-_ = (EditType, RelEdit)
