@@ -32,6 +32,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import io
+import json
 import os
 import sys
 import threading
@@ -40,12 +41,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO, Any, Literal
-
-try:  # stdlib in 3.11+
-    import json
-except ImportError:  # pragma: no cover - 3.10 still ships json
-    raise
+from typing import IO, Any, Literal, cast
 
 __all__ = [
     "EVENTS",
@@ -330,6 +326,10 @@ class _Sink:
                 self.stream.write("\n")
             self.stream.flush()
 
+    def flush(self) -> None:
+        with self.lock:
+            self.stream.flush()
+
     def close(self) -> None:
         with self.lock:
             try:
@@ -528,7 +528,7 @@ _LOGGERS_LOCK = threading.Lock()
 def _env_level() -> Severity:
     raw = os.environ.get("GENO_LEWM_LOG_LEVEL", "info").lower()
     if raw in _VALID_SEVERITIES:
-        return raw  # type: ignore[return-value]
+        return cast("Severity", raw)
     return "info"
 
 
@@ -629,7 +629,7 @@ def logged_run(
             )
         # Always flush the sink before the exception unwinds the stack.
         with contextlib.suppress(Exception):
-            logger._sink.stream.flush()
+            logger._sink.flush()
         raise
     else:
         if end_event:

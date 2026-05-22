@@ -43,14 +43,16 @@ def _emit_once(seen_key: object, category: type[Warning], message: str, stacklev
     """Issue a warning iff the (decorated-object | call-site) hasn't
     been warned about yet in this process."""
     with _warned_lock:
-        if seen_key in _experimental_warned or seen_key in _deprecated_warned:
-            return
-    # Decide which set to dirty.
-    with _warned_lock:
         if category is FutureWarning:
-            _experimental_warned.add(cast(int, seen_key))
+            key_int = cast("int", seen_key)
+            if key_int in _experimental_warned:
+                return
+            _experimental_warned.add(key_int)
         else:
-            _deprecated_warned.add(cast("tuple[int, str, int]", seen_key))
+            key_tup = cast("tuple[int, str, int]", seen_key)
+            if key_tup in _deprecated_warned:
+                return
+            _deprecated_warned.add(key_tup)
     warnings.warn(message, category=category, stacklevel=stacklevel)
 
 
