@@ -59,9 +59,12 @@ Phase 0 of the project shipped the **production infrastructure layer**:
   Phase-1 rollout-length mix.
 - **Collapse-monitoring diagnostics** — RFC-0005 variance, pairwise
   distance, correlation, and KL-registry metrics with structured alerts.
+- **Planning primitives** — RFC-0008 cost functions and factored
+  `ActionSampler` for valid window-relative edits.
 
 What's *not* yet shipped: trainer, autoregressive rollout, eval harness,
-ONNX / Core ML / GGUF exporters. See the [roadmap](roadmap/IMPLEMENTATION.md).
+CEM solver, ONNX / Core ML / GGUF exporters. See the
+[roadmap](roadmap/IMPLEMENTATION.md).
 
 ## Acknowledgments
 

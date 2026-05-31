@@ -6,7 +6,9 @@
 - **Updated:** 2026-05-20
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial; cost functions and the factored
+  `ActionSampler` are implemented. CEM solver and CLI integration are
+  not yet implemented.
 
 ---
 
@@ -208,6 +210,30 @@ The planner stops when any of the following is true:
 ### 3.8 Planning API
 
 ```python
+# geno_lewm.planning
+
+class ActionSampler:
+    def sample_edit(self, edit_type: EditType | int | None = None) -> RelEdit:
+        ...
+
+    def sample_sequence(self, horizon: int) -> tuple[RelEdit, ...]:
+        ...
+
+    def sample_sequences(self, n: int, horizon: int) -> tuple[tuple[RelEdit, ...], ...]:
+        ...
+
+def count_cost(edits: Sequence[RelEdit]) -> float:
+    ...
+
+def bp_cost(edits: Sequence[RelEdit]) -> float:
+    ...
+
+def weighted_type_cost(edits: Sequence[RelEdit], weights: Mapping[EditType, float]) -> float:
+    ...
+
+def custom_cost(edits: Sequence[RelEdit], cost_fn: Callable[[Sequence[RelEdit]], float]) -> float:
+    ...
+
 # geno_lewm.planning.cem
 
 @dataclass

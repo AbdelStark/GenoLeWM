@@ -466,6 +466,34 @@ Defined by [RFC-0009 §3.10](../rfcs/0009-surprise-based-pathogenicity-scoring.m
 ### `geno_lewm.planning`
 
 ```python
+DEFAULT_ACTION_TYPE_WEIGHTS: tuple[EditTypeWeight, ...]
+DEFAULT_TYPE_COSTS: Mapping[EditType, float]
+
+class ActionSampler:
+    def __init__(self,
+                 window: str,
+                 *,
+                 seed: int | None = None,
+                 rng: random.Random | None = None,
+                 edge_margin: int = 64,
+                 type_weights: Sequence[EditTypeWeight] = DEFAULT_ACTION_TYPE_WEIGHTS,
+                 length_dist: Mapping[int, float] | Sequence[float] | None = None,
+                 position_bin_bp: int = 8,
+                 position_weights: Mapping[int, float] | Sequence[float] | None = None,
+                 max_attempts: int = 256) -> None: ...
+
+    def sample_edit(self, edit_type: EditType | int | None = None) -> RelEdit: ...
+    def sample_sequence(self, horizon: int) -> tuple[RelEdit, ...]: ...
+    def sample_sequences(self, n: int, horizon: int) -> tuple[tuple[RelEdit, ...], ...]: ...
+
+def count_cost(edits: Sequence[RelEdit]) -> float: ...
+def edit_bp_cost(edit: RelEdit) -> float: ...
+def bp_cost(edits: Sequence[RelEdit]) -> float: ...
+def weighted_type_cost(edits: Sequence[RelEdit],
+                       weights: Mapping[EditType, float] = DEFAULT_TYPE_COSTS) -> float: ...
+def custom_cost(edits: Sequence[RelEdit],
+                cost_fn: Callable[[Sequence[RelEdit]], float]) -> float: ...
+
 @dataclass
 class PlanningConfig:
     horizon: int = 5
@@ -496,7 +524,12 @@ def plan(initial_state: Tensor,
          config: PlanningConfig | None = None) -> PlanningResult: ...
 ```
 
-Defined by [RFC-0008 §3.8](../rfcs/0008-latent-planning.md#38-planning-api).
+The cost functions and sampler are implemented. `PlanningConfig`,
+`PlanningResult`, and `plan` define the upcoming CEM surface.
+
+Defined by [RFC-0008 §3.3](../rfcs/0008-latent-planning.md#33-edit-search-space),
+[§3.5](../rfcs/0008-latent-planning.md#35-cost-functions), and
+[§3.8](../rfcs/0008-latent-planning.md#38-planning-api).
 
 ### `geno_lewm.deploy`
 
