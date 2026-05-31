@@ -106,6 +106,14 @@ collapse to the next-coarser bucket along a fixed back-off order:
 `(region_class, gc_bin, repeat_class)` → `(region_class, gc_bin)` →
 `(region_class)` → `(*)`.
 
+The stable bucket ID is the ASCII pipe-joined full context:
+`{region_class}|{gc_bin}|{repeat_class}`. Parent bucket IDs omit
+rightmost factors (`{region_class}|{gc_bin}`, then `{region_class}`),
+and the catch-all bucket is `*`. At calibration/scoring time, sparse
+buckets are resolved by selecting the first bucket in this chain with
+enough calibration rows; if all specific parents are sparse, the
+catch-all bucket is used and confidence reflects its row count.
+
 A bucket is considered "well-populated" if it contains ≥ 1,000 reference
 calibration variants (§3.4).
 
@@ -346,4 +354,6 @@ surprise score is intentionally unsupervised in v1.
 
 ## 7. Changelog
 
+- 2026-05-31 — Implemented deterministic context bucket IDs and
+  sparse-bucket back-off helpers.
 - 2026-05-20 — Initial draft.

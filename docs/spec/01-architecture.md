@@ -46,6 +46,7 @@ geno_lewm/
 │   ├── mcts.py
 │   └── cost.py
 ├── surprise/          # RFC-0009 — raw + calibrated surprise
+│   ├── context.py
 │   ├── score.py
 │   └── calibration.py
 ├── deploy/            # RFC-0010 + RFC-0019 — export, quantization, runtime
