@@ -346,6 +346,61 @@ Defined by [RFC-0004 §3](../rfcs/0004-predictor-architecture.md#3-specification
 
 ```python
 @dataclass(frozen=True, slots=True)
+class CollapseMetrics:
+    pred_cos_mean: float
+    pred_l2_mean: float
+    target_var_per_dim: float
+    pred_var_per_dim: float
+    pred_target_corr: float
+    pairwise_pred_dist_mean: float
+    kl_reg: float
+
+@dataclass(frozen=True, slots=True)
+class CollapseThresholds:
+    pred_var_to_target_var: float = 0.5
+    pairwise_to_initial: float = 0.5
+    kl_reg_max: float = 10.0
+
+@dataclass(frozen=True, slots=True)
+class CollapseAlert:
+    criterion: str
+    value: float
+    threshold: float
+
+@dataclass(frozen=True, slots=True)
+class CollapseCheck:
+    metrics: CollapseMetrics
+    alerts: tuple[CollapseAlert, ...]
+    @property
+    def tripped(self) -> bool: ...
+
+@dataclass(slots=True)
+class CollapseMonitor:
+    log_every_steps: int = 500
+    thresholds: CollapseThresholds = CollapseThresholds()
+    initial_pairwise_pred_dist_mean: float | None = None
+    def should_log(self, step: int) -> bool: ...
+    def observe(self, prediction: object, target: object, *,
+                kl_reg: float, step: int,
+                logger: GenoLeWMLogger | None = None,
+                force: bool = False) -> CollapseCheck | None: ...
+
+def compute_collapse_metrics(prediction: object,
+                             target: object,
+                             *,
+                             kl_reg: float) -> CollapseMetrics: ...
+def detect_collapse(metrics: CollapseMetrics,
+                    *,
+                    thresholds: CollapseThresholds | None = None,
+                    initial_pairwise_pred_dist_mean: float | None = None
+                    ) -> tuple[CollapseAlert, ...]: ...
+def record_collapse_metrics(metrics: CollapseMetrics,
+                            *,
+                            alerts: Iterable[CollapseAlert] = (),
+                            logger: GenoLeWMLogger | None = None,
+                            step: int | None = None) -> None: ...
+
+@dataclass(frozen=True, slots=True)
 class EditTypeWeight:
     edit_type: EditType
     weight: float
@@ -376,7 +431,8 @@ def draw_rollout_step_counts(n: int,
                              ) -> dict[int, int]: ...
 ```
 
-Defined by [RFC-0005 §3.7](../rfcs/0005-training-objective.md#37-batching-and-gradient-accumulation).
+Defined by [RFC-0005 §3.6](../rfcs/0005-training-objective.md#36-collapse-monitoring)
+and [§3.7](../rfcs/0005-training-objective.md#37-batching-and-gradient-accumulation).
 
 ### `geno_lewm.surprise`
 
