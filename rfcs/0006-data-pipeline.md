@@ -6,7 +6,9 @@
 - **Updated:** 2026-05-20
 - **Depends on:** RFC-0002, RFC-0003
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — Carbon corpus source-mix sampling
+  and reference-window sampler implemented; edit sources, tuple builder,
+  training dataset, holdouts, and validation streams remain open.
 
 ---
 

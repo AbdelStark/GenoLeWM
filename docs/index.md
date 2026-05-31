@@ -53,6 +53,8 @@ Phase 0 of the project shipped the **production infrastructure layer**:
   linters, plus a committed public-surface snapshot.
 - **Optional PyTorch predictor module** — the base cross-attention
   `Predictor` with identity-at-init and public-surface coverage.
+- **Carbon corpus window sampler** — RFC-0006 source-mix sampling,
+  deterministic subsetting, and margin/stride window extraction.
 
 What's *not* yet shipped: trainer, autoregressive rollout, eval harness,
 ONNX / Core ML / GGUF exporters. See the [roadmap](roadmap/IMPLEMENTATION.md).
