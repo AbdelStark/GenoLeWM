@@ -230,6 +230,36 @@ class Predictor(nn.Module):
 class ARPredictor(nn.Module):
     def rollout(self, state: Tensor,
                 action_sequence: list[Tensor]) -> list[Tensor]: ...
+
+@dataclass(frozen=True, slots=True)
+class PredictionLossResult:
+    loss: Tensor
+    pred_loss: Tensor
+    kl_reg: Tensor
+    phase: Literal["phase1", "phase2"]
+
+def prediction_loss(prediction: Tensor,
+                    target: Tensor,
+                    *,
+                    alpha: float = 1.0,
+                    beta: float = 0.1,
+                    mask: Tensor | None = None,
+                    eps: float = 1e-8) -> Tensor: ...
+
+def lejepa_kl_regularizer(states: Tensor,
+                          *,
+                          eps: float = 1e-6) -> Tensor: ...
+
+def predictor_loss(prediction: Tensor,
+                   target: Tensor,
+                   *,
+                   phase: Literal["phase1", "phase2"] = "phase1",
+                   alpha: float = 1.0,
+                   beta: float = 0.1,
+                   gamma: float = 0.5,
+                   mask: Tensor | None = None,
+                   regularizer_states: Tensor | None = None,
+                   eps: float = 1e-6) -> PredictionLossResult: ...
 ```
 
 Defined by [RFC-0004 §3](../rfcs/0004-predictor-architecture.md#3-specification).

@@ -6,7 +6,9 @@
 - **Updated:** 2026-05-20
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — prediction loss and LeJEPA KL
+  regularizer implemented; optimizer, schedule, and trainer integration
+  remain open.
 
 ---
 
