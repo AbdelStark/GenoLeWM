@@ -61,9 +61,11 @@ Phase 0 of the project shipped the **production infrastructure layer**:
   distance, correlation, and KL-registry metrics with structured alerts.
 - **Planning primitives** — RFC-0008 cost functions and factored
   `ActionSampler` for valid window-relative edits.
+- **Surprise context buckets** — RFC-0009 region / GC / repeat labels
+  with deterministic calibration bucket IDs and sparse-bucket back-off.
 
 What's *not* yet shipped: trainer, autoregressive rollout, eval harness,
-CEM solver, ONNX / Core ML / GGUF exporters. See the
+CEM solver, full surprise scorer, ONNX / Core ML / GGUF exporters. See the
 [roadmap](roadmap/IMPLEMENTATION.md).
 
 ## Acknowledgments

@@ -437,6 +437,42 @@ and [§3.7](../rfcs/0005-training-objective.md#37-batching-and-gradient-accumula
 ### `geno_lewm.surprise`
 
 ```python
+REGION_CLASSES: tuple[str, ...]
+GC_BINS: tuple[str, ...]
+REPEAT_CLASSES: tuple[str, ...]
+UNKNOWN_BUCKET_ID: str
+DEFAULT_MIN_BUCKET_SIZE: int
+
+@dataclass(frozen=True)
+class ContextLabel:
+    region_class: str
+    gc_bin: str
+    repeat_class: str
+
+    @property
+    def bucket_id(self) -> str: ...
+
+def classify_context(*,
+                     region: str | Sequence[str] | None,
+                     gc_window: str,
+                     repeat: str | Sequence[str] | None = None,
+                     low_gc_cutoff: float = 1 / 3,
+                     high_gc_cutoff: float = 2 / 3) -> ContextLabel: ...
+
+def classify_region(annotation: str | Sequence[str] | None) -> str: ...
+def classify_repeat(annotation: str | Sequence[str] | None) -> str: ...
+def classify_gc_bin(sequence: str,
+                    *,
+                    low_cutoff: float = 1 / 3,
+                    high_cutoff: float = 2 / 3) -> str: ...
+def gc_fraction(sequence: str) -> float: ...
+def make_bucket_id(region_class: str, gc_bin: str, repeat_class: str) -> str: ...
+def backoff_chain(label_or_bucket: ContextLabel | str) -> tuple[str, ...]: ...
+def select_backoff_bucket(label_or_bucket: ContextLabel | str,
+                          bucket_sizes: Mapping[str, int],
+                          *,
+                          min_count: int = 1000) -> str: ...
+
 @dataclass
 class SurpriseResult:
     sigma_raw: float
@@ -461,7 +497,10 @@ def score_vcf(vcf_path: Path,
               show_progress: bool = True) -> None: ...
 ```
 
-Defined by [RFC-0009 §3.10](../rfcs/0009-surprise-based-pathogenicity-scoring.md#310-scorer-api).
+Context labels and calibration bucket back-off are defined by
+[RFC-0009 §3.3](../rfcs/0009-surprise-based-pathogenicity-scoring.md#33-context-stratification).
+The model-dependent scorer is defined by
+[RFC-0009 §3.10](../rfcs/0009-surprise-based-pathogenicity-scoring.md#310-scorer-api).
 
 ### `geno_lewm.planning`
 

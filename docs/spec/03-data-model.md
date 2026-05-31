@@ -191,6 +191,11 @@ VUS is included for completeness but excluded from eval label sets.
 | `back_off_to`   | string         | parent bucket id if this bucket is sparse; nullable |
 | `schema_version`| string         | always `1.0.0` for v0.1 |
 
+Bucket IDs are ASCII pipe-joined labels. Full buckets use
+`{region_class}|{gc_bin}|{repeat_class}`. Parent buckets omit the
+rightmost factors (`{region_class}|{gc_bin}`, then `{region_class}`),
+and the final catch-all bucket is `*`.
+
 ## On-disk: checkpoint directory
 
 ```
@@ -251,7 +256,7 @@ Schema is normative at version `1.0.0`; see
 | INV-DATA-2 | Window content is uppercased before hashing for the cache | `encoder/windowing.py::canonicalize` |
 | INV-DATA-3 | Cache rows are immutable; no in-place updates | `encoder/cache.py::write_shard` |
 | INV-DATA-4 | Manifest hashes are computed over canonical JSON (sorted keys, no whitespace) | `attestation/hashing.py::canonical_json_sha256` |
-| INV-DATA-5 | Calibration buckets back off in a fixed order: (region, gc, repeat) → (region, gc) → (region) → (*) | `surprise/calibration.py::back_off_chain` |
+| INV-DATA-5 | Calibration buckets back off in a fixed order: (region, gc, repeat) → (region, gc) → (region) → (*) | `surprise/context.py::backoff_chain` |
 | INV-DATA-6 | gnomAD variants with `filter != "PASS"` are never used for calibration or training | `data/gnomad.py::filter_passing` |
 | INV-DATA-7 | ClinVar VUS rows are loaded but excluded from labelled eval | `data/clinvar.py::label_set` |
 | INV-DATA-8 | All datetimes on disk are UTC ISO-8601 with second resolution; durations are integer nanoseconds | linter rule |
