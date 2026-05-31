@@ -83,6 +83,30 @@ def extract_window(source_sequence: str, *,
 def pad_for_carbon_tokenizer(sequence: str, *,
                              token_bp: int = 6) -> str: ...
 def wrap_dna_for_tokenizer(sequence: str) -> str: ...
+
+def global_mean(hidden_states: Sequence[Sequence[float]]) -> tuple[float, ...]: ...
+def centered_mean(hidden_states: Sequence[Sequence[float]], *,
+                  center_token: int,
+                  pool_radius: int = 256) -> tuple[float, ...]: ...
+
+@dataclass(frozen=True, slots=True)
+class PoolingResult:
+    vector: tuple[float, ...]
+    pool_type: Literal["centered_mean", "global_mean"]
+    pool_radius: int
+    untargeted: bool
+    center_token: int | None
+    token_count: int
+
+    @property
+    def d_state(self) -> int: ...
+    def as_cache_fields(self) -> Mapping[str, object]: ...
+
+def pool_hidden_states(hidden_states: Sequence[Sequence[float]], *,
+                       edit_locus: int | None = None,
+                       pool_type: Literal["centered_mean", "global_mean"] = "centered_mean",
+                       pool_radius: int = 256,
+                       token_bp: int = 6) -> PoolingResult: ...
 ```
 
 ### `geno_lewm.action`
