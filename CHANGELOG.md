@@ -12,6 +12,13 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ### Added
 
+- **PyPI release workflow hardening** (issue #100).
+  - `.github/workflows/release-pypi.yml` is now the trusted-publisher
+    workflow path for tagged releases.
+  - Release artifacts build from the committed `uv.lock`, publish to
+    PyPI via OIDC trusted publishing, and emit GitHub/Sigstore artifact
+    attestations with `SHA256SUMS` attached to the GitHub release.
+
 - **CLI discovery flags wired to the config layer** (issue #29;
   RFC-0017 §3.8 + RFC-0018 §3.2).
   - `--print-config` renders the resolved config of the invoked

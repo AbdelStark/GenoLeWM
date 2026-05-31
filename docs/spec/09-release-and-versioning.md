@@ -150,7 +150,9 @@ trusted only after their hashes match the fetched manifest.
    reproducibility check, redaction property test, signed-artifact build).
 6. Open a release PR. Require sign-off from a non-author maintainer.
 7. Merge to `main`. Tag `v<X>.<Y>.<Z>`.
-8. CI builds the PyPI artifact and the HuggingFace checkpoint upload.
+8. CI builds the PyPI artifacts from `uv.lock`, publishes them through
+   `.github/workflows/release-pypi.yml` via trusted publishing, and
+   emits GitHub/Sigstore artifact attestations.
 9. Publish CHANGELOG to the release notes.
 10. For model releases: upload `geno-lewm-v<X>.<Y>.<Z>-<encoder>-r1` to
     the HuggingFace Hub with full manifest and signed `eval_report.md`.
