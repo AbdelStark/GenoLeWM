@@ -137,6 +137,11 @@ class GenoLeWMRuntime:
 `backend="auto"` selects the best available runtime in order:
 Core ML (on Apple Silicon) → CUDA (when available) → ONNX → CPU.
 
+The Python runtime contract ships in layers. Backend probing and the
+fail-closed network guard are available before model-dependent scoring
+backends; score/encode/predict methods fail fast with `RuntimeSetupError`
+until the scorer and export backends are installed.
+
 ### 3.5 Performance targets
 
 | Metric | Apple M3 Max | RTX 4090 | H100 |
@@ -333,4 +338,6 @@ silently invalidate that contract.
 
 ## 7. Changelog
 
+- 2026-05-31 — Implemented backend probing and fail-closed network
+  guard for the Python runtime contract.
 - 2026-05-20 — Initial draft.

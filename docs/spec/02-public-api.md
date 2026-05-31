@@ -634,21 +634,45 @@ Defined by [RFC-0008 §3.3](../rfcs/0008-latent-planning.md#33-edit-search-space
 ### `geno_lewm.deploy`
 
 ```python
+BACKEND_PRIORITY: tuple[str, ...]
+
+@dataclass(frozen=True)
+class BackendProbe:
+    backend: str
+    available: bool
+    reason: str
+
+def probe_backends(model_dir: str | Path | None = None) -> tuple[BackendProbe, ...]: ...
+def select_backend(backend: str = "auto",
+                   *,
+                   probes: Sequence[BackendProbe] | None = None) -> str: ...
+
+@contextmanager
+def fail_closed_network_guard() -> Iterator[None]: ...
+
 class GenoLeWMRuntime:
-    def __init__(self, model_dir: Path, backend: str = "auto") -> None: ...
+    model_dir: Path
+    backend: str
+    probes: tuple[BackendProbe, ...]
+
+    def __init__(self, model_dir: str | Path, backend: str = "auto") -> None: ...
     def score_variant(self, variant: EditSpec,
-                      window: str | None = None) -> SurpriseResult: ...
-    def score_vcf(self, vcf_path: Path,
-                  fasta_path: Path,
-                  output_path: Path,
+                      window: str | None = None) -> Any: ...
+    def score_vcf(self, vcf_path: str | Path,
+                  fasta_path: str | Path,
+                  output_path: str | Path,
                   batch_size: int = 64,
                   progress: bool = True) -> None: ...
     def encode_window(self, window: str,
-                      edit_locus: int | None = None) -> Tensor: ...
-    def predict(self, state: Tensor, edits: list[RelEdit]) -> Tensor: ...
+                      edit_locus: int | None = None) -> Any: ...
+    def predict(self, state: Any, edits: Sequence[RelEdit]) -> Any: ...
 ```
 
-Defined by [RFC-0010 §3.4](../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract).
+Backend probing and the fail-closed network guard are implemented.
+Model-dependent scoring / encoding / prediction methods currently fail
+fast with `RuntimeSetupError` until the scorer and deploy backends land.
+Defined by [RFC-0010 §3.4](../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract)
+and [§3.7](../rfcs/0010-on-device-personal-genome-deployment.md#37-privacy-contract).
 
 ### `geno_lewm.attestation`
 

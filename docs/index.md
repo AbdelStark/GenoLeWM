@@ -64,10 +64,12 @@ Phase 0 of the project shipped the **production infrastructure layer**:
 - **Surprise calibration primitives** — RFC-0009 region / GC / repeat
   labels, deterministic bucket IDs, sparse-bucket back-off, and
   `calibration.parquet` table building from pre-scored reference rows.
+- **Deploy runtime contract** — RFC-0010 backend probing and
+  fail-closed network guard for offline inference paths.
 
 What's *not* yet shipped: trainer, autoregressive rollout, eval harness,
-CEM solver, full surprise scorer, ONNX / Core ML / GGUF exporters. See the
-[roadmap](roadmap/IMPLEMENTATION.md).
+CEM solver, full surprise scorer, runtime scoring backends, ONNX / Core
+ML / GGUF exporters. See the [roadmap](roadmap/IMPLEMENTATION.md).
 
 ## Acknowledgments
 
