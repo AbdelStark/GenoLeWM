@@ -342,6 +342,42 @@ def predictor_loss(prediction: Tensor,
 
 Defined by [RFC-0004 §3](../rfcs/0004-predictor-architecture.md#3-specification).
 
+### `geno_lewm.training`
+
+```python
+@dataclass(frozen=True, slots=True)
+class EditTypeWeight:
+    edit_type: EditType
+    weight: float
+
+@dataclass(frozen=True, slots=True)
+class RolloutStepWeight:
+    steps: int
+    weight: float
+
+DEFAULT_EDIT_TYPE_WEIGHTS: tuple[EditTypeWeight, ...]
+DEFAULT_ROLLOUT_STEP_MIX: tuple[RolloutStepWeight, ...]
+
+def sample_edit_type(rng: random.Random,
+                     *,
+                     weights: Sequence[EditTypeWeight] = DEFAULT_EDIT_TYPE_WEIGHTS) -> EditType: ...
+def draw_edit_type_counts(n: int,
+                          *,
+                          rng: random.Random,
+                          weights: Sequence[EditTypeWeight] = DEFAULT_EDIT_TYPE_WEIGHTS
+                          ) -> dict[EditType, int]: ...
+def sample_rollout_steps(rng: random.Random,
+                         *,
+                         mix: Sequence[RolloutStepWeight] = DEFAULT_ROLLOUT_STEP_MIX) -> int: ...
+def draw_rollout_step_counts(n: int,
+                             *,
+                             rng: random.Random,
+                             mix: Sequence[RolloutStepWeight] = DEFAULT_ROLLOUT_STEP_MIX
+                             ) -> dict[int, int]: ...
+```
+
+Defined by [RFC-0005 §3.7](../rfcs/0005-training-objective.md#37-batching-and-gradient-accumulation).
+
 ### `geno_lewm.surprise`
 
 ```python

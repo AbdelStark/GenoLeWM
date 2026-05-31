@@ -55,6 +55,8 @@ Phase 0 of the project shipped the **production infrastructure layer**:
   `Predictor` with identity-at-init and public-surface coverage.
 - **Carbon corpus window sampler** — RFC-0006 source-mix sampling,
   deterministic subsetting, and margin/stride window extraction.
+- **Edit-balanced training sampler** — RFC-0005 edit-type weights and
+  Phase-1 rollout-length mix.
 
 What's *not* yet shipped: trainer, autoregressive rollout, eval harness,
 ONNX / Core ML / GGUF exporters. See the [roadmap](roadmap/IMPLEMENTATION.md).
