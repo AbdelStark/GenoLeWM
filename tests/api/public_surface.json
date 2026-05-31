@@ -392,6 +392,8 @@
     "geno_lewm.observability.get_logger": "callable(component: 'str', *, run_id: 'str | None' = None, log_dir: 'str | os.PathLike[str] | None' = None, level: 'Severity | None' = None, pretty: 'bool | None' = None) -> 'GenoLeWMLogger'",
     "geno_lewm.observability.logged_run": "callable(component: 'str' = 'runtime', *, run_id: 'str | None' = None, log_dir: 'str | os.PathLike[str] | None' = None, start_event: 'str | None' = None, end_event: 'str | None' = None, start_data: 'Mapping[str, Any] | None' = None) -> 'Iterator[GenoLeWMLogger]'",
     "geno_lewm.observability.set_trace_context": "callable(*, trace_id: 'str | None', span_id: 'str | None') -> 'Iterator[None]'",
+    "geno_lewm.predictor.Predictor": "class(*, d_state: 'int' = 1024, d_action: 'int' = 512, d_hidden: 'int' = 768, n_heads: 'int' = 8, n_cross_layers: 'int' = 4, n_self_layers: 'int' = 2, ffn_dim: 'int' = 768, max_actions: 'int' = 16) -> 'None'",
+    "geno_lewm.predictor.model.Predictor": "class(*, d_state: 'int' = 1024, d_action: 'int' = 512, d_hidden: 'int' = 768, n_heads: 'int' = 8, n_cross_layers: 'int' = 4, n_self_layers: 'int' = 2, ffn_dim: 'int' = 768, max_actions: 'int' = 16) -> 'None'",
     "geno_lewm.read_receipt": "callable(path: 'str | Path') -> 'Receipt'",
     "geno_lewm.set_trace_context": "callable(*, trace_id: 'str | None', span_id: 'str | None') -> 'Iterator[None]'",
     "geno_lewm.sha256_bytes": "callable(data: 'bytes | bytearray | memoryview') -> 'str'",
