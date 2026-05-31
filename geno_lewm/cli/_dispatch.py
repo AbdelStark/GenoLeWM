@@ -32,6 +32,7 @@ Public surface:
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -233,6 +234,12 @@ def finalize_shared(
 
     print_banner(quiet=quiet, no_banner=no_banner)
 
+    resolved_wandb_project = wandb_project or os.environ.get("WANDB_PROJECT")
+    if wandb_project is not None:
+        from geno_lewm import observability
+
+        observability._set_wandb_project(wandb_project)
+
     return SharedOptions(
         config=config,
         set_overrides=tuple(set_overrides or ()),
@@ -241,7 +248,7 @@ def finalize_shared(
         log_level=log_level,
         log_dir=log_dir,
         run_id=run_id,
-        wandb_project=wandb_project,
+        wandb_project=resolved_wandb_project,
         no_receipt=no_receipt,
         print_config=print_config,
         print_config_tree=print_config_tree,
