@@ -2,6 +2,7 @@
   "package": "geno_lewm",
   "schema": 1,
   "symbols": {
+    "geno_lewm.ActionEncoder": "class(*, d_action: 'int' = 512, d_pos: 'int' = 128, d_type: 'int' = 64, d_seq: 'int' = 256, max_window_bp: 'int' = 12288, carbon_tokenizer: 'Any | None' = None) -> 'None'",
     "geno_lewm.AttestationError": "class(message: 'str' = '', *, details: 'Mapping[str, Any] | None' = None, remediation: 'str | None' = None) -> 'None'",
     "geno_lewm.AttestationKindUnsupportedError": "class(message: 'str' = '', *, details: 'Mapping[str, Any] | None' = None, remediation: 'str | None' = None) -> 'None'",
     "geno_lewm.BackendUnsupportedError": "class(message: 'str' = '', *, details: 'Mapping[str, Any] | None' = None, remediation: 'str | None' = None) -> 'None'",
@@ -66,6 +67,7 @@
     "geno_lewm.V1_MAX_LEN": "value:int",
     "geno_lewm.VcfParseError": "class(message: 'str' = '', *, details: 'Mapping[str, Any] | None' = None, remediation: 'str | None' = None) -> 'None'",
     "geno_lewm.WindowMismatchError": "class(message: 'str' = '', *, details: 'Mapping[str, Any] | None' = None, remediation: 'str | None' = None) -> 'None'",
+    "geno_lewm.action.ActionEncoder": "class(*, d_action: 'int' = 512, d_pos: 'int' = 128, d_type: 'int' = 64, d_seq: 'int' = 256, max_window_bp: 'int' = 12288, carbon_tokenizer: 'Any | None' = None) -> 'None'",
     "geno_lewm.action.DEFAULT_EDGE_MARGIN": "value:int",
     "geno_lewm.action.EditSpec": "class(chrom: 'str', pos: 'int', ref: 'str', alt: 'str', edit_type: 'EditType' = <EditType.SNV: 0>) -> None",
     "geno_lewm.action.EditType": "enum[IntEnum](SNV=0, INS=1, DEL=2, MNV=3, INDEL=4, SV=5)",
@@ -75,6 +77,7 @@
     "geno_lewm.action.apply.apply_edits": "callable(window: 'str', edits: 'Sequence[RelEdit]', *, preserve_length: 'bool' = False) -> 'str'",
     "geno_lewm.action.apply_edit": "callable(window: 'str', edit: 'RelEdit', *, preserve_length: 'bool' = False) -> 'str'",
     "geno_lewm.action.apply_edits": "callable(window: 'str', edits: 'Sequence[RelEdit]', *, preserve_length: 'bool' = False) -> 'str'",
+    "geno_lewm.action.encoder.ActionEncoder": "class(*, d_action: 'int' = 512, d_pos: 'int' = 128, d_type: 'int' = 64, d_seq: 'int' = 256, max_window_bp: 'int' = 12288, carbon_tokenizer: 'Any | None' = None) -> 'None'",
     "geno_lewm.action.indel": "callable(window: 'str', n: 'int', *, rng: 'random.Random', length_dist: 'Mapping[int, float] | Sequence[float] | None' = None, type_mix: 'tuple[float, float]' = (0.5, 0.5), edge_margin: 'int' = 64) -> 'list[RelEdit]'",
     "geno_lewm.action.mnv": "callable(window: 'str', n: 'int', *, rng: 'random.Random', length_dist: 'Mapping[int, float] | Sequence[float] | None' = None, edge_margin: 'int' = 64) -> 'list[RelEdit]'",
     "geno_lewm.action.spec.EditSpec": "class(chrom: 'str', pos: 'int', ref: 'str', alt: 'str', edit_type: 'EditType' = <EditType.SNV: 0>) -> None",
