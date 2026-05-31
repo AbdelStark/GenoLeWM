@@ -212,12 +212,14 @@ These are documented in `PRIVACY.md` and enforced by integration tests.
 Model updates are pulled explicitly by the user via:
 
 ```
-geno-lewm update
+geno-lewm-update --model-dir PATH
 ```
 
 This compares the local `manifest.json`'s model version against the
-latest published GenoLeWM release on the Hugging Face Hub, displays the
-diff, and applies the update only with user consent. No automatic
+latest published GenoLeWM release listed in the Hugging Face release
+index, displays the diff, and applies the update only with user consent.
+`--check-only` never installs files; non-check updates require an
+interactive confirmation or the explicit `--yes` flag. No automatic
 background updates.
 
 Each update preserves the previous model version as a side-by-side

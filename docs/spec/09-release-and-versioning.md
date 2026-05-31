@@ -133,6 +133,10 @@ MAJOR boundary**.
 
 No automatic background updates; user-initiated via `geno-lewm-update`
 (see [RFC-0010 §3.8](../rfcs/0010-on-device-personal-genome-deployment.md#38-update-mechanism)).
+The update command consumes a JSON release index from the Hugging Face
+Hub with `model_version`, `release_id`, `manifest_url`, and optional
+`artifact_base_url` fields per release entry. Artifact bytes are still
+trusted only after their hashes match the fetched manifest.
 
 ## Release process
 

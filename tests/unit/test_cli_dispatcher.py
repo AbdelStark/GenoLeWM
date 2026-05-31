@@ -54,6 +54,10 @@ TYPER_SCRIPTS: tuple[tuple[str, str], ...] = (
     ("geno-lewm-update", "geno_lewm.cli.update"),
 )
 
+TYPER_STUB_SCRIPTS: tuple[tuple[str, str], ...] = tuple(
+    item for item in TYPER_SCRIPTS if item[1] != "geno_lewm.cli.update"
+)
+
 
 # ---------------------------------------------------------------------------
 # print_banner
@@ -251,7 +255,7 @@ def test_every_console_script_prints_help(
     assert entry in rendered or "Usage:" in rendered, f"no help text from {entry}"
 
 
-@pytest.mark.parametrize(("entry", "module"), TYPER_SCRIPTS)
+@pytest.mark.parametrize(("entry", "module"), TYPER_STUB_SCRIPTS)
 def test_every_console_script_returns_internal_error_when_invoked(
     entry: str,
     module: str,
@@ -280,7 +284,7 @@ def test_every_console_script_supports_version(
     assert __version__ in captured.out
 
 
-@pytest.mark.parametrize(("entry", "module"), TYPER_SCRIPTS)
+@pytest.mark.parametrize(("entry", "module"), TYPER_STUB_SCRIPTS)
 def test_every_console_script_suppresses_banner_with_both_flags(
     entry: str,
     module: str,
@@ -294,6 +298,20 @@ def test_every_console_script_suppresses_banner_with_both_flags(
     assert "research tool" not in captured.err, (
         f"banner leaked under --quiet --no-banner for {entry}"
     )
+
+
+def test_update_requires_model_manifest_when_invoked(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``geno-lewm-update`` is implemented, so no-arg invocation validates local state."""
+    from geno_lewm.cli.update import app
+
+    rc = _dispatch.run_app(app, argv=["--quiet", "--no-banner"])
+    captured = capsys.readouterr()
+
+    assert rc == 4
+    assert "manifest.json" in captured.err
+    assert "research tool" not in captured.err
 
 
 @pytest.mark.parametrize(("entry", "module"), TYPER_SCRIPTS)
