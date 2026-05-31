@@ -241,9 +241,13 @@ Schema is normative at version `1.0.0`; see
   index (`.fai`) to be present; if missing, the CLI builds it via `pysam`.
 - **23andMe / AncestryDNA / MyHeritage raw data** consumed by the
   desktop runtime; conversion is a local-only step that produces a VCF in
-  a tmpdir. The conversion is documented and tested per format.
-- **Sequencing.com WGS JSON** consumed where available; conversion to
-  VCF follows the format's public schema.
+  a tmpdir. These array formats do not include VCF `REF` alleles; the
+  converter requires a local reference-allele map keyed by `(chrom, pos)`
+  and fails with `VcfParseError` when the reference allele is absent.
+  The conversion is documented and tested per format.
+- **Sequencing.com WGS JSON** consumed where available; conversion
+  supports VCF-equivalent variant rows with explicit reference and
+  alternate alleles.
 
 ## Schema versioning
 
