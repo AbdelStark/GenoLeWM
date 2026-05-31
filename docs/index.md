@@ -54,9 +54,8 @@ Phase 0 of the project shipped the **production infrastructure layer**:
 - **Optional PyTorch predictor module** — the base cross-attention
   `Predictor` with identity-at-init and public-surface coverage.
 
-What's *not* yet shipped: trainer, autoregressive rollout/loss modules,
-eval harness, ONNX / Core ML / GGUF exporters. See the
-[roadmap](roadmap/IMPLEMENTATION.md).
+What's *not* yet shipped: trainer, autoregressive rollout, eval harness,
+ONNX / Core ML / GGUF exporters. See the [roadmap](roadmap/IMPLEMENTATION.md).
 
 ## Acknowledgments
 

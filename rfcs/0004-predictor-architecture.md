@@ -7,7 +7,7 @@
 - **Depends on:** RFC-0001, RFC-0002, RFC-0003
 - **Supersedes:** —
 - **Implementation status:** Partial — base `Predictor` implemented;
-  autoregressive rollout, losses, and trainer integration remain open.
+  autoregressive rollout and trainer integration remain open.
 
 ---
 
