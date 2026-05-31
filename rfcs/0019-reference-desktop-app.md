@@ -6,7 +6,8 @@
 - **Updated:** 2026-05-20
 - **Depends on:** RFC-0010, RFC-0011, RFC-0013, RFC-0018
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Scaffolded in `desktop/` (issue #80);
+  scoring UI pending #81; signing pending #82
 
 ---
 
@@ -104,16 +105,19 @@ and ecosystem alignment.
 desktop/
 ├── README.md
 ├── package.json            # frontend deps
+├── pnpm-lock.yaml
 ├── src-tauri/
 │   ├── Cargo.toml
+│   ├── capabilities/
+│   │   └── default.json    # HTTP allowlist
 │   ├── src/
 │   │   ├── main.rs
+│   │   ├── lib.rs
 │   │   └── runtime.rs      # PyO3 bridge
 │   └── tauri.conf.json
 └── src/                    # frontend
     ├── main.ts
-    ├── pages/
-    └── components/
+    └── styles.css
 ```
 
 ### 3.8 Reference workflow (canonical demo)
