@@ -91,6 +91,7 @@ dev = [
     "pytest-xdist>=3.6",
     "pytest-benchmark>=4",
     "hypothesis>=6.100",
+    "pyarrow>=15",
     "ruff>=0.5",
     "mypy>=1.10",
     "types-PyYAML>=6",

@@ -107,6 +107,65 @@ def pool_hidden_states(hidden_states: Sequence[Sequence[float]], *,
                        pool_type: Literal["centered_mean", "global_mean"] = "centered_mean",
                        pool_radius: int = 256,
                        token_bp: int = 6) -> PoolingResult: ...
+
+@dataclass(frozen=True, slots=True)
+class WindowCacheKey:
+    window_hash: bytes
+    encoder_hash: bytes
+    state_layer: int
+    pool_type: str
+    pool_radius: int
+    dtype: str
+
+@dataclass(frozen=True, slots=True)
+class WindowCacheRecord:
+    chrom: str
+    start_bp: int
+    end_bp: int
+    window_hash: bytes
+    encoder_hash: bytes
+    state_layer: int
+    pool_type: str
+    pool_radius: int
+    dtype: str
+    embedding: tuple[float, ...]
+    untargeted: bool
+    created_at: int = 0
+    schema_version: str = "1.0.0"
+
+    @property
+    def key(self) -> WindowCacheKey: ...
+    def with_created_at(self) -> "WindowCacheRecord": ...
+
+@dataclass(frozen=True, slots=True)
+class CacheReindexReport:
+    indexed_shards: int
+    indexed_rows: int
+    index_path: Path
+
+@dataclass(frozen=True, slots=True)
+class CacheRepairReport:
+    checked_shards: int
+    quarantined: tuple[Path, ...]
+    reindex: CacheReindexReport
+
+def default_cache_dir() -> Path: ...
+def shard_path_for(cache_dir: Path | str, *,
+                   encoder_id: str,
+                   state_layer: int,
+                   pool_type: str,
+                   pool_radius: int,
+                   contig: str,
+                   stride_block: int) -> Path: ...
+def write_shard(cache_dir: Path | str, *,
+                encoder_id: str,
+                contig: str,
+                stride_block: int,
+                records: Sequence[WindowCacheRecord]) -> Path: ...
+def read_embedding(cache_dir: Path | str,
+                   key: WindowCacheKey) -> tuple[float, ...] | None: ...
+def reindex_cache(cache_dir: Path | str) -> CacheReindexReport: ...
+def repair_cache(cache_dir: Path | str) -> CacheRepairReport: ...
 ```
 
 ### `geno_lewm.action`
