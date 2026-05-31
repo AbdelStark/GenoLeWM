@@ -437,11 +437,69 @@ and [§3.7](../rfcs/0005-training-objective.md#37-batching-and-gradient-accumula
 ### `geno_lewm.surprise`
 
 ```python
+CALIBRATION_SCHEMA_VERSION: str
+DEFAULT_CDF_POINTS: int
+DEFAULT_REFERENCE_PER_BUCKET: int
+LOW_CONFIDENCE_BUCKET_SIZE: int
+
 REGION_CLASSES: tuple[str, ...]
 GC_BINS: tuple[str, ...]
 REPEAT_CLASSES: tuple[str, ...]
 UNKNOWN_BUCKET_ID: str
 DEFAULT_MIN_BUCKET_SIZE: int
+
+@dataclass(frozen=True)
+class CalibrationExample:
+    bucket_id: str
+    sigma_raw: float
+
+@dataclass(frozen=True)
+class CalibrationWarning:
+    bucket_id: str
+    resolved_bucket_id: str
+    n_calibration: int
+    min_bucket_size: int
+    low_confidence: bool
+
+@dataclass(frozen=True)
+class CalibrationBucket:
+    bucket_id: str
+    n_calibration: int
+    cdf: tuple[float, ...]
+    sigma_grid: tuple[float, ...]
+    back_off_to: str | None = None
+    schema_version: str = CALIBRATION_SCHEMA_VERSION
+
+    @property
+    def confidence(self) -> float: ...
+
+    @property
+    def low_confidence(self) -> bool: ...
+
+@dataclass(frozen=True)
+class CalibrationTable:
+    buckets: tuple[CalibrationBucket, ...]
+    warnings: tuple[CalibrationWarning, ...] = ()
+    schema_version: str = CALIBRATION_SCHEMA_VERSION
+
+    def get(self, bucket_id: str) -> CalibrationBucket | None: ...
+    def require(self, bucket_id: str) -> CalibrationBucket: ...
+    def resolve(self,
+                label_or_bucket: str,
+                *,
+                min_bucket_size: int = 1000) -> CalibrationBucket: ...
+
+def build_calibration_table(examples: Iterable[CalibrationExample],
+                            *,
+                            seed: int = 0,
+                            per_bucket_sample: int = 10000,
+                            grid_size: int = 1001,
+                            min_bucket_size: int = 1000,
+                            low_confidence_size: int = 100,
+                            warn_sparse: bool = True) -> CalibrationTable: ...
+
+def write_calibration_table(table: CalibrationTable, path: str | Path) -> Path: ...
+def read_calibration_table(path: str | Path) -> CalibrationTable: ...
 
 @dataclass(frozen=True)
 class ContextLabel:
@@ -499,6 +557,9 @@ def score_vcf(vcf_path: Path,
 
 Context labels and calibration bucket back-off are defined by
 [RFC-0009 §3.3](../rfcs/0009-surprise-based-pathogenicity-scoring.md#33-context-stratification).
+Calibration table building and the on-disk `calibration.parquet` schema
+are defined by
+[RFC-0009 §3.4](../rfcs/0009-surprise-based-pathogenicity-scoring.md#34-calibration-distribution).
 The model-dependent scorer is defined by
 [RFC-0009 §3.10](../rfcs/0009-surprise-based-pathogenicity-scoring.md#310-scorer-api).
 

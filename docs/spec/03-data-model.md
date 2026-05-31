@@ -196,6 +196,11 @@ Bucket IDs are ASCII pipe-joined labels. Full buckets use
 rightmost factors (`{region_class}|{gc_bin}`, then `{region_class}`),
 and the final catch-all bucket is `*`.
 
+The builder consumes pre-scored reference rows (`bucket_id`, `sigma_raw`)
+and writes full, parent, and catch-all bucket CDFs. `confidence` and
+`low_confidence` are derived at scoring time from the selected bucket's
+`n_calibration`; they are not stored as separate Parquet columns.
+
 ## On-disk: checkpoint directory
 
 ```
@@ -257,6 +262,7 @@ Schema is normative at version `1.0.0`; see
 | INV-DATA-3 | Cache rows are immutable; no in-place updates | `encoder/cache.py::write_shard` |
 | INV-DATA-4 | Manifest hashes are computed over canonical JSON (sorted keys, no whitespace) | `attestation/hashing.py::canonical_json_sha256` |
 | INV-DATA-5 | Calibration buckets back off in a fixed order: (region, gc, repeat) → (region, gc) → (region) → (*) | `surprise/context.py::backoff_chain` |
+| INV-DATA-5A | Calibration table files match the documented Parquet schema exactly | `surprise/calibration.py::read_calibration_table` |
 | INV-DATA-6 | gnomAD variants with `filter != "PASS"` are never used for calibration or training | `data/gnomad.py::filter_passing` |
 | INV-DATA-7 | ClinVar VUS rows are loaded but excluded from labelled eval | `data/clinvar.py::label_set` |
 | INV-DATA-8 | All datetimes on disk are UTC ISO-8601 with second resolution; durations are integer nanoseconds | linter rule |
