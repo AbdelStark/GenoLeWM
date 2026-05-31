@@ -24,6 +24,7 @@ __version__ = "0.1.0.dev0"
 from geno_lewm.action import (
     DEFAULT_EDGE_MARGIN,
     V1_MAX_LEN,
+    ActionEncoder,
     EditSpec,
     EditType,
     RelEdit,
@@ -122,6 +123,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "SUPPORTED_ATTESTATION_KINDS",
     "V1_MAX_LEN",
+    "ActionEncoder",
     "AttestationError",
     "AttestationKindUnsupportedError",
     "BackendUnsupportedError",
