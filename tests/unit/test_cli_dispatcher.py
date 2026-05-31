@@ -16,17 +16,26 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import io
+import os
 
 import pytest
 import typer
 
-from geno_lewm import __version__
+from geno_lewm import __version__, observability as obs
 from geno_lewm.cli import _dispatch
 from geno_lewm.errors import InputError, InternalError
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def reset_wandb_project_override() -> None:
+    obs._set_wandb_project(None)
+    yield
+    obs._set_wandb_project(None)
+
 
 #: Console scripts registered in ``pyproject.toml``. Verify keeps its
 #: argparse-based dispatcher; everything else goes through the Typer
@@ -107,6 +116,24 @@ def test_finalize_shared_returns_dataclass() -> None:
 def test_finalize_shared_collects_set_overrides() -> None:
     opts = _finalize(set_overrides=["a=1", "b=2"])
     assert opts.set_overrides == ("a=1", "b=2")
+
+
+def test_finalize_shared_resolves_wandb_project_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WANDB_PROJECT", "env-project")
+    opts = _finalize()
+    assert opts.wandb_project == "env-project"
+
+
+def test_finalize_shared_wandb_flag_overrides_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WANDB_PROJECT", "env-project")
+    opts = _finalize(wandb_project="flag-project")
+    assert opts.wandb_project == "flag-project"
+    assert os.environ["WANDB_PROJECT"] == "env-project"
+    assert obs._resolve_wandb_project(None) == "flag-project"
 
 
 def test_finalize_shared_rejects_unknown_log_level() -> None:

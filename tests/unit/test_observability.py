@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +56,10 @@ def _reset_global_state() -> None:
     for sink in list(obs._SINKS.values()):
         sink.close()
     obs._SINKS.clear()
+    for sink in list(obs._WANDB_SINKS.values()):
+        sink.close()
+    obs._WANDB_SINKS.clear()
+    obs._set_wandb_project(None)
     obs._LOGGERS.clear()
 
 
@@ -292,3 +298,100 @@ def test_data_is_independent_copy(tmp_log_dir: Path) -> None:
     # The record went through JSON serialization, so post-call mutation
     # cannot affect the on-disk record.
     assert rec["data"]["value"] == {"k": 1}
+
+
+def test_wandb_sink_is_not_loaded_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_log_dir: Path,
+) -> None:
+    calls: list[dict[str, Any]] = []
+    fake_wandb = types.SimpleNamespace(init=lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+    lg = obs.get_logger("training", run_id="no-wandb", log_dir=tmp_log_dir)
+    lg.info("training.metric", step=1, name="loss", value=0.5)
+    obs.shutdown_run("no-wandb", tmp_log_dir)
+
+    assert calls == []
+
+
+def test_wandb_sink_forwards_training_metric_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_log_dir: Path,
+) -> None:
+    monkeypatch.setenv("WANDB_PROJECT", "geno")
+    monkeypatch.setenv("WANDB_API_KEY", "secret-token")
+    run = _FakeWandbRun()
+    init_calls: list[dict[str, Any]] = []
+
+    def init(**kwargs: Any) -> _FakeWandbRun:
+        init_calls.append(kwargs)
+        return run
+
+    monkeypatch.setitem(sys.modules, "wandb", types.SimpleNamespace(init=init))
+
+    lg = obs.get_logger("training", run_id="wandb-run", log_dir=tmp_log_dir)
+    lg.info("training.metric", step=7, name="loss/pred", value=0.25, unit="unitless")
+    lg.info("eval.run.end", benchmark="x", metrics={"auc": 0.8}, elapsed_s=1.0)
+    obs.shutdown_run("wandb-run", tmp_log_dir)
+
+    assert init_calls == [
+        {"project": "geno", "id": "wandb-run", "resume": "allow", "anonymous": "never"}
+    ]
+    assert run.logs == [({"loss/pred": 0.25}, 7)]
+    assert run.finished is True
+    assert "secret-token" not in (tmp_log_dir / "wandb-run.jsonl").read_text(encoding="utf-8")
+
+
+def test_wandb_sink_forwards_epoch_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_log_dir: Path,
+) -> None:
+    monkeypatch.setenv("WANDB_PROJECT", "cli-project")
+    run = _FakeWandbRun()
+
+    def init(**_: Any) -> _FakeWandbRun:
+        return run
+
+    monkeypatch.setitem(sys.modules, "wandb", types.SimpleNamespace(init=init))
+
+    lg = obs.get_logger("training", run_id="wandb-epoch", log_dir=tmp_log_dir)
+    lg.info(
+        "training.epoch.end",
+        step=100,
+        epoch=3,
+        loss=1.2,
+        loss_pred=1.0,
+        loss_reg=0.2,
+        lr=3e-4,
+        samples=64,
+    )
+    obs.shutdown_run("wandb-epoch", tmp_log_dir)
+
+    assert run.logs == [
+        (
+            {
+                "epoch": 3,
+                "epoch/loss": 1.2,
+                "epoch/loss_pred": 1.0,
+                "epoch/loss_reg": 0.2,
+                "epoch/lr": 3e-4,
+                "epoch/samples": 64,
+            },
+            100,
+        )
+    ]
+    assert run.summary == run.logs[0][0]
+
+
+class _FakeWandbRun:
+    def __init__(self) -> None:
+        self.logs: list[tuple[dict[str, int | float], int | None]] = []
+        self.summary: dict[str, int | float] = {}
+        self.finished = False
+
+    def log(self, payload: dict[str, int | float], *, step: int | None = None) -> None:
+        self.logs.append((payload, step))
+
+    def finish(self) -> None:
+        self.finished = True

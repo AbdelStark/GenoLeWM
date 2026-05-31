@@ -21,7 +21,7 @@ What it does NOT provide (deferred to follow-up issues):
   it is given; the filter will plug into :class:`GenoLeWMLogger._emit`.
 - Metrics registry / Prometheus exporter (#25).
 - ``registered_event_name`` AST linter (#27).
-- wandb / OpenTelemetry sinks (RFC-0013 §"Sinks").
+- OpenTelemetry sinks (RFC-0013 §"Sinks").
 
 The interface ships first so dependent subsystems can take a hard
 dependency on the event registry today.
@@ -33,6 +33,7 @@ import contextlib
 import contextvars
 import io
 import json
+import math
 import os
 import sys
 import threading
@@ -335,8 +336,113 @@ class _Sink:
                     self.stream.close()
 
 
+@dataclass
+class _WandbSink:
+    project: str
+    run_id: str
+    run: Any
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def emit(self, record: LogRecord) -> None:
+        payload = _wandb_payload(record)
+        if not payload:
+            return
+        step = (
+            record.step
+            if isinstance(record.step, int) and not isinstance(record.step, bool)
+            else None
+        )
+        with self.lock:
+            self.run.log(payload, step=step)
+            if record.event == "training.epoch.end":
+                summary = getattr(self.run, "summary", None)
+                if hasattr(summary, "update"):
+                    cast(Any, summary).update(payload)
+
+    def close(self) -> None:
+        finish = getattr(self.run, "finish", None)
+        if callable(finish):
+            finish()
+
+
 _SINKS: dict[tuple[str, str], _Sink] = {}
 _SINKS_LOCK = threading.Lock()
+_WANDB_SINKS: dict[str, _WandbSink] = {}
+_WANDB_SINKS_LOCK = threading.Lock()
+_WANDB_PROJECT_OVERRIDE: list[str | None] = [None]
+
+
+def _set_wandb_project(project: str | None) -> None:
+    _WANDB_PROJECT_OVERRIDE[0] = project.strip() if project is not None else None
+
+
+def _resolve_wandb_project(explicit: str | None) -> str | None:
+    project = explicit or _WANDB_PROJECT_OVERRIDE[0] or os.environ.get("WANDB_PROJECT")
+    if project is None:
+        return None
+    project = project.strip()
+    return project or None
+
+
+def _ensure_wandb_sink(*, run_id: str, project: str) -> _WandbSink:
+    with _WANDB_SINKS_LOCK:
+        existing = _WANDB_SINKS.get(run_id)
+        if existing is not None:
+            return existing
+
+        try:
+            import wandb  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover - exercised by optional-package users.
+            from geno_lewm.errors import RuntimeSetupError
+
+            raise RuntimeSetupError(
+                "wandb sink requires the optional wandb dependency",
+                remediation="install geno-lewm[train] or install wandb",
+            ) from exc
+
+        init = getattr(wandb, "init", None)
+        if not callable(init):
+            from geno_lewm.errors import RuntimeSetupError
+
+            raise RuntimeSetupError(
+                "wandb module does not expose init()",
+                remediation="install a supported wandb release",
+            )
+
+        run = init(project=project, id=run_id, resume="allow", anonymous="never")
+        sink = _WandbSink(project=project, run_id=run_id, run=run)
+        _WANDB_SINKS[run_id] = sink
+        return sink
+
+
+def _finite_number(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _wandb_payload(record: LogRecord) -> dict[str, int | float]:
+    if record.event == "training.metric":
+        name = record.data.get("name")
+        value = _finite_number(record.data.get("value"))
+        if not isinstance(name, str) or not name or value is None:
+            return {}
+        return {name: value}
+
+    if record.event == "training.epoch.end":
+        payload = {
+            f"epoch/{key}": value
+            for key, raw in record.data.items()
+            if (value := _finite_number(raw)) is not None
+        }
+        epoch = _finite_number(record.epoch)
+        if epoch is not None:
+            payload["epoch"] = epoch
+        return payload
+
+    return {}
 
 
 def _resolve_log_dir(explicit: str | os.PathLike[str] | None) -> Path:
@@ -369,6 +475,13 @@ def _close_sink(run_id: str, log_dir: Path) -> None:
     key = (str(log_dir.resolve()), run_id)
     with _SINKS_LOCK:
         sink = _SINKS.pop(key, None)
+    if sink is not None:
+        sink.close()
+
+
+def _close_wandb_sink(run_id: str) -> None:
+    with _WANDB_SINKS_LOCK:
+        sink = _WANDB_SINKS.pop(run_id, None)
     if sink is not None:
         sink.close()
 
@@ -507,6 +620,10 @@ class GenoLeWMLogger:
         if self._pretty:
             sys.stderr.write(_format_pretty(rec) + "\n")
 
+        wandb_sink = _WANDB_SINKS.get(self.run_id)
+        if wandb_sink is not None:
+            wandb_sink.emit(rec)
+
         return rec
 
 
@@ -563,6 +680,9 @@ def get_logger(
     sink = _open_sink(rid, ldir)
     lvl: Severity = level if level is not None else _env_level()
     pp = pretty if pretty is not None else _env_pretty()
+    project = _resolve_wandb_project(None)
+    if project is not None:
+        _ensure_wandb_sink(run_id=rid, project=project)
 
     key = (component, rid, str(ldir.resolve()))
     with _LOGGERS_LOCK:
@@ -639,6 +759,7 @@ def shutdown_run(run_id: str, log_dir: str | os.PathLike[str] | None = None) -> 
     """
     ldir = _resolve_log_dir(log_dir)
     _close_sink(run_id, ldir)
+    _close_wandb_sink(run_id)
     # Also drop any cached loggers bound to this run.
     with _LOGGERS_LOCK:
         for k in [k for k in _LOGGERS if k[1] == run_id]:
