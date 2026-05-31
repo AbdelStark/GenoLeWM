@@ -7,8 +7,8 @@
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004
 - **Supersedes:** —
 - **Implementation status:** Partial — prediction loss, LeJEPA KL
-  regularizer, and edit-balanced sampler implemented; optimizer,
-  schedule, collapse monitoring, and trainer integration remain open.
+  regularizer, edit-balanced sampler, and collapse monitoring
+  implemented; optimizer, schedule, and trainer integration remain open.
 
 ---
 

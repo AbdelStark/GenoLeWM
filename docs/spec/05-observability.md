@@ -138,7 +138,7 @@ property tests over random payloads.
 
 Counter / gauge / histogram, with stable names. Metrics names are
 dotted-lowercase, follow Prometheus naming conventions, and are
-registered in `geno_lewm/observability.py::METRICS`.
+registered in `geno_lewm/metrics.py::METRICS`.
 
 ### Canonical metrics
 
@@ -148,6 +148,13 @@ registered in `geno_lewm/observability.py::METRICS`.
 | `geno_lewm.training.loss.pred` | gauge | unitless | last logged pred loss |
 | `geno_lewm.training.loss.reg` | gauge | unitless | last logged reg loss (Phase 2 active, Phase 1 monitoring) |
 | `geno_lewm.training.collapse.alert` | counter | events | total alerts during run |
+| `geno_lewm.training.collapse.pred_cos_mean` | gauge | unitless | last collapse-monitor mean prediction-target cosine similarity |
+| `geno_lewm.training.collapse.pred_l2_mean` | gauge | unitless | last collapse-monitor mean prediction-target L2 distance |
+| `geno_lewm.training.collapse.target_var_per_dim` | gauge | unitless | last collapse-monitor mean target variance per latent dimension |
+| `geno_lewm.training.collapse.pred_var_per_dim` | gauge | unitless | last collapse-monitor mean prediction variance per latent dimension |
+| `geno_lewm.training.collapse.pred_target_corr` | gauge | unitless | last collapse-monitor flattened prediction-target correlation |
+| `geno_lewm.training.collapse.pairwise_pred_dist_mean` | gauge | unitless | last collapse-monitor mean pairwise prediction distance |
+| `geno_lewm.training.collapse.kl_reg` | gauge | unitless | last collapse-monitor LeJEPA KL regularizer value |
 | `geno_lewm.data.cache.hit` | counter | ops | per-call increment |
 | `geno_lewm.data.cache.miss` | counter | ops | per-call increment |
 | `geno_lewm.data.encode.duration` | histogram | ms | per-window encoder call |

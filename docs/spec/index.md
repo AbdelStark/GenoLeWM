@@ -4,9 +4,9 @@
 - **Status:** Design phase. The reference infrastructure layer is
   implemented (errors, observability, attestation primitives, action
   specs, verify CLI), along with the optional-runtime base predictor
-  and loss modules, the edit-balanced training sampler, and the Carbon
-  corpus window sampler; trainer / autoregressive rollout / eval /
-  deploy are upcoming.
+  and loss modules, the edit-balanced training sampler, collapse
+  diagnostics, and the Carbon corpus window sampler; trainer /
+  autoregressive rollout / eval / deploy are upcoming.
 
 This file is the entry point into the GenoLeWM specification corpus.
 Detailed content lives in two trees:
