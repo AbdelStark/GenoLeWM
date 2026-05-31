@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GenoLeWM</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Reference desktop shell</p>
+          <h1>GenoLeWM</h1>
+        </div>
+        <div class="runtime-pill" id="runtime-pill">Checking runtime</div>
+      </header>
+
+      <section class="safety-banner" aria-label="Safety notice">
+        GenoLeWM is a research tool, not a clinical diagnostic. Talk to a
+        qualified genetic counselor.
+      </section>
+
+      <section class="workspace" aria-label="Desktop workflow">
+        <div class="drop-grid">
+          <div class="drop-target" id="vcf-drop">
+            <span class="drop-label">VCF</span>
+            <strong>No VCF selected</strong>
+          </div>
+          <div class="drop-target" id="fasta-drop">
+            <span class="drop-label">FASTA</span>
+            <strong>No FASTA selected</strong>
+          </div>
+        </div>
+
+        <div class="panel-grid">
+          <section class="panel" aria-labelledby="runtime-heading">
+            <h2 id="runtime-heading">Runtime</h2>
+            <dl>
+              <div>
+                <dt>Python</dt>
+                <dd id="runtime-python">pending</dd>
+              </div>
+              <div>
+                <dt>GenoLeWM</dt>
+                <dd id="runtime-package">pending</dd>
+              </div>
+              <div>
+                <dt>Deploy runtime</dt>
+                <dd id="runtime-deploy">pending</dd>
+              </div>
+            </dl>
+            <p class="panel-note" id="runtime-error"></p>
+          </section>
+
+          <section class="panel" aria-labelledby="network-heading">
+            <h2 id="network-heading">Network Policy</h2>
+            <ul id="network-hosts"></ul>
+            <p class="panel-note" id="network-mode">default deny</p>
+          </section>
+        </div>
+
+        <section class="queue" aria-label="Scoring queue">
+          <div>
+            <h2>Scoring Queue</h2>
+            <p>Waiting for local inputs.</p>
+          </div>
+          <button type="button" disabled>Score</button>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
