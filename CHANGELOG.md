@@ -19,6 +19,12 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
     PyPI via OIDC trusted publishing, and emit GitHub/Sigstore artifact
     attestations with `SHA256SUMS` attached to the GitHub release.
 
+- **Receipt-verification tutorial notebook** (issue #99).
+  - `examples/07_verify_receipt.ipynb` verifies a committed
+    checksum-only fixture receipt against its manifest, recomputes the
+    input commitment, and validates the output commitment through the
+    public `geno-lewm-verify` path.
+
 - **CLI discovery flags wired to the config layer** (issue #29;
   RFC-0017 §3.8 + RFC-0018 §3.2).
   - `--print-config` renders the resolved config of the invoked

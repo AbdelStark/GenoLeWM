@@ -1,8 +1,9 @@
 # Examples
 
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
-**Phase 0 status: placeholders only.** Each notebook below is named and
-specified; implementation lands with the matching phase milestone.
+Most scoring and planning notebooks are still placeholders because the
+runtime scorer and planner are not implemented yet. Implemented examples
+state their current fixture scope explicitly.
 
 ---
 
@@ -40,9 +41,11 @@ viewing scored variants, exporting a receipt. Demonstrates the
 freedom-tech flow.
 
 ### `07_verify_receipt.ipynb`
-Phase 4. Given a receipt produced by someone else, fetch the model,
-verify the manifest hash, optionally re-run inference, optionally verify
-the STARK proof. Demonstrates the attestation contract.
+Implemented. Verifies a committed checksum-only fixture receipt against
+its manifest, recomputes the input commitment from the original edit and
+reference window, and recomputes the output commitment. This does not
+rerun scoring and does not verify a STARK proof; those paths land with
+the runtime/prover issues.
 
 ---
 
