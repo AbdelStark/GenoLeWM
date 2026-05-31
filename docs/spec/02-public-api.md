@@ -55,6 +55,36 @@ class CarbonStateEncoder:
 
 Defined by [RFC-0002 §3.8](../rfcs/0002-state-encoder-carbon-integration.md#38-encoder-api).
 
+The pure-Python windowing helpers from [RFC-0002 §3.2](../rfcs/0002-state-encoder-carbon-integration.md#32-window-format)
+are importable without the optional ML runtime:
+
+```python
+@dataclass(frozen=True, slots=True)
+class ExtractedWindow:
+    sequence: str
+    start_bp: int
+    end_bp: int
+    window_bp: int
+    edit_locus: int | None = None
+    relative_edit_locus: int | None = None
+    pad_right_bp: int = 0
+
+    @property
+    def untargeted(self) -> bool: ...
+    @property
+    def sha256(self) -> bytes: ...
+    def as_tokenizer_input(self) -> str: ...
+
+def canonicalize_dna(sequence: str) -> str: ...
+def window_sha256(sequence: str) -> bytes: ...
+def extract_window(source_sequence: str, *,
+                   edit_locus: int | None = None,
+                   window_bp: int = 12_288) -> ExtractedWindow: ...
+def pad_for_carbon_tokenizer(sequence: str, *,
+                             token_bp: int = 6) -> str: ...
+def wrap_dna_for_tokenizer(sequence: str) -> str: ...
+```
+
 ### `geno_lewm.action`
 
 ```python
