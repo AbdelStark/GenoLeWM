@@ -214,6 +214,84 @@ def apply_edits(window: str, edits: list[RelEdit]) -> str: ...
 
 Defined by [RFC-0003 §3](../rfcs/0003-action-representation-genomic-edits.md#3-specification).
 
+### `geno_lewm.data`
+
+```python
+@dataclass(frozen=True, slots=True)
+class CarbonSourceMix:
+    source: str
+    fraction: float
+
+@dataclass(frozen=True, slots=True)
+class CarbonCorpusConfig:
+    dataset_id: str = "HuggingFaceBio/carbon-pretraining-corpus"
+    dataset_config: str | None = None
+    split: str = "train"
+    streaming: bool = True
+    subset_fraction: float = 0.10
+    subset_seed: int = 0
+    sequence_field: str = "sequence"
+    source_field: str = "source"
+    source_id_field: str = "id"
+    window_bp: int = 12_288
+    margin_bp: int = 256
+    stride_bp: int = 8_192
+
+@dataclass(frozen=True, slots=True)
+class CarbonRecord:
+    record_id: str
+    source: str
+    sequence: str
+    @property
+    def length_bp(self) -> int: ...
+
+@dataclass(frozen=True, slots=True)
+class CarbonWindow:
+    record_id: str
+    source: str
+    start_bp: int
+    end_bp: int
+    sequence: str
+    @property
+    def window_bp(self) -> int: ...
+    @property
+    def window_id(self) -> str: ...
+
+def sample_source(rng: random.Random,
+                  *,
+                  mix: Sequence[CarbonSourceMix] = CARBON_SUBMIX) -> str: ...
+def draw_source_counts(n: int,
+                       *,
+                       rng: random.Random,
+                       mix: Sequence[CarbonSourceMix] = CARBON_SUBMIX) -> dict[str, int]: ...
+def stable_subset_includes(record_id: str, *,
+                           fraction: float,
+                           seed: int = 0) -> bool: ...
+def iter_window_starts(sequence_length: int,
+                       *,
+                       window_bp: int = 12_288,
+                       margin_bp: int = 256,
+                       stride_bp: int = 8_192,
+                       rng: random.Random | None = None) -> Iterator[int]: ...
+def iter_record_windows(record: CarbonRecord,
+                        *,
+                        window_bp: int = 12_288,
+                        margin_bp: int = 256,
+                        stride_bp: int = 8_192,
+                        rng: random.Random | None = None) -> Iterator[CarbonWindow]: ...
+def iter_carbon_records(rows: Iterable[Mapping[str, Any]],
+                        *,
+                        sequence_field: str = "sequence",
+                        source_field: str = "source",
+                        source_id_field: str = "id",
+                        subset_fraction: float = 1.0,
+                        subset_seed: int = 0) -> Iterator[CarbonRecord]: ...
+def load_hf_carbon_records(config: CarbonCorpusConfig | None = None) -> Iterator[CarbonRecord]: ...
+def normalize_source_label(value: object) -> str: ...
+```
+
+Defined by [RFC-0006 §3.1–§3.2](../rfcs/0006-data-pipeline.md#31-reference-corpus).
+
 ### `geno_lewm.predictor`
 
 ```python
