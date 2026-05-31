@@ -130,6 +130,12 @@ The result is an array `F_bucket[bucket_id] → CDF`. The full
 calibration table is computed once, distributed with the GenoLeWM
 checkpoint as `calibration.parquet` (~2 MB), and loaded at inference.
 
+The table builder takes pre-scored common-variant rows
+(`bucket_id`, `sigma_raw`) as input. Computing `σ_raw` belongs to the
+scorer path (§3.1, §3.10); the builder owns deterministic sampling,
+parent-bucket aggregation, empirical CDF construction, sparse-bucket
+warnings, and Parquet schema validation.
+
 This is built **on the holdout-clinvar-free** set: the gnomAD common
 variants used for calibration are drawn so that none of them
 overlap with the ClinVar evaluation set. Otherwise we would be
@@ -356,4 +362,6 @@ surprise score is intentionally unsupervised in v1.
 
 - 2026-05-31 — Implemented deterministic context bucket IDs and
   sparse-bucket back-off helpers.
+- 2026-05-31 — Implemented deterministic calibration table building
+  and Parquet schema validation from pre-scored reference rows.
 - 2026-05-20 — Initial draft.
