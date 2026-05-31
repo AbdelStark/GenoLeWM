@@ -66,6 +66,9 @@ Phase 0 of the project shipped the **production infrastructure layer**:
   `calibration.parquet` table building from pre-scored reference rows.
 - **Deploy runtime contract** — RFC-0010 backend probing and
   fail-closed network guard for offline inference paths.
+- **Personal-genome importers** — RFC-0010 local-only conversion from
+  23andMe, AncestryDNA, MyHeritage, and Sequencing.com-style raw data
+  fixtures into VCF.
 
 What's *not* yet shipped: trainer, autoregressive rollout, eval harness,
 CEM solver, full surprise scorer, runtime scoring backends, ONNX / Core

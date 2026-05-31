@@ -239,6 +239,13 @@ The runtime accepts:
 Conversion utilities are bundled with the runtime; conversions are
 local-only (no third-party services called).
 
+Array raw-data formats (23andMe / AncestryDNA / MyHeritage) do not
+carry canonical VCF `REF` alleles. GenoLeWM importers therefore require
+an explicit local reference-allele map keyed by `(chrom, pos)` and fail
+closed when a row cannot be converted without guessing. Sequencing.com
+JSON import supports VCF-equivalent variant rows that include explicit
+reference and alternate alleles.
+
 ### 3.10 Distribution
 
 The runtime is distributed via:
@@ -338,6 +345,8 @@ silently invalidate that contract.
 
 ## 7. Changelog
 
+- 2026-05-31 — Implemented local-only personal-genome importers for
+  23andMe, AncestryDNA, MyHeritage, and Sequencing.com-style JSON.
 - 2026-05-31 — Implemented backend probing and fail-closed network
   guard for the Python runtime contract.
 - 2026-05-20 — Initial draft.

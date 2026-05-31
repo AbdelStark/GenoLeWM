@@ -674,6 +674,35 @@ fast with `RuntimeSetupError` until the scorer and deploy backends land.
 Defined by [RFC-0010 §3.4](../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract)
 and [§3.7](../rfcs/0010-on-device-personal-genome-deployment.md#37-privacy-contract).
 
+### `geno_lewm.deploy.import_`
+
+```python
+@dataclass(frozen=True)
+class VcfConversionSummary:
+    output_path: Path
+    records_written: int
+    ref_calls_skipped: int
+    no_calls_skipped: int
+
+def convert_23andme_to_vcf(input_path: str | Path,
+                           output_path: str | Path,
+                           reference_alleles: Mapping[tuple[str, int], str],
+                           *,
+                           sample_id: str = "sample") -> VcfConversionSummary: ...
+def convert_ancestry_to_vcf(...): ...
+def convert_myheritage_to_vcf(...): ...
+def convert_sequencing_json_to_vcf(input_path: str | Path,
+                                   output_path: str | Path,
+                                   *,
+                                   sample_id: str = "sample") -> VcfConversionSummary: ...
+```
+
+Array raw-data formats do not carry VCF `REF` alleles, so their
+converters require a local `reference_alleles` map keyed by
+`(chrom, pos)`. Missing or non-ACGT alleles raise `VcfParseError`; the
+converters do not perform network calls. Defined by
+[RFC-0010 §3.9](../rfcs/0010-on-device-personal-genome-deployment.md#39-compatibility-with-personal-genome-data-formats).
+
 ### `geno_lewm.attestation`
 
 ```python
