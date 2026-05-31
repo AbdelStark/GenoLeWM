@@ -167,10 +167,13 @@ Network downloads gated by user-visible URLs printed to stderr first.
 #### `geno-lewm-update`
 
 ```
-geno-lewm-update [--check-only] [--target-version VERSION]
+geno-lewm-update --model-dir PATH [--check-only] [--target-version VERSION] [--yes]
 ```
 
-Implements the user-initiated update flow (RFC-0010 §3.8).
+Implements the user-initiated update flow (RFC-0010 §3.8). The command
+fetches a Hugging Face release index only when invoked, compares the
+selected remote manifest to `PATH/manifest.json`, and installs the new
+release side by side only after explicit consent.
 
 ### 3.4 Exit codes
 

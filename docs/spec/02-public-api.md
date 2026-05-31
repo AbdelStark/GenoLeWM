@@ -742,11 +742,18 @@ Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-verifiable-inference-attestation
 | `geno-lewm-cache-windows` | pre-compute the reference window cache | RFC-0006 |
 | `geno-lewm-prepare-gnomad` | build the gnomAD Parquet shard | RFC-0006 |
 | `geno-lewm-prepare-clinvar` | build the ClinVar Parquet shard | RFC-0006 |
-| `geno-lewm-update` | check for model updates | RFC-0010 |
+| `geno-lewm-update` | check or apply explicit model updates | RFC-0010 |
 
 All commands accept `--config FILE` (Hydra-compatible), `--seed INT`,
 `--log-level {debug,info,warn,error}`, and `--receipt PATH | --no-receipt`
 where receipts are applicable.
+
+`geno-lewm-update --model-dir PATH` compares `PATH/manifest.json` with
+the selected Hugging Face release-index entry. `--check-only` prints the
+manifest delta without installing; applying an update requires either an
+interactive confirmation or the explicit `--yes` flag, and installs the
+new release as a side-by-side directory under `--install-root` (default:
+the current model directory's parent).
 
 Defined by [RFC-0018](../rfcs/0018-cli-design.md).
 
