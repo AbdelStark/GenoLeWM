@@ -51,9 +51,12 @@ Phase 0 of the project shipped the **production infrastructure layer**:
   with per-call-site deduplication (RFC-0014).
 - **CI gates** — AST-level error / event / metric / network / print
   linters, plus a committed public-surface snapshot.
+- **Optional PyTorch predictor module** — the base cross-attention
+  `Predictor` with identity-at-init and public-surface coverage.
 
-What's *not* yet shipped: trainer, predictor head, eval harness, ONNX /
-Core ML / GGUF exporters. See the [roadmap](roadmap/IMPLEMENTATION.md).
+What's *not* yet shipped: trainer, autoregressive rollout/loss modules,
+eval harness, ONNX / Core ML / GGUF exporters. See the
+[roadmap](roadmap/IMPLEMENTATION.md).
 
 ## Acknowledgments
 

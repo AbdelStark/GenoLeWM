@@ -3,7 +3,8 @@
 - **Version:** 0.1.0.dev0
 - **Status:** Design phase. The reference infrastructure layer is
   implemented (errors, observability, attestation primitives, action
-  specs, verify CLI); trainer / predictor / eval / deploy are
+  specs, verify CLI), along with the optional-runtime base predictor
+  module; trainer / autoregressive rollout / eval / deploy are
   upcoming.
 
 This file is the entry point into the GenoLeWM specification corpus.
