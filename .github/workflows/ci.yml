@@ -133,7 +133,7 @@ jobs:
         shell: bash
       - name: Upload pytest output (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pytest-${{ matrix.os }}-${{ matrix.python }}
           path: pytest.out
@@ -184,7 +184,7 @@ jobs:
           python -c "import geno_lewm; print(geno_lewm.__version__)"
           python -c "from geno_lewm import EditSpec, apply_edit; print(EditSpec(chrom='1', pos=1, ref='A', alt='T'))"
       - name: Upload dist artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -205,7 +205,7 @@ jobs:
       - name: Build docs (strict)
         run: mkdocs build --strict
       - name: Upload site artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docs-site
           path: site/
