@@ -17,12 +17,14 @@ from geno_lewm._artifact_sources import SCORE_JSONL_GENERATED_BY, SCORE_JSONL_SC
 from geno_lewm.action import EditSpec, RelEdit, apply_edit
 from geno_lewm.encoder.windowing import DEFAULT_WINDOW_BP, canonicalize_dna, extract_window
 from geno_lewm.errors import InputError, VcfParseError
-from geno_lewm.surprise.calibration import CalibrationBucket, CalibrationTable
+from geno_lewm.surprise.calibration import CalibrationBucket, CalibrationExample, CalibrationTable
 from geno_lewm.surprise.context import DEFAULT_MIN_BUCKET_SIZE, classify_context
 
 __all__ = [
     "Aggregation",
     "SurpriseResult",
+    "build_calibration_examples_from_vcf",
+    "raw_surprise_example",
     "score_variant",
     "score_vcf",
 ]
@@ -109,15 +111,54 @@ def score_variant(
     FASTA-backed window extraction is available through :func:`score_vcf`;
     checkpoint loading is owned by higher runtime layers.
     """
+    _require_calibration_table(calibration)
+    min_size = _require_positive_int("min_bucket_size", min_bucket_size)
+    bucket_id, sigma_raw = _raw_surprise(
+        variant,
+        encoder,
+        action_encoder,
+        predictor,
+        reference_window=reference_window,
+        window_start_bp=window_start_bp,
+        region=region,
+        repeat=repeat,
+        aggregation=aggregation,
+    )
+    bucket = calibration.resolve(bucket_id, min_bucket_size=min_size)
+    return SurpriseResult(
+        sigma_raw=sigma_raw,
+        sigma_calibrated=_cdf_percentile(bucket, sigma_raw),
+        bucket_id=bucket.bucket_id,
+        confidence=bucket.confidence,
+        low_confidence=bucket.low_confidence,
+    )
+
+
+def _raw_surprise(
+    variant: EditSpec,
+    encoder: object,
+    action_encoder: object,
+    predictor: object,
+    *,
+    reference_window: str,
+    window_start_bp: int = 0,
+    region: str | Sequence[str] | None = None,
+    repeat: str | Sequence[str] | None = None,
+    aggregation: str = "mean",
+) -> tuple[str, float]:
+    """Compute the calibration-independent ``(bucket_id, sigma_raw)`` for an edit.
+
+    Shared by :func:`score_variant` (which then applies a calibration CDF) and
+    :func:`raw_surprise_example` (which records reference points for building a
+    calibration table). No calibration table is required.
+    """
     if not isinstance(variant, EditSpec):
         raise InputError(
             "variant must be an EditSpec",
             details={"type": type(variant).__name__},
         )
-    _require_calibration_table(calibration)
     normalized_aggregation = _normalize_aggregation(aggregation)
     start_bp = _require_window_start(window_start_bp)
-    min_size = _require_positive_int("min_bucket_size", min_bucket_size)
     window = canonicalize_dna(reference_window)
     if not window:
         raise InputError("reference_window must be non-empty")
@@ -137,16 +178,40 @@ def score_variant(
         target_vector,
         aggregation=normalized_aggregation,
     )
-
     label = classify_context(region=region, gc_window=window, repeat=repeat)
-    bucket = calibration.resolve(label.bucket_id, min_bucket_size=min_size)
-    return SurpriseResult(
-        sigma_raw=sigma_raw,
-        sigma_calibrated=_cdf_percentile(bucket, sigma_raw),
-        bucket_id=bucket.bucket_id,
-        confidence=bucket.confidence,
-        low_confidence=bucket.low_confidence,
+    return label.bucket_id, sigma_raw
+
+
+def raw_surprise_example(
+    variant: EditSpec,
+    encoder: object,
+    action_encoder: object,
+    predictor: object,
+    *,
+    reference_window: str,
+    window_start_bp: int = 0,
+    region: str | Sequence[str] | None = None,
+    repeat: str | Sequence[str] | None = None,
+    aggregation: str = "mean",
+) -> CalibrationExample:
+    """Score one reference variant into a :class:`CalibrationExample`.
+
+    Runs the model (no calibration table needed) and returns the variant's
+    functional ``bucket_id`` paired with its raw surprise, ready to feed
+    :func:`geno_lewm.surprise.calibration.build_calibration_table`.
+    """
+    bucket_id, sigma_raw = _raw_surprise(
+        variant,
+        encoder,
+        action_encoder,
+        predictor,
+        reference_window=reference_window,
+        window_start_bp=window_start_bp,
+        region=region,
+        repeat=repeat,
+        aggregation=aggregation,
     )
+    return CalibrationExample(bucket_id=bucket_id, sigma_raw=sigma_raw)
 
 
 def score_vcf(
@@ -218,6 +283,64 @@ def score_vcf(
                 + "\n"
             )
     return output
+
+
+def build_calibration_examples_from_vcf(
+    vcf_path: str | Path,
+    encoder: object,
+    action_encoder: object,
+    predictor: object,
+    *,
+    reference_windows: Mapping[str, str] | None = None,
+    reference_fasta: str | Path | None = None,
+    window_bp: int = DEFAULT_WINDOW_BP,
+    window_start_bp: int = 0,
+    region: str | Sequence[str] | None = None,
+    repeat: str | Sequence[str] | None = None,
+    aggregation: str = "mean",
+) -> list[CalibrationExample]:
+    """Score a background VCF into :class:`CalibrationExample` rows.
+
+    Runs the model over every scoreable VCF alternate (FASTA-backed window
+    extraction) and records ``(bucket_id, sigma_raw)`` per variant. No
+    calibration table is required, so the result can seed
+    :func:`geno_lewm.surprise.calibration.build_calibration_table`.
+    """
+    if reference_windows is None and reference_fasta is None:
+        raise InputError(
+            "calibration requires reference_windows or reference_fasta",
+            remediation="pass a local FASTA path or pre-extracted windows",
+        )
+    reference_sequences = (
+        None if reference_fasta is None else _load_reference_fasta(reference_fasta)
+    )
+    examples: list[CalibrationExample] = []
+    for variant in _iter_vcf_variants(vcf_path):
+        ref_window = _reference_window_for_variant(
+            variant,
+            reference_windows,
+            reference_sequences,
+            window_start_bp=window_start_bp,
+            window_bp=window_bp,
+        )
+        examples.append(
+            raw_surprise_example(
+                variant,
+                encoder,
+                action_encoder,
+                predictor,
+                reference_window=ref_window.sequence,
+                window_start_bp=ref_window.start_bp,
+                region=region,
+                repeat=repeat,
+                aggregation=aggregation,
+            )
+        )
+    if not examples:
+        raise VcfParseError(
+            "VCF contains no scoreable variant rows", details={"path": str(vcf_path)}
+        )
+    return examples
 
 
 def _iter_vcf_scores(
