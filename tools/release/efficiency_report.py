@@ -10,7 +10,7 @@ import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Final
 
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
@@ -283,8 +283,16 @@ def _parse_input_path(item: dict[str, Any], key: str) -> str:
             "input paths must be package-relative or inline labels",
             details={"field": f"inputs.{key}.path"},
         )
+    # Detect absolute paths OS-independently: a POSIX-absolute path (/Users/...)
+    # is not flagged by PureWindowsPath.is_absolute, and a drive path (C:\...)
+    # is not flagged by PurePosixPath, so reject if either treats it as absolute.
+    if PurePosixPath(path).is_absolute() or PureWindowsPath(path).is_absolute() or "\\" in path:
+        raise InputError(
+            "input paths must be package-relative or inline labels",
+            details={"field": f"inputs.{key}.path"},
+        )
     candidate = Path(path)
-    if candidate.is_absolute() or ".." in candidate.parts or not candidate.parts:
+    if ".." in candidate.parts or not candidate.parts:
         raise InputError(
             "input paths must be package-relative or inline labels",
             details={"field": f"inputs.{key}.path"},

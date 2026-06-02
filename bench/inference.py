@@ -437,15 +437,15 @@ def _input_identities(request: ReleaseEfficiencyRequest, manifest: Manifest) -> 
         ),
         "checkpoint": _file_identity(
             checkpoint,
-            portable_path=str(Path("model") / manifest.predictor.file),
+            portable_path=(Path("model") / manifest.predictor.file).as_posix(),
         ),
         "vcf": _file_identity(
             request.vcf,
-            portable_path=str(Path("benchmark_inputs") / request.vcf.name),
+            portable_path=(Path("benchmark_inputs") / request.vcf.name).as_posix(),
         ),
         "fasta": _file_identity(
             request.fasta,
-            portable_path=str(Path("benchmark_inputs") / request.fasta.name),
+            portable_path=(Path("benchmark_inputs") / request.fasta.name).as_posix(),
         ),
         "single_window": {
             "path": "inline:single_window",

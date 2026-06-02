@@ -516,21 +516,21 @@ def _write_spec(root: Path) -> Path:
         ],
         "carbon_files": [
             {
-                "source_path": str(carbon.relative_to(root)),
+                "source_path": carbon.relative_to(root).as_posix(),
                 "path": "carbon/windows.jsonl",
                 "split": "train_carbon",
                 "description": "Carbon source-mix windows staged from the pinned local snapshot",
             }
         ],
         "gnomad": {
-            "input_vcf": str(gnomad.relative_to(root)),
+            "input_vcf": gnomad.relative_to(root).as_posix(),
             "release": "v4.1",
             "min_af": 0.01,
             "split": "train_gnomad_common",
             "description": "gnomAD PASS common variants used for edit sampling",
         },
         "clinvar": {
-            "input_vcf": str(clinvar.relative_to(root)),
+            "input_vcf": clinvar.relative_to(root).as_posix(),
             "release": "2026-04-15",
             "split": "eval_clinvar",
             "description": "ClinVar variants held out for first experiment evaluation",
