@@ -210,6 +210,18 @@ def test_build_adamw_optimizer_accepts_real_small_modules() -> None:
     }
 
 
+def test_pred_var_per_dim_matches_population_variance() -> None:
+    torch = pytest.importorskip("torch")
+    from geno_lewm.training.trainer import _pred_var_per_dim
+
+    # Per-dim population variance of columns [0,2] and [0,4] is [1.0, 4.0]; mean 2.5.
+    prediction = torch.tensor([[0.0, 0.0], [2.0, 4.0]])
+    assert _pred_var_per_dim(prediction) == pytest.approx(2.5)
+
+    # Higher-rank predictions are flattened to (rows, dim) before reduction.
+    assert _pred_var_per_dim(torch.zeros(1, 3, 5)) == pytest.approx(0.0)
+
+
 def _edit(rel_pos: int = 0) -> RelEdit:
     return RelEdit(rel_pos=rel_pos, edit_type=EditType.SNV, ref_bases="A", alt_bases="T")
 

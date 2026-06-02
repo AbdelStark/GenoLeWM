@@ -105,6 +105,7 @@ class TorchTrainerStepResult:
     pred_loss: float
     kl_reg: float
     action_count: int
+    pred_var_per_dim: float
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -114,6 +115,7 @@ class TorchTrainerStepResult:
             "pred_loss": self.pred_loss,
             "kl_reg": self.kl_reg,
             "action_count": self.action_count,
+            "pred_var_per_dim": self.pred_var_per_dim,
         }
 
 
@@ -178,6 +180,7 @@ class TorchTrainer:
             pred_loss=_scalar(loss_result.pred_loss),
             kl_reg=_scalar(loss_result.kl_reg),
             action_count=int(batch.action_mask.sum().item()),
+            pred_var_per_dim=_pred_var_per_dim(prediction),
         )
 
 
@@ -593,6 +596,19 @@ def _scalar(value: object) -> float:
     if callable(item):
         return float(item())
     return float(value)  # type: ignore[arg-type]
+
+
+def _pred_var_per_dim(prediction: Tensor) -> float:
+    """Mean population variance across prediction latent dims (collapse signal).
+
+    Low values flag representation collapse (RFC-0005 §3.6). Matches the
+    ``_mean_variance_per_dim`` semantics in :mod:`geno_lewm.training.collapse`.
+    """
+    detached = prediction.detach()
+    flat = detached.reshape(-1, detached.shape[-1])
+    if flat.shape[0] < 1:
+        return 0.0
+    return float(flat.var(dim=0, unbiased=False).mean().item())
 
 
 def _seed_numpy(seed: int) -> None:
