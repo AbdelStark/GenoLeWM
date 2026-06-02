@@ -4,8 +4,9 @@ GenoLeWM operates over personal genome data — permanent, identifying,
 family-implicating. This policy is more conservative than typical
 open-source norms; the threat model is in
 [`docs/spec/06-security.md`](docs/spec/06-security.md) and the
-attestation primitives are in [`docs/spec/06-security.md`](docs/spec/06-security.md)
-plus [RFC-0011](rfcs/0011-verifiable-inference-attestation.md).
+artifact provenance primitives are in
+[`docs/spec/06-security.md`](docs/spec/06-security.md) plus
+[RFC-0011](rfcs/0011-artifact-provenance-receipts.md).
 
 ## Reporting a vulnerability
 
@@ -39,7 +40,7 @@ Include:
 
 | Band | Meaning |
 |------|---------|
-| **Critical** | personal data exfiltration, signed-build forgery, attestation bypass |
+| **Critical** | personal data exfiltration, signed-build forgery, provenance-check bypass |
 | **High** | bypass of network-fail-closed guard, manifest hash collision, weight substitution |
 | **Medium** | denial of service, redaction-filter bypass without exfiltration, deterministic-build break |
 | **Low** | parser crashes on malformed input that does not leak data |
@@ -55,8 +56,7 @@ release. Older versions are best-effort.
 - Issues that require root / administrator on the user's machine.
 - Side-channel attacks on shared hardware (we assume dedicated user
   hardware).
-- Cryptographic break of SHA-256 / Poseidon / the post-quantum hash
-  assumptions underlying STARKs.
+- Cryptographic break of SHA-256.
 - Issues in third-party dependencies that we cannot fix and that have
   no GenoLeWM-side mitigation; we will document and forward upstream.
 
@@ -68,7 +68,7 @@ release. Older versions are best-effort.
   this file says so explicitly.
 - The Hugging Face Hub repository for the project is the canonical
   weight host.
-- Sigstore / GitHub provenance attestations apply to release artifacts
+- Sigstore / GitHub build provenance applies to release artifacts
   once published.
 
 ## Privacy-related issues

@@ -3,10 +3,13 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001, RFC-0002, RFC-0003, RFC-0004, RFC-0008, RFC-0009, RFC-0010, RFC-0011
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — public API snapshot testing,
+  `@experimental` / `@deprecated` decorators, public-surface pruning for
+  `geno_lewm.provenance`, and duplicate-free `__all__` checks exist.
+  Full release-process automation for compatibility notes remains open.
 
 ---
 
@@ -42,26 +45,30 @@ Three classes:
 
 ### 3.2 The stable surface (v0.1)
 
-Enumerated section-by-section in
-[`docs/spec/02-public-api.md`](../docs/spec/02-public-api.md). Summary:
+Documented section-by-section in
+[`docs/spec/02-public-api.md`](../docs/spec/02-public-api.md). The
+exhaustive enforced symbol list is
+[`tests/api/public_surface.json`](https://github.com/AbdelStark/GenoLeWM/blob/main/tests/api/public_surface.json).
+Summary:
 
 - Top-level: `__version__`, `GenoLeWMRuntime`, `EditSpec`, `EditType`,
-  `SurpriseResult`, `PlanningResult`, `errors` submodule.
+  `SurpriseResult`, selected error/provenance/observability helpers, and
+  grouped re-exports captured by the public-surface snapshot.
 - `geno_lewm.encoder`: `CarbonStateEncoder`.
 - `geno_lewm.action`: `EditSpec`, `RelEdit`, `EditType`, `ActionEncoder`,
   `apply_edit`, `apply_edits`.
 - `geno_lewm.predictor`: `Predictor`, `ARPredictor`.
 - `geno_lewm.surprise`: `SurpriseResult`, `score_variant`, `score_vcf`.
-- `geno_lewm.planning`: `PlanningConfig`, `PlanningResult`, `plan`.
+- `geno_lewm.planning`: action sampler and edit-sequence cost
+  primitives. `PlanningConfig`, `PlanningResult`, and `plan` are the
+  upcoming CEM solver surface, not stable top-level exports yet.
 - `geno_lewm.deploy`: `GenoLeWMRuntime`.
-- `geno_lewm.attestation`: `Receipt`, `write_receipt`, `read_receipt`,
-  `verify_receipt`.
+- `geno_lewm.provenance`: `Receipt`, `write_receipt`, `read_receipt`,
+  manifest helpers, checksum helpers, and commitment helpers.
 
 ### 3.3 The experimental surface (v0.1)
 
 - `planning.mcts.*`
-- `deploy.tee_attestation.*`
-- `attestation.stark.*`
 - `encoder.lora.*`
 - `surprise.bayesian.*`
 - `surprise.directional.*`
@@ -129,7 +136,7 @@ surface to be a contract from v0.1, not from v1.0.
 A two-class stable/internal split forces every novel feature into either
 "frozen forever" or "no docs". The experimental class lets us ship and
 document features whose interface is still settling (planner variants,
-attestation backends) without locking us in.
+future provenance-report formats) without locking us in.
 
 ### 4.3 Why snapshot tests rather than only mypy?
 
@@ -162,4 +169,6 @@ it. The snapshot file is enforced in CI.
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for API snapshot tests,
+  lifecycle decorators, and public namespace pruning.
 - 2026-05-20 — Initial draft.

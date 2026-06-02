@@ -11,10 +11,13 @@ To regenerate after an intentional API change::
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 import warnings
 
 import pytest
 
+import geno_lewm
 from tools.api import snapshot
 
 
@@ -115,6 +118,60 @@ def test_committed_snapshot_lists_known_symbols() -> None:
         "geno_lewm.errors.GenoLeWMError",
         "geno_lewm.api.experimental",
         "geno_lewm.api.deprecated",
+        "geno_lewm.predictor.ARPredictor",
     }
     missing = expected - syms
     assert not missing, missing
+
+
+def test_public_surface_excludes_legacy_trust_namespace() -> None:
+    legacy_prefix = "geno_lewm." + "att" + "estation"
+    syms = set(snapshot.compute_snapshot()["symbols"])
+
+    assert not any(sym.startswith(legacy_prefix) for sym in syms)
+
+
+def test_cli_verify_snapshot_exposes_only_cli_contract() -> None:
+    syms = {
+        sym.removeprefix("geno_lewm.cli.verify.")
+        for sym in snapshot.compute_snapshot()["symbols"]
+        if sym.startswith("geno_lewm.cli.verify.")
+    }
+
+    assert syms == {"VERIFIER_SUPPORTED_KINDS", "main", "verify"}
+
+
+def test_cli_command_snapshots_do_not_expose_future_annotations() -> None:
+    leaked = [
+        sym
+        for sym in snapshot.compute_snapshot()["symbols"]
+        if sym.startswith("geno_lewm.cli.") and sym.endswith(".annotations")
+    ]
+
+    assert leaked == []
+
+
+def test_public_all_exports_are_unique() -> None:
+    duplicate_exports: dict[str, list[str]] = {}
+
+    modules = [geno_lewm]
+    modules.extend(
+        importlib.import_module(module.name)
+        for module in pkgutil.walk_packages(geno_lewm.__path__, f"{geno_lewm.__name__}.")
+        if not any(part.startswith("_") for part in module.name.split("."))
+    )
+
+    for module in modules:
+        exports = getattr(module, "__all__", None)
+        if exports is None:
+            continue
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for export in exports:
+            if export in seen:
+                duplicates.append(export)
+            seen.add(export)
+        if duplicates:
+            duplicate_exports[module.__name__] = duplicates
+
+    assert duplicate_exports == {}

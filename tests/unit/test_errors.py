@@ -44,12 +44,12 @@ LEAF_CLASSES: tuple[tuple[type[err.GenoLeWMError], str], ...] = (
     (err.ExportFormatError, "DEPLOY.EXPORT_FORMAT"),
     (err.QuantizationError, "DEPLOY.QUANTIZATION_FAILED"),
     (err.BackendUnsupportedError, "DEPLOY.BACKEND_UNSUPPORTED"),
-    # Attestation
-    (err.ManifestHashMismatchError, "ATTESTATION.MANIFEST_HASH_MISMATCH"),
-    (err.InputCommitmentMismatchError, "ATTESTATION.INPUT_COMMITMENT_MISMATCH"),
-    (err.OutputCommitmentMismatchError, "ATTESTATION.OUTPUT_COMMITMENT_MISMATCH"),
-    (err.AttestationKindUnsupportedError, "ATTESTATION.KIND_UNSUPPORTED"),
-    (err.ReceiptSchemaError, "ATTESTATION.RECEIPT_SCHEMA"),
+    # Provenance
+    (err.ManifestHashMismatchError, "PROVENANCE.MANIFEST_HASH_MISMATCH"),
+    (err.InputCommitmentMismatchError, "PROVENANCE.INPUT_COMMITMENT_MISMATCH"),
+    (err.OutputCommitmentMismatchError, "PROVENANCE.OUTPUT_COMMITMENT_MISMATCH"),
+    (err.ProvenanceKindUnsupportedError, "PROVENANCE.KIND_UNSUPPORTED"),
+    (err.ReceiptSchemaError, "PROVENANCE.RECEIPT_SCHEMA"),
     # Internal
     (err.InvariantViolation, "INTERNAL.INVARIANT_VIOLATION"),
     (err.UnreachableError, "INTERNAL.UNREACHABLE"),
@@ -111,7 +111,7 @@ def test_registry_codes_have_dotted_uppercase_prefix() -> None:
         "TRAINING",
         "EVAL",
         "DEPLOY",
-        "ATTESTATION",
+        "PROVENANCE",
         "INTERNAL",
     }
     for entry in err.ERROR_CODES:

@@ -7,8 +7,8 @@ import random
 from pathlib import Path
 
 from geno_lewm.action.spec import EditSpec
-from geno_lewm.attestation.commitment import DtypeConfig, PoolingConfig
-from geno_lewm.attestation.receipt import ReceiptOutput
+from geno_lewm.provenance.commitment import DtypeConfig, PoolingConfig
+from geno_lewm.provenance.receipt import ReceiptOutput
 
 
 def test_random_seed_fixture_is_a_32_bit_unsigned(random_seed: int) -> None:

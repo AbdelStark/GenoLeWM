@@ -4,29 +4,27 @@ A 5-minute tour of the modules that ship today.
 
 ## Install
 
-GenoLeWM requires **Python 3.10+** and runs without any third-party
-dependency for the implemented surface (errors, observability,
-attestation, action specs, verify CLI).
+GenoLeWM requires **Python 3.10+**. The first PyPI release has not been
+cut yet, so install from source. The implemented surface keeps
+heavyweight ML dependencies behind optional extras; the base install is
+small and includes the CLI scaffolding dependencies.
 
-=== "uv (recommended)"
-
-    ```bash
-    uv pip install geno-lewm
-    ```
-
-=== "pip"
-
-    ```bash
-    pip install geno-lewm
-    ```
-
-=== "from source"
+=== "uv source install"
 
     ```bash
     git clone https://github.com/AbdelStark/GenoLeWM.git
     cd GenoLeWM
     uv venv && source .venv/bin/activate
-    uv pip install -e ".[dev]"
+    uv pip install -e "."
+    ```
+
+=== "development"
+
+    ```bash
+    git clone https://github.com/AbdelStark/GenoLeWM.git
+    cd GenoLeWM
+    uv venv && source .venv/bin/activate
+    uv pip install -e ".[dev,docs]"
     pytest
     ```
 
@@ -109,9 +107,9 @@ Pretty-format on a TTY, JSONL on a pipe. Environment overrides:
 | `GENO_LEWM_LOG_FORMAT` | autodetect | `pretty` / `json` |
 | `GENO_LEWM_REDACTION_STRICT` | `1` | `0` to soft-drop instead of raise |
 
-## 4. Attestation primitives
+## 4. Checksum provenance
 
-The attestation layer ships the manifest schema, content-addressed
+The provenance layer ships the manifest schema, content-addressed
 hashing, and the input / output commitment helpers. Receipts are
 deterministic and byte-stable on disk (canonical JSON).
 
@@ -141,7 +139,7 @@ dtype flags.
 ```console
 $ geno-lewm-verify path/to/receipt.json --manifest path/to/manifest.json
 reading receipt:  path/to/receipt.json
-  schema_version=1.0.0 attestation.kind=checksum_only
+  schema_version=1.0.0 provenance.kind=checksum_only
 reading manifest: path/to/manifest.json
   model_id ok (sha256:0123456789abcdef0…)
   input_commitment: skipped (no input flags supplied)
@@ -150,7 +148,7 @@ ok
 ```
 
 Exit codes follow the [error model](spec/04-error-model.md): `0` =
-verified, `8` = attestation mismatch, etc.
+verified, `8` = receipt/provenance mismatch, etc.
 
 ## What's next
 

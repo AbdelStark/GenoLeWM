@@ -1,9 +1,10 @@
 # Examples
 
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
-Most scoring and planning notebooks are still placeholders because the
-runtime scorer and planner are not implemented yet. Implemented examples
-state their current fixture scope explicitly.
+The receipt-verification notebook is implemented. Scoring notebooks now
+wait for the first released checkpoint and dataset snapshot so their
+outputs do not present fixtures as model results; planning notebooks
+remain planned until the planner is implemented.
 
 ---
 
@@ -44,8 +45,8 @@ freedom-tech flow.
 Implemented. Verifies a committed checksum-only fixture receipt against
 its manifest, recomputes the input commitment from the original edit and
 reference window, and recomputes the output commitment. This does not
-rerun scoring and does not verify a STARK proof; those paths land with
-the runtime/prover issues.
+rerun scoring and does not claim model-quality assurance beyond checksum
+provenance.
 
 ---
 

@@ -3,10 +3,16 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001, RFC-0002, RFC-0003, RFC-0004, RFC-0005, RFC-0006
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — artifact-level `geno-lewm-eval`,
+  deterministic bootstrap CIs, measured-baseline deltas,
+  `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, generated
+  `eval_report.md`, recorded `eval_config.effective.yaml`, and
+  release-efficiency report generation exist. Real ClinVar split runs,
+  held-out Carbon baseline evidence, rollout-fidelity benchmarks, and
+  the first paper-ready report remain open.
 
 ---
 
@@ -219,6 +225,16 @@ geno-lewm eval-all --model PATH --output report.md
 `eval-all` runs every benchmark in §3.1–3.3 and produces the release-
 ready Markdown report.
 
+Until that runner is fully wired, the maintainer release helper renders
+the same report artifact from measured metrics JSON:
+
+```
+python -m tools.release.eval_report --metrics-json metrics.json --output eval_report.md
+```
+
+The helper rejects empty metrics and placeholder wording so release
+packages cannot pass with handwritten or planned results.
+
 ## 4. Rationale and alternatives
 
 ### 4.1 Why mirror Carbon's eval suite?
@@ -282,4 +298,6 @@ of small differences.
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for artifact-level eval,
+  Carbon baseline scoring, aggregate reporting, and efficiency evidence.
 - 2026-05-20 — Initial draft.

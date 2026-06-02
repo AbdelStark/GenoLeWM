@@ -22,13 +22,18 @@ Modules under `geno_lewm/internal/` are not public regardless of name.
 
 ### Top-level
 
+The exhaustive public symbol set is the committed snapshot at
+`tests/api/public_surface.json`. The summary below names the primary
+top-level entry points; foundation re-exports for errors, provenance,
+observability, backend probes, and helpers are covered by the grouped
+sections below and the snapshot.
+
 ```python
 geno_lewm.__version__: str
 geno_lewm.GenoLeWMRuntime         # see deploy/runtime
 geno_lewm.EditSpec                # see action/spec
 geno_lewm.EditType                # see action/spec
 geno_lewm.SurpriseResult          # see surprise/score
-geno_lewm.PlanningResult          # see planning/cem
 geno_lewm.errors                  # the entire submodule (RFC-0012)
 ```
 
@@ -42,7 +47,12 @@ class CarbonStateEncoder:
                  pool_type: str = "centered_mean",
                  pool_radius: int = 256,
                  normalize: bool = True,
-                 lora_config: LoRAConfig | None = None) -> None: ...
+                 lora_config: LoRAConfig | None = None,
+                 model: object | None = None,
+                 tokenizer: object | None = None,
+                 encoder_hash: bytes | str | None = None,
+                 local_files_only: bool = True,
+                 trust_remote_code: bool = False) -> None: ...
 
     def encode(self, window: str, edit_locus: int | None = None) -> Tensor: ...
     def encode_batch(self, windows: list[str],
@@ -54,6 +64,9 @@ class CarbonStateEncoder:
 ```
 
 Defined by [RFC-0002 §3.8](../rfcs/0002-state-encoder-carbon-integration.md#38-encoder-api).
+The implementation can load local Transformers artifacts or accept
+injected `model`/`tokenizer` objects; it defaults to
+`local_files_only=True` so downloads stay explicit.
 
 The pure-Python windowing helpers from [RFC-0002 §3.2](../rfcs/0002-state-encoder-carbon-integration.md#32-window-format)
 are importable without the optional ML runtime:
@@ -288,9 +301,136 @@ def iter_carbon_records(rows: Iterable[Mapping[str, Any]],
                         subset_seed: int = 0) -> Iterator[CarbonRecord]: ...
 def load_hf_carbon_records(config: CarbonCorpusConfig | None = None) -> Iterator[CarbonRecord]: ...
 def normalize_source_label(value: object) -> str: ...
+
+@dataclass(frozen=True, slots=True)
+class EditSourceCount:
+    source: str
+    count: int
+
+@dataclass(frozen=True, slots=True)
+class WindowContext:
+    record_id: str
+    source: str
+    sequence: str
+    start_bp: int = 0
+    chrom: str | None = None
+    @property
+    def end_bp(self) -> int: ...
+    @property
+    def window_id(self) -> str: ...
+
+@dataclass(frozen=True, slots=True)
+class HoldoutInterval:
+    chrom: str
+    start_bp: int
+    end_bp: int
+    def intersects(self, chrom: str | None,
+                   start_bp: int,
+                   end_bp: int) -> bool: ...
+
+@dataclass(frozen=True, slots=True)
+class HoldoutPolicy:
+    holdout_chroms: tuple[str, ...] = ()
+    intervals: tuple[HoldoutInterval, ...] = ()
+    edit_keys: tuple[str, ...] = ()
+    record_ids: tuple[str, ...] = ()
+    def excludes_window(self, window: WindowContext) -> bool: ...
+    def excludes_edit(self, window: WindowContext,
+                      edit: RelEdit) -> bool: ...
+
+@dataclass(frozen=True, slots=True)
+class TrainingTuple:
+    window_id: str
+    source_record_id: str
+    edit_source: str
+    rel_edits: tuple[RelEdit, ...]
+    target_window: str
+    window_start_bp: int
+    window_end_bp: int
+
+def build_training_tuples(window: WindowContext,
+                          providers: Mapping[str, Callable[..., Iterable[RelEdit]]],
+                          *,
+                          rng: random.Random,
+                          mix: Sequence[EditSourceCount] = DEFAULT_EDIT_SOURCE_COUNTS,
+                          holdouts: HoldoutPolicy | None = None,
+                          fallback_sources: Mapping[str, str] | None = DEFAULT_SOURCE_FALLBACKS,
+                          preserve_length: bool = True) -> tuple[TrainingTuple, ...]: ...
+def synthetic_snv_provider(window: WindowContext,
+                           count: int,
+                           rng: random.Random) -> tuple[RelEdit, ...]: ...
+def synthetic_indel_provider(window: WindowContext,
+                             count: int,
+                             rng: random.Random) -> tuple[RelEdit, ...]: ...
+def variant_provider(variants: Sequence[EditSpec]) -> Callable[..., Iterable[RelEdit]]: ...
+
+@dataclass(frozen=True, slots=True)
+class GnomadVariant:
+    chrom: str
+    pos: int
+    ref: str
+    alt: str
+    af_global: float
+    filter: str
+    schema_version: str = GNOMAD_SCHEMA_VERSION
+
+@dataclass(frozen=True, slots=True)
+class GnomadPrepareReport:
+    output_path: Path
+    release: str
+    records_read: int
+    allele_records_seen: int
+    records_written: int
+    already_exists: bool = False
+
+def prepare_gnomad_shard(input_vcf: str | Path,
+                         output_dir: str | Path,
+                         *,
+                         release: str = "v4.1",
+                         min_af: float = 0.01,
+                         max_allele_len: int = 16,
+                         overwrite: bool = False) -> GnomadPrepareReport: ...
+def iter_gnomad_shard(path: str | Path) -> Iterator[GnomadVariant]: ...
+def iter_gnomad_vcf_variants(input_vcf: str | Path,
+                             *,
+                             min_af: float = 0.01,
+                             max_allele_len: int = 16) -> Iterator[GnomadVariant]: ...
+
+@dataclass(frozen=True, slots=True)
+class ClinvarVariant:
+    chrom: str
+    pos: int
+    ref: str
+    alt: str
+    clinical_significance: str
+    review_status: str
+    gene_symbol: str | None
+    clinvar_id: int
+    schema_version: str = CLINVAR_SCHEMA_VERSION
+
+@dataclass(frozen=True, slots=True)
+class ClinvarPrepareReport:
+    output_path: Path
+    release: str
+    records_read: int
+    allele_records_seen: int
+    records_written: int
+    already_exists: bool = False
+
+def prepare_clinvar_shard(input_vcf: str | Path,
+                          output_dir: str | Path,
+                          *,
+                          release: str,
+                          max_allele_len: int = 16,
+                          overwrite: bool = False) -> ClinvarPrepareReport: ...
+def iter_clinvar_shard(path: str | Path) -> Iterator[ClinvarVariant]: ...
+def iter_clinvar_vcf_variants(input_vcf: str | Path,
+                              *,
+                              max_allele_len: int = 16) -> Iterator[ClinvarVariant]: ...
+def label_set(variants: Iterable[ClinvarVariant]) -> tuple[ClinvarVariant, ...]: ...
 ```
 
-Defined by [RFC-0006 §3.1–§3.2](../rfcs/0006-data-pipeline.md#31-reference-corpus).
+Defined by [RFC-0006 §3.1–§3.7](../rfcs/0006-data-pipeline.md#31-reference-corpus).
 
 ### `geno_lewm.predictor`
 
@@ -399,6 +539,30 @@ def record_collapse_metrics(metrics: CollapseMetrics,
                             alerts: Iterable[CollapseAlert] = (),
                             logger: GenoLeWMLogger | None = None,
                             step: int | None = None) -> None: ...
+
+@dataclass(frozen=True, slots=True)
+class FixtureTrainingReport:
+    run_id: str
+    run_dir: Path
+    steps_requested: int
+    steps_completed: int
+    resumed_from_step: int
+    final_loss: float
+    checkpoint_path: Path
+    metrics_path: Path
+    log_path: Path
+    config_path: Path
+    dataset_manifest_path: Path
+    training_metadata_path: Path
+
+def run_fixture_training(*,
+                         config: GenoLeWMConfig,
+                         run_dir: Path,
+                         steps: int = 50,
+                         resume_from: Path | None = None,
+                         command: str,
+                         commit_sha: str,
+                         package_version: str) -> FixtureTrainingReport: ...
 
 @dataclass(frozen=True, slots=True)
 class EditTypeWeight:
@@ -540,19 +704,35 @@ class SurpriseResult:
     low_confidence: bool
 
 def score_variant(variant: EditSpec,
-                  encoder: CarbonStateEncoder,
-                  action_encoder: ActionEncoder,
-                  predictor: Predictor,
+                  encoder: object,
+                  action_encoder: object,
+                  predictor: object,
                   calibration: CalibrationTable,
-                  aggregation: str = "mean") -> SurpriseResult: ...
+                  *,
+                  reference_window: str,
+                  window_start_bp: int = 0,
+                  region: str | Sequence[str] | None = None,
+                  repeat: str | Sequence[str] | None = None,
+                  aggregation: str = "mean",
+                  min_bucket_size: int = 1000) -> SurpriseResult: ...
 
-def score_vcf(vcf_path: Path,
-              encoder: CarbonStateEncoder,
-              action_encoder: ActionEncoder,
-              predictor: Predictor,
+def score_vcf(vcf_path: str | Path,
+              encoder: object,
+              action_encoder: object,
+              predictor: object,
               calibration: CalibrationTable,
-              output_path: Path,
-              show_progress: bool = True) -> None: ...
+              output_path: str | Path,
+              *,
+              reference_windows: Mapping[str, str] | None = None,
+              reference_fasta: str | Path | None = None,
+              window_bp: int = 12288,
+              window_start_bp: int = 0,
+              region: str | Sequence[str] | None = None,
+              repeat: str | Sequence[str] | None = None,
+              aggregation: str = "mean",
+              show_progress: bool = True,
+              batch_size: int = 64,
+              min_bucket_size: int = 1000) -> Path: ...
 ```
 
 Context labels and calibration bucket back-off are defined by
@@ -562,6 +742,9 @@ are defined by
 [RFC-0009 §3.4](../rfcs/0009-surprise-based-pathogenicity-scoring.md#34-calibration-distribution).
 The model-dependent scorer is defined by
 [RFC-0009 §3.10](../rfcs/0009-surprise-based-pathogenicity-scoring.md#310-scorer-api).
+`score_vcf` can extract windows from a local FASTA or use explicitly
+provided `reference_windows`; checkpoint loading remains runtime work,
+not a hidden network side effect.
 
 ### `geno_lewm.planning`
 
@@ -625,7 +808,8 @@ def plan(initial_state: Tensor,
 ```
 
 The cost functions and sampler are implemented. `PlanningConfig`,
-`PlanningResult`, and `plan` define the upcoming CEM surface.
+`PlanningResult`, and `plan` define the upcoming CEM solver surface and
+are not stable top-level exports yet.
 
 Defined by [RFC-0008 §3.3](../rfcs/0008-latent-planning.md#33-edit-search-space),
 [§3.5](../rfcs/0008-latent-planning.md#35-cost-functions), and
@@ -653,24 +837,42 @@ def fail_closed_network_guard() -> Iterator[None]: ...
 class GenoLeWMRuntime:
     model_dir: Path
     backend: str
+    manifest: Manifest | None
     probes: tuple[BackendProbe, ...]
 
-    def __init__(self, model_dir: str | Path, backend: str = "auto") -> None: ...
+    def __init__(self,
+                 model_dir: str | Path,
+                 backend: str = "auto",
+                 *,
+                 encoder: object | None = None,
+                 action_encoder: object | None = None,
+                 predictor: object | None = None,
+                 calibration: CalibrationTable | None = None) -> None: ...
     def score_variant(self, variant: EditSpec,
-                      window: str | None = None) -> Any: ...
+                      window: str | None = None,
+                      *,
+                      receipt_path: str | Path | None = None) -> Any: ...
     def score_vcf(self, vcf_path: str | Path,
                   fasta_path: str | Path,
                   output_path: str | Path,
                   batch_size: int = 64,
-                  progress: bool = True) -> None: ...
+                  progress: bool = True,
+                  *,
+                  receipt_path: str | Path | None = None) -> None: ...
     def encode_window(self, window: str,
                       edit_locus: int | None = None) -> Any: ...
     def predict(self, state: Any, edits: Sequence[RelEdit]) -> Any: ...
 ```
 
-Backend probing and the fail-closed network guard are implemented.
-Model-dependent scoring / encoding / prediction methods currently fail
-fast with `RuntimeSetupError` until the scorer and deploy backends land.
+Backend probing, manifest artifact verification, injected local scorer
+components, optional local checkpoint-to-component loading for native
+PyTorch/Transformers/safetensors artifacts, VCF scoring from local FASTA,
+single-variant checksum receipt writing, per-row VCF receipt JSONL
+sidecars, and the fail-closed network guard are implemented.
+Clean-machine demo readiness still requires a published checkpoint and
+validation against the actual Carbon artifacts.
+Encoding / prediction methods still fail fast with `RuntimeSetupError`
+unless local scorer components are available.
 Defined by [RFC-0010 §3.4](../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract)
 and [§3.7](../rfcs/0010-on-device-personal-genome-deployment.md#37-privacy-contract).
 
@@ -703,7 +905,11 @@ converters require a local `reference_alleles` map keyed by
 converters do not perform network calls. Defined by
 [RFC-0010 §3.9](../rfcs/0010-on-device-personal-genome-deployment.md#39-compatibility-with-personal-genome-data-formats).
 
-### `geno_lewm.attestation`
+### `geno_lewm.provenance`
+
+`geno_lewm.provenance` is the active public import path for manifest,
+commitment, checksum, and receipt primitives. Receipt JSON uses the
+`provenance` field on disk.
 
 ```python
 @dataclass
@@ -716,37 +922,38 @@ class Receipt:
     calibration_hash: str
     runtime: RuntimeMetadata
     timestamp: datetime
-    attestation: Attestation
+    provenance: ReceiptProvenance
 
 def write_receipt(receipt: Receipt, path: Path) -> None: ...
 def read_receipt(path: Path) -> Receipt: ...
-def verify_receipt(receipt: Receipt,
-                   model_dir: Path | None = None,
-                   rerun: bool = False) -> VerificationResult: ...
+def parse_receipt_payload(payload: object) -> Receipt: ...
 ```
 
-Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-verifiable-inference-attestation.md).
+Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-artifact-provenance-receipts.md).
 
-## Stable CLI surface (v0.1)
+## Stable CLI Surface (v0.1)
 
-| Command | Purpose | RFC |
-|---------|---------|-----|
-| `geno-lewm-train` | train predictor end-to-end | RFC-0005, RFC-0018 |
-| `geno-lewm-score` | score a single variant or a VCF | RFC-0009, RFC-0010 |
-| `geno-lewm-rollout` | run multi-edit haplotype rollout | RFC-0004 |
-| `geno-lewm-plan` | run CEM planning to a target state | RFC-0008 |
-| `geno-lewm-eval` | run a single benchmark | RFC-0007 |
-| `geno-lewm-eval-all` | run the release evaluation suite | RFC-0007 |
-| `geno-lewm-export` | export to ONNX / Core ML / GGUF | RFC-0010 |
-| `geno-lewm-verify` | verify a receipt | RFC-0011 |
-| `geno-lewm-cache-windows` | pre-compute the reference window cache | RFC-0006 |
-| `geno-lewm-prepare-gnomad` | build the gnomAD Parquet shard | RFC-0006 |
-| `geno-lewm-prepare-clinvar` | build the ClinVar Parquet shard | RFC-0006 |
-| `geno-lewm-update` | check or apply explicit model updates | RFC-0010 |
+| Command | Current status | Purpose | RFC |
+|---------|----------------|---------|-----|
+| `geno-lewm-train` | Implemented alpha | fixture smoke training, Carbon preflight, and explicit Carbon-backed launch/package plumbing | RFC-0005, RFC-0018 |
+| `geno-lewm-score` | Implemented alpha | score a single variant or a VCF from a local model directory | RFC-0009, RFC-0010 |
+| `geno-lewm-eval` | Implemented alpha | compute measured metrics JSON and optional measured-baseline deltas from score/label artifacts | RFC-0007 |
+| `geno-lewm-carbon-baseline` | Implemented alpha | generate Carbon zero-shot baseline score JSONL for `geno-lewm-eval` | RFC-0007 |
+| `geno-lewm-eval-all` | Implemented alpha | aggregate measured metrics JSON into source `eval_metrics.json` plus generated `eval_report.md` | RFC-0007 |
+| `geno-lewm-verify` | Implemented alpha | verify a checksum receipt against a manifest | RFC-0011 |
+| `geno-lewm-cache-windows` | Partial alpha | repair/reindex local cache shards; full Carbon-corpus cache construction remains open | RFC-0006 |
+| `geno-lewm-prepare-gnomad` | Implemented alpha | build the gnomAD Parquet shard from an explicit local VCF/VCF.gz | RFC-0006 |
+| `geno-lewm-prepare-clinvar` | Implemented alpha | build the ClinVar Parquet shard from an explicit local VCF/VCF.gz | RFC-0006 |
+| `geno-lewm-update` | Implemented alpha | check or apply explicit user-approved model updates | RFC-0010 |
+| `geno-lewm-rollout` | Entry-point scaffold | multi-edit haplotype rollout; blocked on AR predictor rollout/KV-cache work | RFC-0004 |
+| `geno-lewm-plan` | Entry-point scaffold | CEM planning to a target state; blocked on solver implementation; cost and sampler primitives already exist | RFC-0008 |
+| `geno-lewm-export` | Entry-point scaffold | export to ONNX / Core ML / GGUF; blocked on deployment export implementations | RFC-0010 |
 
 All commands accept `--config FILE` (Hydra-compatible), `--seed INT`,
-`--log-level {debug,info,warn,error}`, and `--receipt PATH | --no-receipt`
-where receipts are applicable.
+`--log-level {debug,info,warn,error}`, and `--no-receipt`. Commands that
+write receipts add command-specific `--receipt PATH` options;
+`geno-lewm-score --variant` writes one receipt JSON file, and
+`geno-lewm-score --vcf` writes one receipt per scored ALT as JSONL.
 
 `geno-lewm-update --model-dir PATH` compares `PATH/manifest.json` with
 the selected Hugging Face release-index entry. `--check-only` prints the
@@ -792,8 +999,6 @@ The following are explicitly experimental in v0.1 and may change in any
 MINOR release:
 
 - `geno_lewm.planning.mcts.*` (Phase 2 surface)
-- `geno_lewm.deploy.tee_attestation.*` (Phase 3 surface)
-- `geno_lewm.attestation.stark.*` (Phase 4 surface)
 - `geno_lewm.encoder.lora.*` (Phase 2)
 - `geno_lewm.surprise.bayesian.*` (Phase 2)
 - `geno_lewm.surprise.directional.*` (Phase 2)
@@ -807,6 +1012,10 @@ The following are explicitly **not** public, regardless of how
 convenient that might be:
 
 - Any module-private helper named `_*` or under any `_internal/` submodule.
+- CLI scaffold factory helpers such as `build_stub_app` and
+  `make_cli_main`. Command modules expose only their Typer `app` and
+  `cli_main` entry point unless a command-specific public API is
+  documented.
 - The contents of `geno_lewm.config.defaults.*` (Hydra defaults are
   internal to the CLI; user configs override them).
 - The Hydra YAML schema is internal except as documented in

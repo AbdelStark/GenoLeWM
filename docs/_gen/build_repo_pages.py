@@ -47,9 +47,18 @@ _REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\]\(SECURITY\.md"), "](security.md"),
     (re.compile(r"\]\(PRIVACY\.md"), "](privacy.md"),
     (re.compile(r"\]\(SPEC\.md"), "](spec/index.md"),
-    (re.compile(r"\]\(SPECIFICATION\.md"), "](https://github.com/AbdelStark/GenoLeWM/blob/main/SPECIFICATION.md"),
-    (re.compile(r"\]\(ARCHITECTURE\.md"), "](https://github.com/AbdelStark/GenoLeWM/blob/main/ARCHITECTURE.md"),
-    (re.compile(r"\]\(ROADMAP\.md"), "](https://github.com/AbdelStark/GenoLeWM/blob/main/ROADMAP.md"),
+    (
+        re.compile(r"\]\(SPECIFICATION\.md"),
+        "](https://github.com/AbdelStark/GenoLeWM/blob/main/SPECIFICATION.md",
+    ),
+    (
+        re.compile(r"\]\(ARCHITECTURE\.md"),
+        "](https://github.com/AbdelStark/GenoLeWM/blob/main/ARCHITECTURE.md",
+    ),
+    (
+        re.compile(r"\]\(ROADMAP\.md"),
+        "](https://github.com/AbdelStark/GenoLeWM/blob/main/ROADMAP.md",
+    ),
     (re.compile(r"\]\(README\.md"), "](index.md"),
     (re.compile(r"\]\(LICENSE\)"), "](https://github.com/AbdelStark/GenoLeWM/blob/main/LICENSE)"),
 )

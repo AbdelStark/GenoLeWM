@@ -1,12 +1,17 @@
 # RFC-0013: Observability — logging, metrics, redaction
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001, RFC-0012
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Implemented for the v1 local/opt-in sink
+  surface: structured JSONL logging, event and metric registries, strict
+  redaction, Prometheus textfile metrics, trace-context propagation,
+  opt-in wandb sink, and event/metric registry linting are present with
+  unit, integration, and lint coverage. OpenTelemetry export remains a
+  future optional sink.
 
 ---
 
@@ -161,9 +166,11 @@ analysis pipeline. The stability cost is worth it.
 - A `geno-lewm logs explain <event-name>` CLI for fast diagnostic
   reference.
 - An audit-log mode that records every observability emission to a
-  signed append-only log, intended for verifiable workflows where the
+  signed append-only log, intended for reproducibility workflows where the
   log itself is part of the artifact.
 
 ## 7. Changelog
 
+- 2026-06-02 — Accepted after the v1 observability surface landed in
+  code and tests; OpenTelemetry export remains future optional work.
 - 2026-05-20 — Initial draft.

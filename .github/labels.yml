@@ -53,15 +53,40 @@
   color: fef2c0
 - name: "area:observability"
   color: fef2c0
-- name: "area:attestation"
+- name: "area:provenance"
+  description: Artifact manifests, receipts, checksums, and release provenance.
   color: fef2c0
 - name: "area:action"
+  color: fef2c0
+- name: "area:encoder"
+  description: Carbon integration, windowing, pooling, and embedding cache.
+  color: fef2c0
+- name: "area:data"
+  description: Dataset builders, snapshots, data cards, and split integrity.
+  color: fef2c0
+- name: "area:predictor"
+  description: Predictor models, rollout modules, and model contracts.
   color: fef2c0
 - name: "area:training"
   color: fef2c0
 - name: "area:eval"
   color: fef2c0
+- name: "area:planning"
+  description: Latent planning, CEM, costs, and planners.
+  color: fef2c0
+- name: "area:surprise"
+  description: Surprise scoring and calibration.
+  color: fef2c0
 - name: "area:deploy"
+  color: fef2c0
+- name: "area:release"
+  description: Model, dataset, package, and artifact publishing.
+  color: fef2c0
+- name: "area:demo"
+  description: End-to-end demos and showcase workflows.
+  color: fef2c0
+- name: "area:desktop"
+  description: Desktop app and local UI workflows.
   color: fef2c0
 - name: "area:cli"
   color: fef2c0

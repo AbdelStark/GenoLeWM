@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.action import EditSpec
-from geno_lewm.attestation import (
+from geno_lewm.cli import verify as verify_cli
+from geno_lewm.provenance import (
     RECEIPT_SCHEMA_VERSION,
     SCHEMA_VERSION,
     DtypeConfig,
@@ -18,17 +19,17 @@ from geno_lewm.attestation import (
     ManifestTraining,
     PoolingConfig,
     Receipt,
-    ReceiptAttestation,
     ReceiptOutput,
+    ReceiptProvenance,
     ReceiptRuntime,
     compute_input_commitment,
     compute_output_commitment,
     write_manifest,
     write_receipt,
 )
-from geno_lewm.cli import verify as verify_cli
 
 _HEX = "sha256:" + "0" * 64
+_UNSUPPORTED_PROVENANCE_KIND = "hardware" + "_signed"
 
 
 def _make_pair(tmp_path: Path) -> tuple[Path, Path, Manifest, Receipt]:
@@ -78,7 +79,7 @@ def _make_pair(tmp_path: Path) -> tuple[Path, Path, Manifest, Receipt]:
             carbon_revision="main@deadbeef",
         ),
         timestamp="2026-05-20T12:34:56Z",
-        attestation=ReceiptAttestation(kind="checksum_only"),
+        provenance=ReceiptProvenance(kind="checksum_only"),
     )
     rpath = write_receipt(receipt, tmp_path / "receipt.json")
     return mpath, rpath, manifest, receipt
@@ -119,7 +120,7 @@ def test_tampered_manifest_exit_8(tmp_path: Path, capsys: pytest.CaptureFixture[
     rc = verify_cli.main([str(rpath), "--manifest", str(mpath)])
     err = capsys.readouterr().err
     assert rc == 8
-    assert "ATTESTATION.MANIFEST_HASH_MISMATCH" in err
+    assert "PROVENANCE.MANIFEST_HASH_MISMATCH" in err
 
 
 def test_tampered_output_exit_8(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -136,7 +137,7 @@ def test_tampered_output_exit_8(tmp_path: Path, capsys: pytest.CaptureFixture[st
     rc = verify_cli.main([str(rpath), "--manifest", str(mpath)])
     err = capsys.readouterr().err
     assert rc == 8
-    assert "ATTESTATION.OUTPUT_COMMITMENT_MISMATCH" in err
+    assert "PROVENANCE.OUTPUT_COMMITMENT_MISMATCH" in err
 
 
 def test_tampered_input_commitment_exit_8(
@@ -173,7 +174,7 @@ def test_tampered_input_commitment_exit_8(
     )
     err = capsys.readouterr().err
     assert rc == 8
-    assert "ATTESTATION.INPUT_COMMITMENT_MISMATCH" in err
+    assert "PROVENANCE.INPUT_COMMITMENT_MISMATCH" in err
 
 
 def test_input_recomputation_happy_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -227,17 +228,17 @@ def test_partial_input_flags_rejected(tmp_path: Path, capsys: pytest.CaptureFixt
     assert "INPUT" in err
 
 
-def test_unsupported_attestation_kind_exit_8(
+def test_unsupported_receipt_provenance_kind_exit_2(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     mpath, rpath, _m, _r = _make_pair(tmp_path)
     raw = json.loads(rpath.read_text())
-    raw["attestation"] = {"kind": "tee", "details": {"vendor": "apple-secure-enclave"}}
+    raw["provenance"] = {"kind": _UNSUPPORTED_PROVENANCE_KIND, "details": {"vendor": "example"}}
     rpath.write_text(json.dumps(raw, separators=(",", ":"), sort_keys=True), encoding="utf-8")
     rc = verify_cli.main([str(rpath), "--manifest", str(mpath)])
     err = capsys.readouterr().err
-    assert rc == 8
-    assert "ATTESTATION.KIND_UNSUPPORTED" in err
+    assert rc == 2
+    assert "INPUT.GENERIC" in err
 
 
 def test_missing_receipt_file_exit_nonzero(tmp_path: Path) -> None:

@@ -58,11 +58,12 @@ likelihood scoring (`ΔlogLik(alt, ref)`) remains the right tool for
 its purposes; GenoLeWM's surprise score is a different signal that
 complements rather than replaces it.
 
-### Why STARK proofs rather than SNARKs for verifiable inference?
+### What does the receipt verify?
 
-No trusted setup, post-quantum, arithmetic-circuit shape matches
-Transformer inference. The full argument is in
-[RFC-0011 §4.2](rfcs/0011-verifiable-inference-attestation.md).
+The receipt verifies schema validity, model manifest identity, optional
+input commitment, and output commitment. It is reproducibility and
+tamper-detection plumbing, not a model-quality or runtime-assurance
+guarantee.
 
 ### Can I swap Carbon for another DNA encoder?
 
@@ -84,31 +85,39 @@ both surface this prominently.
 
 ### What benchmarks does GenoLeWM target?
 
-The same suite Carbon uses: ClinVar coding, ClinVar non-coding, BRCA2
-(Findlay et al. saturation editing), TraitGym Mendelian. We report on
-the same metrics (AUROC, AUPRC, Spearman ρ where applicable). Direct
-side-by-side with Carbon is the point. See
-[RFC-0007](rfcs/0007-evaluation-suite.md).
+The planned first-paper benchmark suite mirrors Carbon: ClinVar coding,
+ClinVar non-coding, BRCA2 (Findlay et al. saturation editing), and
+TraitGym Mendelian. AUROC, AUPRC, and Spearman rho are the target
+reporting metrics where applicable. Those are release gates, not
+published GenoLeWM results yet; direct side-by-side comparison with
+Carbon becomes a claim only after the paper-ready evaluation run is
+published. See [RFC-0007](rfcs/0007-evaluation-suite.md).
 
 ### How does it handle structural variants?
 
 It doesn't, in v1. Edits are capped at 16 bp for both ref and alt. A
 separate SV adapter is planned for v2 ([RFC-0003 §3.5](rfcs/0003-action-representation-genomic-edits.md)).
-This covers > 95% of clinically relevant short variants.
+The >95% short-variant coverage note is a design rationale, not a
+measured GenoLeWM dataset result; the first dataset snapshot must report
+the observed retained/excluded variant counts.
 
 ### What populations is the calibration valid for?
 
-The current calibration is built on gnomAD common variants without
-explicit population stratification. This means the calibration is most
-reliable for variants from populations well-represented in gnomAD, and
-less reliable for others. Per-population calibration is a Phase 2
-workstream; documented as an explicit limitation in the meantime.
+No public calibration artifact is released yet. The planned v1
+calibration baseline uses gnomAD common variants without explicit
+population stratification, so any released calibration would need to
+document that it is most reliable for populations well-represented in
+gnomAD and less reliable for others. Per-population calibration is a
+Phase 2 workstream and must remain an explicit limitation until measured.
 
 ### Can I score a whole VCF?
 
-Yes. `geno-lewm-score --vcf my.vcf.gz --output scores.parquet`. With
-Carbon-500M on an M3 Max, expect ~30 minutes for 100k variants. See
-[RFC-0010 §3.5](rfcs/0010-on-device-personal-genome-deployment.md).
+The command contract exists, but released model artifacts and measured
+throughput are not published yet. The intended local-only form is
+`geno-lewm-score --model-dir ./model --vcf my.vcf --fasta GRCh38.fa --output scores.jsonl`.
+Add `--receipt receipts.jsonl` to write one checksum receipt per scored
+alternate.
+See [RFC-0010 §3.5](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### How does the surprise score compare to CADD / AlphaMissense / Carbon-likelihood?
 
@@ -117,15 +126,18 @@ trained on protein-structure context; Carbon's likelihood is the
 log-probability difference of `alt` vs `ref` under an autoregressive
 DNA model. Surprise is the predictor's residual: how much the predicted
 post-edit latent differs from the actual post-edit latent. We expect
-these signals to correlate but not be redundant; Phase 2 will report
+these signals to correlate but not be redundant, but that remains a
+hypothesis until the measured results are published. Phase 2 will report
 correlations and explore ensembling.
 
 ### Does the model know about non-coding variants?
 
-Yes. Carbon's pretraining corpus includes substantial non-coding
-sequence, and the training mix for GenoLeWM (RFC-0006) draws from the
-full corpus. The eval reports ClinVar non-coding separately from
-ClinVar coding so non-coding performance is visible.
+The architecture is designed to use Carbon's non-coding sequence
+representations, and the planned GenoLeWM training mix (RFC-0006) draws
+from the full corpus. No released GenoLeWM checkpoint or non-coding
+benchmark result is published yet. The first evaluation report must
+separate ClinVar non-coding from ClinVar coding so non-coding
+performance is visible.
 
 ### Why centered-mean pooling around the edit?
 
@@ -137,9 +149,9 @@ See [RFC-0002 §3.4](rfcs/0002-state-encoder-carbon-integration.md).
 ### Is GenoLeWM applicable to non-human genomes?
 
 Carbon's pretraining is predominantly eukaryotic with some prokaryotic
-content; the architecture is species-agnostic. We have not specifically
-evaluated GenoLeWM on, e.g., model organisms, but the eval suite can be
-extended to mouse, fly, yeast benchmarks (planned for v2).
+content; the architecture is species-agnostic. GenoLeWM has not been
+evaluated on model organisms. Extending the eval suite to mouse, fly, or
+yeast benchmarks is planned for v2.
 
 ---
 
@@ -147,44 +159,52 @@ extended to mouse, fly, yeast benchmarks (planned for v2).
 
 ### Does the model see my data?
 
-No. The inference runs entirely on your device. The runtime fails
-closed on network calls: if any inference path attempts to phone home,
-it raises an error rather than silently degrading to online mode. See
+The intended release path is local-only: scoring should run on your
+device and fail closed if an inference path attempts a network call.
+That is a release contract for the terminal demo and model package, not
+evidence from a published checkpoint yet. See
 [RFC-0010 §3.7](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Does Anthropic / Hugging Face / anyone see what I score?
 
-No. There is no telemetry. We do not collect usage data. Crash logs are
-sanitized to exclude variant data. The only network calls are during
-first-run setup (model download from Hugging Face Hub) and explicit
-user-initiated updates.
+The project does not provide a hosted scoring service or telemetry
+pipeline. The intended release contract keeps scoring local; network use
+is limited to explicit setup/update actions such as downloading model
+artifacts. That privacy claim still needs to be demonstrated by the real
+terminal inference release gate.
 
 ### Can I run this on a laptop?
 
-Yes. The primary on-device target is Apple Silicon (M3 Max or better
-recommended). With int4 quantization of Carbon-500M and int8 of the
-predictor, the model fits in ~600 MB of memory and scores single
-variants in < 200 ms. See [RFC-0010 §3.5](rfcs/0010-on-device-personal-genome-deployment.md).
+That is the v1 design target, not a published benchmark result yet. The
+primary on-device target is Apple Silicon (M3 Max or better
+recommended). RFC-0010 budgets int4 Carbon-500M plus an int8 predictor
+at roughly 600 MB and <200 ms warm single-variant scoring, but the
+release gate must publish measured latency, throughput, memory, and
+hardware/runtime evidence before users should treat those numbers as
+achieved. See [RFC-0010 §3.5](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Can I run it on Windows / Linux?
 
-Yes. CUDA workstation (RTX 4090-class) is a first-class target.
-CPU-only is supported as an accessibility fallback (slower).
+The planned v1 runtime targets Apple Silicon and CUDA workstations
+(RTX 4090-class). CPU-only is an accessibility fallback target. Public
+support should be judged from the release demo and measured efficiency
+report once those artifacts are published.
 
 ### What if a new GenoLeWM version gives different scores?
 
-By design, you can roll back. Updates are explicit; previous model
-versions are preserved as side-by-side installs. Published results
-referencing `geno-lewm-v0.1.0-carbon-500m-r1` will keep producing the
-same scores months later. See [RFC-0010 §3.8](rfcs/0010-on-device-personal-genome-deployment.md).
+By design, users should be able to roll back. Updates are explicit, and
+previous model versions are intended to remain side-by-side installs.
+Because no public GenoLeWM checkpoint is released yet, reproducible
+published-score replay is a release requirement tied to future model
+manifests and checksum receipts, not a completed claim. See
+[RFC-0010 §3.8](rfcs/0010-on-device-personal-genome-deployment.md).
 
-### Can I prove to someone that my score came from the real model?
+### Can someone check that my score matches the released artifacts?
 
-In v1: yes, via a checksum-only receipt. Anyone with the same model
-weights and the same input can re-run the inference and verify a
-bit-match (on supported backends). In Phase 4, the receipt will
-include a STARK proof that no re-run is needed for verification.
-See [RFC-0011](rfcs/0011-verifiable-inference-attestation.md).
+Yes, via a checksum-only receipt. Anyone with the same model artifacts
+and the same input can check the manifest identity and commitments, and
+can re-run inference once the real score path is released.
+See [RFC-0011](rfcs/0011-artifact-provenance-receipts.md).
 
 ### Will there be an iOS app?
 
@@ -199,8 +219,9 @@ GenoLeWM the project will remain on-device-first.
 
 ### How do I import my 23andMe / AncestryDNA / MyHeritage data?
 
-The runtime accepts those formats directly and converts them locally to
-VCF for scoring. Conversion never leaves your machine. See
+The release design accepts those formats and converts them locally to
+VCF for scoring. The terminal demo and model package still need to prove
+that conversion and scoring stay local on the real release path. See
 [RFC-0010 §3.9](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Should I act on a high surprise score?
@@ -216,10 +237,10 @@ action.
 
 ### How do I contribute?
 
-The project is in design phase (Phase 0). The most valuable
-contributions right now are reviews of the RFCs: open a PR with
-inline comments or proposed edits. Implementation contributions will
-become valuable starting with Phase 1.
+The project is in alpha implementation. The most valuable contributions
+now are narrow PRs that move the first real experiment forward: Carbon
+encoder integration, dataset builders, trainer/evaluator paths, model
+release automation, and terminal demo work.
 
 ### Can I add a new encoder?
 

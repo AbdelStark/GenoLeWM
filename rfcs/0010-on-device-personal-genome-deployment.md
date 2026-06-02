@@ -3,10 +3,13 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001, RFC-0002, RFC-0004, RFC-0007, RFC-0009
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — `GenoLeWMRuntime`,
+  fail-closed network guarding, personal-genome importers, and the
+  explicit update CLI exist; ONNX / Core ML / GGUF export and
+  quantization remain open.
 
 ---
 
@@ -173,7 +176,7 @@ App features (v1):
 - Per-variant detail view: the variant, its calibrated surprise, the
   bucket it was calibrated in, the confidence indicator, and a link
   to ClinVar (where applicable).
-- Local attestation receipt for each scoring session (see RFC-0011).
+- Local checksum provenance receipt for each scoring session (see RFC-0011).
 - A prominent banner stating: "This is a research tool. Not a clinical
   diagnostic. If a variant concerns you, talk to a genetic counselor."
 
@@ -250,14 +253,17 @@ reference and alternate alleles.
 
 ### 3.10 Distribution
 
-The runtime is distributed via:
+The runtime distribution plan is:
 
-- **Hugging Face Hub model release**: `AbdelStark/geno-lewm-v0.1.0-carbon-500m-r1-deploy`
-  (the model artifacts).
-- **GitHub release**: the desktop app binary (signed; notarized for
-  macOS).
-- **Homebrew**: `brew install geno-lewm` (planned, post-v1).
-- **PyPI**: `pip install geno-lewm[deploy]` for the Python API.
+- **Hugging Face Hub model release**: first public checkpoint package
+  with manifest, model card, checksums, eval report, and demo links.
+- **GitHub release**: terminal-demo assets and publication evidence for
+  the first release; desktop binaries remain post-first-demo work.
+- **Source install**: current Python API path until the first PyPI tag is
+  cut.
+- **PyPI**: planned package channel after trusted publishing is
+  configured and the first tag is released.
+- **Homebrew**: planned post-v1 channel.
 
 ## 4. Rationale and alternatives
 
@@ -288,7 +294,7 @@ Two reasons:
 2. **Provenance.** The user pulling Carbon from the Hugging Face Hub
    gets the canonical, audited weights. If we bundled them, we'd be
    introducing a re-distribution step that adds an auditable surface.
-   The attestation story (RFC-0011) benefits from the user obtaining
+   The checksum-receipt flow (RFC-0011) benefits from the user obtaining
    Carbon weights directly from the source.
 
 ### 4.3 Why a Tauri app rather than an Electron app, a web app, or a CLI?

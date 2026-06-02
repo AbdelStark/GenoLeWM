@@ -19,7 +19,7 @@
 /SECURITY.md                   @AbdelStark
 /docs/spec/06-security.md      @AbdelStark
 /geno_lewm/_redaction.py       @AbdelStark
-/geno_lewm/attestation/        @AbdelStark
+/geno_lewm/provenance/         @AbdelStark
 
 # Build, release, and CI.
 /pyproject.toml                @AbdelStark

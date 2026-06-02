@@ -3,10 +3,14 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — local windowing, tokenizer/model
+  wrapping, pooling, cache schema/read/write/reindex/repair primitives,
+  and lazy `CarbonStateEncoder` with injected-component tests exist.
+  Clean-machine validation against pinned Carbon weights and full
+  selected-corpus cache-build throughput evidence remain open.
 
 ---
 
@@ -325,4 +329,8 @@ normalized vs un-normalized is in the Phase 1 plan.
 
 ## 7. Changelog
 
+- 2026-06-01 — Added lazy `CarbonStateEncoder` implementation status:
+  local Transformers loading defaults to `local_files_only=True`, and
+  tests can inject model/tokenizer objects without the optional ML
+  runtime.
 - 2026-05-20 — Initial draft.

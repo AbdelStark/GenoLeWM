@@ -237,7 +237,7 @@ one); the history is part of the value.
 - **Decided:** 2026-05-20
 - **RFC:** [0010 §3.2, §4.2](rfcs/0010-on-device-personal-genome-deployment.md)
 - **Rationale (short):** Artifact size; canonical-source provenance;
-  attestation surface.
+  explicit user-initiated downloads.
 
 ### Automatic updates disabled
 
@@ -255,26 +255,20 @@ one); the history is part of the value.
 
 ---
 
-## Verifiable inference
+## Artifact provenance
 
-### Receipts are checksum-only in v1, STARK-proven in Phase 4
+### Receipts are checksum-only in v1
 
-- **Decided:** 2026-05-20
-- **RFC:** [0011 §3.3, §4.3](rfcs/0011-verifiable-inference-attestation.md)
-- **Rationale (short):** Lightweight ingredients are usable today;
-  STARK proving of Transformer inference is still research-grade.
+- **Decided:** 2026-06-01
+- **RFC:** [0011](rfcs/0011-artifact-provenance-receipts.md)
+- **Rationale (short):** Manifests, input commitments, output
+  commitments, and checksum receipts support reproducible releases
+  without advertising unsupported trust mechanisms.
 
-### STARK target is predictor + action encoder, not Carbon
+### Unsupported runtime assurance modes are out of active scope
 
-- **Decided:** 2026-05-20
-- **RFC:** [0011 §3.5, §4.3](rfcs/0011-verifiable-inference-attestation.md)
-- **Rationale (short):** 500M-param STARK proving infeasible; 25M-param
-  is on the research frontier and tractable; Carbon committed as public
-  input.
-
-### Optional TEE attestation as v1.1 intermediate
-
-- **Decided:** 2026-05-20
-- **RFC:** [0011 §3.3, §4.4](rfcs/0011-verifiable-inference-attestation.md)
-- **Rationale (short):** Production-mature today; weaker than STARK but
-  meaningfully better than checksum-only.
+- **Decided:** 2026-06-01
+- **RFC:** [0011](rfcs/0011-artifact-provenance-receipts.md)
+- **Rationale (short):** The first paper/demo release should focus on
+  real datasets, models, results, and terminal inference. Future runtime
+  assurance mechanisms require a fresh RFC and implementation plan.

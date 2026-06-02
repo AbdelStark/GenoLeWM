@@ -3,10 +3,14 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0007, RFC-0010, RFC-0015
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — `bench.inference` can emit a
+  validated release-efficiency report with latency, throughput, peak
+  memory, command, hardware/runtime notes, and input identities. Public
+  real-model efficiency reports, regression dashboards, and benchmark
+  CI gates remain open.
 
 ---
 
@@ -136,8 +140,8 @@ requires switching to dedicated runners.
 - Whether to add iOS / iPad performance targets. Tracked as OQ-PERF-1.
 - Whether to ship a `geno-lewm-bench` CLI exposing the harness publicly.
   Tracked as OQ-PERF-2.
-- STARK proof-time targets for Phase 4 once provers stabilize. Tracked
-  as OQ-PERF-3.
+- Terminal demo latency target for the first released model. Tracked as
+  OQ-PERF-3.
 - Whether to publish historical benchmark dashboards (extra ops burden).
 
 ## 6. Future work
@@ -151,4 +155,6 @@ requires switching to dedicated runners.
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for release-efficiency
+  report generation and remaining public benchmark gaps.
 - 2026-05-20 — Initial draft.

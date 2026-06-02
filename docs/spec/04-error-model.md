@@ -48,11 +48,11 @@ Exception
     │   ├── QuantizationError        # int8/int4 calibration failed
     │   └── BackendUnsupportedError  # backend not available on host
     │
-    ├── AttestationError             # verifiable-inference failures
+    ├── ProvenanceError             # receipt/provenance failures
     │   ├── ManifestHashMismatchError    # manifest content != stated model_id
     │   ├── InputCommitmentMismatchError # recomputed commitment != receipt
     │   ├── OutputCommitmentMismatchError# bit-mismatch on re-run
-    │   ├── AttestationKindUnsupportedError  # verifier doesn't know kind
+    │   ├── ProvenanceKindUnsupportedError  # verifier doesn't know kind
     │   └── ReceiptSchemaError       # receipt JSON invalid
     │
     └── InternalError                # bugs we caught; should never surface
@@ -88,7 +88,7 @@ documented in the registry. Examples:
 - `RESOURCE.NETWORK_PROHIBITED`
 - `TRAINING.COLLAPSE_DETECTED`
 - `DEPLOY.QUANTIZATION_FAILED`
-- `ATTESTATION.MANIFEST_HASH_MISMATCH`
+- `PROVENANCE.MANIFEST_HASH_MISMATCH`
 
 Codes are part of the public surface. Renaming a code is a MAJOR change.
 
@@ -107,7 +107,7 @@ registered. The registry is regenerated into
 | Expected absence (cache miss, optional field) | return `None` or sentinel; document in API |
 | Resource exhaustion (memory, disk, network) | raise typed `ResourceError` subclass |
 | Internal invariant violation | raise `InvariantViolation`; log at ERROR; never silent |
-| Verifier discovers a mismatch | raise typed `AttestationError` subclass |
+| Receipt/provenance check discovers a mismatch | raise typed `ProvenanceError` subclass |
 | Training instability (NaN, collapse) | raise typed `TrainingError`; trainer can opt to catch |
 | CLI top-level | catch `GenoLeWMError`, exit non-zero, print `code` + `message` |
 
@@ -128,7 +128,7 @@ CLI exit codes:
 | 5 | `TrainingError` family |
 | 6 | `EvalError` family |
 | 7 | `DeployError` family |
-| 8 | `AttestationError` family |
+| 8 | `ProvenanceError` family |
 | 9 | `InternalError` family (please file a bug) |
 | 130 | SIGINT |
 

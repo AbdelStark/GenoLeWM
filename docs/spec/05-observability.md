@@ -89,10 +89,10 @@ Canonical events for v0.1:
 | `inference.score.end` | debug | scoring call returned |
 | `inference.batch.end` | info | batch finished |
 | `inference.network.blocked` | error | fail-closed guard tripped |
-| `attestation.receipt.write` | info | receipt written |
-| `attestation.verify.start` | info | verifier started |
-| `attestation.verify.end` | info | verifier returned |
-| `attestation.verify.mismatch` | error | a hash check failed |
+| `provenance.receipt.write` | info | receipt written |
+| `provenance.verify.start` | info | verifier started |
+| `provenance.verify.end` | info | verifier returned |
+| `provenance.verify.mismatch` | error | a hash check failed |
 | `error` | error | any `GenoLeWMError` raised inside a logged span |
 
 ### Severities
@@ -163,7 +163,7 @@ registered in `geno_lewm/metrics.py::METRICS`.
 | `geno_lewm.inference.memory.peak_bytes` | gauge | bytes | RSS peak per process |
 | `geno_lewm.planning.cem.iter.duration` | histogram | ms | per CEM iteration |
 | `geno_lewm.planning.cem.calls` | counter | predictor calls | per planning run |
-| `geno_lewm.attestation.verify.duration` | histogram | ms | per verification |
+| `geno_lewm.provenance.verify.duration` | histogram | ms | per verification |
 | `geno_lewm.observability.redacted_keys` | counter | keys | total dropped by filter |
 | `geno_lewm.errors.raised` | counter | events | tagged with `code` |
 

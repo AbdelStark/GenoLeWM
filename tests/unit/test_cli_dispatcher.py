@@ -17,10 +17,12 @@ import importlib
 import importlib.metadata
 import io
 import os
+from pathlib import Path
 
 import pytest
 import typer
 
+import geno_lewm.cli as cli_pkg
 from geno_lewm import __version__, observability as obs
 from geno_lewm.cli import _dispatch
 from geno_lewm.errors import InputError, InternalError
@@ -38,8 +40,7 @@ def reset_wandb_project_override() -> None:
 
 
 #: Console scripts registered in ``pyproject.toml``. Verify keeps its
-#: argparse-based dispatcher; everything else goes through the Typer
-#: stub factory in this PR.
+#: argparse-based dispatcher; everything else is exposed as a Typer app.
 TYPER_SCRIPTS: tuple[tuple[str, str], ...] = (
     ("geno-lewm-train", "geno_lewm.cli.train"),
     ("geno-lewm-score", "geno_lewm.cli.score"),
@@ -47,6 +48,7 @@ TYPER_SCRIPTS: tuple[tuple[str, str], ...] = (
     ("geno-lewm-plan", "geno_lewm.cli.plan"),
     ("geno-lewm-eval", "geno_lewm.cli.eval"),
     ("geno-lewm-eval-all", "geno_lewm.cli.eval_all"),
+    ("geno-lewm-carbon-baseline", "geno_lewm.cli.carbon_baseline"),
     ("geno-lewm-export", "geno_lewm.cli.export"),
     ("geno-lewm-cache-windows", "geno_lewm.cli.cache_windows"),
     ("geno-lewm-prepare-gnomad", "geno_lewm.cli.prepare_gnomad"),
@@ -55,8 +57,40 @@ TYPER_SCRIPTS: tuple[tuple[str, str], ...] = (
 )
 
 TYPER_STUB_SCRIPTS: tuple[tuple[str, str], ...] = tuple(
-    item for item in TYPER_SCRIPTS if item[1] != "geno_lewm.cli.update"
+    item
+    for item in TYPER_SCRIPTS
+    if item[1]
+    not in {
+        "geno_lewm.cli.prepare_clinvar",
+        "geno_lewm.cli.prepare_gnomad",
+        "geno_lewm.cli.eval",
+        "geno_lewm.cli.eval_all",
+        "geno_lewm.cli.carbon_baseline",
+        "geno_lewm.cli.score",
+        "geno_lewm.cli.train",
+        "geno_lewm.cli.update",
+    }
 )
+
+
+def test_cli_package_docstring_tracks_mixed_alpha_surface() -> None:
+    doc = cli_pkg.__doc__ or ""
+
+    assert "ships only the verify CLI" not in doc
+    assert "score" in doc
+    assert "evaluation" in doc
+    assert "entry-point scaffolds" in doc
+    assert "rollout" in doc
+
+
+def test_stub_helpers_stay_private_to_factory_module() -> None:
+    factory = importlib.import_module("geno_lewm.cli._stub_main")
+    assert hasattr(factory, "build_stub_app")
+    assert hasattr(factory, "make_cli_main")
+    for _entry, module in TYPER_SCRIPTS:
+        mod = importlib.import_module(module)
+        assert not hasattr(mod, "build_stub_app"), module
+        assert not hasattr(mod, "make_cli_main"), module
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +346,210 @@ def test_update_requires_model_manifest_when_invoked(
     assert rc == 4
     assert "manifest.json" in captured.err
     assert "research tool" not in captured.err
+
+
+def test_score_requires_explicit_mode_when_invoked(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``geno-lewm-score`` is implemented enough to validate its mode contract."""
+    from geno_lewm.cli.score import app
+
+    rc = _dispatch.run_app(app, argv=["--quiet", "--no-banner"])
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert "provide --variant" in captured.err
+    assert "research tool" not in captured.err
+
+
+def test_score_invokes_runtime_for_single_variant(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Single-variant mode delegates to the runtime facade and prints JSON."""
+    import json
+
+    from geno_lewm.cli import score
+    from geno_lewm.surprise import SurpriseResult
+
+    model_dir = Path(tmp_path)
+    calls: dict[str, object] = {}
+
+    class FakeRuntime:
+        def __init__(self, model_dir: Path, *, backend: str) -> None:
+            calls["model_dir"] = model_dir
+            calls["backend"] = backend
+
+        def score_variant(self, variant: object, window: str | None = None) -> SurpriseResult:
+            calls["variant"] = variant
+            calls["window"] = window
+            return SurpriseResult(
+                sigma_raw=0.25,
+                sigma_calibrated=0.5,
+                bucket_id="coding_missense|mid|none",
+                confidence=1.0,
+                low_confidence=False,
+            )
+
+    monkeypatch.setattr(score, "GenoLeWMRuntime", FakeRuntime)
+
+    rc = _dispatch.run_app(
+        score.app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--model-dir",
+            str(model_dir),
+            "--backend",
+            "cpu",
+            "--variant",
+            "1:1:a:t",
+            "--window",
+            "ACGT",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    payload = json.loads(captured.out)
+    assert payload["chrom"] == "1"
+    assert payload["pos"] == 1
+    assert payload["ref"] == "A"
+    assert payload["alt"] == "T"
+    assert payload["sigma_raw"] == 0.25
+    assert calls["model_dir"] == model_dir
+    assert calls["backend"] == "cpu"
+    assert calls["window"] == "ACGT"
+
+
+def test_score_invokes_runtime_for_single_variant_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--receipt`` is passed to the runtime for single-variant scoring."""
+    import json
+
+    from geno_lewm.cli import score
+    from geno_lewm.surprise import SurpriseResult
+
+    model_dir = Path(tmp_path)
+    receipt_path = tmp_path / "score.receipt.json"
+    calls: dict[str, object] = {}
+
+    class FakeRuntime:
+        def __init__(self, model_dir: Path, *, backend: str) -> None:
+            calls["model_dir"] = model_dir
+            calls["backend"] = backend
+
+        def score_variant(
+            self,
+            variant: object,
+            window: str | None = None,
+            *,
+            receipt_path: Path | None = None,
+        ) -> SurpriseResult:
+            calls["variant"] = variant
+            calls["window"] = window
+            calls["receipt_path"] = receipt_path
+            return SurpriseResult(
+                sigma_raw=0.25,
+                sigma_calibrated=0.5,
+                bucket_id="coding_missense|mid|none",
+                confidence=1.0,
+                low_confidence=False,
+            )
+
+    monkeypatch.setattr(score, "GenoLeWMRuntime", FakeRuntime)
+
+    rc = _dispatch.run_app(
+        score.app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--model-dir",
+            str(model_dir),
+            "--backend",
+            "cpu",
+            "--variant",
+            "1:1:a:t",
+            "--window",
+            "ACGT",
+            "--receipt",
+            str(receipt_path),
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    payload = json.loads(captured.out)
+    assert payload["receipt_path"] == str(receipt_path)
+    assert calls["receipt_path"] == receipt_path
+
+
+def test_score_invokes_runtime_for_batch_vcf_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--receipt`` is passed as the VCF per-row receipt sidecar path."""
+    import json
+
+    from geno_lewm.cli import score
+
+    calls: dict[str, object] = {}
+
+    class FakeRuntime:
+        def __init__(self, model_dir: Path, *, backend: str) -> None:
+            calls["model_dir"] = model_dir
+            calls["backend"] = backend
+
+        def score_vcf(
+            self,
+            vcf_path: Path,
+            fasta_path: Path,
+            output_path: Path,
+            batch_size: int = 64,
+            progress: bool = True,
+            *,
+            receipt_path: Path | None = None,
+        ) -> None:
+            calls["vcf_path"] = vcf_path
+            calls["fasta_path"] = fasta_path
+            calls["output_path"] = output_path
+            calls["batch_size"] = batch_size
+            calls["progress"] = progress
+            calls["receipt_path"] = receipt_path
+
+    monkeypatch.setattr(score, "GenoLeWMRuntime", FakeRuntime)
+
+    output_path = tmp_path / "scores.jsonl"
+    receipt_path = tmp_path / "scores.receipts.jsonl"
+    rc = _dispatch.run_app(
+        score.app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--model-dir",
+            str(tmp_path),
+            "--vcf",
+            str(tmp_path / "input.vcf"),
+            "--fasta",
+            str(tmp_path / "ref.fa"),
+            "--output",
+            str(output_path),
+            "--receipt",
+            str(receipt_path),
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    payload = json.loads(captured.out)
+    assert payload == {"output_path": str(output_path), "receipt_path": str(receipt_path)}
+    assert calls["output_path"] == output_path
+    assert calls["receipt_path"] == receipt_path
 
 
 @pytest.mark.parametrize(("entry", "module"), TYPER_SCRIPTS)

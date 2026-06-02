@@ -3,7 +3,7 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0010, RFC-0011, RFC-0013, RFC-0018
 - **Supersedes:** —
 - **Implementation status:** Scaffolded in `desktop/` (issue #80);
@@ -16,7 +16,7 @@
 The reference desktop app is a Tauri-based local-first application that
 demonstrates GenoLeWM's full on-device flow: drop a VCF, score it
 locally, view results, export a receipt. The app is **skeleton-grade**
-on purpose — it exists to prove the workflow is real, not to be a
+on purpose — it exists to demonstrate the workflow, not to be a
 polished product. Polished products are downstream community work.
 
 ## 2. Motivation

@@ -44,6 +44,12 @@ venv/
 .geno-lewm-cache/
 .geno-lewm-logs/
 runs/
+/configs/first_experiment/inputs/
+
+# Local release/eval smoke + pipeline output directories
+.eval-smoke/
+.release/
+.release-smoke/
 
 # Jupyter
 .ipynb_checkpoints/

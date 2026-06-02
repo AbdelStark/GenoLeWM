@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""State-encoder input preparation helpers.
+"""State-encoder input preparation and Carbon wrapper helpers.
 
-Issue #33 lands the pure-Python windowing and Carbon-tokenizer input
-surface. The Carbon model wrapper itself remains a separate issue
-because it depends on the optional ML runtime.
+The pure-Python windowing, pooling, and cache helpers import without the
+ML runtime. ``CarbonStateEncoder`` loads the optional Transformers stack
+only when callers construct it without injected model/tokenizer objects.
 """
 
 from geno_lewm.encoder.cache import (
@@ -20,6 +20,7 @@ from geno_lewm.encoder.cache import (
     shard_path_for,
     write_shard,
 )
+from geno_lewm.encoder.carbon import CarbonStateEncoder
 from geno_lewm.encoder.pooling import (
     DEFAULT_POOL_RADIUS_TOKENS,
     POOL_CENTERED_MEAN,
@@ -60,6 +61,7 @@ __all__ = [
     "SUPPORTED_WINDOW_BP",
     "CacheReindexReport",
     "CacheRepairReport",
+    "CarbonStateEncoder",
     "ExtractedWindow",
     "PoolingResult",
     "WindowCacheKey",

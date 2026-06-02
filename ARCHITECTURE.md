@@ -110,6 +110,10 @@ never touches Carbon.
 
 ## 3. Module map
 
+This map describes the current repository layout. Planned public
+contracts that do not yet have implementation modules are called out in
+the roadmap instead of being shown as present code here.
+
 ```
 geno_lewm/
 ├── encoder/
@@ -133,35 +137,57 @@ geno_lewm/
 │   ├── corpus.py            # HF dataset wrapper for carbon-pretraining-corpus
 │   ├── gnomad.py            # gnomAD common variants loader
 │   ├── clinvar.py           # ClinVar loader, P/LP/B/LB labels
-│   ├── builder.py           # tuple (w_ref, a, w_alt) builder
-│   └── holdouts.py          # holdout-chr, holdout-clinvar, holdout-haplotypes
+│   ├── builder.py           # tuple (w_ref, a, w_alt) builder and holdout policy
+│   └── _vcf.py              # shared VCF parsing helpers
 │
-├── eval/
-│   ├── vep.py               # ClinVar coding/non-coding, BRCA2, TraitGym
-│   ├── rollout.py           # multi-edit rollout fidelity
-│   ├── efficiency.py        # latency, throughput, memory benchmarks
-│   └── calibration.py       # reliability diagrams, ECE, brier
+├── evaluation.py            # artifact-level binary metrics and report payloads
+├── carbon_zero_shot.py      # Carbon baseline score artifact generation
 │
 ├── planning/
-│   ├── cem.py               # cross-entropy method
-│   ├── mcts.py              # tree-search variant (v2)
-│   └── cost.py              # cost functions (target distance, edit cost)
+│   ├── costs.py             # edit-sequence cost functions
+│   └── sampling.py          # factored action sampler
 │
 ├── surprise/
+│   ├── context.py           # scored context payloads
 │   ├── score.py             # ||ŝ - s||, cos(ŝ, s_t), bayesian variants
 │   └── calibration.py       # context-aware calibration of surprise distributions
 │
 ├── deploy/
-│   ├── onnx.py              # ONNX export for predictor + action encoder
-│   ├── coreml.py            # Core ML export for Apple Silicon
-│   ├── ggml.py              # GGUF export for llama.cpp-style runners
-│   └── attestation.py       # weight hashes, input commitments (RFC-0011)
+│   ├── runtime.py           # local runtime facade and fail-closed network guard
+│   └── import_/             # local personal-genome import helpers
+│
+├── provenance/
+│   ├── commitment.py        # input/output commitments
+│   ├── hashing.py           # canonical JSON and SHA-256 helpers
+│   ├── manifest.py          # model artifact manifests
+│   └── receipt.py           # checksum receipt schema and IO
 │
 ├── cli/
 │   ├── train.py             # entry point: train predictor
 │   ├── score.py             # entry point: score a VCF / single variant
 │   ├── rollout.py           # entry point: haplotype rollout
-│   └── plan.py              # entry point: planning
+│   ├── plan.py              # entry point: planning
+│   ├── eval.py              # entry point: evaluate score/label artifacts
+│   ├── eval_all.py          # entry point: aggregate eval report artifacts
+│   ├── carbon_baseline.py   # entry point: Carbon zero-shot baseline
+│   ├── prepare_gnomad.py    # entry point: prepare gnomAD shards
+│   ├── prepare_clinvar.py   # entry point: prepare ClinVar shards
+│   ├── update.py            # entry point: user-approved model update checks
+│   ├── export.py            # entry point: export scaffold
+│   └── verify.py            # entry point: verify manifests and receipts
+│
+├── training/
+│   ├── fixture.py           # deterministic fixture smoke training
+│   ├── preflight.py         # real-run preflight report
+│   ├── real.py              # Carbon-backed training launcher
+│   ├── trainer.py           # torch trainer primitives
+│   ├── collapse.py          # collapse metrics and alerts
+│   └── sampling.py          # rollout/edit source sampling
+│
+├── config/
+│   ├── loader.py            # typed config loading and overrides
+│   ├── schema.py            # closed config schema
+│   └── defaults/            # train/score/eval/plan defaults
 │
 └── __init__.py
 ```

@@ -1,4 +1,4 @@
-"""Tests for ``geno_lewm.attestation`` manifest + hashing primitives."""
+"""Tests for ``geno_lewm.provenance`` manifest + hashing primitives."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from geno_lewm.attestation import (
+from geno_lewm.errors import InputError, SchemaCompatError
+from geno_lewm.provenance import (
     SCHEMA_VERSION,
     Manifest,
     ManifestArtifact,
@@ -19,8 +20,7 @@ from geno_lewm.attestation import (
     sha256_file,
     write_manifest,
 )
-from geno_lewm.attestation.hashing import canonical_json_bytes, looks_like_sha256
-from geno_lewm.errors import InputError, SchemaCompatError
+from geno_lewm.provenance.hashing import canonical_json_bytes, looks_like_sha256
 
 _SHA = "sha256:" + "0" * 64
 

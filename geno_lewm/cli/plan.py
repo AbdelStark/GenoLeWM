@@ -7,9 +7,14 @@ the CEM solver (#59) and the cost-function library (#60).
 
 from __future__ import annotations
 
-from geno_lewm.cli._stub_main import build_stub_app, make_cli_main
+from geno_lewm.cli._stub_main import (
+    build_stub_app as _build_stub_app,
+    make_cli_main as _make_cli_main,
+)
 
-app = build_stub_app(
+__all__ = ["app", "cli_main"]
+
+app = _build_stub_app(
     name="geno-lewm-plan",
     help_text=(
         "Latent planning via the cross-entropy method (RFC-0018 §3.3). "
@@ -20,4 +25,4 @@ app = build_stub_app(
     default_config_name="plan",
 )
 
-cli_main = make_cli_main(app)
+cli_main = _make_cli_main(app)

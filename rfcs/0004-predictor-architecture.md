@@ -3,11 +3,13 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001, RFC-0002, RFC-0003
 - **Supersedes:** —
-- **Implementation status:** Partial — base `Predictor` implemented;
-  autoregressive rollout and trainer integration remain open.
+- **Implementation status:** Partial — base cross-attention `Predictor`,
+  `ARPredictor` rollout wrapper, and predictor losses are implemented;
+  attention KV-cache speedups, released-artifact validation, and full
+  trainer/evaluator integration remain open.
 
 ---
 

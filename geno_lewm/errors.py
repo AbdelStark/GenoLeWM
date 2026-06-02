@@ -13,7 +13,7 @@ Discipline (summary; see the spec for the full table):
 - Training-loop instability          -> ``TrainingError`` family
 - Eval harness failures              -> ``EvalError`` family
 - Export / runtime backend failures  -> ``DeployError`` family
-- Verifier discovers a mismatch      -> ``AttestationError`` family
+- Receipt/hash consistency failure   -> ``ProvenanceError`` family
 - Bugs we caught                     -> ``InternalError`` family
 """
 
@@ -26,8 +26,6 @@ from typing import Any
 
 __all__ = [
     "ERROR_CODES",
-    "AttestationError",
-    "AttestationKindUnsupportedError",
     "BackendUnsupportedError",
     "CacheCorruptError",
     "CollapseDetectedError",
@@ -55,6 +53,8 @@ __all__ = [
     "OutOfWindowError",
     "OutputCommitmentMismatchError",
     "OverlappingEditsError",
+    "ProvenanceError",
+    "ProvenanceKindUnsupportedError",
     "QuantizationError",
     "ReceiptSchemaError",
     "ResourceError",
@@ -331,43 +331,43 @@ class BackendUnsupportedError(DeployError):
 
 
 # ---------------------------------------------------------------------------
-# Attestation
+# Provenance
 
 
-class AttestationError(GenoLeWMError):
-    """Verifiable-inference failure (RFC-0011)."""
+class ProvenanceError(GenoLeWMError):
+    """Receipt or artifact-provenance failure (RFC-0011)."""
 
-    code = "ATTESTATION.GENERIC"
+    code = "PROVENANCE.GENERIC"
 
 
-class ManifestHashMismatchError(AttestationError):
+class ManifestHashMismatchError(ProvenanceError):
     """Recomputed manifest hash does not match the stated ``model_id``."""
 
-    code = "ATTESTATION.MANIFEST_HASH_MISMATCH"
+    code = "PROVENANCE.MANIFEST_HASH_MISMATCH"
 
 
-class InputCommitmentMismatchError(AttestationError):
+class InputCommitmentMismatchError(ProvenanceError):
     """Recomputed input commitment does not match the receipt."""
 
-    code = "ATTESTATION.INPUT_COMMITMENT_MISMATCH"
+    code = "PROVENANCE.INPUT_COMMITMENT_MISMATCH"
 
 
-class OutputCommitmentMismatchError(AttestationError):
+class OutputCommitmentMismatchError(ProvenanceError):
     """Recomputed output bytes do not match the receipt."""
 
-    code = "ATTESTATION.OUTPUT_COMMITMENT_MISMATCH"
+    code = "PROVENANCE.OUTPUT_COMMITMENT_MISMATCH"
 
 
-class AttestationKindUnsupportedError(AttestationError):
-    """Verifier does not understand the receipt's ``attestation.kind``."""
+class ProvenanceKindUnsupportedError(ProvenanceError):
+    """Verifier does not understand the receipt provenance kind."""
 
-    code = "ATTESTATION.KIND_UNSUPPORTED"
+    code = "PROVENANCE.KIND_UNSUPPORTED"
 
 
-class ReceiptSchemaError(AttestationError):
+class ReceiptSchemaError(ProvenanceError):
     """Receipt JSON failed schema validation."""
 
-    code = "ATTESTATION.RECEIPT_SCHEMA"
+    code = "PROVENANCE.RECEIPT_SCHEMA"
 
 
 # ---------------------------------------------------------------------------
@@ -479,29 +479,29 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
     ErrorCodeEntry(
         "DEPLOY.BACKEND_UNSUPPORTED", BackendUnsupportedError, "Backend unavailable on host"
     ),
-    # Attestation
-    ErrorCodeEntry("ATTESTATION.GENERIC", AttestationError, "Verifiable-inference failure"),
+    # Provenance
+    ErrorCodeEntry("PROVENANCE.GENERIC", ProvenanceError, "Receipt/provenance failure"),
     ErrorCodeEntry(
-        "ATTESTATION.MANIFEST_HASH_MISMATCH",
+        "PROVENANCE.MANIFEST_HASH_MISMATCH",
         ManifestHashMismatchError,
         "Manifest content != stated model_id",
     ),
     ErrorCodeEntry(
-        "ATTESTATION.INPUT_COMMITMENT_MISMATCH",
+        "PROVENANCE.INPUT_COMMITMENT_MISMATCH",
         InputCommitmentMismatchError,
         "Recomputed input commitment != receipt",
     ),
     ErrorCodeEntry(
-        "ATTESTATION.OUTPUT_COMMITMENT_MISMATCH",
+        "PROVENANCE.OUTPUT_COMMITMENT_MISMATCH",
         OutputCommitmentMismatchError,
         "Bit-mismatch on output re-run",
     ),
     ErrorCodeEntry(
-        "ATTESTATION.KIND_UNSUPPORTED",
-        AttestationKindUnsupportedError,
-        "Verifier does not understand attestation.kind",
+        "PROVENANCE.KIND_UNSUPPORTED",
+        ProvenanceKindUnsupportedError,
+        "Verifier does not understand receipt provenance kind",
     ),
-    ErrorCodeEntry("ATTESTATION.RECEIPT_SCHEMA", ReceiptSchemaError, "Receipt JSON invalid"),
+    ErrorCodeEntry("PROVENANCE.RECEIPT_SCHEMA", ReceiptSchemaError, "Receipt JSON invalid"),
     # Internal
     ErrorCodeEntry("INTERNAL.GENERIC", InternalError, "Internal error"),
     ErrorCodeEntry(
@@ -539,7 +539,7 @@ _EXIT_CODE_BY_FAMILY: tuple[tuple[type[GenoLeWMError], int], ...] = (
     (TrainingError, 5),
     (EvalError, 6),
     (DeployError, 7),
-    (AttestationError, 8),
+    (ProvenanceError, 8),
     (InternalError, 9),
 )
 

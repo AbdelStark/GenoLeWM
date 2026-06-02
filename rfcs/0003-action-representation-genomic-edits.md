@@ -1,12 +1,15 @@
 # RFC-0003: Action representation — genomic edits
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001, RFC-0002
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Implemented for the v1 short-edit surface:
+  `EditSpec` / `RelEdit` / `EditType`, right-to-left edit application,
+  `ActionEncoder`, and synthetic SNV / indel / MNV samplers are present
+  with unit and API-snapshot coverage. SV adapters remain future work.
 
 ---
 
@@ -332,4 +335,6 @@ ship it as a constant.
 
 ## 7. Changelog
 
+- 2026-06-02 — Accepted after the v1 short-edit action surface landed
+  in code and tests.
 - 2026-05-20 — Initial draft.

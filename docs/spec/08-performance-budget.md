@@ -5,10 +5,13 @@
   [RFC-0010](../rfcs/0010-on-device-personal-genome-deployment.md),
   [RFC-0016](../rfcs/0016-performance-budget.md)
 
-Performance is part of the public contract. Numbers here are commitments,
-not aspirations: a release that misses any of these targets is not
-shippable as v0.1 unless the regression is documented and accepted via an
-explicit RFC amendment.
+Performance is part of the public release contract. Numbers here are
+v0.1 release gates, not current measured results: a release that misses
+any target is not shippable as v0.1 unless the regression is documented
+and accepted via an explicit RFC amendment. Until
+`efficiency_report.json` is generated from the first public checkpoint,
+dataset, and demo artifact set, public docs and papers must describe
+these numbers as budgets or targets only.
 
 ## Reference machines
 
@@ -19,9 +22,10 @@ explicit RFC amendment.
 | **Laptop** | Apple M3 Max, 64 GB unified memory, NVMe SSD | on-device target |
 | **CPU-only laptop** | 8-core x86-64, 32 GB RAM, NVMe SSD | accessibility fallback |
 
-CI runs the per-PR benchmarks on a GitHub-Actions-hosted GPU runner
-(H100-tier when available; ROCM-equivalent otherwise). Release-candidate
-benchmarks run on a dedicated reference machine per class.
+Per-PR checks may run deterministic microbenchmarks where suitable
+hardware is available. Release-candidate benchmarks must run on a
+dedicated reference machine per class and record explicit limitations
+when a class is unavailable.
 
 ## Inference latency (warm cache)
 
@@ -58,6 +62,15 @@ reported value is the median across 100 batches.
 Peak memory is measured via `psutil` (RSS) and `nvidia-smi` (GPU).
 Apple Silicon uses unified memory; reported value is the larger of CPU
 RSS and Metal peak.
+
+Release candidates record the actual first-paper single-variant latency,
+batched throughput, and peak-memory run as
+`efficiency_report.json`, generated with
+`python -m bench.inference --release-efficiency ... --output-json ...`.
+That artifact must include the benchmark command, hardware/runtime notes,
+input identities, sample count, warm-up count, and limitations; prose in
+the README or paper draft must not substitute for the machine-readable
+report.
 
 ## Disk footprint
 
@@ -103,17 +116,6 @@ CEM with `n_iterations=5`, `n_samples=1024`, `K=5` (default config):
 Planning with larger `n_samples` or `K` scales linearly in predictor
 calls.
 
-## STARK proof targets (Phase 4)
-
-| Metric | Target |
-|--------|-------:|
-| Proof generation (single variant) | < 5 min on workstation |
-| Proof verification | < 1 s on a laptop |
-| Proof size | < 1 MB |
-
-Phase 4 numbers are aspirational; they constitute the success criteria
-for that phase rather than commitments for v0.1.
-
 ## Quantization quality budget
 
 A quantized variant is shippable only when:
@@ -136,10 +138,11 @@ Drops are measured against the bf16 reference checkpoint on the same data.
 - **Microbenchmarks:** `pytest-benchmark` for hot functions; results
   persisted in `bench/results/`.
 
-Every performance regression > 5% on any benchmark in this section is
-treated as a defect. CI does not auto-fail on perf regressions (signal is
-too noisy on shared runners), but the nightly job opens a tracking issue
-when one is detected.
+After the first measured release baseline exists, every performance
+regression > 5% on any benchmark in this section is treated as a defect.
+CI should not auto-fail on noisy shared-runner perf changes, but release
+automation or a scheduled benchmark job must open a tracking issue when
+a confirmed regression is detected.
 
 ## Performance regression process
 
@@ -155,7 +158,7 @@ when one is detected.
 |----|-----------|-------------|
 | INV-PERF-1 | The Phase-1 baseline run completes within 24 hours on a single H100 | release-gate check |
 | INV-PERF-2 | Predictor + Carbon-500M run within 8 GB unified memory on M3 Max at int4 | release-gate check |
-| INV-PERF-3 | Single-variant warm-cache scoring on M3 Max ≤ 200 ms | smoke benchmark |
+| INV-PERF-3 | Single-variant warm-cache scoring on M3 Max ≤ 200 ms | `bench.inference --release-efficiency`; `tools.release.efficiency_report` |
 | INV-PERF-4 | No benchmark in this document regresses > 5% silently between releases | nightly job |
 | INV-PERF-5 | Memory targets are measured peak-RSS, not steady-state | benchmark harness |
 
@@ -165,4 +168,4 @@ when one is detected.
 |----|----------|-------|--------|
 | OQ-PERF-1 | Whether to add iOS / iPad performance targets in v0.2 | core | v0.2 |
 | OQ-PERF-2 | Whether to ship a `geno-lewm-bench` command exposing the benchmark harness publicly | core | v0.2 |
-| OQ-PERF-3 | What target to set for the STARK proof Phase 4 once the prover landscape stabilizes in 2026 | core | start of Phase 4 |
+| OQ-PERF-3 | What public latency target to require for the real terminal demo | core | first demo release |

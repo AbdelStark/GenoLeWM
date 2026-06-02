@@ -1,12 +1,12 @@
-"""Tests for ``geno_lewm.attestation.commitment``."""
+"""Tests for ``geno_lewm.provenance.commitment``."""
 
 from __future__ import annotations
 
 import pytest
 
 from geno_lewm.action import EditSpec
-from geno_lewm.attestation import DtypeConfig, PoolingConfig, compute_input_commitment
 from geno_lewm.errors import InputError
+from geno_lewm.provenance import DtypeConfig, PoolingConfig, compute_input_commitment
 
 
 def _edit() -> EditSpec:

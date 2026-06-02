@@ -1,197 +1,459 @@
-# Implementation Tracker — 2026-05-20
+# Implementation Tracker
 
-Generated from the spec corpus committed on branch
-`spec/bootstrap-2026-05-20` (PR #1) and the issue set filed via the
-spec-bootstrap turn. Every implementable unit of work in the spec corpus
-is an issue below. Each issue is independently shippable; cross-tracker
-dependencies are noted under "Cross-cutting dependencies."
+Last updated: 2026-06-02
 
-The full label taxonomy, milestones, and CI gates are documented in
-[`../spec/09-release-and-versioning.md`](../spec/09-release-and-versioning.md)
-and [RFC-0015](../rfcs/0015-testing-strategy.md).
+This file is a human-maintained snapshot of the current execution plan.
+GitHub issues remain the source of truth for issue state.
 
-## Milestones
+## Current Status
 
-| Milestone | Phase | Description |
-|-----------|-------|-------------|
-| `v0.1` | Phase 1 (MVP) | Carbon-500M frozen, SNVs only, ClinVar coding/non-coding eval, reference checkpoint |
-| `v0.2` | Phase 2 | Indels + MNVs, LoRA encoder, LeJEPA, planning, calibrated surprise, full eval |
-| `v0.3` | Phase 3 | Export pipeline, quantization, desktop app skeleton, TEE attestation |
-| `v0.4` | Phase 4 | STARK proving of predictor forward pass |
-| `Backlog` | — | Unscheduled work, post-v1 |
+The repository has moved beyond the original spec-bootstrap phase. The
+implemented surface now includes:
 
-## Tracking issues
+- error taxonomy and error-code gates;
+- observability, redaction, metrics, and WandB sink integration;
+- action representation, edit application, and synthetic samplers;
+- RFC-0006 tuple-builder contracts for source mix, ClinVar fallback,
+  absolute variant providers, and holdout filtering;
+- local gnomAD and ClinVar VCF-to-Parquet shard builders with
+  schema-checked Parquet loaders;
+- lazy Carbon state encoder wrapper for optional local Transformers
+  runtimes;
+- base cross-attention `Predictor`, `ARPredictor` rollout wrapper,
+  predictor losses, and training stability helpers;
+- deterministic fixture smoke trainer that writes config, metrics, log,
+  checkpoint, dataset manifest, and training-run metadata;
+- preflight-gated Carbon trainer launcher with compatible checkpoint
+  resume validation for run id, dataset snapshot, seed split, and config
+  identity;
+- surprise score library, FASTA-backed VCF scoring, and the score CLI
+  path for manifest-verified injected scorer components;
+- optional native runtime component loading from manifest-backed local
+  artifacts when the ML stack is installed;
+- artifact manifests, checksum receipts, single-variant score receipt
+  emission, per-row VCF receipt JSONL sidecars, and the verify notebook;
+- `geno-lewm-eval` artifact-level ClinVar-style metrics with
+  deterministic bootstrap confidence intervals from score and label
+  JSONL files, plus optional matched measured-baseline comparisons that
+  require a recorded baseline score artifact;
+- `geno-lewm-carbon-baseline` generation of Carbon zero-shot baseline
+  score JSONL from a local Carbon LM, held-out VCF, FASTA, and optional
+  sequence log-likelihood cache;
+- `geno-lewm-eval-all` aggregation of validated metrics JSON into
+  packaged source `eval_metrics.json` plus generated `eval_report.md`,
+  with `eval_config.effective.yaml` recorded as a required report
+  artifact;
+- `bench.inference --release-efficiency` generation of measured latency,
+  throughput, peak memory, command, hardware/runtime notes, and input
+  identities as validated `efficiency_report.json`;
+- dedicated fixture-backed `tests/ml` smoke coverage for finite fixture
+  training loss, collapse-health signals, deterministic resume identity,
+  and optional torch predictor initialization/learning when torch is
+  installed; CI runs it as the separate `ml-smoke` job;
+- hosted fixture-backed eval smoke regression checking with
+  `python -m tools.ci.eval_smoke_gate`, which generates public
+  score/label JSONL fixtures, runs `geno-lewm-eval` and
+  `geno-lewm-eval-all`, enforces AUROC/AP/balanced-accuracy/baseline-delta
+  thresholds, and records why real checkpoint/dataset evaluation is not
+  attempted by this CI gate;
+- source-distribution inventory checking with
+  `python -m tools.release.check_sdist_assets dist/*.tar.gz`, wired into
+  CI and the PyPI release workflow after package metadata validation;
+- `tools.release.paper_package` validation of generated eval-report
+  Summary/Artifacts markers, required artifact rows, model/dataset
+  identity lines, baseline score artifact rows, exact `eval_report.md`
+  rendering from packaged `eval_metrics.json`, and valid
+  `efficiency_report.json`;
+- runtime/update/desktop scaffolds;
+- release tooling, API-snapshot tooling, duplicate-free `__all__`
+  checks, and current public module-map docs.
 
+Remaining blockers are concentrated in the ML path: validating the
+native runtime loader against actual Carbon/predictor artifacts, proving
+RFC-0004 attention KV-cache speedups, dataset snapshots, Carbon-backed
+trainer/evaluator integration, model release, and a real terminal
+inference demo.
 
-| Subsystem | RFC | Tracking | Children |
-|-----------|-----|---------:|---------:|
-| Error taxonomy | 0012 | [#2](https://github.com/AbdelStark/GenoLeWM/issues/2) | 2 |
-| Observability | 0013 | [#3](https://github.com/AbdelStark/GenoLeWM/issues/3) | 5 |
-| Configuration system | 0017 | [#4](https://github.com/AbdelStark/GenoLeWM/issues/4) | 2 |
-| CLI design | 0018 | [#5](https://github.com/AbdelStark/GenoLeWM/issues/5) | 2 |
-| State encoder (Carbon) | 0002 | [#6](https://github.com/AbdelStark/GenoLeWM/issues/6) | 5 |
-| Action representation and encoder | 0003 | [#7](https://github.com/AbdelStark/GenoLeWM/issues/7) | 4 |
-| Predictor architecture | 0004 | [#8](https://github.com/AbdelStark/GenoLeWM/issues/8) | 3 |
-| Training loop and objective | 0005 | [#9](https://github.com/AbdelStark/GenoLeWM/issues/9) | 4 |
-| Data pipeline | 0006 | [#10](https://github.com/AbdelStark/GenoLeWM/issues/10) | 5 |
-| Evaluation suite | 0007 | [#11](https://github.com/AbdelStark/GenoLeWM/issues/11) | 6 |
-| Latent planning (CEM) | 0008 | [#12](https://github.com/AbdelStark/GenoLeWM/issues/12) | 3 |
-| Surprise scoring and calibration | 0009 | [#13](https://github.com/AbdelStark/GenoLeWM/issues/13) | 4 |
-| Deployment and runtime | 0010 | [#14](https://github.com/AbdelStark/GenoLeWM/issues/14) | 8 |
-| Attestation and receipts | 0011 | [#15](https://github.com/AbdelStark/GenoLeWM/issues/15) | 6 |
-| Reference desktop app | 0019 | [#16](https://github.com/AbdelStark/GenoLeWM/issues/16) | 3 |
-| Public API stability | 0014 | [#17](https://github.com/AbdelStark/GenoLeWM/issues/17) | 2 |
-| Testing strategy and CI gates | 0015 | [#18](https://github.com/AbdelStark/GenoLeWM/issues/18) | 5 |
-| Performance budget | 0016 | [#19](https://github.com/AbdelStark/GenoLeWM/issues/19) | 3 |
-| Documentation, packaging, release | — | [#20](https://github.com/AbdelStark/GenoLeWM/issues/20) | 10 |
+## Active Milestones
 
-## Milestone: v0.1
+| Milestone | Purpose | Exit Signal |
+| --- | --- | --- |
+| Direction cleanup | remove stale claims and align issues/docs | README, roadmap, context, and issues match current scope |
+| Real inference slice | terminal command runs one true score path | demo transcript generated from real command output |
+| Dataset snapshot | reproducible first experiment data | dataset card, manifest, split checks, rebuild command |
+| First training run | SNV predictor checkpoint | checkpoint, config, logs, model package metadata, model card, manifest |
+| Evaluation report | first paper-grade results | generated report with baselines and conclusions |
+| Paper/demo release | public showcase | release links dataset, model, report, demo transcript |
 
-Total issues: **62**
+## Release Evidence Ledger
 
-| # | Title | Area | Type | Priority | Effort | RFC |
-|---:|------|------|------|---------:|-------:|-----|
-| [#21](https://github.com/AbdelStark/GenoLeWM/issues/21) | errors: implement GenoLeWMError hierarchy and ERROR_CODES registry | `errors` | `type:feature` | `p0` | `m` | RFC-0012 |
-| [#22](https://github.com/AbdelStark/GenoLeWM/issues/22) | errors: AST linter `raise_geno_lewm_error` and `registered_error_code` | `errors` | `type:ci` | `p0` | `s` | RFC-0012, RFC-0015 |
-| [#23](https://github.com/AbdelStark/GenoLeWM/issues/23) | observability: implement structured logger and EVENTS registry | `observability` | `type:feature` | `p0` | `m` | RFC-0013 |
-| [#24](https://github.com/AbdelStark/GenoLeWM/issues/24) | observability: implement redaction filter (default strict) | `observability` | `type:security` | `p0` | `m` | RFC-0013 |
-| [#25](https://github.com/AbdelStark/GenoLeWM/issues/25) | observability: implement metrics registry + Prometheus textfile exporter | `observability` | `type:feature` | `p1` | `m` | RFC-0013 |
-| [#26](https://github.com/AbdelStark/GenoLeWM/issues/26) | observability: opt-in wandb sink for training metrics | `observability` | `type:feature` | `p2` | `s` | RFC-0013 |
-| [#27](https://github.com/AbdelStark/GenoLeWM/issues/27) | observability: AST linter `registered_event_name` and `registered_metric_name` | `observability` | `type:ci` | `p1` | `s` | RFC-0013, RFC-0015 |
-| [#28](https://github.com/AbdelStark/GenoLeWM/issues/28) | config: implement Hydra defaults tree and Pydantic schema | `config` | `type:feature` | `p0` | `m` | RFC-0017 |
-| [#29](https://github.com/AbdelStark/GenoLeWM/issues/29) | config: implement `--print-config`, `--print-config-tree`, `--explain` | `config` | `type:feature` | `p1` | `s` | RFC-0017, RFC-0018 |
-| [#30](https://github.com/AbdelStark/GenoLeWM/issues/30) | cli: implement dispatcher (`_dispatch.py`) and shared flags | `cli` | `type:feature` | `p0` | `m` | RFC-0018, RFC-0012 |
-| [#31](https://github.com/AbdelStark/GenoLeWM/issues/31) | cli: implement shell completion (bash, zsh, fish) | `cli` | `type:feature` | `p2` | `s` | RFC-0018 |
-| [#32](https://github.com/AbdelStark/GenoLeWM/issues/32) | encoder: implement CarbonStateEncoder (frozen Carbon-500M) | `encoder` | `type:feature` | `p0` | `m` | RFC-0002 |
-| [#33](https://github.com/AbdelStark/GenoLeWM/issues/33) | encoder: implement windowing and tokenizer wrapping | `encoder` | `type:feature` | `p0` | `s` | RFC-0002 |
-| [#34](https://github.com/AbdelStark/GenoLeWM/issues/34) | encoder: implement pooling strategies (centered_mean default) | `encoder` | `type:feature` | `p0` | `s` | RFC-0002 |
-| [#35](https://github.com/AbdelStark/GenoLeWM/issues/35) | encoder: implement Parquet shard cache + SQLite index | `encoder` | `type:feature` | `p0` | `m` | RFC-0002, RFC-0006 |
-| [#36](https://github.com/AbdelStark/GenoLeWM/issues/36) | encoder: implement `geno-lewm-cache-windows` CLI | `encoder` | `type:feature` | `p1` | `m` | RFC-0002, RFC-0006, RFC-0018 |
-| [#37](https://github.com/AbdelStark/GenoLeWM/issues/37) | action: implement EditSpec / RelEdit / EditType with validation | `action` | `type:feature` | `p0` | `s` | RFC-0003 |
-| [#38](https://github.com/AbdelStark/GenoLeWM/issues/38) | action: implement apply_edit / apply_edits (right-to-left) | `action` | `type:feature` | `p0` | `s` | RFC-0003 |
-| [#39](https://github.com/AbdelStark/GenoLeWM/issues/39) | action: implement ActionEncoder module (4 sub-encoders + projection MLP) | `action` | `type:feature` | `p0` | `m` | RFC-0003 |
-| [#40](https://github.com/AbdelStark/GenoLeWM/issues/40) | action: implement synthetic edit samplers (SNV / indel / MNV) | `action` | `type:feature` | `p0` | `s` | RFC-0003, RFC-0006 |
-| [#41](https://github.com/AbdelStark/GenoLeWM/issues/41) | predictor: implement cross-attention Predictor module | `predictor` | `type:feature` | `p0` | `l` | RFC-0004 |
-| [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) | predictor: implement ARPredictor rollout with KV cache | `predictor` | `type:feature` | `p0` | `m` | RFC-0004 |
-| [#43](https://github.com/AbdelStark/GenoLeWM/issues/43) | predictor: implement losses (cosine + MSE; LeJEPA monitoring) | `predictor` | `type:feature` | `p0` | `s` | RFC-0005 |
-| [#44](https://github.com/AbdelStark/GenoLeWM/issues/44) | training: implement trainer scaffold (AdamW + WSD schedule) | `training` | `type:feature` | `p0` | `m` | RFC-0005, RFC-0017 |
-| [#45](https://github.com/AbdelStark/GenoLeWM/issues/45) | training: implement edit-balanced sampler | `training` | `type:feature` | `p1` | `s` | RFC-0005, RFC-0006 |
-| [#46](https://github.com/AbdelStark/GenoLeWM/issues/46) | training: implement collapse monitoring (var, pairwise dist, kl_reg) | `training` | `type:feature` | `p1` | `s` | RFC-0005 |
-| [#47](https://github.com/AbdelStark/GenoLeWM/issues/47) | training: reproducibility plumbing (seeds, deterministic mode) | `training` | `type:feature` | `p1` | `s` | RFC-0005 |
-| [#48](https://github.com/AbdelStark/GenoLeWM/issues/48) | data: implement Carbon-pretraining-corpus loader and window sampler | `data` | `type:feature` | `p0` | `m` | RFC-0006 |
-| [#49](https://github.com/AbdelStark/GenoLeWM/issues/49) | data: implement gnomAD loader + geno-lewm-prepare-gnomad CLI | `data` | `type:feature` | `p0` | `m` | RFC-0006, RFC-0018 |
-| [#50](https://github.com/AbdelStark/GenoLeWM/issues/50) | data: implement ClinVar loader + geno-lewm-prepare-clinvar CLI | `data` | `type:feature` | `p0` | `m` | RFC-0006, RFC-0018 |
-| [#51](https://github.com/AbdelStark/GenoLeWM/issues/51) | data: implement tuple builder and IterableDataset | `data` | `type:feature` | `p0` | `m` | RFC-0006 |
-| [#52](https://github.com/AbdelStark/GenoLeWM/issues/52) | data: implement holdout enforcement (chr21, ClinVar, haplotypes) | `data` | `type:feature` | `p0` | `s` | RFC-0006 |
-| [#53](https://github.com/AbdelStark/GenoLeWM/issues/53) | eval: implement ClinVar coding/non-coding VEP harness | `eval` | `type:feature` | `p0` | `m` | RFC-0007 |
-| [#54](https://github.com/AbdelStark/GenoLeWM/issues/54) | eval: implement smoke eval gate (1k variants + 500 rollout) | `eval` | `type:ci` | `p0` | `s` | RFC-0007, RFC-0015 |
-| [#55](https://github.com/AbdelStark/GenoLeWM/issues/55) | eval: implement Carbon zero-shot baseline runner | `eval` | `type:feature` | `p1` | `s` | RFC-0007 |
-| [#56](https://github.com/AbdelStark/GenoLeWM/issues/56) | eval: implement geno-lewm-eval and geno-lewm-eval-all CLIs | `eval` | `type:feature` | `p1` | `s` | RFC-0007, RFC-0018 |
-| [#58](https://github.com/AbdelStark/GenoLeWM/issues/58) | eval: implement efficiency benchmark harness | `eval` | `type:perf` | `p1` | `m` | RFC-0007, RFC-0016 |
-| [#62](https://github.com/AbdelStark/GenoLeWM/issues/62) | surprise: implement raw surprise score and score_variant/score_vcf | `surprise` | `type:feature` | `p0` | `m` | RFC-0009 |
-| [#63](https://github.com/AbdelStark/GenoLeWM/issues/63) | surprise: implement context stratification labels (region, GC, repeat) | `surprise` | `type:feature` | `p1` | `m` | RFC-0009 |
-| [#64](https://github.com/AbdelStark/GenoLeWM/issues/64) | surprise: implement calibration table builder + on-disk format | `surprise` | `type:feature` | `p1` | `m` | RFC-0009 |
-| [#65](https://github.com/AbdelStark/GenoLeWM/issues/65) | surprise: implement geno-lewm-score CLI | `surprise` | `type:feature` | `p1` | `s` | RFC-0009, RFC-0018 |
-| [#74](https://github.com/AbdelStark/GenoLeWM/issues/74) | attestation: implement content-addressed model IDs + manifest schema | `attestation` | `type:feature` | `p0` | `m` | RFC-0011 |
-| [#75](https://github.com/AbdelStark/GenoLeWM/issues/75) | attestation: implement input commitment | `attestation` | `type:feature` | `p0` | `s` | RFC-0011 |
-| [#76](https://github.com/AbdelStark/GenoLeWM/issues/76) | attestation: implement receipt writer/reader | `attestation` | `type:feature` | `p0` | `s` | RFC-0011 |
-| [#77](https://github.com/AbdelStark/GenoLeWM/issues/77) | attestation: implement geno-lewm-verify CLI (checksum mode) | `attestation` | `type:feature` | `p0` | `s` | RFC-0011, RFC-0018 |
-| [#83](https://github.com/AbdelStark/GenoLeWM/issues/83) | api: implement public API snapshot test | `docs` | `type:test` | `p1` | `s` | RFC-0014 |
-| [#84](https://github.com/AbdelStark/GenoLeWM/issues/84) | api: implement @experimental and @deprecated decorators | `docs` | `type:feature` | `p2` | `s` | RFC-0014 |
-| [#85](https://github.com/AbdelStark/GenoLeWM/issues/85) | testing: scaffold test pyramid and fixture data | `ci` | `type:test` | `p0` | `m` | RFC-0015 |
-| [#86](https://github.com/AbdelStark/GenoLeWM/issues/86) | testing: implement GitHub Actions per-PR CI workflow | `ci` | `type:ci` | `p0` | `m` | RFC-0015 |
-| [#87](https://github.com/AbdelStark/GenoLeWM/issues/87) | testing: implement AST linters (no_print, network_confined) | `ci` | `type:ci` | `p0` | `s` | RFC-0015 |
-| [#88](https://github.com/AbdelStark/GenoLeWM/issues/88) | testing: implement coverage gate (changed-files ≥ 90%) | `ci` | `type:ci` | `p1` | `s` | RFC-0015 |
-| [#89](https://github.com/AbdelStark/GenoLeWM/issues/89) | testing: implement ML smoke suite (identity-at-init, loss-decreases) | `ci` | `type:test` | `p0` | `s` | RFC-0015 |
-| [#90](https://github.com/AbdelStark/GenoLeWM/issues/90) | perf: implement benchmark harness (bench/) and persisted results | `ci` | `type:perf` | `p1` | `m` | RFC-0016 |
-| [#91](https://github.com/AbdelStark/GenoLeWM/issues/91) | perf: implement pytest-benchmark microbench suite for hot paths | `ci` | `type:perf` | `p2` | `s` | RFC-0016 |
-| [#92](https://github.com/AbdelStark/GenoLeWM/issues/92) | perf: implement nightly perf regression detector | `ci` | `type:perf` | `p2` | `s` | RFC-0016 |
-| [#93](https://github.com/AbdelStark/GenoLeWM/issues/93) | docs: set up mkdocs/material site and auto-generated API reference | `docs` | `type:docs` | `p2` | `m` | — |
-| [#94](https://github.com/AbdelStark/GenoLeWM/issues/94) | docs: tutorial notebook `01_score_single_variant.ipynb` | `docs` | `type:docs` | `p2` | `s` | RFC-0009, RFC-0011 |
-| [#95](https://github.com/AbdelStark/GenoLeWM/issues/95) | docs: tutorial notebook `02_score_brca2_saturation.ipynb` | `docs` | `type:docs` | `p2` | `s` | RFC-0007, RFC-0009 |
-| [#96](https://github.com/AbdelStark/GenoLeWM/issues/96) | docs: tutorial notebook `03_score_vcf.ipynb` | `docs` | `type:docs` | `p2` | `s` | RFC-0009, RFC-0010 |
-| [#100](https://github.com/AbdelStark/GenoLeWM/issues/100) | release: implement PyPI release workflow | `packaging` | `type:ci` | `p1` | `m` | — |
-| [#101](https://github.com/AbdelStark/GenoLeWM/issues/101) | release: implement HuggingFace Hub upload workflow for model checkpoints | `packaging` | `type:ci` | `p1` | `m` | RFC-0011 |
-| [#102](https://github.com/AbdelStark/GenoLeWM/issues/102) | release: implement CHANGELOG + version-bump tooling | `packaging` | `type:ci` | `p2` | `s` | — |
+Use this ledger as the implementation tracker's source of truth for what
+is locally contracted versus still missing for the first paper/demo
+release. Do not close #163 through #167 or #101 from local
+fixture/tooling evidence alone.
 
-## Milestone: v0.2
+| Issue | Local contract | Remaining release evidence |
+| --- | --- | --- |
+| #163 dataset snapshot | `python -m tools.release.dataset_snapshot`; `python -m tools.release.dataset_package` | Actual pinned Carbon, gnomAD, and ClinVar inputs, public snapshot package, and data-card links |
+| #164 first Carbon-backed run | `geno-lewm-train --carbon-preflight`; `geno-lewm-train --carbon-train --package-release-run` | Clean supported-environment run on public dataset artifacts with logs, metrics, and checkpoint metadata |
+| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all`; `python -m bench.inference --release-efficiency` | Real score, label, baseline, benchmark, and conclusion artifacts from the first experiment |
+| #20 release packaging | `python -m build`; `twine check`; `python -m tools.release.check_sdist_assets dist/*.tar.gz` over the full first-publication toolchain | Tagged package release built by the protected workflow from the checked tree |
+| #166 terminal showcase | `python tools/demo/terminal_inference.py`; `python -m tools.release.clean_machine_demo` | Clean-machine replay from public model, dataset, and demo artifacts with transcript and manifest hashes |
+| #167/#101 paper and publication | `python -m tools.release.paper_draft`; `python -m tools.release.paper_package`; `python -m tools.release.hub_release`; `python -m tools.release.hub_publish`; `python -m tools.release.publication_report` | Public model, dataset, demo, paper, Hub, and protected publish workflow evidence links |
 
-Total issues: **6**
+## Remaining High-Priority Gaps
 
-| # | Title | Area | Type | Priority | Effort | RFC |
-|---:|------|------|------|---------:|-------:|-----|
-| [#57](https://github.com/AbdelStark/GenoLeWM/issues/57) | eval: implement rollout-fidelity harness | `eval` | `type:feature` | `p2` | `s` | RFC-0007 |
-| [#59](https://github.com/AbdelStark/GenoLeWM/issues/59) | planning: implement CEM solver and `plan()` API | `planning` | `type:feature` | `p1` | `m` | RFC-0008 |
-| [#60](https://github.com/AbdelStark/GenoLeWM/issues/60) | planning: implement cost functions and ActionSampler | `planning` | `type:feature` | `p1` | `s` | RFC-0008 |
-| [#61](https://github.com/AbdelStark/GenoLeWM/issues/61) | planning: implement geno-lewm-plan CLI | `planning` | `type:feature` | `p2` | `s` | RFC-0008, RFC-0018 |
-| [#97](https://github.com/AbdelStark/GenoLeWM/issues/97) | docs: tutorial notebook `04_multi_edit_rollout.ipynb` | `docs` | `type:docs` | `p2` | `s` | RFC-0004, RFC-0007 |
-| [#98](https://github.com/AbdelStark/GenoLeWM/issues/98) | docs: tutorial notebook `05_planning_minimal_edits.ipynb` | `docs` | `type:docs` | `p2` | `s` | RFC-0008 |
+| Gap | Existing Issue(s) | Notes |
+| --- | --- | --- |
+| Carbon encoder on a clean machine | #32, #36 | Needed before real inference or training can be credible |
+| Trainer scaffold and deterministic run config | #44, #47 | Fixture smoke trainer emits reproducible logs/checkpoints; Carbon-backed launcher and resume validation exist; clean supported-runtime Carbon run and bit-exact deterministic evidence remain |
+| Dataset builders and split enforcement | #49, #50, #51, #52 | Local VCF-to-Parquet prep, tuple-builder contracts, source-state cache lookup, and split-integrity evidence exist; real upstream release runs, published shards, holdout data, and warm-cache throughput validation remain |
+| ClinVar and baseline evaluation | #53, #55, #56 | Artifact-level ClinVar-style score/label metrics with deterministic bootstrap CIs and matched measured-baseline deltas exist via `geno-lewm-eval`; `geno-lewm-carbon-baseline` writes Carbon zero-shot baseline score JSONL for `--baseline-score-field carbon_zero_shot_score`; `geno-lewm-eval-all` aggregates validated metric artifacts into `eval_report.md`; `bench.inference --release-efficiency` generates the validated latency/throughput/memory artifact; hosted generated-fixture eval smoke regression is enforced by `tools.ci.eval_smoke_gate`; full benchmark runner and real Carbon baseline run remain |
+| Score CLI and terminal demo | #62, #65 | Local scorer/CLI path can auto-load native artifacts, emit per-row VCF receipt JSONL, and generate runtime preflight evidence; still needs real artifacts and Carbon validation |
+| Model checkpoint Hub release | #101 | Requires model package metadata, model card, eval report, manifest, training config, checksum files, and demo links |
+| Hosted ML smoke gate | #89 | Dedicated `tests/ml` fixture smoke coverage and CI `ml-smoke` job exist; this remains separate from #54's hosted eval smoke-regression gate |
+| Hosted eval smoke gate | #54 | Dedicated `tools.ci.eval_smoke_gate`, `tests/eval`, and CI `eval-smoke` job exist; this remains separate from real ClinVar/rollout benchmark execution |
+| Paper-grade docs and tutorials | #94, #95, #96, #97, #98 | Should wait for real artifacts where possible |
+| Public provenance API naming | #162 | `geno_lewm.provenance` is now the active namespace; the legacy import package and receipt JSON field have been removed |
 
-## Milestone: v0.3
+## De-Scoped Work
 
-Total issues: **12**
+The active roadmap no longer includes runtime assurance mechanisms
+beyond checksum provenance. The package accepts only checksum receipts today.
+Closed historical issues that referenced the previous direction should
+stay closed and should not block paper/demo work.
 
-| # | Title | Area | Type | Priority | Effort | RFC |
-|---:|------|------|------|---------:|-------:|-----|
-| [#66](https://github.com/AbdelStark/GenoLeWM/issues/66) | deploy: implement GenoLeWMRuntime runtime contract | `deploy` | `type:feature` | `p1` | `m` | RFC-0010 |
-| [#67](https://github.com/AbdelStark/GenoLeWM/issues/67) | deploy: implement ONNX export | `deploy` | `type:feature` | `p1` | `m` | RFC-0010 |
-| [#68](https://github.com/AbdelStark/GenoLeWM/issues/68) | deploy: implement Core ML export | `deploy` | `type:feature` | `p1` | `m` | RFC-0010 |
-| [#69](https://github.com/AbdelStark/GenoLeWM/issues/69) | deploy: implement GGUF export for CPU-only runners | `deploy` | `type:feature` | `p2` | `m` | RFC-0010 |
-| [#70](https://github.com/AbdelStark/GenoLeWM/issues/70) | deploy: implement int8 predictor and int4 Carbon quantization | `deploy` | `type:feature` | `p1` | `m` | RFC-0010, RFC-0016 |
-| [#71](https://github.com/AbdelStark/GenoLeWM/issues/71) | deploy: implement geno-lewm-export CLI | `deploy` | `type:feature` | `p2` | `s` | RFC-0010, RFC-0018 |
-| [#72](https://github.com/AbdelStark/GenoLeWM/issues/72) | deploy: implement personal-genome format converters (23andMe, Ancestry, MyHeritage, Sequencing.com) | `deploy` | `type:feature` | `p2` | `m` | RFC-0010 |
-| [#73](https://github.com/AbdelStark/GenoLeWM/issues/73) | deploy: implement geno-lewm-update CLI (explicit, user-initiated) | `deploy` | `type:feature` | `p2` | `s` | RFC-0010, RFC-0018 |
-| [#78](https://github.com/AbdelStark/GenoLeWM/issues/78) | attestation: implement TEE-signed receipts (v1.1) | `attestation` | `type:feature` | `p2` | `m` | RFC-0011 |
-| [#80](https://github.com/AbdelStark/GenoLeWM/issues/80) | desktop: scaffold Tauri 2 application | `desktop` | `type:feature` | `p1` | `m` | RFC-0019 |
-| [#81](https://github.com/AbdelStark/GenoLeWM/issues/81) | desktop: implement file-drop, FASTA picker, scoring UI | `desktop` | `type:feature` | `p2` | `m` | RFC-0019 |
-| [#82](https://github.com/AbdelStark/GenoLeWM/issues/82) | desktop: implement signing + notarization (macOS) and signed releases | `desktop` | `type:security` | `p2` | `m` | RFC-0019 |
+## Paper-Ready Definition
 
-## Milestone: v0.4
+The first paper/demo release is not ready until:
 
-Total issues: **2**
+- dataset snapshot and preprocessing scripts are public;
+- dataset package artifacts are generated from a checked snapshot spec
+  validated by
+  `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec`,
+  staged-input identities checked with the same spec and
+  `--check-inputs`, then built from staged local upstream files with the same spec and
+  `--dataset-dir ... --overwrite`, including
+  normalized `dataset_package.json`, `dataset_manifest.json`,
+  `data_card.md`, `split_integrity.json`,
+  `dataset_input_check_report.json`,
+  `dataset_snapshot_report.json`, and `SHA256SUMS`; the snapshot report
+  records the checked spec hash and upstream source file identities
+  without private absolute input paths and binds input-check evidence plus generated metadata,
+  manifest, data-card, split-integrity, and nested package-file
+  artifacts by path/hash/size; the release verifier requires
+  that report in `SHA256SUMS`, rejects stale report file identities,
+  rejects duplicate snapshot file entries, rejects stale generated package identities, and
+  rejects stale card or manifest output that no longer matches
+  `dataset_package.json`; generated dataset package metadata must carry
+  `generated_by=tools.release.dataset_package`; checksum inventories
+  must reject invalid digests and duplicate paths; `split_integrity.json`
+  also records observed label/class balance plus the
+  `tools.release.dataset_integrity` source header and fails when no
+  train/eval comparable-key comparison can be made; `data_card.md`
+  renders the same class-balance summary;
+- train/eval configs are committed under `configs/first_experiment/`,
+  and the Carbon preflight records the effective training config hash
+  plus resolved closed-schema config payload;
+- real training inputs are preflighted with
+  `geno-lewm-train --carbon-preflight`;
+  preflight requires the generated dataset package evidence set,
+  including `dataset_package.json`, `dataset_input_check_report.json`,
+  `dataset_snapshot_report.json`, and `SHA256SUMS`, and rejects stale
+  input-check evidence before launch;
+- Carbon-encoded minibatches can be trained through
+  `geno_lewm.training.TorchTrainer` with AdamW parameter groups, WSD LR
+  scheduling, gradient clipping, and distinct data/predictor/LoRA seed
+  records;
+- completed training run evidence is generated with
+  `python -m tools.release.training_run` or
+  `geno-lewm-train --carbon-train --package-release-run`, including
+  checksum-covered `training_preflight_report.json` for release
+  Carbon-backed runs and `generated_by=tools.release.training_run`;
+  release-mode verification requires the preflight report's dataset
+  core-file evidence for `dataset_package.json`,
+  `dataset_input_check_report.json`, `dataset_snapshot_report.json`, and
+  `SHA256SUMS`;
+  the final package verifier rejects stale `training_run_card.md`
+  content that no longer matches `training_run_manifest.json`;
+- checkpoint and model card are published;
+- checkpoint package artifacts are generated with
+  `python -m tools.release.model_package`, including normalized
+  `model_package.json`, rendered `model_card.md`, packaged
+  `eval_metrics.json`, `efficiency_report.json`, and model-local eval
+  artifact references from the metrics payload in the checksum set;
+  generated `model_package.json` must carry
+  `generated_by=tools.release.model_package`, model metadata must include
+  the training preflight report, training run manifest/card, and
+  training-run checksums as `extra_files`, and the package verifier
+  rejects stale model cards that do not re-render from
+  `model_package.json` plus `manifest.json`, rejects invalid or
+  duplicate checksum paths, rejects training-run dataset/config/commit
+  evidence that does not match the manifest plus eval/efficiency
+  evidence, and rejects mixed eval/efficiency release id, dataset
+  snapshot, commit, or model-result identity across artifacts;
+- evaluation metrics JSON and confidence intervals are generated with
+  `geno-lewm-eval`, including matched baseline score artifacts when a
+  measured baseline is reported, and accepted metrics payloads carry
+  `generated_by=geno-lewm-eval` or `generated_by=geno-lewm-eval-all`;
+  `geno-lewm-eval` records its report artifact table as package-relative
+  paths under `--artifact-root`, defaulting to the metrics output
+  directory, writes `eval_config.effective.yaml` beside `eval_metrics.json`,
+  and rejects absolute paths outside that root;
+- Carbon zero-shot baseline scores are generated with
+  `geno-lewm-carbon-baseline --vcf ... --fasta ... --carbon-model-dir ... --output-scores ...`
+  and consumed by `geno-lewm-eval` with
+  `--baseline-score-field carbon_zero_shot_score`; optional
+  log-likelihood cache rows are scoped to the Carbon model and revision
+  before reuse;
+  `geno-lewm-eval` requires primary score rows from `geno-lewm-score`
+  and Carbon baseline rows from `geno-lewm-carbon-baseline`;
+- evaluation report is generated from packaged measured metrics JSON
+  with `geno-lewm-eval-all`, which refreshes and records
+  `eval_config.effective.yaml` plus metrics inputs as package-relative
+  artifact paths under the aggregate metrics directory; the eval-report
+  parser rejects metrics payloads missing the required `eval_config`
+  artifact; baseline comparisons must supply `baseline`,
+  `baseline_value`, and `delta_vs_baseline` together; conclusions must
+  explicitly reference every measured metric name, split, measured value,
+  and baseline delta when present from `eval_metrics.json`;
+  `negative_findings` must be non-empty and render as
+  `## Negative Findings`;
+  baseline delta rows must carry matching evaluated variant-key hashes;
+  `tools.release.paper_package` resolves eval artifact paths inside the
+  package and validates score JSONL `generated_by` markers;
+- efficiency evidence is generated with
+  `python -m bench.inference --release-efficiency` and records measured
+  single-variant latency, batched throughput, peak memory, command,
+  hardware/runtime notes, package-relative or inline input identities,
+  samples, warm-up, limitations, and the
+  `tools.release.efficiency_report` source header;
+- terminal demo runs real model inference from released artifacts;
+- demo transcript is generated by `tools/demo/terminal_inference.py`
+  from the actual `geno-lewm-score` command, including generated time,
+  exit code, model release/version/id, artifact-input paths, and an
+  explicit claim-boundary sentence;
+- demo command, model/input identities, VCF input summary, transcript
+  hash, score/receipt hashes, JSONL field names, generated report hashes, and compact
+  score/receipt batch metadata are summarized by generated
+  `terminal_demo_manifest.json`;
+- demo runtime readiness is summarized by generated
+  `runtime_preflight_report.json`, which must require native runtime
+  dependencies and must record fixture/test manifest allowance as false;
+- demo score and receipt JSONL streams are summarized by generated
+  `batch_receipt_report.json`, including checked score fields, model id,
+  calibration hash, runtime identity, receipt stream, and record count;
+  the demo runner clears owned score, receipt, batch-report, and
+  demo-manifest outputs before invoking the score command so stale JSONL
+  rows cannot satisfy a later run;
+  the demo runner re-opens `runtime_preflight_report.json` before
+  writing `terminal_demo_manifest.json` and rejects stale or mutated
+  model, input, command, backend, runtime-requirement, or model-artifact
+  evidence from a different run;
+  the package verifier rejects stale transcript claim-boundary or
+  artifact-input markers and stale terminal-demo manifest
+  `runtime_preflight` summaries;
+  the package verifier rejects stale manifest JSONL field lists, stale
+  `score_receipt_batch` summaries, and score/receipt batches whose
+  model id or calibration hash do not match the packaged model manifest;
+- first experiment paper draft is generated with
+  `python -m tools.release.paper_draft`, rejecting stale
+  `eval_report.md` output that no longer matches `eval_metrics.json`,
+  rejecting stale terminal-demo VCF summaries,
+  requiring a UTC `Generated: ...Z` timestamp,
+  rendering the scored-input summary in Demo Evidence,
+  including generated Citation Metadata,
+  including Negative Findings copied from the generated eval report,
+  and naming
+  `model_package.json`, `dataset_package.json`,
+  `dataset_input_check_report.json`, `dataset_snapshot_report.json`, `eval_metrics.json`,
+  `eval_config.effective.yaml`, `eval_report.md`,
+  `efficiency_report.json`, and demo evidence paths using
+  package-local artifact names rather than build-machine root paths;
+  the package verifier rejects paper drafts or drafts missing Citation
+  Metadata or Negative Findings that no longer match the current
+  artifact set;
+- `python -m tools.release.paper_package` passes for the model,
+  dataset, demo, and paper artifacts;
+- `python -m tools.release.hub_release` emits a versioned dry-run Hub
+  upload plan for the verified release candidate, requiring a public
+  paper URL when a paper artifact is included, and records model upload
+  inventories from both `SHA256SUMS` and `training_run_SHA256SUMS`,
+  dataset upload inventories including `SHA256SUMS`, and portable
+  terminal-demo upload inventories with unique GitHub release asset
+  names. When a paper URL is present, it also binds the verified paper
+  file path/hash/size before emitting publication commands for recognized Hub/GitHub
+  targets; Hugging Face commands upload each
+  verified model/dataset file to its planned destination instead of
+  syncing whole package directories;
+- `.github/workflows/release-hub-dry-run.yml` runs the package verifier,
+  Hub dry-run planner, and release-candidate report without publishing
+  weights or requiring Hub credentials;
+- `python -m tools.release.hub_publish` and
+  `.github/workflows/release-hub-publish.yml` publish the verified
+  model, dataset, terminal-demo, and matching paper artifacts after a
+  clean dry-run, requiring `HF_TOKEN`, GitHub release credentials,
+  supported Hugging Face/GitHub target URLs, direct GitHub release
+  download paper URLs whose final asset name matches the verified paper
+  file, and protected `release` environment approval, with the workflow
+  syncing the locked `dev`, `train`, `eval`, and `deploy` extras for the
+  native clean-machine replay, then uploading only files named by the
+  verified Hub plan before regenerating the final release-candidate
+  report from the public links and fetched public artifact bytes; the
+  protected workflow
+  runs the clean-machine terminal replay from that report with native
+  runtime checks enabled before running
+  `python -m tools.release.publication_assets` to bind the GitHub
+  release target, upload command, and publication-evidence asset
+  identities, then uploading those assets to the demo release tag, using
+  release credentials only for scoped artifact fetches;
+- `python -m tools.release.release_candidate` emits
+  `release_candidate_report.json` with `ready=true` for the same model,
+  dataset, demo, paper, public URL reachability checks, commit SHA, Hub
+  repo id, model package metadata, dataset package metadata, dataset
+  snapshot report, source metrics JSON, effective eval config,
+  generated eval report, efficiency report,
+  manifest-backed predictor/action/calibration and training-config
+  artifacts, `training_preflight_report.json`,
+  `training_run_SHA256SUMS`, and Hub model/dataset/demo upload
+  inventories, provider-backed public artifact exact file-set, hash, and
+  size checks, direct paper byte hash/size checks, plus a
+  `readiness` checklist that records which publication requirements are
+  satisfied or blocked; public checks can be skipped only for explicit
+  fixture rehearsals that allow fixture manifests, otherwise the report
+  remains `ready=false`;
+- `python -m tools.release.clean_machine_demo` consumes the generated
+  ready release-candidate report, rejects hand-authored reports and
+  stale embedded Hub plans by source header and model/repo/URL identity,
+  rejects missing or failed readiness rows, non-empty candidate blockers,
+  skipped or failed public link checks, skipped, missing, incomplete, or
+  failed public artifact checks, unsafe embedded Hub-plan destinations,
+  or malformed expected hashes, downloads the published model files,
+  dataset snapshot files,
+  and GitHub release demo assets, verifies their SHA-256 values against the
+  Hub upload plan, re-runs the release-package verifier on the
+  downloaded model/dataset/demo package, reruns the terminal demo from
+  those public bytes, and rejects replayed terminal demo manifests with
+  invalid source headers, non-passing status, model id mismatch,
+  downloaded `model/manifest.json` hash/size mismatch, stale
+  VCF/FASTA input identities, stale `runtime_preflight` summaries,
+  stale `score_receipt_batch` summaries, or replay artifact hash/size
+  drift before writing the clean-machine report. The final publication binder also checks the replay
+  manifest's VCF/FASTA input identities against the downloaded demo
+  artifacts and checks the replay manifest's artifact table against the
+  clean-machine replay report for the transcript, scores, receipts,
+  runtime preflight, and batch report.
+  Before scoring, the replay helper checks the downloaded demo
+  VCF/FASTA hashes and sizes against the downloaded demo manifest; after
+  scoring, it rejects replay manifests whose VCF/FASTA identities do not
+  match those downloaded inputs. The replay helper writes
+  `clean_machine_demo_report.json` with
+  the release-candidate report filename plus hash/size identity,
+  output-directory-relative downloaded artifact identities,
+  package-verification result, replay transcript and manifest
+  identities, and replay score, receipt, runtime-preflight, and
+  batch-report artifact hashes, without serializing fetch tokens or
+  private absolute workstation paths;
+- `python -m tools.release.publication_report` runs after credentialed
+  Hub publication and clean-machine replay, writes
+  `publication_evidence_report.json`, and binds the Hub release plan,
+  release-candidate report, publish report, and clean-machine replay
+  report by public-safe filename plus hash/size identity, including the
+  clean-machine replay's recorded release-candidate report
+  filename/path, hash, and size identity plus the verified paper file
+  source name, URL, hash, and size identity plus the full
+  paper-critical release-candidate artifact table for model, dataset,
+  eval, demo, and paper identities, public-safe release-candidate
+  readiness rows plus public link and public artifact check summaries,
+  with every uploaded release-candidate artifact identity in that table
+  checked against the Hub plan and downloaded public artifact, plus
+  the replayed terminal-demo manifest's model id, downloaded
+  `manifest.json` identity, VCF/FASTA input identities,
+  `runtime_preflight` summary, and replayed runtime-preflight
+  model/input identities without
+  private absolute paths, while failing on a candidate embedded-plan
+  mismatch, a missing generated readiness
+  checklist, non-empty candidate blockers, stale readiness `issue_refs`,
+  missing or failed candidate `public_links` or `public_artifacts`
+  checks, exact download-set, public source URL, hash, or
+  replay-artifact mismatches; the
+  protected workflow uploads the Hub plan, release-candidate report,
+  publish report, clean-machine replay report, final publication
+  evidence report, publication evidence asset manifest, replay
+  transcript, replay manifest, score/receipt JSONL streams, runtime
+  preflight report, and batch receipt report as public GitHub release
+  assets;
+- receipt semantics cover the published demo mode without implying
+  unsupported trust guarantees;
+- README and docs show measured values only where they are measured;
+- privacy and safety docs match the demo behavior.
 
-| # | Title | Area | Type | Priority | Effort | RFC |
-|---:|------|------|------|---------:|-------:|-----|
-| [#79](https://github.com/AbdelStark/GenoLeWM/issues/79) | attestation: STARK circuit prototype for predictor forward pass | `attestation` | `type:feature` | `p2` | `l` | RFC-0011 |
-| [#99](https://github.com/AbdelStark/GenoLeWM/issues/99) | docs: tutorial notebook `07_verify_receipt.ipynb` | `docs` | `type:docs` | `p2` | `s` | RFC-0011 |
+## GitHub Issue State
 
-## Cross-cutting dependencies
+- #15 now tracks artifact provenance and checksum receipts, not external
+  runtime assurance mechanisms beyond checksum provenance.
+- #62 and #65 have local implementation coverage for surprise scoring,
+  FASTA-backed VCF scoring, native component loading, and receipt
+  emission. They should remain open until clean-machine artifact-backed
+  integration proves the public command path.
+- #101 tracks model Hub release with `model_card.md`,
+  `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`,
+  `efficiency_report.json`,
+  `manifest.json`, training config, checksum files, and links to the
+  dataset snapshot and terminal demo transcript. The final package should pass
+  `python -m tools.release.paper_package`. #101 now has a local
+  model-package generator contract, Hub dry-run planner, and credentialed
+  Hub publish workflow; the actual trained checkpoint and first
+  credentialed upload run remain open.
+- #162 now has a local `geno_lewm.provenance` public namespace. The
+  legacy import package has been removed from the active public surface,
+  and receipt JSON now serializes the field as `provenance`.
+- #49 and #50 now have local release-file prep commands for gnomAD and
+  ClinVar; they remain open until real upstream release files are
+  processed, sized, and published with the dataset snapshot.
+- #51 now has a local tuple-builder contract plus
+  `geno_lewm.data.GenoLeWMDataset`, which deterministically streams
+  source windows and training tuples without importing torch in core
+  environments. `geno_lewm.training.encode_training_batch` now looks up
+  untargeted source `s_t` states in the documented cache index when
+  present and falls back to live encoding on misses. It remains open
+  until prepared real shards, holdout membership inputs, and measured
+  warm-cache throughput validation land.
+- #44 and #47 now have deterministic fixture smoke coverage through
+  `geno-lewm-train --fixture-smoke` plus a torch trainer core for
+  Carbon-encoded minibatches, AdamW groups, WSD scheduling, gradient
+  clipping, distinct seed records, and a preflight-gated
+  `geno-lewm-train --carbon-train` launcher. They remain open until a
+  clean-machine Carbon-backed run emits real checkpoints/logs/metrics,
+  deterministic torch runs are confirmed on a supported backend, and
+  benchmark gates land.
+- #163 through #167 track the paper/demo chain: dataset snapshot, first
+  training run, generated evaluation report, terminal showcase, and
+  paper package. #163 now has a local dataset-package generator contract;
+  #51 has a local tuple-builder contract; #166 now has a generated
+  terminal demo manifest contract with package-local demo input checks,
+  runtime-preflight command parity, and canonical command/artifact path
+  checks plus a clean-machine replay helper for published
+  model/dataset/demo artifacts; the actual
+  upstream snapshot, real split inputs, released checkpoint,
+  clean-machine transcript from public bytes, and published edit shards
+  remain open.
 
-| Blocker | Blocks | Reason |
-|---------|--------|--------|
-| RFC-0012 error taxonomy → `geno_lewm/errors.py` (#21) | every subsystem | typed raises depend on the registry |
-| RFC-0013 observability core (#23) | every subsystem | log/metric registries gate AST checks |
-| RFC-0017 configuration → `geno_lewm/config/` (#28) | every CLI command, trainer | configs are required at process start |
-| RFC-0014 API snapshot test (#81) | every public-symbol PR | snapshot gate |
-| `data/prepare-gnomad` (#48) + `data/prepare-clinvar` (#49) | training, eval, calibration | data shards |
-| `encoder/cache-windows` (#43) | trainer, scorer | reference embeddings |
-| `eval/smoke` (#54) | per-PR CI | regression detection |
-| RFC-0010 export pipeline (#67–#71) | desktop app, attestation receipts | quantized artifacts |
-| RFC-0011 manifest + receipt (#73–#76) | deploy, surprise scorer, verifier | provenance contract |
+## Validation Expectations
 
-## Open questions
+For project-direction changes:
 
-The aggregate open-question list lives across the RFCs and the spec
-corpus. Each `OQ-*` identifier is tracked there; resolution lands as
-either an RFC amendment or a follow-up implementation issue.
-
-Sections:
-
-- [`docs/spec/00-overview.md` open questions](../spec/00-overview.md#open-questions-tied-to-scope)
-- [`docs/spec/02-public-api.md` open questions](../spec/02-public-api.md#open-questions)
-- [`docs/spec/03-data-model.md` open questions](../spec/03-data-model.md#open-questions)
-- [`docs/spec/04-error-model.md` open questions](../spec/04-error-model.md#open-questions)
-- [`docs/spec/05-observability.md` open questions](../spec/05-observability.md#open-questions)
-- [`docs/spec/06-security.md` open questions](../spec/06-security.md#open-questions)
-- [`docs/spec/07-testing-strategy.md` open questions](../spec/07-testing-strategy.md#open-questions)
-- [`docs/spec/08-performance-budget.md` open questions](../spec/08-performance-budget.md#open-questions)
-- [`docs/spec/09-release-and-versioning.md` open questions](../spec/09-release-and-versioning.md#open-questions)
-
-## Regeneration
-
-This file is mechanically regenerated from `/tmp/issues_manifest.json`
-by the spec-bootstrap turn. Future regeneration after issues land in
-new states should run the same pipeline and commit the diff. The
-canonical state of each issue is on GitHub; this file is a snapshot of
-the corpus → issue mapping at filing time.
-
+- `rg` finds no active docs promising unsupported runtime assurance beyond checksum provenance;
+- receipt tests confirm unsupported runtime assurance modes are rejected;
+- score CLI/runtime tests cover single-variant receipt emission and
+  per-row VCF receipt JSONL sidecars;
+- public module-map docs match the current package layout and do not
+  list removed or absent paths such as `eval/`, `holdouts.py`,
+  `deploy/provenance.py`, or export modules that have not landed;
+- public API docs/RFC-0014 point to `tests/api/public_surface.json` as
+  the exhaustive enforced symbol list, and upcoming planning solver
+  types are not described as stable top-level exports;
+- CLI scaffold factory helpers remain private to the shared stub factory
+  and do not leak into command-module public surfaces;
+- README and roadmap state current implementation gaps honestly;
+- docs build and focused tests pass.

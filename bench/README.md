@@ -9,7 +9,7 @@ but the shared library at [`_harness.py`](_harness.py) does not.
 
 | File | What it times |
 |------|---------------|
-| [`inference.py`](inference.py) | Receipt-mode commitments (verifier hot path). Predictor forward lands with [#32](https://github.com/AbdelStark/GenoLeWM/issues/32) / [#41](https://github.com/AbdelStark/GenoLeWM/issues/41). |
+| [`inference.py`](inference.py) | Commitment microbenchmarks by default; release mode benchmarks the real `geno-lewm-score` command and writes `efficiency_report.json`. |
 | [`training.py`](training.py) | `apply_edit` / `apply_edits` batches (data-prep hot path). Full training-step lands with [#44](https://github.com/AbdelStark/GenoLeWM/issues/44). |
 | [`planning.py`](planning.py) | Placeholder for the CEM solver ([#59](https://github.com/AbdelStark/GenoLeWM/issues/59) / [#60](https://github.com/AbdelStark/GenoLeWM/issues/60) / [#61](https://github.com/AbdelStark/GenoLeWM/issues/61)). |
 | [`profile.py`](profile.py) | Canonical profiler invocations (py-spy, cProfile, tracemalloc, torch.profiler). |
@@ -56,6 +56,16 @@ python -m bench.planning
 
 # Quick smoke without persistence
 python -m bench.inference --iters 50 --no-write
+
+# Release efficiency evidence: median single-variant latency, batched VCF
+# throughput, and child-process peak RSS from the real score command.
+python -m bench.inference --release-efficiency \
+  --model-dir model \
+  --vcf demo/input.vcf \
+  --fasta demo/ref.fa \
+  --variant 1:10:A:T \
+  --window ACGT... \
+  --output-json model/efficiency_report.json
 
 # Profile under cProfile
 python -m bench.profile --run-cprofile-on bench.inference

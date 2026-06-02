@@ -20,16 +20,12 @@ from geno_lewm.cli._dispatch import (
     run_app,
     shared_option_decls,
 )
-from geno_lewm.cli._stub_main import build_stub_app, make_cli_main
 from geno_lewm.encoder.cache import default_cache_dir, reindex_cache, repair_cache
 from geno_lewm.errors import InputError
 
 __all__ = [
-    "annotations",
     "app",
-    "build_stub_app",
     "cli_main",
-    "make_cli_main",
 ]
 
 app = typer.Typer(

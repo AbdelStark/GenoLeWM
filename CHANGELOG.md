@@ -10,14 +10,239 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
+### Changed
+
+- Narrowed RFC-0011 and the public roadmap to artifact provenance and
+  checksum receipts. The receipt schema now accepts only
+  `provenance.kind="checksum_only"`; unsupported future runtime
+  assurance modes are rejected instead of treated as forward-compatible
+  placeholders.
+- The scope-language guard now checks notebook source and text outputs
+  so public examples cannot reintroduce unsupported trust claims.
+- Made `geno_lewm.provenance` the active public namespace for manifest,
+  checksum, commitment, and receipt helpers. The old legacy import
+  package has been removed from the active public API.
+- Pruned CLI scaffold factory helpers from command-module public
+  surfaces. Stub command modules now expose `app` and `cli_main`; the
+  reusable `build_stub_app` / `make_cli_main` helpers remain internal to
+  `geno_lewm.cli._stub_main`.
+- Removed the healthcare-industry package classifier so future package
+  metadata matches the documented research-only, non-clinical safety
+  boundary.
+- Rewrote the README, roadmap, implementation tracker, contributor
+  guide, and `AGENTS.md` agent context around the current alpha status,
+  first experiment gaps, dataset/model release plan, and terminal demo
+  target.
+
 ### Added
+
+- **Terminal demo transcript generator.**
+  - `tools/demo/terminal_inference.py` runs `geno-lewm-score` with
+    explicit score and receipt outputs, records stdout/stderr and
+    manifest identity into a Markdown transcript, and rejects
+    fixture/test manifests by default so release demos do not publish
+    scaffold output as model behavior.
+  - Demo transcript generation now fails unless `scores.jsonl` and
+    `receipts.jsonl` exist, are non-empty JSONL, and have their hashes,
+    row counts, and JSONL field names recorded in the transcript.
+  - `terminal_demo_manifest.json` records JSONL field names and a compact
+    `score_receipt_batch` summary with record count, checked score
+    fields, receipt stream, model id, calibration hash, and runtime
+    identity.
+  - The paper/demo package verifier rejects stale terminal-demo JSONL
+    field lists and stale `score_receipt_batch` summaries that no longer
+    match the generated score, receipt, and batch-report artifacts.
+  - `tools/release/batch_receipt_report.py` generates
+    `batch_receipt_report.json` from the terminal-demo score and receipt
+    JSONL streams, checking row counts, model id, calibration hash,
+    runtime identity, row ordering, output commitments, and score-output
+    equality.
+  - `tools/release/paper_draft.py` generates the first-experiment paper
+    draft from model, dataset, eval-report, terminal transcript, and
+    batch receipt report artifacts; it records dataset package metadata,
+    model package metadata, source metrics, eval report, efficiency
+    report, and demo evidence in Artifact Availability, and rejects
+    placeholder wording by default.
+
+- **Paper/demo release package verifier.**
+  - `configs/first_experiment/train-carbon-500m-snv.yaml` and
+    `configs/first_experiment/eval-clinvar-snv.yaml` provide checked
+    first paper-run config files that load through the closed GenoLeWM
+    config schema.
+  - Carbon training preflight now validates `--training-config` through
+    the same closed schema and records the resolved config payload in
+    `training_preflight_report.json`.
+  - `tools/release/paper_package.py` validates the model directory,
+    dataset snapshot, generated terminal transcript, and optional
+    artifact-grounded paper draft before a first paper/demo release is
+    linked publicly.
+  - `tools/release/dataset_package.py` builds `data_card.md`,
+    normalized `dataset_package.json`, `dataset_manifest.json`,
+    `split_integrity.json`, and `SHA256SUMS` from release metadata and
+    already-produced dataset shard files.
+  - `tools/release/dataset_snapshot.py` now writes
+    `dataset_snapshot_report.json` with the checked snapshot-spec hash,
+    upstream source file hashes, staged file identities, and
+    public-safe source references, and includes the report in
+    `SHA256SUMS`.
+  - The paper/demo verifier rejects stale dataset cards or manifests
+    that no longer match the packaged `dataset_package.json` metadata.
+  - The paper/demo verifier now requires `dataset_snapshot_report.json`
+    and rejects missing reports, private absolute source paths, and
+    stale staged-file identities.
+  - The paper/demo verifier re-renders generated paper drafts from the
+    current release artifacts and rejects stale paper Markdown, including
+    drafts that no longer name `model_package.json`.
+  - `tools/release/dataset_integrity.py` recomputes dataset file
+    identities, split record counts, and train/eval comparable-key
+    leakage checks from `dataset_manifest.json`.
+  - Split-integrity checks now inspect Parquet row counts and variant
+    keys when shard files expose `chrom`, `pos`, `ref`, and `alt`.
+  - `tools/release/training_run.py` builds `training_run_manifest.json`,
+    `training_run_card.md`, and `training_run_SHA256SUMS` from run
+    metadata, metrics, logs, config, dataset manifest, checkpoint files,
+    seeds, hardware/runtime notes, monitoring flags, and optional
+    `training_preflight_report.json` evidence.
+  - Release training-run verification now requires
+    `training_preflight_report.json`, checks its schema, `ok=true`
+    status, dataset snapshot, resolved config identity, checksums, and
+    public-relative path references before a paper/demo package can pass.
+  - `geno-lewm-train --carbon-train` now preflights the exact
+    `training_config.effective.yaml` used by the launch, mirrors
+    `training_preflight_report.json` into the run directory, and supports
+    `--package-release-run` to write `training_run_manifest.json`,
+    `training_run_card.md`, and `training_run_SHA256SUMS` immediately
+    after a successful Carbon-backed run.
+  - `tools/release/model_package.py` builds normalized
+    `model_package.json`, `model_card.md`, and `SHA256SUMS` from
+    `manifest.json`, manifest-backed checkpoint artifacts,
+    model-release metadata, packaged `eval_metrics.json`, and
+    `efficiency_report.json`.
+  - Model and paper package verification now reject eval/efficiency
+    evidence whose model release id, dataset snapshot, commit, or
+    model-result identity is mixed across otherwise valid artifacts.
+  - `tools/release/hub_release.py` dry-runs the Hugging Face Hub upload
+    plan after package verification and records model files,
+    checksum-covered training-run artifacts, model and dataset
+    `SHA256SUMS`, terminal-demo files with portable package-local
+    paths, hashes, release links, commit SHA, and upload commands for
+    the model, dataset, and GitHub release artifact set when the URLs
+    identify supported targets.
+  - Hub dry-runs now require a public `paper_url` whenever a paper
+    artifact is part of the candidate, and
+    `.github/workflows/release-hub-dry-run.yml` runs the package,
+    Hub-plan, and release-candidate gates without publishing weights or
+    requiring Hub credentials.
+  - `tools/release/hub_publish.py` and
+    `.github/workflows/release-hub-publish.yml` add the credentialed
+    publication path for verified model, dataset, and terminal-demo
+    artifacts. The workflow requires `HF_TOKEN`, GitHub release
+    credentials, protected `release` environment approval, supported
+    Hugging Face/GitHub target URLs, and regenerates the final
+    `release_candidate_report.json` after upload from public links and
+    fetched public artifact bytes, then runs the clean-machine terminal
+    replay from that report before uploading publication evidence.
+    Replay fetches pass the Hugging Face token only to Hub artifact
+    downloads and the GitHub token only to the release asset listing.
+  - `tools/release/clean_machine_demo.py` downloads the published model
+    files, dataset snapshot files, and GitHub release demo assets from a
+    ready release-candidate report, verifies their SHA-256 values
+    against the Hub upload plan, re-runs the release-package verifier on
+    the downloaded model/dataset/demo package, reruns the terminal demo
+    from those public bytes, and writes `clean_machine_demo_report.json`
+    with the release-candidate report identity, downloaded artifact
+    identities, package-verification result, replay transcript and
+    manifest identities, and replay score, receipt, runtime-preflight,
+    and batch-report artifact hashes, without serializing fetch tokens.
+  - `tools/release/publication_report.py` writes
+    `publication_evidence_report.json` after credentialed Hub publication
+    and clean-machine replay, binding the Hub release plan,
+    release-candidate report, publish report, and replay report by file
+    identity and failing on candidate, readiness, download, or
+    replay-artifact mismatches.
+  - The verifier checks manifest artifact hashes, `SHA256SUMS`, model
+    card/data card sections, stale model-card metadata, generated
+    eval-report sections, dataset manifest file hashes, dataset
+    split-integrity evidence,
+    training-run evidence, fixture-manifest rejection, transcript
+    markers from the real score command, and demo score/receipt JSONL
+    hashes, row counts, and batch receipt report.
+  - Demo batch receipt reports are rejected unless their model id and
+    calibration hash match the packaged model manifest.
+  - `tools/release/release_candidate.py` now records manifest-backed
+    predictor, action-encoder, calibration, training-config,
+    `model_package.json`, `dataset_snapshot_report.json`, and
+    `training_preflight_report.json` plus `training_run_SHA256SUMS`
+    artifact identities, Hub upload inventories, provider-backed public
+    model/dataset/demo artifact hash checks, and a machine-readable
+    `readiness` checklist in the final publication decision report.
+  - `--skip-public-link-check` is now accepted only for explicit
+    fixture rehearsals that also pass `--allow-fixture-manifest`; a
+    non-fixture release candidate remains `ready=false` when public
+    link or artifact hash checks are skipped.
+  - `tools/release/eval_report.py` renders `eval_report.md` from
+    measured metrics JSON and rejects empty metrics or placeholder
+    wording before the package verifier accepts the artifact.
+  - `geno-lewm-eval --scores-jsonl ... --labels-jsonl ... --output-metrics ...`
+    now computes artifact-level ClinVar P/LP versus B/LB metrics and
+    writes the measured metrics JSON consumed by the eval-report
+    generator.
+  - Eval metrics include deterministic stratified bootstrap confidence
+    intervals by default (`--bootstrap-resamples`, `--bootstrap-seed`,
+    `--ci-level`) and record an explicit omission note when resampling
+    is disabled.
+  - `geno-lewm-eval` can attach a matched measured baseline score
+    artifact with `--baseline-scores-jsonl ... --baseline-name ...`;
+    report metrics then include the baseline value and delta while
+    preserving the baseline score artifact path.
+  - `geno-lewm-carbon-baseline --vcf ... --fasta ... --carbon-model-dir ... --output-scores ...`
+    now writes Carbon zero-shot baseline score JSONL with
+    `carbon_zero_shot_score = -(logLik_alt - logLik_ref)` and optional
+    sequence log-likelihood cache rows for reuse across real eval runs.
+  - `geno-lewm-eval-all --metrics-json ... --output-metrics ... --output-report ...`
+    now validates and aggregates measured metrics JSON artifacts into
+    aggregate metrics JSON plus `eval_report.md`, writes
+    `eval_config.effective.yaml`, records it as an `eval_config`
+    artifact, and rejects mixed model, dataset, commit, hardware, or
+    core artifact identities.
+
+- **RFC-0006 training tuple-builder contract.**
+  - `geno_lewm.data.builder` adds `WindowContext`, `TrainingTuple`,
+    `EditSourceCount`, `HoldoutInterval`, and `HoldoutPolicy` so the
+    future trainer receives a checked `(window_id, action, target_window)`
+    stream instead of ad hoc tuples.
+  - `build_training_tuples()` enforces the RFC-0006 3/3/1/1 source
+    allocation, supports explicit ClinVar-to-synthetic-SNV fallback,
+    filters chromosome/interval/edit-key/record holdouts, and validates
+    provider output before target windows are materialized.
+  - Synthetic SNV/indel providers and an absolute `EditSpec` provider
+    are available for fixture tests and for wiring prepared gnomAD and
+    ClinVar shards later.
+
+- **Local gnomAD and ClinVar shard preparation.**
+  - `geno-lewm-prepare-gnomad --input-vcf ... --output ...` converts a
+    local gnomAD VCF/VCF.gz into the documented Parquet shard, keeping
+    PASS variants above the global AF threshold and splitting
+    multi-allelic rows per alternate.
+  - `geno-lewm-prepare-clinvar --input-vcf ... --release ... --output ...`
+    converts a local ClinVar VCF/VCF.gz into the documented Parquet
+    shard, retaining VUS/OTHER rows while `label_set()` excludes them
+    from labelled eval sets.
+
+- **Deterministic fixture training smoke path.**
+  - `geno-lewm-train --fixture-smoke --run-dir ... --steps 50` now
+    writes a resolved config, metrics JSON, log, fixture checkpoint,
+    fixture dataset manifest, and `training_run.json` metadata.
+  - Fixture smoke runs can resume from the fixture checkpoint and are
+    covered by bit-equal continuation tests. The output is release
+    plumbing evidence only, not a Carbon-backed model result.
 
 - **PyPI release workflow hardening** (issue #100).
   - `.github/workflows/release-pypi.yml` is now the trusted-publisher
     workflow path for tagged releases.
   - Release artifacts build from the committed `uv.lock`, publish to
-    PyPI via OIDC trusted publishing, and emit GitHub/Sigstore artifact
-    attestations with `SHA256SUMS` attached to the GitHub release.
+    PyPI via OIDC trusted publishing, and emit GitHub/Sigstore build
+    provenance with `SHA256SUMS` attached to the GitHub release.
 
 - **Receipt-verification tutorial notebook** (issue #99).
   - `examples/07_verify_receipt.ipynb` verifies a committed
@@ -187,7 +412,7 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
   - `py.typed` marker so downstream type checkers honour the
     package's mypy-strict signatures.
   - Curated top-level `geno_lewm.__all__` re-exporting the
-    implemented surface (errors, observability, attestation, action
+    implemented surface (errors, observability, provenance, action
     specs, decorators).
   - `tools/__init__.py` so `python -m tools.*` runs as documented.
   - Optional dependency groups split into `train` / `eval` / `deploy` /
@@ -271,7 +496,7 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 - Initial repository scaffold.
 - 19 design RFCs (0001–0019) covering scope, encoder, action,
   predictor, training, data, eval, planning, surprise, deployment,
-  attestation, error taxonomy, observability, API stability, testing,
+  artifact provenance, error taxonomy, observability, API stability, testing,
   performance budget, configuration, CLI, and the desktop app.
 - `SPECIFICATION.md` synthesized canonical view.
 - `SPEC.md` top-level index of the specification corpus.
@@ -291,7 +516,7 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 - `pyproject.toml` package stub.
 - Phase 1 infrastructure modules implemented and tested
   (`errors`, `observability`, `_redaction`, `metrics`, `action`,
-  `attestation`, `cli.verify`, `api`).
+  `provenance`, `cli.verify`, `api`).
 
 ### Security
 

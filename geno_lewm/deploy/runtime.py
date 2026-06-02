@@ -6,22 +6,49 @@ from __future__ import annotations
 import contextlib
 import importlib
 import importlib.util
+import json
 import platform
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NoReturn
 from unittest.mock import patch
 
+from geno_lewm._artifact_sources import SCORE_JSONL_GENERATED_BY, SCORE_JSONL_SCHEMA_VERSION
 from geno_lewm.action import EditSpec, RelEdit
 from geno_lewm.encoder.windowing import canonicalize_dna
 from geno_lewm.errors import (
     BackendUnsupportedError,
     InputError,
+    ManifestHashMismatchError,
     ModelNotFoundError,
     NetworkCallProhibitedError,
     RuntimeSetupError,
 )
+from geno_lewm.provenance import (
+    RECEIPT_SCHEMA_VERSION,
+    DtypeConfig,
+    Manifest,
+    PoolingConfig,
+    Receipt,
+    ReceiptOutput,
+    ReceiptProvenance,
+    ReceiptRuntime,
+    compute_input_commitment,
+    compute_output_commitment,
+    load_manifest,
+    sha256_file,
+    write_receipt,
+)
+from geno_lewm.surprise import (
+    CalibrationTable,
+    SurpriseResult,
+    read_calibration_table,
+    score_variant as score_surprise_variant,
+    score_vcf as score_surprise_vcf,
+)
+from geno_lewm.surprise.score import _iter_vcf_scores
 
 __all__ = [
     "BACKEND_AUTO",
@@ -51,6 +78,7 @@ BACKEND_PRIORITY: tuple[str, ...] = (
 )
 _SUPPORTED_BACKENDS = (BACKEND_AUTO, *BACKEND_PRIORITY)
 _APPLE_SILICON_MACHINES = frozenset({"arm64", "aarch64"})
+_MANIFEST_NAME = "manifest.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,10 +104,27 @@ class BackendProbe:
             raise InputError("backend probe reason must be non-empty")
 
 
+@dataclass(frozen=True, slots=True)
+class _RuntimeScorerComponents:
+    encoder: object
+    action_encoder: object
+    predictor: object
+    calibration: CalibrationTable
+
+
 class GenoLeWMRuntime:
     """Top-level runtime facade for on-device inference workflows."""
 
-    def __init__(self, model_dir: str | Path, backend: str = BACKEND_AUTO) -> None:
+    def __init__(
+        self,
+        model_dir: str | Path,
+        backend: str = BACKEND_AUTO,
+        *,
+        encoder: object | None = None,
+        action_encoder: object | None = None,
+        predictor: object | None = None,
+        calibration: CalibrationTable | None = None,
+    ) -> None:
         root = Path(model_dir).expanduser()
         if not root.exists() or not root.is_dir():
             raise ModelNotFoundError(
@@ -87,19 +132,63 @@ class GenoLeWMRuntime:
                 details={"model_dir": str(root)},
             )
         self.model_dir = root
+        self.manifest = _load_runtime_manifest(root)
+        if self.manifest is not None:
+            _verify_manifest_artifacts(root, self.manifest)
         self.probes = probe_backends(root)
         self.backend = select_backend(backend, probes=self.probes)
+        self._scorer = _resolve_scorer_components(
+            root,
+            self.manifest,
+            encoder=encoder,
+            action_encoder=action_encoder,
+            predictor=predictor,
+            calibration=calibration,
+        )
 
-    def score_variant(self, variant: EditSpec, window: str | None = None) -> Any:
-        """Score a single variant once the scorer backend is installed."""
+    def score_variant(
+        self,
+        variant: EditSpec,
+        window: str | None = None,
+        *,
+        receipt_path: str | Path | None = None,
+    ) -> Any:
+        """Score a single variant through local scorer components when available."""
         if not isinstance(variant, EditSpec):
             raise InputError(
                 "variant must be an EditSpec",
                 details={"type": type(variant).__name__},
             )
+        normalized_window = None
         if window is not None:
-            canonicalize_dna(window)
+            normalized_window = canonicalize_dna(window)
+        scorer = self._scorer
         with fail_closed_network_guard():
+            if scorer is not None:
+                if normalized_window is None:
+                    raise InputError(
+                        "score_variant requires a reference window",
+                        remediation="pass window=... or use score_vcf with a local FASTA",
+                    )
+                result = score_surprise_variant(
+                    variant,
+                    scorer.encoder,
+                    scorer.action_encoder,
+                    scorer.predictor,
+                    scorer.calibration,
+                    reference_window=normalized_window,
+                )
+                if receipt_path is not None:
+                    _write_score_variant_receipt(
+                        backend=self.backend,
+                        model_dir=self.model_dir,
+                        manifest=self.manifest,
+                        variant=variant,
+                        reference_window=normalized_window,
+                        result=result,
+                        receipt_path=receipt_path,
+                    )
+                return result
             _raise_backend_not_ready("score_variant", self.backend, self.model_dir)
 
     def score_vcf(
@@ -109,8 +198,16 @@ class GenoLeWMRuntime:
         output_path: str | Path,
         batch_size: int = 64,
         progress: bool = True,
+        *,
+        receipt_path: str | Path | None = None,
     ) -> None:
-        """Score a VCF once the scorer backend is installed."""
+        """Score a VCF through local scorer components when available.
+
+        When ``receipt_path`` is provided, the runtime writes JSONL with
+        one canonical v1 receipt per scored alternate. The v1 schema
+        commits a single output, so this is intentionally not a batch
+        aggregate receipt.
+        """
         if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size <= 0:
             raise InputError(
                 "batch_size must be a positive integer",
@@ -124,8 +221,38 @@ class GenoLeWMRuntime:
         # Normalize path-like values now so type errors surface at the API boundary.
         Path(vcf_path)
         Path(fasta_path)
-        Path(output_path)
+        normalized_output = Path(output_path)
+        normalized_receipt = None if receipt_path is None else Path(receipt_path)
+        if normalized_receipt is not None and normalized_receipt == normalized_output:
+            raise InputError("--receipt must differ from --output for VCF scoring")
+        scorer = self._scorer
         with fail_closed_network_guard():
+            if scorer is not None:
+                if normalized_receipt is None:
+                    score_surprise_vcf(
+                        vcf_path,
+                        scorer.encoder,
+                        scorer.action_encoder,
+                        scorer.predictor,
+                        scorer.calibration,
+                        normalized_output,
+                        reference_fasta=fasta_path,
+                        batch_size=batch_size,
+                        show_progress=progress,
+                    )
+                else:
+                    _write_vcf_scores_and_receipts(
+                        backend=self.backend,
+                        model_dir=self.model_dir,
+                        manifest=self.manifest,
+                        scorer=scorer,
+                        vcf_path=vcf_path,
+                        fasta_path=fasta_path,
+                        output_path=normalized_output,
+                        receipt_path=normalized_receipt,
+                        batch_size=batch_size,
+                    )
+                return
             _raise_backend_not_ready("score_vcf", self.backend, self.model_dir)
 
     def encode_window(self, window: str, edit_locus: int | None = None) -> Any:
@@ -305,6 +432,520 @@ def _probe_details(probe: BackendProbe) -> dict[str, str | bool]:
         "available": probe.available,
         "reason": probe.reason,
     }
+
+
+def _load_runtime_manifest(model_dir: Path) -> Manifest | None:
+    path = model_dir / _MANIFEST_NAME
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise ModelNotFoundError(
+            "manifest.json must be a file",
+            details={"path": str(path)},
+        )
+    return load_manifest(path)
+
+
+def _resolve_scorer_components(
+    model_dir: Path,
+    manifest: Manifest | None,
+    *,
+    encoder: object | None,
+    action_encoder: object | None,
+    predictor: object | None,
+    calibration: CalibrationTable | None,
+) -> _RuntimeScorerComponents | None:
+    supplied_model_parts = (encoder is not None, action_encoder is not None, predictor is not None)
+    if any(supplied_model_parts) and not all(supplied_model_parts):
+        raise InputError(
+            "encoder, action_encoder, and predictor must be supplied together",
+            details={
+                "encoder": encoder is not None,
+                "action_encoder": action_encoder is not None,
+                "predictor": predictor is not None,
+            },
+        )
+    if calibration is not None and not isinstance(calibration, CalibrationTable):
+        raise InputError(
+            "calibration must be a CalibrationTable",
+            details={"type": type(calibration).__name__},
+        )
+    if not any(supplied_model_parts):
+        if calibration is not None:
+            raise InputError(
+                "calibration cannot be supplied without encoder, action_encoder, and predictor",
+            )
+        if manifest is not None:
+            return _try_load_manifest_scorer_components(model_dir, manifest)
+        return None
+
+    resolved_calibration = calibration
+    if resolved_calibration is None:
+        resolved_calibration = _load_runtime_calibration(model_dir, manifest)
+
+    return _RuntimeScorerComponents(
+        encoder=encoder,
+        action_encoder=action_encoder,
+        predictor=predictor,
+        calibration=resolved_calibration,
+    )
+
+
+def _try_load_manifest_scorer_components(
+    model_dir: Path,
+    manifest: Manifest,
+) -> _RuntimeScorerComponents | None:
+    if not _native_scorer_runtime_available():
+        return None
+    cfg = _load_commitment_config_source(model_dir, manifest)
+    try:
+        encoder = _build_runtime_encoder(manifest, cfg)
+        action_encoder = _build_runtime_action_encoder(cfg)
+        predictor = _build_runtime_predictor(cfg)
+        _load_module_state(
+            action_encoder,
+            _artifact_path(model_dir, manifest.action_encoder.file),
+            artifact="action_encoder",
+        )
+        _load_module_state(
+            predictor,
+            _artifact_path(model_dir, manifest.predictor.file),
+            artifact="predictor",
+        )
+        return _RuntimeScorerComponents(
+            encoder=encoder,
+            action_encoder=action_encoder,
+            predictor=predictor,
+            calibration=_load_runtime_calibration(model_dir, manifest),
+        )
+    except RuntimeSetupError:
+        raise
+    except Exception as exc:
+        raise RuntimeSetupError(
+            "could not load manifest-backed runtime scorer components",
+            details={"model_dir": str(model_dir), "error": str(exc)},
+            remediation=(
+                "verify that the checkpoint was exported for this geno-lewm version "
+                "and install geno-lewm[train]"
+            ),
+        ) from exc
+
+
+def _native_scorer_runtime_available() -> bool:
+    return all(
+        _optional_module_available(name) for name in ("torch", "safetensors.torch", "transformers")
+    )
+
+
+def _optional_module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
+
+def _build_runtime_encoder(manifest: Manifest, cfg: Any) -> object:
+    from geno_lewm.encoder import CarbonStateEncoder
+
+    return CarbonStateEncoder(
+        cfg.encoder.model_id,
+        manifest.encoder.revision,
+        dtype=cfg.encoder.dtype,
+        state_layer=cfg.encoder.state_layer,
+        pool_type=cfg.encoder.pool_type,
+        pool_radius=cfg.encoder.pool_radius,
+        normalize=cfg.encoder.normalize,
+        encoder_hash=manifest.encoder.hash,
+        local_files_only=True,
+    )
+
+
+def _build_runtime_action_encoder(cfg: Any) -> object:
+    from geno_lewm.action import ActionEncoder
+
+    return ActionEncoder(
+        d_action=cfg.action.d_action,
+        max_window_bp=getattr(cfg.encoder, "window_bp", 12_288),
+    )
+
+
+def _build_runtime_predictor(cfg: Any) -> object:
+    from geno_lewm.predictor import Predictor
+
+    n_layers = cfg.predictor.n_layers
+    n_self_layers = min(2, max(0, n_layers - 1))
+    n_cross_layers = max(1, n_layers - n_self_layers)
+    return Predictor(
+        d_state=cfg.predictor.d_state,
+        d_action=cfg.predictor.d_action,
+        d_hidden=cfg.predictor.d_state,
+        n_heads=cfg.predictor.n_heads,
+        n_cross_layers=n_cross_layers,
+        n_self_layers=n_self_layers,
+        ffn_dim=cfg.predictor.d_state,
+        max_actions=cfg.action.max_len,
+    )
+
+
+def _load_module_state(module: object, path: Path, *, artifact: str) -> None:
+    try:
+        safetensors_torch = importlib.import_module("safetensors.torch")
+    except ImportError as exc:  # pragma: no cover - gated by availability check.
+        raise RuntimeSetupError(
+            "safetensors is required to load runtime components",
+            remediation="install geno-lewm[train]",
+        ) from exc
+    load_file = getattr(safetensors_torch, "load_file", None)
+    if not callable(load_file):
+        raise RuntimeSetupError("safetensors.torch.load_file is unavailable")
+    state_dict = load_file(str(path))
+    load_state_dict = getattr(module, "load_state_dict", None)
+    if not callable(load_state_dict):
+        raise RuntimeSetupError(
+            "runtime component does not support load_state_dict",
+            details={"artifact": artifact, "type": type(module).__name__},
+        )
+    load_state_dict(state_dict, strict=True)
+    eval_method = getattr(module, "eval", None)
+    if callable(eval_method):
+        eval_method()
+
+
+def _resolve_commitment_configs(
+    model_dir: Path,
+    manifest: Manifest | None,
+) -> tuple[PoolingConfig, DtypeConfig]:
+    cfg = _load_commitment_config_source(model_dir, manifest)
+    resolved_pooling = PoolingConfig(
+        state_layer=cfg.encoder.state_layer,
+        pool_type=cfg.encoder.pool_type,
+        pool_radius=cfg.encoder.pool_radius,
+        normalize=cfg.encoder.normalize,
+    )
+
+    predictor_dtype = cfg.predictor.dtype
+    if manifest is not None and manifest.predictor.dtype is not None:
+        predictor_dtype = manifest.predictor.dtype
+    resolved_dtype = DtypeConfig(
+        encoder_dtype=cfg.encoder.dtype,
+        predictor_dtype=predictor_dtype,
+    )
+
+    return resolved_pooling, resolved_dtype
+
+
+def _load_commitment_config_source(model_dir: Path, manifest: Manifest | None) -> Any:
+    from geno_lewm.config import load_config, load_default
+
+    if manifest is None:
+        return load_default("score")
+    return load_config(_artifact_path(model_dir, manifest.training.config_file))
+
+
+def _require_receipt_manifest(manifest: Manifest | None) -> Manifest:
+    if manifest is None:
+        raise RuntimeSetupError(
+            "receipt writing requires manifest.json",
+            remediation="provide a model directory with a verified manifest.json",
+        )
+    return manifest
+
+
+def _write_score_variant_receipt(
+    *,
+    backend: str,
+    model_dir: Path,
+    manifest: Manifest | None,
+    variant: EditSpec,
+    reference_window: str,
+    result: Any,
+    receipt_path: str | Path,
+) -> Path:
+    resolved_manifest = _require_receipt_manifest(manifest)
+    pooling_config, dtype_config = _resolve_commitment_configs(model_dir, resolved_manifest)
+    receipt = _build_score_receipt(
+        backend=backend,
+        manifest=resolved_manifest,
+        variant=variant,
+        reference_window=reference_window,
+        result=result,
+        pooling_config=pooling_config,
+        dtype_config=dtype_config,
+        scope="single_variant",
+    )
+    return write_receipt(receipt, receipt_path)
+
+
+def _write_vcf_scores_and_receipts(
+    *,
+    backend: str,
+    model_dir: Path,
+    manifest: Manifest | None,
+    scorer: _RuntimeScorerComponents,
+    vcf_path: str | Path,
+    fasta_path: str | Path,
+    output_path: Path,
+    receipt_path: Path,
+    batch_size: int,
+) -> None:
+    resolved_manifest = _require_receipt_manifest(manifest)
+    pooling_config, dtype_config = _resolve_commitment_configs(model_dir, resolved_manifest)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        output_path.open("w", encoding="utf-8") as score_handle,
+        receipt_path.open("w", encoding="utf-8") as receipt_handle,
+    ):
+        for row_index, record in enumerate(
+            _iter_vcf_scores(
+                vcf_path,
+                scorer.encoder,
+                scorer.action_encoder,
+                scorer.predictor,
+                scorer.calibration,
+                reference_fasta=fasta_path,
+                batch_size=batch_size,
+            ),
+            start=1,
+        ):
+            variant = record.variant
+            score_handle.write(
+                json.dumps(
+                    {
+                        "schema_version": SCORE_JSONL_SCHEMA_VERSION,
+                        "generated_by": SCORE_JSONL_GENERATED_BY,
+                        "chrom": variant.chrom,
+                        "pos": variant.pos,
+                        "ref": variant.ref,
+                        "alt": variant.alt,
+                        **record.result.to_dict(),
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            receipt = _build_score_receipt(
+                backend=backend,
+                manifest=resolved_manifest,
+                variant=variant,
+                reference_window=record.reference_window,
+                result=record.result,
+                pooling_config=pooling_config,
+                dtype_config=dtype_config,
+                scope="vcf_row",
+                details={
+                    "receipt_stream": "jsonl_per_scored_alternate_v1",
+                    "row_index": row_index,
+                },
+            )
+            receipt_handle.write(receipt.to_canonical_json().decode("utf-8") + "\n")
+
+
+def _build_score_receipt(
+    *,
+    backend: str,
+    manifest: Manifest,
+    variant: EditSpec,
+    reference_window: str,
+    result: Any,
+    pooling_config: PoolingConfig,
+    dtype_config: DtypeConfig,
+    scope: str,
+    details: dict[str, Any] | None = None,
+) -> Receipt:
+    output = _receipt_output(result)
+    provenance_details = _receipt_provenance_details(
+        pooling_config=pooling_config,
+        dtype_config=dtype_config,
+        scope=scope,
+    )
+    if details is not None:
+        provenance_details.update(details)
+    return Receipt(
+        schema_version=RECEIPT_SCHEMA_VERSION,
+        model_id=manifest.model_id(),
+        input_commitment=compute_input_commitment(
+            reference_window,
+            variant,
+            pooling_config,
+            dtype_config,
+        ),
+        output=output,
+        output_commitment=compute_output_commitment(output),
+        calibration_hash=manifest.calibration.hash,
+        runtime=ReceiptRuntime(
+            backend=backend,
+            device=_receipt_device_name(backend),
+            geno_lewm_version=_geno_lewm_version(),
+            carbon_revision=manifest.encoder.revision,
+        ),
+        timestamp=_utc_timestamp(),
+        provenance=ReceiptProvenance(
+            kind="checksum_only",
+            details=provenance_details,
+        ),
+    )
+
+
+def _receipt_provenance_details(
+    *,
+    pooling_config: PoolingConfig,
+    dtype_config: DtypeConfig,
+    scope: str,
+) -> dict[str, Any]:
+    return {
+        "scope": scope,
+        "input_commitment_schema": "reference_window_edit_pool_dtype_v1",
+        "pooling_config": {
+            "state_layer": pooling_config.state_layer,
+            "pool_type": pooling_config.pool_type,
+            "pool_radius": pooling_config.pool_radius,
+            "normalize": pooling_config.normalize,
+        },
+        "dtype_config": {
+            "encoder_dtype": dtype_config.encoder_dtype,
+            "predictor_dtype": dtype_config.predictor_dtype,
+        },
+    }
+
+
+def _receipt_output(result: Any) -> ReceiptOutput:
+    if isinstance(result, SurpriseResult):
+        return ReceiptOutput(
+            sigma_raw=result.sigma_raw,
+            sigma_calibrated=result.sigma_calibrated,
+            bucket_id=result.bucket_id,
+            confidence=result.confidence,
+            low_confidence=result.low_confidence,
+        )
+    to_dict = getattr(result, "to_dict", None)
+    if callable(to_dict):
+        payload = to_dict()
+    else:
+        payload = result
+    if not isinstance(payload, Mapping):
+        raise InputError(
+            "score result must be a SurpriseResult or mapping to write a receipt",
+            details={"type": type(payload).__name__},
+        )
+    return ReceiptOutput(
+        sigma_raw=_payload_float(payload, "sigma_raw"),
+        sigma_calibrated=_payload_float(payload, "sigma_calibrated"),
+        bucket_id=_payload_str(payload, "bucket_id"),
+        confidence=_payload_float(payload, "confidence"),
+        low_confidence=_payload_bool(payload, "low_confidence"),
+    )
+
+
+def _payload_float(payload: Mapping[str, Any], key: str) -> float:
+    value = payload.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise InputError(
+            f"score result field {key} must be numeric",
+            details={"field": key, "type": type(value).__name__},
+        )
+    return float(value)
+
+
+def _payload_str(payload: Mapping[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        raise InputError(
+            f"score result field {key} must be a non-empty string",
+            details={"field": key, "type": type(value).__name__},
+        )
+    return value
+
+
+def _payload_bool(payload: Mapping[str, Any], key: str) -> bool:
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise InputError(
+            f"score result field {key} must be bool",
+            details={"field": key, "type": type(value).__name__},
+        )
+    return value
+
+
+def _receipt_device_name(backend: str) -> str:
+    machine = platform.machine() or "unknown"
+    if backend == BACKEND_CPU:
+        return f"cpu/{machine}"
+    if backend == BACKEND_CUDA:
+        return "cuda"
+    if backend == BACKEND_COREML:
+        return f"coreml/{machine}"
+    if backend == BACKEND_ONNX:
+        return f"onnxruntime/{machine}"
+    return f"{backend}/{machine}"
+
+
+def _geno_lewm_version() -> str:
+    from geno_lewm import __version__
+
+    return __version__
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _load_runtime_calibration(model_dir: Path, manifest: Manifest | None) -> CalibrationTable:
+    if manifest is None:
+        raise RuntimeSetupError(
+            "runtime scoring components require a calibration table",
+            remediation=(
+                "pass calibration=... or provide a manifest.json with a calibration artifact"
+            ),
+        )
+    return read_calibration_table(_artifact_path(model_dir, manifest.calibration.file))
+
+
+def _verify_manifest_artifacts(model_dir: Path, manifest: Manifest) -> None:
+    artifacts = {
+        "predictor": manifest.predictor,
+        "action_encoder": manifest.action_encoder,
+        "calibration": manifest.calibration,
+        "eval": manifest.eval,
+    }
+    for name, artifact in artifacts.items():
+        _verify_artifact_hash(model_dir, name, artifact.file, artifact.hash)
+    _verify_artifact_hash(
+        model_dir,
+        "training",
+        manifest.training.config_file,
+        manifest.training.hash,
+    )
+
+
+def _verify_artifact_hash(model_dir: Path, name: str, file_name: str, expected_hash: str) -> None:
+    path = _artifact_path(model_dir, file_name)
+    if not path.is_file():
+        raise ModelNotFoundError(
+            "manifest artifact is missing",
+            details={"artifact": name, "path": str(path)},
+        )
+    observed = sha256_file(path)
+    if observed != expected_hash:
+        raise ManifestHashMismatchError(
+            "manifest artifact hash mismatch",
+            details={
+                "artifact": name,
+                "path": str(path),
+                "expected": expected_hash,
+                "observed": observed,
+            },
+        )
+
+
+def _artifact_path(model_dir: Path, file_name: str) -> Path:
+    path = Path(file_name)
+    if path.is_absolute() or ".." in path.parts:
+        raise InputError(
+            "manifest artifact paths must stay inside model_dir",
+            details={"file": file_name},
+        )
+    return model_dir / path
 
 
 def _raise_backend_not_ready(operation: str, backend: str, model_dir: Path) -> NoReturn:

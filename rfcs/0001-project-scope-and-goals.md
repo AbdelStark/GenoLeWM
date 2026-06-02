@@ -70,9 +70,9 @@ GenoLeWM aims to:
    labelled training (RFC-0009).
 6. Be **deployable on consumer hardware** (M-series Mac, 16 GB consumer
    GPU) end-to-end, with the predictor head < 200 MB at int8 (RFC-0010).
-7. Expose **verifiability hooks** in every inference path, so that a
-   downstream attestation layer (e.g., STARK proofs) can certify the
-   inference (RFC-0011).
+7. Expose **artifact provenance hooks** in release and demo paths so
+   datasets, models, inputs, and outputs can be reproduced and audited
+   (RFC-0011).
 
 ### 3.2 Non-goals
 
@@ -103,8 +103,8 @@ Primary:
 
 Secondary:
 
-- Cypherpunk / cryptography / verifiable-compute communities exploring
-  ZK proofs of ML inference on sensitive data (RFC-0011 is the bridge).
+- Reproducible-ML engineers who care about dataset, checkpoint, and
+  evaluation artifact integrity.
 - Clinical genomics researchers who want a fast first-pass variant
   scorer for hypothesis generation (not for clinical decisions).
 

@@ -1,0 +1,337 @@
+"""CLI tests for ``geno-lewm-train`` fixture smoke mode."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from geno_lewm.cli import _dispatch, train as train_cli
+from geno_lewm.cli.train import app
+from geno_lewm.training import preflight as training_preflight
+from geno_lewm.training.real import (
+    CARBON_CHECKPOINT_NAME,
+    CARBON_LOG_NAME,
+    CARBON_METRICS_NAME,
+    CARBON_TRAINING_METADATA_NAME,
+    CarbonTrainingReport,
+)
+from tests.unit.test_training_preflight import (
+    _available_dependency,
+    _missing_dependency,
+    _write_carbon_model_dir,
+    _write_release_dataset,
+    _write_training_config,
+)
+from tools.release.training_run import GENERATED_BY as TRAINING_RUN_GENERATED_BY
+
+
+def test_train_requires_explicit_fixture_smoke(capsys) -> None:
+    rc = _dispatch.run_app(app, argv=["--quiet", "--no-banner"])
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert "requires --fixture-smoke, --carbon-preflight, or --carbon-train" in captured.err
+    assert "research tool" not in captured.err
+
+
+def test_train_fixture_smoke_cli_writes_artifacts(tmp_path: Path, capsys) -> None:
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--fixture-smoke",
+            "--run-dir",
+            str(tmp_path),
+            "--steps",
+            "4",
+            "--seed",
+            "11",
+            "--deterministic",
+            "--run-id",
+            "fixture-cli",
+            "--set",
+            "data.batch_size=2",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    payload = json.loads(captured.out)
+    assert payload["run_id"] == "fixture-cli"
+    assert payload["steps_completed"] == 4
+    assert (tmp_path / "fixture_predictor_checkpoint.json").is_file()
+    assert (tmp_path / "metrics.json").is_file()
+    assert (tmp_path / "train.log").is_file()
+    assert "batch_size: 2" in (tmp_path / "config.resolved.yaml").read_text(encoding="utf-8")
+
+
+def test_train_carbon_preflight_cli_writes_report(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    run_dir = tmp_path / "run"
+    monkeypatch.setattr(training_preflight, "_probe_dependency", _available_dependency)
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--carbon-preflight",
+            "--run-dir",
+            str(run_dir),
+            "--dataset-dir",
+            str(dataset_dir),
+            "--carbon-model-dir",
+            str(carbon_dir),
+            "--training-config",
+            str(config),
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["dataset_snapshot_id"] == "geno-lewm-data-v0.1.0-r1"
+    assert (run_dir / "training_preflight_report.json").is_file()
+
+
+def test_train_carbon_train_runs_preflight_before_launch(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    run_dir = tmp_path / "run"
+    monkeypatch.setattr(training_preflight, "_probe_dependency", _missing_dependency)
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--carbon-train",
+            "--run-dir",
+            str(run_dir),
+            "--dataset-dir",
+            str(dataset_dir),
+            "--carbon-model-dir",
+            str(carbon_dir),
+            "--training-config",
+            str(config),
+            "--steps",
+            "1",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert (run_dir / "training_preflight_report.json").is_file()
+    assert not (run_dir / "metrics.json").exists()
+
+
+def test_train_carbon_train_can_package_release_run_after_success(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    run_dir = tmp_path / "run"
+    side_preflight = tmp_path / "preflight-sidecar.json"
+    monkeypatch.setattr(training_preflight, "_probe_dependency", _available_dependency)
+    monkeypatch.setattr(train_cli, "run_carbon_training", _fake_carbon_training)
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--carbon-train",
+            "--run-dir",
+            str(run_dir),
+            "--dataset-dir",
+            str(dataset_dir),
+            "--carbon-model-dir",
+            str(carbon_dir),
+            "--training-config",
+            str(config),
+            "--preflight-output",
+            str(side_preflight),
+            "--steps",
+            "2",
+            "--package-release-run",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    payload = json.loads(captured.out)
+    assert payload["steps_completed"] == 2
+    assert payload["training_run_package"]["run_id"] == "first-snv-test"
+    assert (run_dir / "training_preflight_report.json").is_file()
+    assert (run_dir / "training_config.effective.yaml").is_file()
+    assert side_preflight.is_file()
+    assert (run_dir / "training_run_manifest.json").is_file()
+    assert (run_dir / "training_run_card.md").is_file()
+    assert (run_dir / "training_run_SHA256SUMS").is_file()
+    metadata = json.loads((run_dir / CARBON_TRAINING_METADATA_NAME).read_text(encoding="utf-8"))
+    assert "--package-release-run" in metadata["command"]
+    assert metadata["training_config"] == "training_config.effective.yaml"
+    assert metadata["training_preflight_report"] == "training_preflight_report.json"
+
+
+def test_train_carbon_train_passes_resume_checkpoint_to_launcher(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    run_dir = tmp_path / "run"
+    resume_path = tmp_path / "resume.pt"
+    resume_path.write_bytes(b"checkpoint bytes\n")
+    monkeypatch.setattr(training_preflight, "_probe_dependency", _available_dependency)
+    monkeypatch.setattr(train_cli, "run_carbon_training", _fake_carbon_training)
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--carbon-train",
+            "--run-dir",
+            str(run_dir),
+            "--dataset-dir",
+            str(dataset_dir),
+            "--carbon-model-dir",
+            str(carbon_dir),
+            "--training-config",
+            str(config),
+            "--steps",
+            "4",
+            "--resume-from",
+            str(resume_path),
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    payload = json.loads(captured.out)
+    assert payload["resumed_from_step"] == 1
+    assert payload["resume_checkpoint_path"] == str(resume_path)
+    metadata = json.loads((run_dir / CARBON_TRAINING_METADATA_NAME).read_text(encoding="utf-8"))
+    assert "--resume-from" in metadata["command"]
+    assert str(resume_path) in metadata["command"]
+    assert metadata["resumed_from_step"] == 1
+    assert metadata["resume_checkpoint"] == resume_path.name
+
+
+def _fake_carbon_training(
+    *,
+    config,
+    dataset_dir: Path,
+    carbon_model_dir: Path,
+    run_dir: Path,
+    steps: int,
+    command: str,
+    commit_sha: str,
+    package_version: str,
+    preflight_report,
+    resume_from: Path | None,
+) -> CarbonTrainingReport:
+    del carbon_model_dir, commit_sha
+    run_dir.mkdir(parents=True, exist_ok=True)
+    config_path = run_dir / "training_config.effective.yaml"
+    metrics_path = run_dir / CARBON_METRICS_NAME
+    log_path = run_dir / CARBON_LOG_NAME
+    checkpoint_path = run_dir / CARBON_CHECKPOINT_NAME
+    metadata_path = run_dir / CARBON_TRAINING_METADATA_NAME
+    dataset_manifest_path = run_dir / "dataset_manifest.json"
+    assert config_path.is_file()
+    dataset_manifest_path.write_text(
+        (dataset_dir / "dataset_manifest.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    metrics_path.write_text(
+        json.dumps(
+            {
+                "sample_count": 4,
+                "metrics": {"train_loss": 0.5},
+                "schema_version": "1.0.0",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    log_path.write_text('{"event":"train.end","steps_completed":2}\n', encoding="utf-8")
+    checkpoint_path.write_bytes(b"predictor checkpoint bytes\n")
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "run_id": config.run_id,
+                "generated_by": TRAINING_RUN_GENERATED_BY,
+                "command": command,
+                "commit_sha": "abcdef123456",
+                "package_version": package_version,
+                "dataset_snapshot_id": "geno-lewm-data-v0.1.0-r1",
+                "dataset_manifest": dataset_manifest_path.name,
+                "training_config": config_path.name,
+                "metrics": metrics_path.name,
+                "logs": [log_path.name],
+                "checkpoint_files": [checkpoint_path.name],
+                "training_preflight_report": "training_preflight_report.json",
+                "status": "completed",
+                "hardware": ["CI CPU"],
+                "runtime": ["GenoLeWM Carbon training test boundary"],
+                "seeds": {"base": config.seed, "data": config.seed, "predictor": config.seed + 1},
+                "determinism": '{"deterministic": true}',
+                "monitoring": {"collapse_monitoring": True, "nan_monitoring": True},
+                "resumed_from_step": 0 if resume_from is None else 1,
+                "resume_checkpoint": None if resume_from is None else resume_from.name,
+                "result_summary": "Completed Carbon-backed training boundary with loss 0.5.",
+                "limitations": ["Release claims require the paired evaluation report."],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return CarbonTrainingReport(
+        run_id=config.run_id,
+        run_dir=run_dir,
+        dataset_snapshot_id=preflight_report.dataset_snapshot_id or "geno-lewm-data-v0.1.0-r1",
+        steps_requested=steps,
+        steps_completed=steps,
+        resumed_from_step=0 if resume_from is None else 1,
+        sample_count=4,
+        final_loss=0.5,
+        checkpoint_path=checkpoint_path,
+        resume_checkpoint_path=resume_from,
+        metrics_path=metrics_path,
+        log_path=log_path,
+        config_path=config_path,
+        preflight_path=run_dir / "training_preflight_report.json",
+        training_metadata_path=metadata_path,
+    )

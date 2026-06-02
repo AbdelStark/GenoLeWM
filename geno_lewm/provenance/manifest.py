@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Manifest schema for GenoLeWM artifacts (RFC-0011 §3.7).
+"""Manifest schema for GenoLeWM artifacts (RFC-0011).
 
 A manifest is the trust anchor: every byte downstream of the model
 file is identified by content hash, and ``model_id = SHA-256(
@@ -22,12 +22,12 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from geno_lewm.attestation.hashing import (
+from geno_lewm.errors import InputError, SchemaCompatError
+from geno_lewm.provenance.hashing import (
     canonical_json_bytes,
     canonical_json_sha256,
     looks_like_sha256,
 )
-from geno_lewm.errors import InputError, SchemaCompatError
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -41,7 +41,7 @@ __all__ = [
 
 
 #: The manifest schema version. Bumped on MINOR field-add; MAJOR on
-#: removal / rename. RFC-0011 §3.7.
+#: removal / rename. See RFC-0011.
 SCHEMA_VERSION: str = "1.0.0"
 
 

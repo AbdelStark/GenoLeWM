@@ -2,13 +2,19 @@
 
 - Status: Authoritative for v0.1
 - Companion RFCs: [RFC-0010](../rfcs/0010-on-device-personal-genome-deployment.md),
-  [RFC-0011](../rfcs/0011-verifiable-inference-attestation.md),
+  [RFC-0011](../rfcs/0011-artifact-provenance-receipts.md),
   [RFC-0014](../rfcs/0014-public-api-and-stability.md)
 
 GenoLeWM operates over the most sensitive consumer data category there
 is: personal genome data. The security model is therefore conservative,
 local-first, and built around explicit trust boundaries. Threats are
 enumerated, not implied. Defenses are mechanical, not policy.
+
+Current public release status: these are release requirements, not
+evidence from a published checkpoint or terminal demo. The first public
+model package and real-inference demo must prove local-only scoring,
+redaction, and checksum receipt behavior before public docs can call
+those behaviors achieved.
 
 ## Threat model
 
@@ -19,7 +25,7 @@ enumerated, not implied. Defenses are mechanical, not policy.
 | User VCF / variant data | Permanent, identifying, family-implicating | User filesystem only |
 | Reference embeddings cache | Public-domain (reference genome derivatives) | User filesystem |
 | Trained model weights | Public; signed by maintainers | Hugging Face Hub + user filesystem |
-| Receipts | Cryptographic provenance | User filesystem; shareable |
+| Receipts | Checksum provenance | User filesystem; shareable |
 | Manifest | Trust anchor for model identity | Inside checkpoint |
 | Calibration table | Affects score interpretation | Inside checkpoint |
 | Surprise scores | User-derived analysis; user-owned | User filesystem only |
@@ -36,12 +42,10 @@ enumerated, not implied. Defenses are mechanical, not policy.
 
 ### Out of attacker model (explicit)
 
-- Physical-access attackers with control of the hardware (TEE attestation
-  addresses some of this in Phase 3 but is not relied on in v1).
+- Physical-access attackers with control of the hardware.
 - Side-channel attackers on shared hardware (mitigated only when running
   on dedicated user hardware, which is the deployment context).
-- Cryptographic break of SHA-256 or the post-quantum hash assumptions
-  underlying STARKs.
+- Cryptographic break of SHA-256.
 
 ## Trust boundaries
 
@@ -53,10 +57,10 @@ enumerated, not implied. Defenses are mechanical, not policy.
 │  │ verification; trusted to itself once verified)         │ │
 │  │                                                        │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │ │
-│  │  │ Carbon       │  │ Predictor    │  │ Attestation  │ │ │
-│  │  │ (frozen, by  │  │ (verifiable  │  │ (manifest +  │ │ │
-│  │  │  public      │  │  by STARK in │  │  receipts)   │ │ │
-│  │  │  commitment) │  │  Phase 4)    │  │              │ │ │
+│  │  │ Carbon       │  │ Predictor    │  │ Provenance   │ │ │
+│  │  │ (frozen, by  │  │ (small       │  │ (manifest +  │ │ │
+│  │  │  public      │  │  trainable   │  │  receipts)   │ │ │
+│  │  │  commitment) │  │  head)       │  │              │ │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘ │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
@@ -70,20 +74,20 @@ enumerated, not implied. Defenses are mechanical, not policy.
    Hugging Face Hub (untrusted; verified by content hash)
 ```
 
-The runtime fails closed on any non-allowlisted network call. The
-allowlist is a single configuration file shipped with the build, and the
-loader verifies its hash on startup.
+The released runtime must fail closed on any non-allowlisted network
+call. The allowlist is a single configuration file shipped with the
+build, and the loader verifies its hash on startup.
 
 ## Defenses
 
-### 1. Local-first by default
+### 1. Local-first release requirement
 
-- The runtime makes no network call after first-run setup.
+- The released runtime must make no network call after first-run setup.
 - A guard at the HTTP-client construction site raises
   `NetworkCallProhibitedError` if any call is attempted outside the
   documented allowlist.
-- The desktop app has no cloud sync, no accounts, no telemetry. See
-  [RFC-0010 §3.7](../rfcs/0010-on-device-personal-genome-deployment.md#37-privacy-contract).
+- The desktop app release target has no cloud sync, no accounts, no
+  telemetry. See [RFC-0010 §3.7](../rfcs/0010-on-device-personal-genome-deployment.md#37-privacy-contract).
 
 ### 2. Content-addressed weights
 
@@ -96,9 +100,16 @@ loader verifies its hash on startup.
 
 ### 3. Input commitments and receipts
 
-- Every inference produces a receipt binding `(model_id, input_commitment,
-  output, runtime metadata)` ([`03-data-model.md`](03-data-model.md)).
-- Receipts are forward-compatible across attestation kinds.
+- Single-variant scoring can produce a receipt binding
+  `(model_id, input_commitment, output, runtime metadata)`
+  ([`03-data-model.md`](03-data-model.md)).
+- VCF scoring can produce a JSONL sidecar with one v1 receipt per scored
+  alternate. Receipts contain commitments and runtime metadata, not raw
+  DNA sequence or VCF fields.
+- Receipts are checksum-only in the active schema.
+- `batch_receipt_report.json` is a release artifact that verifies the
+  score JSONL and per-row receipt JSONL streams as one batch. It does
+  not collapse a multi-row VCF output into one single-output v1 receipt.
 
 ### 4. Redaction by default
 
@@ -110,17 +121,17 @@ loader verifies its hash on startup.
 
 ### 5. Reproducible builds
 
-- Released artifacts are built from pinned dependency lockfiles. The CI
-  release workflow records the build environment hash and embeds it in
-  the manifest.
+- Release artifacts must be built from pinned dependency lockfiles. The
+  CI release workflow records the build environment hash and embeds it
+  in the manifest.
 - A `--reproducible` build flag uses a deterministic source date and a
   fixed PYTHONHASHSEED.
 
 ### 6. Signed releases
 
-- GitHub releases are signed via Sigstore / GitHub provenance attestations.
-- macOS binaries are notarized; Linux binaries are signed with the
-  project's GPG key.
+- GitHub releases must publish Sigstore-backed build provenance.
+- macOS binaries are notarized and Linux binaries are signed with the
+  project's GPG key when those packaged binaries are cut.
 - The signing key fingerprints are published in [`SECURITY.md`](../security.md)
   at the repo root.
 
@@ -141,8 +152,9 @@ loader verifies its hash on startup.
 
 ## Secrets handling
 
-- The runtime requires no API keys. Hugging Face Hub downloads use
-  anonymous tokens unless the user explicitly authenticates.
+- The released runtime must require no API keys. Hugging Face Hub
+  downloads use anonymous tokens unless the user explicitly
+  authenticates.
 - Authentication tokens, when supplied, are read from `HF_TOKEN` and never
   logged or stored in receipts.
 - No GenoLeWM artifact contains credentials.
@@ -152,12 +164,9 @@ loader verifies its hash on startup.
 | Use | Primitive | Notes |
 |-----|-----------|-------|
 | Content hashes (weights, windows, manifest) | SHA-256 | from `hashlib` |
-| Canonical JSON serialization | sorted-keys UTF-8 no-whitespace | bespoke encoder in `attestation/canonical_json.py` |
-| Receipt signatures (Phase 3, TEE-attestation) | ed25519 (when applicable) | platform-dependent |
-| STARK proofs (Phase 4) | Cairo-based STARK over Mersenne prime | external prover |
+| Canonical JSON serialization | sorted-keys UTF-8 no-whitespace | helper in `provenance/hashing.py` |
 
-No custom crypto is implemented. STARK proving uses an external,
-audited toolchain.
+No custom crypto is implemented.
 
 ## Disclosure policy
 
@@ -173,8 +182,8 @@ audited toolchain.
 Independent of confidentiality, the project enforces safety boundaries
 on use:
 
-- The runtime, CLI, and desktop app surface a permanent, non-dismissible
-  "research tool — not clinical" banner.
+- The released runtime, CLI, and desktop app must surface a permanent,
+  non-dismissible "research tool — not clinical" banner.
 - The CLI emits a warning when ClinVar P/LP variants are detected, pointing
   to clinical follow-up.
 - The license addendum (if adopted; see OQ-OVR-2) restricts germline-edit
@@ -196,7 +205,7 @@ on use:
 
 | ID | Question | Owner | Target |
 |----|----------|-------|--------|
-| OQ-SEC-1 | Whether to ship signed receipts (ed25519) in v1.1 or wait for TEE attestation | core | v1.1 |
+| OQ-SEC-1 | Resolved: `geno_lewm.provenance` is the preferred public path; the legacy import path is removed | core | done |
 | OQ-SEC-2 | License addendum forbidding germline-edit reproductive use vs README-only disclaimer | core | before v0.1 tag |
 | OQ-SEC-3 | Whether to provide a `--audit-log` mode that records all file accesses for forensic review | core | post-v1 |
-| OQ-SEC-4 | Mechanism for revoking a published model_id when a serious bug is found (revocation list?) | core | before Phase 4 |
+| OQ-SEC-4 | Mechanism for revoking a published model_id when a serious bug is found (revocation list?) | core | before first model release |

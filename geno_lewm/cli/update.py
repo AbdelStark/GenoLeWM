@@ -25,17 +25,13 @@ from typing import Annotated, cast
 
 import typer
 
-from geno_lewm.attestation import Manifest, load_manifest, sha256_file, write_manifest
 from geno_lewm.cli._dispatch import SharedOptions, finalize_shared, run_app, shared_option_decls
-from geno_lewm.cli._stub_main import build_stub_app, make_cli_main
 from geno_lewm.errors import InputError, ModelNotFoundError, RuntimeSetupError
+from geno_lewm.provenance import Manifest, load_manifest, sha256_file, write_manifest
 
 __all__ = [
-    "annotations",
     "app",
-    "build_stub_app",
     "cli_main",
-    "make_cli_main",
 ]
 
 

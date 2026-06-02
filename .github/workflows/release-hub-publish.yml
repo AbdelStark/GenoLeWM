@@ -1,0 +1,205 @@
+# Credentialed model/data/demo publication workflow. This runs only by
+# manual dispatch against already-prepared release artifacts and re-checks
+# the public release candidate after upload.
+name: Release Hub Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_dir:
+        description: "Prepared model package directory"
+        required: true
+        default: "release/model"
+      dataset_dir:
+        description: "Prepared dataset package directory"
+        required: true
+        default: "release/dataset"
+      demo_dir:
+        description: "Prepared terminal demo package directory"
+        required: true
+        default: "release/demo"
+      paper_path:
+        description: "Generated paper/report Markdown path"
+        required: false
+        default: ""
+      repo_id:
+        description: "Target Hugging Face model repo id, e.g. owner/name"
+        required: true
+      dataset_url:
+        description: "Target public Hugging Face dataset URL"
+        required: true
+      demo_url:
+        description: "Target GitHub release tag URL for demo assets"
+        required: true
+      paper_url:
+        description: "Direct GitHub release download URL for paper_path bytes"
+        required: false
+        default: ""
+      commit_sha:
+        description: "Git commit SHA represented by the release candidate"
+        required: true
+      demo_backend:
+        description: "Runtime backend for the clean-machine terminal demo replay"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - cpu
+          - cuda
+          - onnx
+          - coreml
+      demo_batch_size:
+        description: "Batch size for the clean-machine terminal demo replay"
+        required: true
+        default: 64
+        type: number
+
+concurrency:
+  group: release-hub-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  UV_VERSION: "0.9.18"
+
+jobs:
+  publish:
+    name: Publish verified model, dataset, and demo artifacts
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install pinned uv
+        run: python -m pip install "uv==${UV_VERSION}"
+
+      - name: Verify lockfile is current
+        run: uv lock --check
+
+      - name: Sync locked release runtime environment
+        run: uv sync --locked --extra dev --extra train --extra eval --extra deploy
+
+      - name: Publish and re-check public release candidate
+        env:
+          MODEL_DIR: ${{ inputs.model_dir }}
+          DATASET_DIR: ${{ inputs.dataset_dir }}
+          DEMO_DIR: ${{ inputs.demo_dir }}
+          PAPER_PATH: ${{ inputs.paper_path }}
+          REPO_ID: ${{ inputs.repo_id }}
+          DATASET_URL: ${{ inputs.dataset_url }}
+          DEMO_URL: ${{ inputs.demo_url }}
+          PAPER_URL: ${{ inputs.paper_url }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::error::HF_TOKEN repository secret is required for Hugging Face publication"
+            exit 1
+          fi
+          args=()
+          if [ -n "$PAPER_PATH" ]; then
+            args+=(--paper-path "$PAPER_PATH")
+          fi
+          if [ -n "$PAPER_URL" ]; then
+            args+=(--paper-url "$PAPER_URL")
+          fi
+          uv run python -m tools.release.hub_publish \
+            --model-dir "$MODEL_DIR" \
+            --dataset-dir "$DATASET_DIR" \
+            --demo-dir "$DEMO_DIR" \
+            --repo-id "$REPO_ID" \
+            --dataset-url "$DATASET_URL" \
+            --demo-url "$DEMO_URL" \
+            --commit-sha "$COMMIT_SHA" \
+            --plan-output hub_release_plan.json \
+            --candidate-output release_candidate_report.json \
+            --publish-output hub_publish_report.json \
+            "${args[@]}"
+
+      - name: Replay public terminal demo from uploaded artifacts
+        env:
+          DEMO_BACKEND: ${{ inputs.demo_backend }}
+          DEMO_BATCH_SIZE: ${{ inputs.demo_batch_size }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run python -m tools.release.clean_machine_demo \
+            --release-candidate-report release_candidate_report.json \
+            --output-dir clean-machine-public-replay \
+            --backend "$DEMO_BACKEND" \
+            --batch-size "$DEMO_BATCH_SIZE"
+
+      - name: Bind publication evidence
+        run: |
+          set -euo pipefail
+          uv run python -m tools.release.publication_report \
+            --plan hub_release_plan.json \
+            --release-candidate release_candidate_report.json \
+            --publish-report hub_publish_report.json \
+            --clean-machine-demo-report clean-machine-public-replay/clean_machine_demo_report.json \
+            --output publication_evidence_report.json
+
+      - name: Bind publication evidence asset manifest
+        env:
+          DEMO_URL: ${{ inputs.demo_url }}
+        run: |
+          set -euo pipefail
+          uv run python -m tools.release.publication_assets \
+            --demo-url "$DEMO_URL" \
+            --hub-release-plan hub_release_plan.json \
+            --release-candidate release_candidate_report.json \
+            --publish-report hub_publish_report.json \
+            --clean-machine-demo-report clean-machine-public-replay/clean_machine_demo_report.json \
+            --publication-report publication_evidence_report.json \
+            --replay-dir clean-machine-public-replay/replay \
+            --output publication_evidence_assets.json \
+            --env-output publication-evidence-target.env
+
+      - name: Upload public publication evidence assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          payload = json.loads(Path("publication_evidence_assets.json").read_text())
+          command = payload.get("upload_command")
+          if not isinstance(command, list) or command[:3] != ["gh", "release", "upload"]:
+              raise SystemExit("publication_evidence_assets.json has an invalid upload_command")
+          subprocess.run(command, check=True)
+          PY
+
+      - name: Upload publication reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hub-release-publication-reports
+          path: |
+            hub_release_plan.json
+            release_candidate_report.json
+            hub_publish_report.json
+            publication_evidence_report.json
+            publication_evidence_assets.json
+            clean-machine-public-replay
+          retention-days: 90
