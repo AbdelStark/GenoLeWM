@@ -98,14 +98,111 @@ def test_valid_receipt_exit_zero(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "model_id ok" in captured.out
 
 
-def test_valid_receipt_with_rerun_flag_still_passes_checksum(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+class _FakeResult:
+    def __init__(self, output: ReceiptOutput) -> None:
+        self.sigma_raw = output.sigma_raw
+        self.sigma_calibrated = output.sigma_calibrated
+        self.bucket_id = output.bucket_id
+        self.confidence = output.confidence
+        self.low_confidence = output.low_confidence
+
+
+class _FakeRuntime:
+    """Stand-in for GenoLeWMRuntime that returns a preset score result."""
+
+    result: ReceiptOutput
+
+    def __init__(self, model_dir: object, **kwargs: object) -> None:
+        del model_dir, kwargs
+
+    def score_variant(
+        self, variant: object, window: object = None, **kwargs: object
+    ) -> _FakeResult:
+        del variant, window, kwargs
+        return _FakeResult(_FakeRuntime.result)
+
+
+# Full input set matching _make_pair's receipt, so the input-commitment
+# recomputation (which requires all fields together) also passes.
+_RERUN_INPUT = [
+    "--input-window",
+    "ACGT" * 3072,
+    "--edit-chrom",
+    "chr1",
+    "--edit-pos",
+    "100",
+    "--edit-ref",
+    "A",
+    "--edit-alt",
+    "T",
+    "--state-layer",
+    "12",
+    "--pool-type",
+    "centered_mean",
+    "--pool-radius",
+    "24",
+    "--normalize",
+    "--encoder-dtype",
+    "bf16",
+    "--predictor-dtype",
+    "bf16",
+]
+
+
+def test_rerun_requires_model_dir(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     mpath, rpath, _m, _r = _make_pair(tmp_path)
     rc = verify_cli.main([str(rpath), "--manifest", str(mpath), "--rerun"])
-    captured = capsys.readouterr()
+    assert rc == 2
+    assert "model-dir" in capsys.readouterr().err
+
+
+def test_rerun_bit_exact_match_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mpath, rpath, _m, receipt = _make_pair(tmp_path)
+    _FakeRuntime.result = receipt.output
+    monkeypatch.setattr(verify_cli, "GenoLeWMRuntime", _FakeRuntime)
+    rc = verify_cli.main(
+        [
+            str(rpath),
+            "--manifest",
+            str(mpath),
+            "--rerun",
+            "--model-dir",
+            str(tmp_path),
+            *_RERUN_INPUT,
+        ]
+    )
+    out = capsys.readouterr().out
     assert rc == 0
-    assert "--rerun: not yet implemented" in captured.out
+    assert "rerun output_commitment ok" in out
+
+
+def test_rerun_output_mismatch_exit_8(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mpath, rpath, _m, _r = _make_pair(tmp_path)
+    _FakeRuntime.result = ReceiptOutput(
+        sigma_raw=9.9,
+        sigma_calibrated=0.1,
+        bucket_id="other|low|none",
+        confidence=0.5,
+        low_confidence=True,
+    )
+    monkeypatch.setattr(verify_cli, "GenoLeWMRuntime", _FakeRuntime)
+    rc = verify_cli.main(
+        [
+            str(rpath),
+            "--manifest",
+            str(mpath),
+            "--rerun",
+            "--model-dir",
+            str(tmp_path),
+            *_RERUN_INPUT,
+        ]
+    )
+    assert rc == 8
+    assert "does not match" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

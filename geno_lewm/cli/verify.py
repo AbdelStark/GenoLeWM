@@ -17,10 +17,13 @@ local manifest. Three checks compose the v1 protocol:
    ``output_commitment``. Mismatch raises
    :class:`OutputCommitmentMismatchError`.
 
-``--rerun`` is reserved for the bit-exact re-inference path that
-arrives with the runtime in #66; today the flag is recognized and the
-CLI emits an explicit "rerun-not-yet-supported" message and exits 0
-if every other check passes.
+5. **Bit-exact re-inference** (``--rerun``) — load the deploy runtime
+   from ``--model-dir``, re-score the receipt's input (passed via
+   ``--input-window`` + ``--edit-{chrom,pos,ref,alt}``), recompute the
+   output commitment, and require it to match the receipt bit-for-bit.
+   Mismatch raises :class:`OutputCommitmentMismatchError`. This proves
+   the receipt describes output the model actually produces, not merely
+   that the receipt is internally self-consistent.
 
 Exit codes follow RFC-0012 / ``docs/spec/04-error-model.md``:
 
@@ -40,6 +43,7 @@ from pathlib import Path
 from typing import IO
 
 from geno_lewm.action.spec import EditSpec
+from geno_lewm.deploy import GenoLeWMRuntime
 from geno_lewm.errors import (
     GenoLeWMError,
     InputCommitmentMismatchError,
@@ -52,6 +56,7 @@ from geno_lewm.provenance import (
     SUPPORTED_PROVENANCE_KINDS,
     DtypeConfig,
     PoolingConfig,
+    ReceiptOutput,
     compute_input_commitment,
     compute_output_commitment,
     load_manifest,
@@ -78,7 +83,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--rerun",
         action="store_true",
-        help="(reserved) re-run inference and bit-match; not yet supported",
+        help="re-run inference from --model-dir and require a bit-exact output commitment",
+    )
+    p.add_argument(
+        "--model-dir",
+        type=Path,
+        help="deploy model directory used for --rerun bit-exact re-inference",
     )
 
     # Optional input-commitment recomputation. All four fields must be
@@ -222,16 +232,66 @@ def verify(args: argparse.Namespace, *, stream: IO[str] | None = None) -> None:
     print(f"  output_commitment ok ({recomputed_output[:23]}…)", file=stream)
 
     if args.rerun:
-        # Reserved for #66: bit-exact re-inference. We emit a clear
-        # message rather than silently passing or silently doing
-        # nothing.
-        print(
-            "  --rerun: not yet implemented (lands with the deploy runtime "
-            "#66); checksum-only verification passed.",
-            file=stream,
-        )
+        rerun_commitment = _rerun_output_commitment(args)
+        if rerun_commitment != receipt.output_commitment:
+            raise OutputCommitmentMismatchError(
+                "re-run inference output commitment does not match the receipt",
+                details={
+                    "receipt": receipt.output_commitment,
+                    "rerun": rerun_commitment,
+                },
+                remediation=(
+                    "ensure --model-dir is the exact model that produced the receipt; "
+                    "a mismatch means the receipt does not describe this model's output"
+                ),
+            )
+        print(f"  rerun output_commitment ok ({rerun_commitment[:23]}…)", file=stream)
 
     print("ok", file=stream)
+
+
+def _rerun_output_commitment(args: argparse.Namespace) -> str:
+    """Re-run inference from ``--model-dir`` and return the fresh output commitment.
+
+    Requires the receipt's input to be supplied (``--model-dir`` plus
+    ``--input-window`` and ``--edit-{chrom,pos,ref,alt}``). Loads the deploy
+    runtime, scores the variant, and recomputes the output commitment so the
+    caller can assert it matches the receipt bit-for-bit.
+    """
+    if args.model_dir is None:
+        raise InputError(
+            "--rerun requires --model-dir",
+            remediation="pass --model-dir pointing at the deploy model directory",
+        )
+    required = {
+        "input_window": args.input_window,
+        "edit_chrom": args.edit_chrom,
+        "edit_pos": args.edit_pos,
+        "edit_ref": args.edit_ref,
+        "edit_alt": args.edit_alt,
+    }
+    missing = [name for name, value in required.items() if value is None]
+    if missing:
+        raise InputError(
+            "--rerun requires --input-window and --edit-{chrom,pos,ref,alt}",
+            details={"missing": missing},
+        )
+    edit = EditSpec(
+        chrom=args.edit_chrom,
+        pos=args.edit_pos,
+        ref=args.edit_ref,
+        alt=args.edit_alt,
+    )
+    runtime = GenoLeWMRuntime(args.model_dir)
+    result = runtime.score_variant(edit, window=args.input_window)
+    output = ReceiptOutput(
+        sigma_raw=result.sigma_raw,
+        sigma_calibrated=result.sigma_calibrated,
+        bucket_id=result.bucket_id,
+        confidence=result.confidence,
+        low_confidence=result.low_confidence,
+    )
+    return compute_output_commitment(output)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
