@@ -3,12 +3,15 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0002, RFC-0003
 - **Supersedes:** —
-- **Implementation status:** Partial — Carbon corpus source-mix sampling
-  and reference-window sampler implemented; edit sources, tuple builder,
-  training dataset, holdouts, and validation streams remain open.
+- **Implementation status:** Partial — Carbon corpus source-mix sampling,
+  reference-window sampling, local gnomAD/ClinVar VCF-to-Parquet
+  builders, a dependency-free training tuple builder, holdout checks,
+  absolute variant providers, `GenoLeWMDataset`, and dataset
+  snapshot/package/integrity tooling exist. Published real shards,
+  warm-cache throughput evidence, and public split artifacts remain open.
 
 ---
 
@@ -105,7 +108,7 @@ window; otherwise replaced by an additional synthetic SNV).
 
 ### 3.4 Edit samplers
 
-**gnomAD common variants.** Pre-filtered to AF ≥ 1% in any population,
+**gnomAD common variants.** Pre-filtered to global AF ≥ 1%,
 keyed by chromosome+position+ref+alt. The sampler restricts to
 variants whose position falls within the current window (plus the
 inset margin). If no qualifying variant exists, the slot is filled
@@ -116,9 +119,11 @@ Dataset source:
   file (one row per `(chrom, pos, ref, alt)`) with population AFs.
   Cached locally; not loaded from HF directly because the gnomAD
   release files are large (terabytes raw).
-- We provide a `geno-lewm prepare-gnomad` CLI command that downloads
-  and processes a minimal subset (only AF ≥ 1% variants), producing a
-  ~20 GB Parquet file usable for training.
+- `geno-lewm-prepare-gnomad --input-vcf <local.vcf[.gz]> --output DIR`
+  processes an already downloaded release VCF into
+  `DIR/gnomad/{release}/variants.parquet`. Network download orchestration
+  is intentionally outside the command for now; release-file acquisition
+  must stay explicit in dataset build scripts.
 
 **Synthetic uniform SNVs.** Sample positions uniformly within the
 window (respecting the 64 bp edge margin), then pick a uniform
@@ -130,13 +135,16 @@ non-reference base.
 - 50% chance DEL: delete a contiguous segment of length drawn from
   `geometric(p=0.5)` truncated to `[1, 16]`.
 
-**ClinVar P/LP variants.** Pre-filtered to "Pathogenic" and "Likely
-pathogenic" assertions in the latest ClinVar release. Indexed by
-position. Sampler restricts to variants in the current window.
+**ClinVar variants.** Loaded from a pinned ClinVar release and normalized
+to `P`, `LP`, `B`, `LB`, `VUS`, or `OTHER`. P/LP rows can provide the
+hard-negative training anchor; VUS and OTHER rows are retained in the
+shard but excluded from labelled eval sets. Indexed by position. Sampler
+restricts to variants in the current window.
 
 ClinVar dataset source: official monthly VCF from NCBI, processed
-into a Parquet file with clinical-significance labels. Cached locally;
-prepared by the `geno-lewm prepare-clinvar` CLI command.
+into a Parquet file with clinical-significance labels. Cached locally
+and prepared by
+`geno-lewm-prepare-clinvar --input-vcf <local.vcf[.gz]> --release YYYY-MM-DD --output DIR`.
 
 ### 3.5 Tuple builder
 
@@ -301,4 +309,6 @@ signal for a downstream supervised head, which is out of v1 scope.
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for local shard builders,
+  tuple streaming, holdout policy, and dataset release tooling.
 - 2026-05-20 — Initial draft.

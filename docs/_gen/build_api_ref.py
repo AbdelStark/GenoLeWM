@@ -23,7 +23,10 @@ def _iter_modules() -> list[tuple[str, Path]]:
     submodule, sorted by dotted name."""
     found: list[tuple[str, Path]] = []
     for path in sorted(PACKAGE_DIR.rglob("*.py")):
-        if any(part.startswith("_") and part != "__init__.py" for part in path.relative_to(PACKAGE_DIR).parts):
+        if any(
+            part.startswith("_") and part != "__init__.py"
+            for part in path.relative_to(PACKAGE_DIR).parts
+        ):
             continue
         rel = path.relative_to(PACKAGE_DIR.parent)
         parts = list(rel.with_suffix("").parts)

@@ -12,7 +12,9 @@
 ## Module boundaries
 
 The repository is organized so that every RFC has exactly one home module
-and every module has exactly one defining RFC.
+and every module has exactly one defining RFC. This map lists the
+implemented package layout; planned contracts that do not yet have code
+are tracked in the roadmap rather than shown as present modules.
 
 ```
 geno_lewm/
@@ -35,44 +37,51 @@ geno_lewm/
 │   ├── gnomad.py
 │   ├── clinvar.py
 │   ├── builder.py
-│   └── holdouts.py
-├── eval/              # RFC-0007 — VEP, rollout, efficiency
-│   ├── vep.py
-│   ├── rollout.py
-│   ├── efficiency.py
-│   └── calibration.py
-├── planning/          # RFC-0008 — CEM, MCTS (Phase 2), cost functions
-│   ├── cem.py
-│   ├── mcts.py
-│   └── cost.py
+│   └── _vcf.py
+├── evaluation.py      # RFC-0007 — artifact metrics and eval report payloads
+├── carbon_zero_shot.py # RFC-0007 — Carbon baseline score artifacts
+├── planning/          # RFC-0008 — cost functions and action sampling
+│   ├── costs.py
+│   └── sampling.py
 ├── surprise/          # RFC-0009 — raw + calibrated surprise
 │   ├── context.py
 │   ├── score.py
 │   └── calibration.py
-├── deploy/            # RFC-0010 + RFC-0019 — export, quantization, runtime
-│   ├── onnx.py
-│   ├── coreml.py
-│   ├── ggml.py
+├── deploy/            # RFC-0010 + RFC-0019 — runtime and import helpers
 │   ├── runtime.py
-│   └── attestation.py
-├── attestation/       # RFC-0011 — manifest, receipts, verifier
+│   └── import_/
+├── provenance/        # RFC-0011 — preferred manifests, receipts, hashes API
+│   ├── commitment.py
+│   ├── hashing.py
 │   ├── manifest.py
-│   ├── receipt.py
-│   ├── verify.py
-│   └── hashing.py
+│   └── receipt.py
 ├── cli/               # RFC-0018 — command-line surface
 │   ├── train.py
 │   ├── score.py
 │   ├── rollout.py
 │   ├── plan.py
 │   ├── eval.py
+│   ├── eval_all.py
+│   ├── carbon_baseline.py
 │   ├── export.py
-│   ├── prepare.py
+│   ├── prepare_gnomad.py
+│   ├── prepare_clinvar.py
+│   ├── update.py
 │   └── verify.py
 ├── config/            # RFC-0017 — Hydra config schema
+│   ├── loader.py
+│   ├── schema.py
 │   └── defaults/
+├── training/          # RFC-0005/RFC-0006 — training and preflight helpers
+│   ├── fixture.py
+│   ├── preflight.py
+│   ├── real.py
+│   ├── trainer.py
+│   ├── collapse.py
+│   └── sampling.py
 ├── errors.py          # RFC-0012 — exception hierarchy (single file by design)
 ├── observability.py   # RFC-0013 — logger factory, metric names, redaction
+├── metrics.py         # RFC-0013 — metrics registry and export
 └── __init__.py
 ```
 
@@ -143,6 +152,9 @@ search amortizes one Carbon call across thousands of predictor rollouts.
 ## Invariants
 
 These hold across all subsystems. Violations are bugs, not features.
+Release-dependent invariants describe required behavior for published
+inference paths; until the first real terminal demo ships, they remain
+implementation and release gates rather than public artifact evidence.
 
 | ID | Invariant | Enforced by |
 |----|-----------|-------------|
@@ -151,8 +163,8 @@ These hold across all subsystems. Violations are bugs, not features.
 | INV-ARCH-3 | Action embeddings are projected to the predictor's hidden dim by exactly one learned linear layer | predictor input-projection module is a single `nn.Linear` |
 | INV-ARCH-4 | Multi-edit application is right-to-left by descending `rel_pos` | `action/apply.py::apply_edits` |
 | INV-ARCH-5 | Cache lookups are content-addressed by `(window_hash, encoder_hash, state_layer, pool_type, pool_radius)` | `encoder/cache.py` |
-| INV-ARCH-6 | Every inference call produces a receipt; receipts are forward-compatible | `attestation/receipt.py::write` |
-| INV-ARCH-7 | No inference path performs a network call after first-run setup | runtime fail-closed guard in `deploy/runtime.py` |
+| INV-ARCH-6 | Every published inference path can produce a checksum receipt | `provenance/receipt.py::write_receipt` |
+| INV-ARCH-7 | Published inference paths perform no network call after first-run setup | runtime fail-closed guard in `deploy/runtime.py` |
 | INV-ARCH-8 | Every public function with a side effect on disk takes an explicit path argument | linted (custom AST check in CI) |
 | INV-ARCH-9 | bf16 is the default predictor dtype; up-cast to fp32 occurs only at the loss boundary | trainer config defaults |
 | INV-ARCH-10 | Reference embeddings cached on disk are never overwritten in place; new configs produce new shards | `encoder/cache.py::write_shard` |
@@ -201,7 +213,7 @@ Subsystems fail fast and fail loud. The contract:
   encoding with a `cache_miss` metric increment.
 - **Network failures during first-run setup** raise `RuntimeSetupError`
   with a clear retry strategy.
-- **Backend mismatches** during verification raise `AttestationMismatchError`
+- **Backend mismatches** during receipt verification raise `ProvenanceError`
   with the expected and observed backends.
 
 No subsystem swallows exceptions. No subsystem returns `None` on failure.

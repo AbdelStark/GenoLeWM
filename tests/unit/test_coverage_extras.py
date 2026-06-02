@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 
 from geno_lewm import _redaction as red, metrics as m, observability as obs
-from geno_lewm.attestation.hashing import looks_like_sha256
 from geno_lewm.errors import InputError
+from geno_lewm.provenance.hashing import looks_like_sha256
 
 # ---------------------------------------------------------------------------
 # Metric primitive reset paths.
@@ -377,17 +377,17 @@ def test_synthetic_samplers_skip_n_bases() -> None:
 # Receipt + verify path coverage.
 
 
-def test_receipt_attestation_rejects_unknown_kind() -> None:
-    from geno_lewm.attestation import ReceiptAttestation
+def test_receipt_provenance_rejects_unknown_kind() -> None:
     from geno_lewm.errors import InputError as _input_error  # noqa: N813
+    from geno_lewm.provenance import ReceiptProvenance
 
     with pytest.raises(_input_error):
-        ReceiptAttestation(kind="not-a-kind")
+        ReceiptProvenance(kind="not-a-kind")
 
 
 def test_receipt_output_rejects_non_float() -> None:
-    from geno_lewm.attestation import ReceiptOutput
     from geno_lewm.errors import InputError as _input_error  # noqa: N813
+    from geno_lewm.provenance import ReceiptOutput
 
     with pytest.raises(_input_error):
         ReceiptOutput(

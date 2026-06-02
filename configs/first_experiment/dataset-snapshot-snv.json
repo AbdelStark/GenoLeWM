@@ -1,0 +1,79 @@
+{
+  "carbon_files": [
+    {
+      "description": "Carbon pretraining source-mix genomic windows staged from the pinned corpus revision for first-experiment training",
+      "path": "carbon/source-mix-windows.jsonl",
+      "source_path": "inputs/carbon/source-mix-windows.jsonl",
+      "split": "train_carbon"
+    }
+  ],
+  "clinvar": {
+    "description": "ClinVar SNV records held out for first-experiment pathogenicity and rollout evaluation",
+    "input_vcf": "inputs/clinvar/clinvar-2026-04-15-snv.vcf.gz",
+    "max_allele_len": 16,
+    "release": "2026-04-15",
+    "split": "eval_clinvar"
+  },
+  "generated_at": "2026-06-02T00:00:00Z",
+  "gnomad": {
+    "description": "gnomAD v4.1 PASS common SNVs used for edit sampling and common-variant training context",
+    "input_vcf": "inputs/gnomad/gnomad-v4.1-snv.vcf.gz",
+    "max_allele_len": 16,
+    "min_af": 0.01,
+    "release": "v4.1",
+    "split": "train_gnomad_common"
+  },
+  "intended_use": "First GenoLeWM paper and terminal-demo experiments with reproducible training, evaluation, and release packaging.",
+  "leakage_checks": [
+    "No training split may share comparable variant keys with held-out ClinVar evaluation rows.",
+    "Split record counts and comparable-key overlaps are recomputed from staged files before publication."
+  ],
+  "license": "Apache-2.0 for GenoLeWM package metadata; upstream data licenses and terms apply to source records.",
+  "limitations": [
+    "This snapshot is a research artifact for world-model experiments and is not a clinical dataset.",
+    "ClinVar labels and gnomAD population frequencies may change after the pinned upstream releases.",
+    "Local operators must stage upstream source files under the ignored inputs directory before building the public package."
+  ],
+  "preprocessing": [
+    "Stage Carbon source-mix windows from the pinned Hugging Face corpus revision.",
+    "Filter local gnomAD VCF rows to PASS SNVs above the configured global allele-frequency threshold.",
+    "Normalize local ClinVar VCF rows and preserve labelled and unlabelled SNV classes for evaluation."
+  ],
+  "schema_version": "1.0.0",
+  "snapshot_id": "geno-lewm-data-v0.1.0-r1",
+  "sources": [
+    {
+      "license": "Carbon upstream corpus terms",
+      "name": "Carbon pretraining corpus",
+      "notes": "Revision pinned from the Hugging Face dataset repository head used for the first experiment snapshot plan.",
+      "revision": "cb4c13a78102933b3a6ac65734d326f7b431d9b7",
+      "url": "https://huggingface.co/datasets/HuggingFaceBio/carbon-pretraining-corpus"
+    },
+    {
+      "license": "gnomAD terms of use",
+      "name": "gnomAD",
+      "notes": "Local VCF source file is filtered to PASS common SNVs before packaging.",
+      "revision": "v4.1",
+      "url": "https://gnomad.broadinstitute.org/downloads"
+    },
+    {
+      "license": "NCBI public data terms",
+      "name": "ClinVar",
+      "notes": "Local VCF source file is normalized into the held-out first-experiment evaluation shard.",
+      "revision": "2026-04-15",
+      "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/"
+    }
+  ],
+  "split_policy": "Carbon and gnomAD training material excludes any comparable variant keys present in the held-out ClinVar evaluation split.",
+  "splits": {
+    "eval_clinvar": {
+      "description": "held-out ClinVar SNV labels for first-experiment evaluation"
+    },
+    "train_carbon": {
+      "description": "Carbon source-mix genomic windows for representation and transition training"
+    },
+    "train_gnomad_common": {
+      "description": "gnomAD common SNVs for edit sampling and common-variant context"
+    }
+  }
+}

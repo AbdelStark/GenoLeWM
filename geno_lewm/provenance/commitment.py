@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from geno_lewm.action.spec import EditSpec
-from geno_lewm.attestation.hashing import canonical_json_sha256
 from geno_lewm.errors import InputError
+from geno_lewm.provenance.hashing import canonical_json_sha256
 
 __all__ = ["DtypeConfig", "PoolingConfig", "compute_input_commitment"]
 

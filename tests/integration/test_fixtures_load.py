@@ -4,7 +4,7 @@
 Confirms that the on-disk fixtures under ``tests/fixtures/`` parse
 cleanly through the corresponding public dataclasses. This is the
 smallest non-trivial integration test: file system → loader → typed
-attestation API.
+provenance API.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from geno_lewm.attestation import RECEIPT_SCHEMA_VERSION, Receipt, read_receipt
+from geno_lewm.provenance import RECEIPT_SCHEMA_VERSION, Receipt, read_receipt
 from tests.fixtures import load_json
 
 

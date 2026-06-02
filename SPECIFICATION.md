@@ -1,8 +1,10 @@
 # GenoLeWM — Specification (synthesized canonical view)
 
 - **Version:** 0.1.0-draft
-- **Date:** 2026-05-20
-- **Status:** Design phase. No reference implementation yet.
+- **Date:** 2026-06-01
+- **Status:** Alpha implementation. Infrastructure is implemented; the
+  first full training run, public model release, evaluation report, and
+  terminal inference demo are still open work.
 - **Authoritative sources:** the RFCs in [`rfcs/`](rfcs/) and the
   per-section spec corpus under [`docs/spec/`](docs/spec/). This document
   synthesizes them for readers who want a single end-to-end view.
@@ -94,10 +96,10 @@ These principles drive every concrete decision in the RFCs.
    16 GB consumer GPU or M-series Mac. This rules out heavy predictor
    architectures.
 
-6. **Verifiability hooks are first-class.** Every inference output exposes
-   the hashes of (encoder weights, predictor weights, input window, action
-   spec). Downstream STARK attestation is the user's problem, but the
-   ingredients are surfaced. See RFC-0011.
+6. **Artifact provenance is first-class.** Released outputs expose the
+   hashes of the model manifest, input commitment, and output block so
+   experiments can be reproduced and tampering can be detected. See
+   RFC-0011.
 
 7. **Open everything.** Weights, training code, eval scripts, data
    pipelines. Apache-2.0.
@@ -353,7 +355,7 @@ Phase 2.
 **Intended use.**
 - Research on genomic variant effects and latent representations of edits.
 - Educational and exploratory tooling for personal genomics.
-- A substrate for downstream verifiable-inference experiments.
+- A substrate for reproducible genomic world-model experiments.
 
 **NOT intended for.**
 - Clinical diagnosis or treatment decisions.

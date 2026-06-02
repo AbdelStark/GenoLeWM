@@ -3,8 +3,8 @@
 > **Action-conditioned JEPA world model for DNA, built on top of Carbon.**
 
 [![CI](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml/badge.svg)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/geno-lewm.svg?label=PyPI)](https://pypi.org/project/geno-lewm/)
-[![Python](https://img.shields.io/pypi/pyversions/geno-lewm.svg)](https://pypi.org/project/geno-lewm/)
+[![Status](https://img.shields.io/badge/status-alpha%20pre--release-orange.svg)](roadmap/IMPLEMENTATION.md)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/AbdelStark/GenoLeWM/blob/main/pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/AbdelStark/GenoLeWM/blob/main/LICENSE)
 [![Typed](https://img.shields.io/badge/typed-mypy--strict-blue.svg)](https://mypy.readthedocs.io/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -18,13 +18,14 @@ $$
 \hat s_{t+1} = g(s_t, a) \qquad s_t = \mathrm{enc}(w_{\text{ref}}) \qquad a = \mathrm{action}(\text{EditSpec})
 $$
 
-That single equation unlocks:
+The research hypothesis is that this can support:
 
-- **Variant-effect prediction** at a fraction of Carbon's inference cost.
+- **Variant-effect prediction** with fewer Carbon passes once trained.
 - **Multi-edit haplotype rollout** in latent space.
 - **Planning** over edit sequences via latent MPC.
 - **Surprise-based pathogenicity scoring** — predictor error as a signal.
-- **On-device personal-genome inference** — Carbon-500M + a ~15M-param head fits on a laptop.
+- **Local-first inference** over user-provided variant files once public
+  checkpoints and runtime artifacts exist.
 
 ## Where to start
 
@@ -37,42 +38,39 @@ That single equation unlocks:
 
 ## What ships today
 
-Phase 0 of the project shipped the **production infrastructure layer**:
+The repository currently ships local contracts and release tooling, not
+paper results. Install from source through the [Quickstart](quickstart.md)
+until the first PyPI tag is cut.
 
-- **Typed error hierarchy** with a stable code registry (RFC-0012).
-- **Structured logging** with privacy redaction by default (RFC-0013).
-- **Metrics registry** with Prometheus textfile export.
-- **Canonical edit specs** (`EditSpec`, `RelEdit`) and pure-Python apply
-  helpers, with property tests (RFC-0003).
-- **Synthetic edit samplers** for the data pipeline (RFC-0006 §3.4).
-- **Content-addressed attestation primitives** — manifests, receipts,
-  input/output commitments, and the `geno-lewm-verify` CLI (RFC-0011).
-- **Public-API stability decorators** (`experimental`, `deprecated`)
-  with per-call-site deduplication (RFC-0014).
-- **CI gates** — AST-level error / event / metric / network / print
-  linters, plus a committed public-surface snapshot.
-- **Optional PyTorch predictor module** — the base cross-attention
-  `Predictor` with identity-at-init and public-surface coverage.
-- **Carbon corpus window sampler** — RFC-0006 source-mix sampling,
-  deterministic subsetting, and margin/stride window extraction.
-- **Edit-balanced training sampler** — RFC-0005 edit-type weights and
-  Phase-1 rollout-length mix.
-- **Collapse-monitoring diagnostics** — RFC-0005 variance, pairwise
-  distance, correlation, and KL-registry metrics with structured alerts.
-- **Planning primitives** — RFC-0008 cost functions and factored
-  `ActionSampler` for valid window-relative edits.
-- **Surprise calibration primitives** — RFC-0009 region / GC / repeat
-  labels, deterministic bucket IDs, sparse-bucket back-off, and
-  `calibration.parquet` table building from pre-scored reference rows.
-- **Deploy runtime contract** — RFC-0010 backend probing and
-  fail-closed network guard for offline inference paths.
-- **Personal-genome importers** — RFC-0010 local-only conversion from
-  23andMe, AncestryDNA, MyHeritage, and Sequencing.com-style raw data
-  fixtures into VCF.
+- **Core Python surface:** typed errors, privacy-aware structured logs,
+  metrics, canonical edit specs, pure-Python edit application,
+  `ActionEncoder`, `Predictor`, `ARPredictor`, surprise scoring, and
+  local-only personal-genome importers.
+- **Data and training contracts:** Carbon window sampling, gnomAD and
+  ClinVar VCF-to-Parquet prep commands, tuple-builder source-mix and
+  holdout rules, `GenoLeWMDataset`, fixture smoke training, Carbon
+  preflight, and a preflight-gated Carbon-backed trainer launcher.
+- **Evaluation and release contracts:** checksum manifests/receipts,
+  `geno-lewm-score`, `geno-lewm-verify`, Carbon zero-shot baseline
+  scoring, measured metrics aggregation, efficiency-report generation,
+  terminal-demo transcript generation, dataset/model/paper package
+  verifiers, Hub dry-run/publish helpers, clean-machine replay, and
+  final publication-evidence binding.
+- **Project guardrails:** public API snapshot tests, duplicate-free
+  `__all__` checks, source-language linting for de-scoped trust claims,
+  release-blocker issue references, and strict docs rendering.
 
-What's *not* yet shipped: trainer, autoregressive rollout, eval harness,
-CEM solver, full surprise scorer, runtime scoring backends, ONNX / Core
-ML / GGUF exporters. See the [roadmap](roadmap/IMPLEMENTATION.md).
+What is *not* paper-ready yet: no GenoLeWM checkpoint or dataset snapshot
+has been published, no Carbon-backed training run has completed, no
+paper-grade measured evaluation exists, and no clean-machine terminal
+demo has replayed from released public artifacts. See the
+[roadmap](roadmap/IMPLEMENTATION.md) and live release blockers
+[#101](https://github.com/AbdelStark/GenoLeWM/issues/101),
+[#163](https://github.com/AbdelStark/GenoLeWM/issues/163),
+[#164](https://github.com/AbdelStark/GenoLeWM/issues/164),
+[#165](https://github.com/AbdelStark/GenoLeWM/issues/165),
+[#166](https://github.com/AbdelStark/GenoLeWM/issues/166), and
+[#167](https://github.com/AbdelStark/GenoLeWM/issues/167).
 
 ## Acknowledgments
 

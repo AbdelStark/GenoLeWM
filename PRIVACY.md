@@ -78,7 +78,7 @@ format does not embed it.
 - **`--per-variant-receipts`** writes one receipt per variant when
   scoring a VCF. This is opt-in because it produces large outputs.
 - **`--audit-log`** (planned post-v1) records every file access during
-  scoring. Useful for verifiable workflows. Off by default.
+  scoring. Useful for reproducibility audits. Off by default.
 
 ## What you can do
 

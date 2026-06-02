@@ -99,9 +99,9 @@ def discover_registered_events(module: Path = OBSERVABILITY_MODULE) -> set[str]:
 def discover_registered_metrics(module: Path = METRICS_MODULE) -> set[str] | None:
     """Return registered metric names, or ``None`` if METRICS is absent.
 
-    Returning ``None`` lets the caller skip the metric check entirely
-    until the metrics module ships (#25). When the module lands, the
-    check arms automatically.
+    Returning ``None`` keeps the checker tolerant of partial source
+    snapshots, but the normal repository path has a metrics registry and
+    therefore runs the metric-name check.
     """
     if not module.is_file():
         return None
@@ -138,7 +138,7 @@ def _is_metric_method_call(node: ast.Call) -> ast.Attribute | None:
     """Return the Attribute node iff ``node`` looks like
     ``<x>.inc(...)`` / ``observe(...)`` / ``set(...)``.
 
-    Name-based: we cannot prove the callee is actually a counter
+    Name-based: we cannot confirm the callee is actually a counter
     without type inference, but the convention in this codebase is
     explicit (`counter.inc`, `histogram.observe`). False positives are
     fine — every spelling of those method names must take a registered

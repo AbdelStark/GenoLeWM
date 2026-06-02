@@ -69,6 +69,12 @@ jobs:
       - name: Sync locked build environment
         run: uv sync --locked --extra dev
 
+      - name: Check first-experiment dataset spec
+        run: >-
+          uv run python -m tools.release.dataset_snapshot
+          --spec-json configs/first_experiment/dataset-snapshot-snv.json
+          --check-spec
+
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -87,12 +93,15 @@ jobs:
       - name: Twine check
         run: uv run twine check --strict dist/*
 
+      - name: Check sdist release assets
+        run: uv run python -m tools.release.check_sdist_assets dist/*.tar.gz
+
       - name: Compute artifact digests
         run: |
           cd dist
           sha256sum *.tar.gz *.whl > SHA256SUMS
 
-      - name: Attest release artifacts
+      - name: Publish release build provenance
         uses: actions/attest-build-provenance@v4.1.0
         with:
           subject-path: |
@@ -189,8 +198,8 @@ jobs:
               }
               capture' CHANGELOG.md
             echo ""
-            echo "Artifact provenance is published as GitHub/Sigstore build attestations."
-            echo "Verify locally with: gh attestation verify --repo ${GITHUB_REPOSITORY} <artifact>"
+            echo "Artifact provenance is published through GitHub/Sigstore build provenance."
+            echo "Verify locally with the GitHub CLI provenance verification command."
           } > release_notes.md
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 

@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from geno_lewm.attestation import (
+from geno_lewm.cli import update
+from geno_lewm.cli._dispatch import run_app
+from geno_lewm.errors import InputError, RuntimeSetupError
+from geno_lewm.provenance import (
     SCHEMA_VERSION,
     Manifest,
     ManifestArtifact,
@@ -18,9 +21,6 @@ from geno_lewm.attestation import (
     sha256_bytes,
     write_manifest,
 )
-from geno_lewm.cli import update
-from geno_lewm.cli._dispatch import run_app
-from geno_lewm.errors import InputError, RuntimeSetupError
 
 
 def _write_checkpoint(root: Path, *, version: str, release_id: str, seed: str) -> Manifest:

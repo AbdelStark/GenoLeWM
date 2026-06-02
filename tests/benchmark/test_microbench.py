@@ -4,11 +4,11 @@
 The suite targets functions that the receipt verifier and the action
 mutation path invoke in tight loops:
 
-- :func:`geno_lewm.attestation.hashing.canonical_json_sha256`
-- :func:`geno_lewm.attestation.hashing.sha256_bytes`
-- :func:`geno_lewm.attestation.hashing.sha256_file`
-- :func:`geno_lewm.attestation.commitment.compute_input_commitment`
-- :func:`geno_lewm.attestation.receipt.compute_output_commitment`
+- :func:`geno_lewm.provenance.hashing.canonical_json_sha256`
+- :func:`geno_lewm.provenance.hashing.sha256_bytes`
+- :func:`geno_lewm.provenance.hashing.sha256_file`
+- :func:`geno_lewm.provenance.commitment.compute_input_commitment`
+- :func:`geno_lewm.provenance.receipt.compute_output_commitment`
 - :func:`geno_lewm.action.apply.apply_edit`
 - :func:`geno_lewm.action.apply.apply_edits`
 - :class:`geno_lewm.action.spec.EditSpec` validation
@@ -33,17 +33,17 @@ import pytest
 
 from geno_lewm.action.apply import apply_edit, apply_edits
 from geno_lewm.action.spec import EditSpec, EditType, RelEdit
-from geno_lewm.attestation.commitment import (
+from geno_lewm.provenance.commitment import (
     DtypeConfig,
     PoolingConfig,
     compute_input_commitment,
 )
-from geno_lewm.attestation.hashing import (
+from geno_lewm.provenance.hashing import (
     canonical_json_sha256,
     sha256_bytes,
     sha256_file,
 )
-from geno_lewm.attestation.receipt import ReceiptOutput, compute_output_commitment
+from geno_lewm.provenance.receipt import ReceiptOutput, compute_output_commitment
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pytest_benchmark.fixture import BenchmarkFixture

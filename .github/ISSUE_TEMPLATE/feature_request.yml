@@ -33,10 +33,10 @@ body:
     attributes:
       label: Scope
       options:
-        - v0.1 (Phase 1)
-        - v0.2 (Phase 2)
-        - v0.3 (Phase 3)
-        - v0.4 / Phase 4
+        - First paper/demo release
+        - Post-paper data/model hardening
+        - Post-paper planner/runtime expansion
+        - Post-paper desktop/release polish
         - Post-1.0
     validations:
       required: true

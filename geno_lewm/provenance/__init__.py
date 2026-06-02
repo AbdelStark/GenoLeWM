@@ -1,19 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Verifiable-inference primitives for GenoLeWM (RFC-0011).
+"""Artifact provenance primitives for GenoLeWM.
 
-Today this package exposes the content-addressed model identifiers and
-manifest schema (#74). Input commitments (#75), receipts (#76), and
-the verify CLI (#77) land in follow-up issues; STARK / TEE attestation
-is Phase 4 work.
+This is the preferred public import path for manifests, hashes,
+input/output commitments, and checksum receipts. The package does not
+implement or claim runtime assurance beyond checksum provenance.
 """
 
-from geno_lewm.attestation.commitment import (
+from geno_lewm.provenance.commitment import (
     DtypeConfig,
     PoolingConfig,
     compute_input_commitment,
 )
-from geno_lewm.attestation.hashing import canonical_json_sha256, sha256_bytes, sha256_file
-from geno_lewm.attestation.manifest import (
+from geno_lewm.provenance.hashing import canonical_json_sha256, sha256_bytes, sha256_file
+from geno_lewm.provenance.manifest import (
     SCHEMA_VERSION,
     Manifest,
     ManifestArtifact,
@@ -22,14 +21,15 @@ from geno_lewm.attestation.manifest import (
     load_manifest,
     write_manifest,
 )
-from geno_lewm.attestation.receipt import (
+from geno_lewm.provenance.receipt import (
     RECEIPT_SCHEMA_VERSION,
-    SUPPORTED_ATTESTATION_KINDS,
+    SUPPORTED_PROVENANCE_KINDS,
     Receipt,
-    ReceiptAttestation,
     ReceiptOutput,
+    ReceiptProvenance,
     ReceiptRuntime,
     compute_output_commitment,
+    parse_receipt_payload,
     read_receipt,
     write_receipt,
 )
@@ -37,7 +37,7 @@ from geno_lewm.attestation.receipt import (
 __all__ = [
     "RECEIPT_SCHEMA_VERSION",
     "SCHEMA_VERSION",
-    "SUPPORTED_ATTESTATION_KINDS",
+    "SUPPORTED_PROVENANCE_KINDS",
     "DtypeConfig",
     "Manifest",
     "ManifestArtifact",
@@ -45,13 +45,14 @@ __all__ = [
     "ManifestTraining",
     "PoolingConfig",
     "Receipt",
-    "ReceiptAttestation",
     "ReceiptOutput",
+    "ReceiptProvenance",
     "ReceiptRuntime",
     "canonical_json_sha256",
     "compute_input_commitment",
     "compute_output_commitment",
     "load_manifest",
+    "parse_receipt_payload",
     "read_receipt",
     "sha256_bytes",
     "sha256_file",

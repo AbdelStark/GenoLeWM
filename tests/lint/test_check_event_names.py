@@ -18,7 +18,7 @@ def write(tmp_path: Path, name: str, body: str) -> Path:
 def test_registry_discovery_finds_canonical_events() -> None:
     events = linter.discover_registered_events()
     # Spot-check across families.
-    for n in ("training.run.start", "eval.regression", "attestation.verify.end", "error"):
+    for n in ("training.run.start", "eval.regression", "provenance.verify.end", "error"):
         assert n in events
 
 

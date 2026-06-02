@@ -3,10 +3,14 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Implemented for the v1 typed exception
+  surface: stable error-code registry, typed subclasses, structured
+  details/remediation payloads, and CLI exit-code mapping exist with
+  unit/API coverage. Error-code docs generation and lookup helpers remain
+  future work.
 
 ---
 
@@ -25,7 +29,7 @@ Without a shared error taxonomy, every subsystem invents its own
 exceptions, the CLI's error messages become inconsistent, and downstream
 tooling cannot distinguish "input malformed" from "model corrupt" from
 "network refused." The taxonomy also gives the receipt format
-([RFC-0011](0011-verifiable-inference-attestation.md)) a stable vocabulary
+([RFC-0011](0011-artifact-provenance-receipts.md)) a stable vocabulary
 for documenting failure modes, and the observability layer
 ([RFC-0013](0013-observability.md)) a stable `code` field for filtering.
 
@@ -42,7 +46,7 @@ The root is `geno_lewm.errors.GenoLeWMError`. Top-level branches:
 - `TrainingError`
 - `EvalError`
 - `DeployError`
-- `AttestationError`
+- `ProvenanceError`
 - `InternalError`
 
 Each branch has named leaves enumerated in the spec document. Adding a
@@ -95,7 +99,7 @@ Violations fail CI.
 | 5 | `TrainingError` |
 | 6 | `EvalError` |
 | 7 | `DeployError` |
-| 8 | `AttestationError` |
+| 8 | `ProvenanceError` |
 | 9 | `InternalError` |
 | 1, 130 | reserved |
 
@@ -180,4 +184,6 @@ versions; v1 ships typed exceptions.
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for the v1 typed error
+  hierarchy and CLI exit-code mapping.
 - 2026-05-20 — Initial draft.

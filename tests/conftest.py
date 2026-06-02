@@ -30,8 +30,8 @@ import pytest
 
 if TYPE_CHECKING:
     from geno_lewm.action.spec import EditSpec
-    from geno_lewm.attestation.commitment import DtypeConfig, PoolingConfig
-    from geno_lewm.attestation.receipt import ReceiptOutput
+    from geno_lewm.provenance.commitment import DtypeConfig, PoolingConfig
+    from geno_lewm.provenance.receipt import ReceiptOutput
 
 # Tests need ``tests.fixtures`` importable so they can read the canned
 # JSON blobs. The directory ships with an ``__init__.py``; nothing else
@@ -120,7 +120,7 @@ def synthetic_edit_spec() -> EditSpec:
 @pytest.fixture()
 def synthetic_pooling_config() -> PoolingConfig:
     """A canonical ``PoolingConfig`` (centered_mean, layer 20)."""
-    from geno_lewm.attestation.commitment import PoolingConfig
+    from geno_lewm.provenance.commitment import PoolingConfig
 
     return PoolingConfig(state_layer=20, pool_type="centered_mean", pool_radius=8, normalize=True)
 
@@ -128,7 +128,7 @@ def synthetic_pooling_config() -> PoolingConfig:
 @pytest.fixture()
 def synthetic_dtype_config() -> DtypeConfig:
     """A canonical bf16/bf16 ``DtypeConfig``."""
-    from geno_lewm.attestation.commitment import DtypeConfig
+    from geno_lewm.provenance.commitment import DtypeConfig
 
     return DtypeConfig(encoder_dtype="bf16", predictor_dtype="bf16")
 
@@ -136,7 +136,7 @@ def synthetic_dtype_config() -> DtypeConfig:
 @pytest.fixture()
 def synthetic_receipt_output() -> ReceiptOutput:
     """A canonical ``ReceiptOutput`` (coding.missense, high confidence)."""
-    from geno_lewm.attestation.receipt import ReceiptOutput
+    from geno_lewm.provenance.receipt import ReceiptOutput
 
     return ReceiptOutput(
         sigma_raw=0.7321,

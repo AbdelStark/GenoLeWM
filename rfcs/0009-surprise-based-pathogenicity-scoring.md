@@ -3,10 +3,15 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004, RFC-0005, RFC-0007
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — context stratification,
+  calibration table helpers, raw surprise scoring, local `score_variant`
+  / `score_vcf`, `geno-lewm-score`, manifest-backed runtime loading,
+  and single-variant plus VCF receipt emission exist. Validation against
+  released model/data artifacts and the clean-machine score transcript
+  remain open.
 
 ---
 
@@ -360,6 +365,8 @@ surprise score is intentionally unsupervised in v1.
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for scoring APIs, CLI
+  paths, calibration helpers, and receipt emission.
 - 2026-05-31 — Implemented deterministic context bucket IDs and
   sparse-bucket back-off helpers.
 - 2026-05-31 — Implemented deterministic calibration table building

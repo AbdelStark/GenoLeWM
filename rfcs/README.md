@@ -37,7 +37,7 @@ naming conventions resolve correctly.
 |------|-------|--------|-----------|
 | 0001 | [Project scope and goals](0001-project-scope-and-goals.md) | Draft | scope |
 | 0002 | [State encoder — Carbon integration](0002-state-encoder-carbon-integration.md) | Draft | encoder |
-| 0003 | [Action representation — genomic edits](0003-action-representation-genomic-edits.md) | Draft | action |
+| 0003 | [Action representation — genomic edits](0003-action-representation-genomic-edits.md) | Accepted | action |
 | 0004 | [Predictor architecture](0004-predictor-architecture.md) | Draft | predictor |
 | 0005 | [Training objective](0005-training-objective.md) | Draft | training |
 | 0006 | [Data pipeline](0006-data-pipeline.md) | Draft | data |
@@ -45,9 +45,9 @@ naming conventions resolve correctly.
 | 0008 | [Latent planning](0008-latent-planning.md) | Draft | planning |
 | 0009 | [Surprise-based pathogenicity scoring](0009-surprise-based-pathogenicity-scoring.md) | Draft | surprise |
 | 0010 | [On-device personal-genome deployment](0010-on-device-personal-genome-deployment.md) | Draft | deploy |
-| 0011 | [Verifiable inference and attestation](0011-verifiable-inference-attestation.md) | Draft | attestation |
+| 0011 | [Artifact provenance and receipts](0011-artifact-provenance-receipts.md) | Accepted | provenance |
 | 0012 | [Error taxonomy and exception hierarchy](0012-error-taxonomy.md) | Draft | cross-cutting |
-| 0013 | [Observability — logging, metrics, redaction](0013-observability.md) | Draft | cross-cutting |
+| 0013 | [Observability — logging, metrics, redaction](0013-observability.md) | Accepted | cross-cutting |
 | 0014 | [Public Python API surface and stability policy](0014-public-api-and-stability.md) | Draft | cross-cutting |
 | 0015 | [Testing strategy and CI gates](0015-testing-strategy.md) | Draft | cross-cutting |
 | 0016 | [Performance budget and profiling discipline](0016-performance-budget.md) | Draft | cross-cutting |
@@ -68,8 +68,8 @@ Each RFC only assumes the ones before it. Specifically:
   and measured.
 - **0008, 0009** define the two main downstream uses (planning and
   surprise scoring).
-- **0010, 0011** define how the trained system is deployed and made
-  verifiable. The freedom-tech RFCs.
+- **0010, 0011** define how the trained system is deployed and how
+  release artifacts are made reproducible.
 - **0012–0017** define cross-cutting engineering concerns (errors,
   observability, API stability, testing, performance, configuration).
   They cut across the subsystem RFCs and lock the load-bearing decisions

@@ -3,7 +3,7 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004
 - **Supersedes:** —
 - **Implementation status:** Partial; cost functions and the factored

@@ -1,10 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Surprise-scoring helpers for RFC-0009.
-
-The model-dependent raw scorer is still layered on top of the predictor
-runtime. This package currently exposes the pure-Python context
-stratification surface used by calibration buckets.
-"""
+"""Surprise-scoring helpers for RFC-0009."""
 
 from geno_lewm.surprise.calibration import (
     CALIBRATION_SCHEMA_VERSION,
@@ -37,6 +32,12 @@ from geno_lewm.surprise.context import (
     make_bucket_id,
     select_backoff_bucket,
 )
+from geno_lewm.surprise.score import (
+    Aggregation,
+    SurpriseResult,
+    score_variant,
+    score_vcf,
+)
 
 __all__ = [
     "CALIBRATION_SCHEMA_VERSION",
@@ -50,11 +51,13 @@ __all__ = [
     "REGION_CLASSES",
     "REPEAT_CLASSES",
     "UNKNOWN_BUCKET_ID",
+    "Aggregation",
     "CalibrationBucket",
     "CalibrationExample",
     "CalibrationTable",
     "CalibrationWarning",
     "ContextLabel",
+    "SurpriseResult",
     "backoff_chain",
     "build_calibration_table",
     "classify_context",
@@ -64,6 +67,8 @@ __all__ = [
     "gc_fraction",
     "make_bucket_id",
     "read_calibration_table",
+    "score_variant",
+    "score_vcf",
     "select_backoff_bucket",
     "write_calibration_table",
 ]

@@ -4,8 +4,8 @@
 GenoLeWM treats genetic edits as first-class actions and learns latent
 transitions on top of a frozen DNA foundation model. The package today
 ships the production infrastructure layer (typed errors, structured
-observability with privacy redaction, content-addressed attestation,
-canonical edit specs, the verify CLI). The training, predictor, and
+observability with privacy redaction, content-addressed provenance
+receipts, canonical edit specs, the verify CLI). The training, predictor, and
 deployment surfaces land incrementally — see ``ROADMAP.md`` and the
 ``rfcs/`` corpus.
 
@@ -35,30 +35,6 @@ from geno_lewm.action import (
     uniform_snv,
 )
 from geno_lewm.api import deprecated, experimental
-from geno_lewm.attestation import (
-    RECEIPT_SCHEMA_VERSION,
-    SCHEMA_VERSION,
-    SUPPORTED_ATTESTATION_KINDS,
-    DtypeConfig,
-    Manifest,
-    ManifestArtifact,
-    ManifestEncoder,
-    ManifestTraining,
-    PoolingConfig,
-    Receipt,
-    ReceiptAttestation,
-    ReceiptOutput,
-    ReceiptRuntime,
-    canonical_json_sha256,
-    compute_input_commitment,
-    compute_output_commitment,
-    load_manifest,
-    read_receipt,
-    sha256_bytes,
-    sha256_file,
-    write_manifest,
-    write_receipt,
-)
 from geno_lewm.deploy import (
     BACKEND_AUTO,
     BACKEND_COREML,
@@ -72,10 +48,9 @@ from geno_lewm.deploy import (
     probe_backends,
     select_backend,
 )
+from geno_lewm.encoder import CarbonStateEncoder
 from geno_lewm.errors import (
     ERROR_CODES,
-    AttestationError,
-    AttestationKindUnsupportedError,
     BackendUnsupportedError,
     CacheCorruptError,
     CollapseDetectedError,
@@ -103,6 +78,8 @@ from geno_lewm.errors import (
     OutOfWindowError,
     OutputCommitmentMismatchError,
     OverlappingEditsError,
+    ProvenanceError,
+    ProvenanceKindUnsupportedError,
     QuantizationError,
     ReceiptSchemaError,
     ResourceError,
@@ -127,6 +104,31 @@ from geno_lewm.observability import (
     logged_run,
     set_trace_context,
 )
+from geno_lewm.provenance import (
+    RECEIPT_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    SUPPORTED_PROVENANCE_KINDS,
+    DtypeConfig,
+    Manifest,
+    ManifestArtifact,
+    ManifestEncoder,
+    ManifestTraining,
+    PoolingConfig,
+    Receipt,
+    ReceiptOutput,
+    ReceiptProvenance,
+    ReceiptRuntime,
+    canonical_json_sha256,
+    compute_input_commitment,
+    compute_output_commitment,
+    load_manifest,
+    read_receipt,
+    sha256_bytes,
+    sha256_file,
+    write_manifest,
+    write_receipt,
+)
+from geno_lewm.surprise import SurpriseResult, score_variant, score_vcf
 
 __all__ = [
     "BACKEND_AUTO",
@@ -140,14 +142,13 @@ __all__ = [
     "EVENTS",
     "RECEIPT_SCHEMA_VERSION",
     "SCHEMA_VERSION",
-    "SUPPORTED_ATTESTATION_KINDS",
+    "SUPPORTED_PROVENANCE_KINDS",
     "V1_MAX_LEN",
     "ActionEncoder",
-    "AttestationError",
-    "AttestationKindUnsupportedError",
     "BackendProbe",
     "BackendUnsupportedError",
     "CacheCorruptError",
+    "CarbonStateEncoder",
     "CollapseDetectedError",
     "ConfigError",
     "DataLoaderError",
@@ -185,10 +186,12 @@ __all__ = [
     "OutputCommitmentMismatchError",
     "OverlappingEditsError",
     "PoolingConfig",
+    "ProvenanceError",
+    "ProvenanceKindUnsupportedError",
     "QuantizationError",
     "Receipt",
-    "ReceiptAttestation",
     "ReceiptOutput",
+    "ReceiptProvenance",
     "ReceiptRuntime",
     "ReceiptSchemaError",
     "RelEdit",
@@ -196,6 +199,7 @@ __all__ = [
     "RuntimeSetupError",
     "SchemaCompatError",
     "Severity",
+    "SurpriseResult",
     "TrainingError",
     "UnknownTopLevelKeyError",
     "UnreachableError",
@@ -220,6 +224,8 @@ __all__ = [
     "mnv",
     "probe_backends",
     "read_receipt",
+    "score_variant",
+    "score_vcf",
     "select_backend",
     "set_trace_context",
     "sha256_bytes",

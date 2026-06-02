@@ -3,10 +3,14 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0006, RFC-0007, RFC-0010, RFC-0011, RFC-0012, RFC-0013, RFC-0017
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — dispatcher/shared flags,
+  `verify`, `update`, data prep, score, fixture/carbon-preflight/train
+  launch, Carbon baseline, eval, eval-all, and release-supporting CLI
+  paths exist. Planning, rollout, export, and full real-artifact demo
+  command validation remain open.
 
 ---
 
@@ -80,23 +84,30 @@ Every command accepts:
 #### `geno-lewm-train`
 
 ```
-geno-lewm-train [shared flags] [config overrides]
+geno-lewm-train --fixture-smoke --run-dir RUN_DIR [--steps 50] [shared flags]
 ```
 
-- Resolves training config from `geno_lewm/config/defaults/train.yaml`
-  plus overrides.
-- Writes checkpoints to `${run_id}/checkpoints/`.
-- Writes resolved config to `${run_id}/config.resolved.yaml`.
+- The implemented fixture-smoke path resolves training config from
+  `geno_lewm/config/defaults/train.yaml` plus shared `--set`
+  overrides, then writes `config.resolved.yaml`, `metrics.json`,
+  `train.log`, `fixture_predictor_checkpoint.json`, and
+  `training_run.json`.
+- The fixture checkpoint is not a GenoLeWM model and is not paper
+  evidence. The Carbon-backed trainer keeps the future checkpoint
+  contract of `${run_id}/checkpoints/*`.
 
 #### `geno-lewm-score`
 
 ```
-geno-lewm-score --variant CHROM:POS:REF:ALT [--window-fasta FASTA] [--model PATH] [--output PATH]
-geno-lewm-score --vcf PATH [--fasta PATH] [--output PATH] [--batch-size N]
+geno-lewm-score --model-dir PATH --variant CHROM:POS:REF:ALT --window ACGT...
+geno-lewm-score --model-dir PATH --vcf PATH --fasta PATH --output PATH [--batch-size N] [--receipt PATH]
 ```
 
-- Output VCF or single variant; format selected by `--output` extension.
-- Receipts written adjacent: `${output}.receipt.json`.
+- Single-variant output is JSON on stdout.
+- VCF score output is selected by `--output`; `--receipt PATH` writes
+  JSONL with one canonical v1 receipt per scored alternate.
+- The CLI validates arguments and delegates to the runtime facade; released
+  model artifacts and FASTA-backed scoring are tracked separately.
 
 #### `geno-lewm-rollout`
 
@@ -115,19 +126,26 @@ geno-lewm-plan --window-fasta REGION.fa --target-fasta TARGET.fa [--horizon K] [
 #### `geno-lewm-eval`
 
 ```
-geno-lewm-eval --model PATH --benchmark BENCH [--head surprise|displacement]
+geno-lewm-eval --scores-jsonl SCORES.jsonl --labels-jsonl LABELS.jsonl --output-metrics metrics.json
+geno-lewm-eval --scores-jsonl SCORES.jsonl --labels-jsonl LABELS.jsonl --baseline-scores-jsonl BASELINE.jsonl --baseline-name carbon_zero_shot --output-metrics metrics.json
 ```
 
-`BENCH ∈ {clinvar_coding, clinvar_noncoding, brca2, traitgym_mendelian,
-rollout, efficiency}`.
+The current artifact-level path evaluates measured score artifacts.
+When a matched measured baseline artifact is supplied, the metrics JSON
+records the baseline value, delta, and baseline score artifact path.
+The future benchmark-runner form remains `--model PATH --benchmark BENCH`
+with `BENCH ∈ {clinvar_coding, clinvar_noncoding, brca2,
+traitgym_mendelian, rollout, efficiency}`.
 
 #### `geno-lewm-eval-all`
 
 ```
-geno-lewm-eval-all --model PATH --output REPORT.md
+geno-lewm-eval-all --metrics-json metrics.json --output-metrics aggregate.json --output-report eval_report.md
 ```
 
-Runs every benchmark, produces release-grade Markdown.
+Aggregates already-measured metrics JSON into aggregate metrics JSON and
+release-grade Markdown. The future suite-runner form will run every
+benchmark before aggregation.
 
 #### `geno-lewm-export`
 
@@ -158,11 +176,15 @@ Builds, repairs, or rebuilds the SQLite index over the Parquet shards.
 #### `geno-lewm-prepare-gnomad` and `geno-lewm-prepare-clinvar`
 
 ```
-geno-lewm-prepare-gnomad --release v4.1 --output DIR
-geno-lewm-prepare-clinvar --release 2026-04-15 --output DIR
+geno-lewm-prepare-gnomad --input-vcf gnomad.vcf.gz --release v4.1 --output DIR
+geno-lewm-prepare-clinvar --input-vcf clinvar.vcf.gz --release 2026-04-15 --output DIR
 ```
 
-Network downloads gated by user-visible URLs printed to stderr first.
+These commands operate on local release files and write schema-checked
+Parquet shards under `DIR/gnomad/{release}/variants.parquet` and
+`DIR/clinvar/{release}/variants.parquet`. Dataset build scripts may add
+explicit download steps later, but the CLI does not perform hidden
+network acquisition.
 
 #### `geno-lewm-update`
 
@@ -263,4 +285,6 @@ live in a downstream project.
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for implemented CLI paths
+  and remaining planning/rollout/export/demo gaps.
 - 2026-05-20 — Initial draft.

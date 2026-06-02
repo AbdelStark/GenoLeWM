@@ -1,8 +1,10 @@
 # GenoLeWM — Specification (top-level index)
 
 - **Version:** 0.1.0-draft
-- **Date:** 2026-05-20
-- **Status:** Design phase. No reference implementation yet.
+- **Date:** 2026-06-01
+- **Status:** Alpha implementation. Infrastructure is implemented; the
+  first real training run, model release, evaluation report, and
+  terminal inference demo remain open.
 
 This file is the entry point into the GenoLeWM specification corpus. The
 detailed content lives in two trees:
@@ -29,7 +31,7 @@ the post-edit state in the same latent space.
 That single equation unlocks: variant-effect prediction at a fraction of
 Carbon's cost, multi-edit haplotype rollout, planning via CEM in latent
 space, surprise-based pathogenicity scoring, on-device deployment on
-consumer hardware, and a STARK-attested inference path (Phase 4).
+consumer hardware, and checksum-based artifact provenance for releases.
 
 ## Spec corpus
 
@@ -62,7 +64,7 @@ decisions are:
 - RFC-0008 — planning (CEM).
 - RFC-0009 — surprise scoring (calibrated per context).
 - RFC-0010 — deployment (Apple Silicon, int4 / int8).
-- RFC-0011 — attestation (receipts, STARK Phase 4).
+- RFC-0011 — artifact provenance and checksum receipts.
 - RFC-0012 — error taxonomy.
 - RFC-0013 — observability and redaction.
 - RFC-0014 — API stability policy.

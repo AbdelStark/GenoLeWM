@@ -3,10 +3,13 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0001, RFC-0012, RFC-0013, RFC-0018
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — closed dataclass/YAML config
+  schema, defaults, strict unknown-key rejection, resolved-config
+  writing, and first-experiment train/eval configs exist. Hydra-style
+  sweeps, config diffing, and editor schema export remain open.
 
 ---
 
@@ -229,4 +232,7 @@ Hydra otherwise silently swallows typos in top-level keys (e.g.,
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for the current closed
+  schema loader, defaults, resolved-config writing, and first-experiment
+  configs.
 - 2026-05-20 — Initial draft.

@@ -33,21 +33,29 @@ candidates. No release ships without all gates green.
 
 ### 3. ML tests (`tests/ml/`)
 
-These are fast smoke tests of model-specific properties that unit tests
-cannot detect.
+These are fast smoke tests of model-specific properties that the hosted
+CI gate should catch before the full paper/eval path runs. They are
+fixture-backed and must not require private model or data files.
 
-- **Identity-at-init**: with the predictor's zero-initialized output MLP,
-  `||ŝ_{t+1} - s_t|| / d_state` is below a tight threshold for a random
-  batch.
-- **Loss decreases on a fixed minibatch**: 100 training steps on a tiny
-  fixed minibatch must decrease the loss monotonically (with a single
-  exception allowed for numerical noise).
-- **No NaN/Inf during a 100-step run on synthetic data.**
-- **Collapse heuristics**: synthetic targets with controlled rank produce
-  the expected `pred_var_per_dim` / `pred_target_corr` signals.
-- **Receipt determinism**: scoring the same variant twice produces
-  identical receipts (modulo `timestamp`) on a deterministic backend.
-- **Runtime budget:** ≤ 5 minutes on a CPU; ≤ 60 s on a GPU.
+Current hosted coverage:
+
+- **Fixture training health**: the dependency-light `geno-lewm-train
+  --fixture-smoke` path emits finite loss, `nan_loss_count=0`,
+  collapse-health metrics, claim-boundary text, and fixture-only dataset
+  identity.
+- **Deterministic resume identity**: a resumed fixture run reproduces the
+  uninterrupted checkpoint identity for the same seed and target step.
+- **Collapse heuristics**: controlled healthy and degenerate synthetic
+  batches produce the expected collapse-monitor alert behavior.
+- **Optional torch predictor smoke**: when torch is installed, a tiny
+  predictor preserves its identity-at-init contract and reduces loss on a
+  fixed CPU minibatch; when torch is unavailable, the test skips
+  explicitly.
+- **Runtime budget:** each hosted `tests/ml` test should complete in
+  ≤ 10 s on a laptop CPU, excluding optional dependency installation.
+
+Future coverage should add deterministic receipt replay from a tiny
+public scorer fixture once that artifact exists.
 
 ### 4. Integration tests (`tests/integration/`)
 
@@ -60,22 +68,29 @@ End-to-end paths across multiple modules, using small fixture data.
   formed and `score_vcf` honors `batch_size`.
 - **Export → import**: train a tiny predictor, export to ONNX / Core ML /
   GGUF, reload, verify numerical agreement to within tolerance.
-- **Cache → reuse**: build a cache, run training with cache hits, verify
-  the training is bit-exact equivalent to a no-cache run on supported
-  backends.
+- **Cache → reuse**: build a cache, run training with source `s_t` cache
+  hits, verify the training is bit-exact equivalent to a no-cache run
+  on supported backends, and confirm edited `s_{t+1}` targets are still
+  encoded live.
 - **Verifier**: produce a receipt, run the verifier without re-running
   inference, verify it accepts; tamper with a single byte of weights and
   verify it rejects with `ManifestHashMismatchError`.
 - **Runtime budget:** ≤ 10 minutes on CPU; ≤ 3 minutes on GPU.
 
-### 5. ML eval (`tests/eval/` and `tests/eval-full/`)
+### 5. ML eval (`tests/eval/` and release eval gates)
 
-The full eval suite (RFC-0007) runs only on release candidates and on
-nightly cron.
+The hosted eval smoke gate runs on generated public fixture artifacts.
+The full real-data eval suite (RFC-0007) runs only on release candidates
+and on documented release hardware.
 
-- **Smoke eval (PRs):** 1k-variant ClinVar coding subset + 500-window
-  rollout subset; ≤ 5 min on H100. Regression > 2 AUROC or > 0.05 cosine
-  fails the PR.
+- **Smoke eval (PRs):** `python -m tools.ci.eval_smoke_gate` generates
+  score/label JSONL fixtures, runs `geno-lewm-eval` and
+  `geno-lewm-eval-all`, writes `eval_smoke_summary.json`, and fails when
+  AUROC, average precision, balanced accuracy, or AUROC delta versus the
+  generated Carbon-baseline fixture crosses the configured threshold.
+  The summary records `real_model_path.status=not_attempted` because the
+  hosted gate does not use private data, released checkpoints, rollout
+  artifacts, or paper benchmark inputs.
 - **Full eval (release):** the full benchmark suite from
   [`08-performance-budget.md`](08-performance-budget.md). Run on a
   documented reference machine. Numbers persisted in
@@ -93,7 +108,7 @@ nightly cron.
 | `planning/*` | ✓ | ✓ | ✓ | ✓ | — |
 | `surprise/*` | ✓ | ✓ | ✓ | ✓ | — |
 | `deploy/*` | ✓ | — | — | ✓ | — |
-| `attestation/*` | ✓ | ✓ | — | ✓ | — |
+| `provenance/*` | ✓ | ✓ | — | ✓ | — |
 | `cli/*` | ✓ | — | — | ✓ | — |
 | `errors.py` | ✓ | ✓ | — | ✓ | — |
 | `observability.py` | ✓ | ✓ | — | ✓ | — |
@@ -112,12 +127,13 @@ nightly cron.
 5. **Unit suite**: `pytest tests/unit -q` passes.
 6. **Property suite**: `pytest tests/property -q --hypothesis-seed=<commit-hash>`
    passes.
-7. **ML smoke**: `pytest tests/ml -q` passes.
-8. **Integration suite**: `pytest tests/integration -q -k 'not slow'` passes.
-9. **Coverage gate**: changed-files coverage ≥ 90%.
-10. **Smoke eval**: if PR touches `predictor/`, `action/`, `data/`,
-    `surprise/`, `eval/`, or `cli/score.py`, run the smoke eval and gate
-    on the regression threshold.
+7. **ML smoke**: `pytest tests/ml -q --tb=long --durations=10` passes
+   in the dedicated `ml-smoke` CI job.
+8. **Eval smoke**:
+   `python -m tools.ci.eval_smoke_gate --work-dir .eval-smoke --summary-json .eval-smoke/eval_smoke_summary.json`
+   passes in the dedicated `eval-smoke` CI job.
+9. **Integration suite**: `pytest tests/integration -q -k 'not slow'` passes.
+10. **Coverage gate**: changed-files coverage ≥ 90%.
 11. **License headers**: every source file under `geno_lewm/` has the
     Apache-2.0 SPDX header.
 
@@ -163,7 +179,8 @@ generated by `tests/conftest.py` from seeded synthetic data.
 
 - Test runs honor a `PYTEST_RANDOM_SEED` env var; defaults to the commit
   hash modulo 2^32.
-- ML smoke tests pin both `torch.manual_seed` and `numpy.random.seed`.
+- ML smoke tests pin deterministic fixture seeds and, where torch is
+  available, `torch.manual_seed`.
 - Deterministic backends are required for verifier tests.
 
 ## Mutation and fuzz testing (post-v1)

@@ -39,10 +39,10 @@ CANONICAL_EVENT_NAMES = {
     "inference.score.end",
     "inference.batch.end",
     "inference.network.blocked",
-    "attestation.receipt.write",
-    "attestation.verify.start",
-    "attestation.verify.end",
-    "attestation.verify.mismatch",
+    "provenance.receipt.write",
+    "provenance.verify.start",
+    "provenance.verify.end",
+    "provenance.verify.mismatch",
     "error",
 }
 

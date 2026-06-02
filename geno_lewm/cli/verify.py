@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""``geno-lewm-verify`` CLI — checksum-mode receipt verifier (RFC-0011 §3.4).
+"""``geno-lewm-verify`` CLI — checksum-mode receipt verifier (RFC-0011).
 
 The CLI takes a receipt JSON path and validates the receipt against a
 local manifest. Three checks compose the v1 protocol:
@@ -27,7 +27,7 @@ Exit codes follow RFC-0012 / ``docs/spec/04-error-model.md``:
 - 0 — verification passed.
 - 2 — `InputError` (bad CLI args).
 - 3 — `ConfigError` (e.g. manifest schema mismatch).
-- 8 — any ``AttestationError`` subclass (the main failure mode).
+- 8 — any ``ProvenanceError`` subclass (the main failure mode).
 - 1 — uncategorized.
 """
 
@@ -40,17 +40,7 @@ from pathlib import Path
 from typing import IO
 
 from geno_lewm.action.spec import EditSpec
-from geno_lewm.attestation import (
-    SUPPORTED_ATTESTATION_KINDS,
-    DtypeConfig,
-    PoolingConfig,
-    compute_input_commitment,
-    compute_output_commitment,
-    load_manifest,
-    read_receipt,
-)
 from geno_lewm.errors import (
-    AttestationKindUnsupportedError,
     GenoLeWMError,
     InputCommitmentMismatchError,
     InputError,
@@ -58,8 +48,19 @@ from geno_lewm.errors import (
     OutputCommitmentMismatchError,
     exit_code_for,
 )
+from geno_lewm.provenance import (
+    SUPPORTED_PROVENANCE_KINDS,
+    DtypeConfig,
+    PoolingConfig,
+    compute_input_commitment,
+    compute_output_commitment,
+    load_manifest,
+    read_receipt,
+)
 
-VERIFIER_SUPPORTED_KINDS: frozenset[str] = frozenset({"checksum_only"})
+__all__ = ["VERIFIER_SUPPORTED_KINDS", "main", "verify"]
+
+VERIFIER_SUPPORTED_KINDS: frozenset[str] = SUPPORTED_PROVENANCE_KINDS
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -177,27 +178,9 @@ def verify(args: argparse.Namespace, *, stream: IO[str] | None = None) -> None:
     print(f"reading receipt:  {args.receipt}", file=stream)
     receipt = read_receipt(args.receipt)
     print(
-        f"  schema_version={receipt.schema_version} attestation.kind={receipt.attestation.kind}",
+        f"  schema_version={receipt.schema_version} provenance.kind={receipt.provenance.kind}",
         file=stream,
     )
-
-    if receipt.attestation.kind not in VERIFIER_SUPPORTED_KINDS:
-        if receipt.attestation.kind in SUPPORTED_ATTESTATION_KINDS:
-            raise AttestationKindUnsupportedError(
-                f"verifier does not yet implement attestation.kind={receipt.attestation.kind!r}",
-                details={
-                    "kind": receipt.attestation.kind,
-                    "supported_by_schema": sorted(SUPPORTED_ATTESTATION_KINDS),
-                    "supported_by_this_verifier": sorted(VERIFIER_SUPPORTED_KINDS),
-                },
-                remediation="run with a checksum_only receipt, or wait for the TEE/STARK verifier",
-            )
-        # Unrecognized at the schema level — the receipt loader would
-        # have rejected it, so this branch is defensive.
-        raise AttestationKindUnsupportedError(
-            "attestation.kind is not recognized by the schema",
-            details={"kind": receipt.attestation.kind},
-        )
 
     print(f"reading manifest: {args.manifest}", file=stream)
     manifest = load_manifest(args.manifest)

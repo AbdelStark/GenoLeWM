@@ -3,10 +3,13 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-05-20
+- **Updated:** 2026-06-02
 - **Depends on:** RFC-0007, RFC-0012, RFC-0013
 - **Supersedes:** —
-- **Implementation status:** Not started
+- **Implementation status:** Partial — unit, property, integration,
+  lint, API snapshot, docs, release-contract, fixture-tier ML, event
+  registry, and scope-language gates exist. Dedicated hosted `tests/ml`
+  and eval-smoke CI gates remain open.
 
 ---
 
@@ -170,4 +173,6 @@ should. Path-touched gating is the simplest right answer.
 
 ## 7. Changelog
 
+- 2026-06-02 — Updated implementation status for current local/CI test
+  gates and remaining hosted ML/eval smoke gaps.
 - 2026-05-20 — Initial draft.

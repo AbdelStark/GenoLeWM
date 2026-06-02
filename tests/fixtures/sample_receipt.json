@@ -1,8 +1,4 @@
 {
-  "attestation": {
-    "details": null,
-    "kind": "checksum_only"
-  },
   "calibration_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   "input_commitment": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   "model_id": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -14,6 +10,10 @@
     "sigma_raw": 0.7321
   },
   "output_commitment": "sha256:b9c6df8b676e8618ec627ced31c733a0a04ec8d900ec09fbc09a6a6ca23b38ab",
+  "provenance": {
+    "details": null,
+    "kind": "checksum_only"
+  },
   "runtime": {
     "backend": "onnx-cpu",
     "carbon_revision": "main@deadbeef",

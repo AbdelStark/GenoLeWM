@@ -8,9 +8,14 @@ quantization (#70).
 
 from __future__ import annotations
 
-from geno_lewm.cli._stub_main import build_stub_app, make_cli_main
+from geno_lewm.cli._stub_main import (
+    build_stub_app as _build_stub_app,
+    make_cli_main as _make_cli_main,
+)
 
-app = build_stub_app(
+__all__ = ["app", "cli_main"]
+
+app = _build_stub_app(
     name="geno-lewm-export",
     help_text=(
         "Export a trained checkpoint to a deployable format (RFC-0018 §3.3). "
@@ -20,4 +25,4 @@ app = build_stub_app(
     issue="#71",
 )
 
-cli_main = make_cli_main(app)
+cli_main = _make_cli_main(app)

@@ -211,7 +211,7 @@ def test_bump_check_pyproject_dynamic_passes_on_real_file() -> None:
         ("deprecate: old flag", "Deprecated", False),
         ("remove: old flag", "Removed", False),
         ("uncategorized subject", "Changed", False),
-        ("attestation: implement receipt", "Changed", False),
+        ("provenance: implement receipt", "Changed", False),
     ],
 )
 def test_classify(

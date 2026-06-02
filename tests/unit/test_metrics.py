@@ -33,7 +33,7 @@ CANONICAL_METRIC_NAMES = {
     "geno_lewm.inference.memory.peak_bytes",
     "geno_lewm.planning.cem.iter.duration",
     "geno_lewm.planning.cem.calls",
-    "geno_lewm.attestation.verify.duration",
+    "geno_lewm.provenance.verify.duration",
     "geno_lewm.observability.redacted_keys",
     "geno_lewm.errors.raised",
 }

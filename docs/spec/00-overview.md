@@ -23,6 +23,12 @@ Every other system commitment is downstream of that single equation.
 
 ## Goals (v1)
 
+These are v0.1 release targets, not current measured results. The
+repository currently contains contracts, release tooling, and fixtures;
+the public checkpoint, dataset snapshot, measured evaluation table, and
+clean-machine real-inference demo still have to be published before any
+metric below is an achieved result.
+
 1. **Per-edit latent prediction** at < 10% of Carbon's per-variant inference
    cost after caching reference embeddings.
 2. **Variant-effect prediction** matching or exceeding Carbon-500M zero-shot
@@ -34,12 +40,12 @@ Every other system commitment is downstream of that single equation.
    ordered edit lists for user-specified target states (Phase 2).
 5. **Surprise-based pathogenicity scoring** via per-context calibrated
    predictor residuals — no supervised classifier training.
-6. **On-device deployment** on Apple Silicon (M3 Max baseline) with single-
-   variant scoring < 200 ms and full-VCF scoring of 100k variants < 30 minutes
-   (Phase 3).
-7. **Verifiability hooks** in every inference path — content-addressed model
-   identifiers, input commitments, output receipts — with a STARK proving track
-   for the predictor forward pass (Phase 4).
+6. **On-device deployment target** on Apple Silicon (M3 Max baseline) with
+   measured release gates of single-variant scoring < 200 ms and full-VCF
+   scoring of 100k variants < 30 minutes (Phase 3).
+7. **Artifact provenance hooks** in release and demo paths —
+   content-addressed model identifiers, input commitments, and output
+   receipts.
 
 ## Non-goals (v1)
 
@@ -61,8 +67,7 @@ A v1 release is shippable when, jointly:
   [`docs/spec/07-testing-strategy.md`](07-testing-strategy.md) and the
   per-track targets in [`docs/spec/08-performance-budget.md`](08-performance-budget.md).
 - A user can install the runtime, score a VCF on a laptop, and produce a
-  receipt verifiable by a third party (Phase 3 checksum-level; Phase 4
-  STARK-level).
+  checksum receipt that can be checked against the released model manifest.
 - Every RFC in [`docs/rfcs/`](../rfcs/) is at status `Accepted` or
   `Superseded`.
 - Every public surface enumerated in [`02-public-api.md`](02-public-api.md)
@@ -77,7 +82,7 @@ A v1 release is shippable when, jointly:
 | DNA-foundation-model researchers | predictor head on Carbon (or analogous encoder) |
 | Bioinformatics tool builders | local-first variant scoring with reproducible receipts |
 | Personal-genomics enthusiasts | desktop app for personal variant exploration |
-| Verifiable-compute / cryptography researchers | STARK proving over a tractable Transformer (Phase 4) |
+| Reproducible-ML engineers | dataset, model, evaluation, and demo artifact provenance |
 | Clinical-genomics researchers | fast first-pass screening tool (research only) |
 
 The system is explicitly **not** for clinical decision-making, embryo

@@ -1,0 +1,195 @@
+# Model release dry-run workflow. This validates a prepared model/dataset/demo
+# candidate and writes machine-readable release plans, but it never uploads
+# weights or requires Hugging Face credentials.
+name: Release Hub Dry Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_dir:
+        description: "Prepared model package directory"
+        required: true
+        default: "release/model"
+      dataset_dir:
+        description: "Prepared dataset package directory"
+        required: true
+        default: "release/dataset"
+      demo_dir:
+        description: "Prepared terminal demo package directory"
+        required: true
+        default: "release/demo"
+      paper_path:
+        description: "Optional generated paper/report Markdown path"
+        required: false
+        default: ""
+      repo_id:
+        description: "Target Hugging Face model repo id, e.g. owner/name"
+        required: true
+      dataset_url:
+        description: "Public dataset snapshot URL"
+        required: true
+      demo_url:
+        description: "Public terminal demo artifact URL"
+        required: true
+      paper_url:
+        description: "Direct public URL serving paper_path bytes"
+        required: false
+        default: ""
+      commit_sha:
+        description: "Git commit SHA represented by the release candidate"
+        required: true
+      skip_public_link_check:
+        description: "Skip public URL reachability checks; valid only with allow_fixture_manifest"
+        required: true
+        default: false
+        type: boolean
+      allow_fixture_manifest:
+        description: "Allow fixture/test manifests for offline rehearsal only"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-hub-dry-run-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  UV_VERSION: "0.9.18"
+
+jobs:
+  dry-run:
+    name: Verify model release candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install pinned uv
+        run: python -m pip install "uv==${UV_VERSION}"
+
+      - name: Verify lockfile is current
+        run: uv lock --check
+
+      - name: Sync locked release environment
+        run: uv sync --locked --extra dev
+
+      - name: Verify paper/demo package
+        env:
+          MODEL_DIR: ${{ inputs.model_dir }}
+          DATASET_DIR: ${{ inputs.dataset_dir }}
+          DEMO_DIR: ${{ inputs.demo_dir }}
+          PAPER_PATH: ${{ inputs.paper_path }}
+          ALLOW_FIXTURE_MANIFEST: ${{ inputs.allow_fixture_manifest }}
+        run: |
+          set -euo pipefail
+          paper_args=()
+          if [ -n "$PAPER_PATH" ]; then
+            paper_args+=(--paper-path "$PAPER_PATH")
+          fi
+          if [ "$ALLOW_FIXTURE_MANIFEST" = "true" ]; then
+            paper_args+=(--allow-fixture-manifest)
+          fi
+          uv run python -m tools.release.paper_package \
+            --model-dir "$MODEL_DIR" \
+            --dataset-dir "$DATASET_DIR" \
+            --demo-dir "$DEMO_DIR" \
+            "${paper_args[@]}" \
+            | tee paper_package_report.json
+
+      - name: Build Hub release dry-run plan
+        env:
+          MODEL_DIR: ${{ inputs.model_dir }}
+          DATASET_DIR: ${{ inputs.dataset_dir }}
+          DEMO_DIR: ${{ inputs.demo_dir }}
+          PAPER_PATH: ${{ inputs.paper_path }}
+          REPO_ID: ${{ inputs.repo_id }}
+          DATASET_URL: ${{ inputs.dataset_url }}
+          DEMO_URL: ${{ inputs.demo_url }}
+          PAPER_URL: ${{ inputs.paper_url }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          ALLOW_FIXTURE_MANIFEST: ${{ inputs.allow_fixture_manifest }}
+        run: |
+          set -euo pipefail
+          paper_args=()
+          if [ -n "$PAPER_PATH" ]; then
+            paper_args+=(--paper-path "$PAPER_PATH")
+          fi
+          if [ -n "$PAPER_URL" ]; then
+            paper_args+=(--paper-url "$PAPER_URL")
+          fi
+          if [ "$ALLOW_FIXTURE_MANIFEST" = "true" ]; then
+            paper_args+=(--allow-fixture-manifest)
+          fi
+          uv run python -m tools.release.hub_release \
+            --model-dir "$MODEL_DIR" \
+            --dataset-dir "$DATASET_DIR" \
+            --demo-dir "$DEMO_DIR" \
+            --repo-id "$REPO_ID" \
+            --dataset-url "$DATASET_URL" \
+            --demo-url "$DEMO_URL" \
+            --commit-sha "$COMMIT_SHA" \
+            --output hub_release_plan.json \
+            "${paper_args[@]}"
+
+      - name: Build release candidate report
+        env:
+          MODEL_DIR: ${{ inputs.model_dir }}
+          DATASET_DIR: ${{ inputs.dataset_dir }}
+          DEMO_DIR: ${{ inputs.demo_dir }}
+          PAPER_PATH: ${{ inputs.paper_path }}
+          REPO_ID: ${{ inputs.repo_id }}
+          DATASET_URL: ${{ inputs.dataset_url }}
+          DEMO_URL: ${{ inputs.demo_url }}
+          PAPER_URL: ${{ inputs.paper_url }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          SKIP_PUBLIC_LINK_CHECK: ${{ inputs.skip_public_link_check }}
+          ALLOW_FIXTURE_MANIFEST: ${{ inputs.allow_fixture_manifest }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "$PAPER_PATH" ]; then
+            args+=(--paper-path "$PAPER_PATH")
+          fi
+          if [ -n "$PAPER_URL" ]; then
+            args+=(--paper-url "$PAPER_URL")
+          fi
+          if [ "$SKIP_PUBLIC_LINK_CHECK" = "true" ]; then
+            args+=(--skip-public-link-check)
+          fi
+          if [ "$ALLOW_FIXTURE_MANIFEST" = "true" ]; then
+            args+=(--allow-fixture-manifest)
+          fi
+          uv run python -m tools.release.release_candidate \
+            --model-dir "$MODEL_DIR" \
+            --dataset-dir "$DATASET_DIR" \
+            --demo-dir "$DEMO_DIR" \
+            --repo-id "$REPO_ID" \
+            --dataset-url "$DATASET_URL" \
+            --demo-url "$DEMO_URL" \
+            --commit-sha "$COMMIT_SHA" \
+            --output release_candidate_report.json \
+            "${args[@]}"
+
+      - name: Upload dry-run reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: hub-release-dry-run-reports
+          path: |
+            paper_package_report.json
+            hub_release_plan.json
+            release_candidate_report.json
+          retention-days: 30

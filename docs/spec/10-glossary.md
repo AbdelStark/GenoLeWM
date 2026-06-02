@@ -114,8 +114,8 @@ length 12,288 bp (2,048 Carbon 6-mer tokens).
 ## Operations
 
 **Calibration table.** Per-context empirical CDFs of `σ_raw` over gnomAD
-common variants, distributed with the GenoLeWM checkpoint. See RFC-0009
-§3.4.
+common variants, intended to ship with a released GenoLeWM checkpoint.
+No public calibration artifact is released yet. See RFC-0009 §3.4.
 
 **Cache (window cache).** On-disk Parquet store of pre-computed
 reference-window embeddings. Content-addressed by
@@ -123,7 +123,7 @@ reference-window embeddings. Content-addressed by
 See RFC-0002 §3.6.
 
 **Encoder hash.** SHA-256 of the encoder weights file. Part of every
-cache key and every receipt.
+cache key and checksum receipt.
 
 **Holdout.** Set of data excluded from training and reserved for
 evaluation. Three holdouts: `holdout-chr` (chr21), `holdout-clinvar`,
@@ -133,18 +133,18 @@ evaluation. Three holdouts: `holdout-chr` (chr21), `holdout-clinvar`,
 identity, configuration, and provenance. Its hash is the `model_id`.
 See RFC-0011 §3.7.
 
-**Receipt.** JSON document emitted by every inference call, binding
-model identity, input commitment, and output. Substrate for future STARK
-attestation. See RFC-0011 §3.3.
+**Receipt.** JSON document that release scoring paths can emit to bind
+model identity, input commitment, and output commitment. See RFC-0011.
 
 **Tuple builder.** Data-pipeline component that produces `(w_ref, a, w_alt)`
 training tuples. See RFC-0006 §3.5.
 
-## Verifiable inference
+## Artifact provenance
 
-**Attestation.** Cryptographic or trust-rooted evidence that an inference
-was produced by a specific model on specific inputs. v1 ships checksum-
-only attestation; Phase 4 adds STARK proving.
+**Checksum receipt.** Receipt mode currently supported by GenoLeWM. It
+binds the model manifest identity, input commitment, output commitment,
+and runtime metadata; it is not a model-quality or runtime-assurance
+guarantee.
 
 **Content addressing.** Identifying data (weights, inputs, outputs) by
 the cryptographic hash of their canonical serialization, not by name or
@@ -154,20 +154,14 @@ location.
 inference's inputs.
 
 **`model_id`.** SHA-256 of a GenoLeWM checkpoint's manifest. Globally
-identifies a specific release.
-
-**STARK.** Scalable Transparent ARgument of Knowledge. Cryptographic
-proof system that is post-quantum, requires no trusted setup, and is
-well-suited to the arithmetic-circuit structure of Transformer
-inference. Target proof system for Phase 4 verifiable inference.
-
-**TEE.** Trusted Execution Environment. Hardware-based isolation (Apple
-Secure Enclave, Intel SGX, AMD SEV-SNP) that can sign attestations about
-computations run inside it. Potential v1.1 intermediate attestation kind.
+identifies a specific release once public checkpoint artifacts exist.
 
 ## Project & process
 
-**Phase 0 (Design, current).** Spec and RFCs.
+Current public status: alpha implementation in Phase 1. Phase names below
+describe the roadmap, not completed release evidence.
+
+**Phase 0 (Design, complete).** Spec and RFC bootstrap.
 
 **Phase 1 (MVP).** Carbon-500M frozen, SNVs only, ClinVar coding/non-
 coding eval. See ROADMAP.
@@ -177,9 +171,6 @@ LeJEPA regularizer, planning, calibrated surprise. Full eval suite.
 
 **Phase 3 (On-device).** Export pipeline, quantization, desktop app
 skeleton.
-
-**Phase 4 (Verifiable inference).** STARK proving of predictor forward
-pass. The North Star.
 
 **RFC.** Request for Comments. A numbered design document under
 [`rfcs/`](../rfcs/). The source of truth for individual design

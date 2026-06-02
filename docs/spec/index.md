@@ -1,8 +1,8 @@
 # Specification
 
 - **Version:** 0.1.0.dev0
-- **Status:** Design phase. The reference infrastructure layer is
-  implemented (errors, observability, attestation primitives, action
+- **Status:** Alpha implementation. The reference infrastructure layer is
+  implemented (errors, observability, provenance primitives, action
   specs, verify CLI), along with the optional-runtime base predictor
   and loss modules, the edit-balanced training sampler, collapse
   diagnostics, the Carbon corpus window sampler, and the planning
@@ -31,8 +31,8 @@ genomic edit, predicts the post-edit state in the same latent space.
 That single equation unlocks: variant-effect prediction at a fraction
 of Carbon's cost, multi-edit haplotype rollout, planning via CEM in
 latent space, surprise-based pathogenicity scoring, on-device
-deployment on consumer hardware, and a STARK-attested inference path
-(Phase 4).
+deployment on consumer hardware, and checksum-based artifact provenance
+for releases.
 
 ## Spec corpus
 
@@ -64,7 +64,7 @@ deployment on consumer hardware, and a STARK-attested inference path
 - RFC-0008 — planning (CEM).
 - RFC-0009 — surprise scoring (calibrated per context).
 - RFC-0010 — deployment (Apple Silicon, int4 / int8).
-- RFC-0011 — attestation (receipts, STARK Phase 4).
+- RFC-0011 — artifact provenance and checksum receipts.
 - RFC-0012 — error taxonomy.
 - RFC-0013 — observability and redaction.
 - RFC-0014 — API stability policy.

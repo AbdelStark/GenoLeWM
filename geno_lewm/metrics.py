@@ -201,7 +201,7 @@ METRICS: tuple[MetricSpec, ...] = (
         "per planning run",
     ),
     MetricSpec(
-        "geno_lewm.attestation.verify.duration",
+        "geno_lewm.provenance.verify.duration",
         "histogram",
         "ms",
         "per verification",
