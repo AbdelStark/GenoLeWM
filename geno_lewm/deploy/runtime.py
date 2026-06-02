@@ -60,6 +60,7 @@ __all__ = [
     "BackendProbe",
     "GenoLeWMRuntime",
     "fail_closed_network_guard",
+    "load_scorer_modules",
     "probe_backends",
     "select_backend",
 ]
@@ -491,27 +492,36 @@ def _resolve_scorer_components(
     )
 
 
+def _build_loaded_scorer_modules(
+    model_dir: Path,
+    manifest: Manifest,
+) -> tuple[object, object, object]:
+    """Build encoder/action_encoder/predictor and load their safetensors weights."""
+    cfg = _load_commitment_config_source(model_dir, manifest)
+    encoder = _build_runtime_encoder(manifest, cfg)
+    action_encoder = _build_runtime_action_encoder(cfg)
+    predictor = _build_runtime_predictor(cfg)
+    _load_module_state(
+        action_encoder,
+        _artifact_path(model_dir, manifest.action_encoder.file),
+        artifact="action_encoder",
+    )
+    _load_module_state(
+        predictor,
+        _artifact_path(model_dir, manifest.predictor.file),
+        artifact="predictor",
+    )
+    return encoder, action_encoder, predictor
+
+
 def _try_load_manifest_scorer_components(
     model_dir: Path,
     manifest: Manifest,
 ) -> _RuntimeScorerComponents | None:
     if not _native_scorer_runtime_available():
         return None
-    cfg = _load_commitment_config_source(model_dir, manifest)
     try:
-        encoder = _build_runtime_encoder(manifest, cfg)
-        action_encoder = _build_runtime_action_encoder(cfg)
-        predictor = _build_runtime_predictor(cfg)
-        _load_module_state(
-            action_encoder,
-            _artifact_path(model_dir, manifest.action_encoder.file),
-            artifact="action_encoder",
-        )
-        _load_module_state(
-            predictor,
-            _artifact_path(model_dir, manifest.predictor.file),
-            artifact="predictor",
-        )
+        encoder, action_encoder, predictor = _build_loaded_scorer_modules(model_dir, manifest)
         return _RuntimeScorerComponents(
             encoder=encoder,
             action_encoder=action_encoder,
@@ -523,6 +533,43 @@ def _try_load_manifest_scorer_components(
     except Exception as exc:
         raise RuntimeSetupError(
             "could not load manifest-backed runtime scorer components",
+            details={"model_dir": str(model_dir), "error": str(exc)},
+            remediation=(
+                "verify that the checkpoint was exported for this geno-lewm version "
+                "and install geno-lewm[train]"
+            ),
+        ) from exc
+
+
+def load_scorer_modules(model_dir: Path | str) -> tuple[object, object, object]:
+    """Load (encoder, action_encoder, predictor) from a model dir without calibration.
+
+    Used by calibration-table generation, which must run the model over a
+    background set *before* ``calibration.parquet`` exists and therefore cannot
+    use :class:`GenoLeWMRuntime` (whose scorer requires a calibration artifact).
+    Requires ``geno-lewm[train]`` (torch + transformers + safetensors) and a
+    ``manifest.json`` plus the exported ``predictor``/``action_encoder``
+    safetensors artifacts.
+    """
+    model_dir = Path(model_dir)
+    manifest = _load_runtime_manifest(model_dir)
+    if manifest is None:
+        raise ModelNotFoundError(
+            "model_dir must contain manifest.json",
+            details={"model_dir": str(model_dir)},
+        )
+    if not _native_scorer_runtime_available():
+        raise RuntimeSetupError(
+            "scoring requires torch, transformers, and safetensors",
+            remediation="install geno-lewm[train]",
+        )
+    try:
+        return _build_loaded_scorer_modules(model_dir, manifest)
+    except RuntimeSetupError:
+        raise
+    except Exception as exc:
+        raise RuntimeSetupError(
+            "could not load scorer modules from model_dir",
             details={"model_dir": str(model_dir), "error": str(exc)},
             remediation=(
                 "verify that the checkpoint was exported for this geno-lewm version "

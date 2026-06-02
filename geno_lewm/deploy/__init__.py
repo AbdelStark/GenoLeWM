@@ -11,6 +11,7 @@ from geno_lewm.deploy.runtime import (
     BackendProbe,
     GenoLeWMRuntime,
     fail_closed_network_guard,
+    load_scorer_modules,
     probe_backends,
     select_backend,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "BackendProbe",
     "GenoLeWMRuntime",
     "fail_closed_network_guard",
+    "load_scorer_modules",
     "probe_backends",
     "select_backend",
 ]
