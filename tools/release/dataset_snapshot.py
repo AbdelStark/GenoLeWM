@@ -10,7 +10,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Final
 
 from geno_lewm.data import prepare_clinvar_shard, prepare_gnomad_shard
@@ -743,7 +743,14 @@ def _required_spec_path(payload: dict[str, Any], key: str, *, prefix: str = "") 
             details={"field": f"{prefix}{key}", "path": value},
         )
     path = Path(value)
-    if path.is_absolute() or ".." in path.parts:
+    # Detect absolute paths OS-independently: a POSIX-absolute path (/x) is not
+    # flagged by PureWindowsPath.is_absolute and a drive path (C:\x) is not
+    # flagged by PurePosixPath, so reject if either treats it as absolute.
+    if (
+        PurePosixPath(value).is_absolute()
+        or PureWindowsPath(value).is_absolute()
+        or ".." in path.parts
+    ):
         raise InputError(
             "dataset snapshot spec paths must be public relative paths",
             details={"field": f"{prefix}{key}", "path": value},

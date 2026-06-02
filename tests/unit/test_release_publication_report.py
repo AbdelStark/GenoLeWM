@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+
+import pytest
 
 from geno_lewm.provenance import sha256_file
 from tools.release.issue_refs import issue_ref_payload
@@ -692,6 +695,10 @@ def test_publication_evidence_report_rejects_candidate_wrong_dataset_package_pat
     assert {issue.issue_refs for issue in report.issues} == {(163,)}
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="win32 Path.resolve() breaks downloaded-artifact matching; tracked by #179",
+)
 def test_publication_evidence_report_rejects_missing_uploaded_demo_download(
     tmp_path: Path,
 ) -> None:

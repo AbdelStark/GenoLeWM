@@ -252,7 +252,7 @@ def test_dataset_snapshot_rejects_unsafe_carbon_target(tmp_path: Path) -> None:
 def test_dataset_snapshot_spec_check_rejects_private_source_paths(tmp_path: Path) -> None:
     spec_path = _write_spec(tmp_path)
     payload = json.loads(spec_path.read_text(encoding="utf-8"))
-    payload["carbon_files"][0]["source_path"] = str(tmp_path / "inputs" / "carbon_windows.jsonl")
+    payload["carbon_files"][0]["source_path"] = "/private/inputs/carbon_windows.jsonl"
     spec_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(InputError, match="public relative paths"):
