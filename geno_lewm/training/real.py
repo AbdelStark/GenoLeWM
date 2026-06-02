@@ -10,6 +10,7 @@ environment with local Carbon model files and a packaged dataset.
 from __future__ import annotations
 
 import json
+import math
 import platform
 import shutil
 from collections.abc import Iterator, Sequence
@@ -516,12 +517,27 @@ def _write_metrics(
             "sample_count": sample_count,
             "new_sample_count": sample_count - (resumed_from_step * config.data.batch_size),
             "resumed_from_step": resumed_from_step,
-            "nan_loss_count": 0,
-            "collapse_var_min": {"value": 1.0},
+            "nan_loss_count": _nan_loss_count(step_results),
+            "collapse_var_min": {"value": _collapse_var_min(step_results)},
         },
         "history": [result.to_dict() for result in step_results],
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _nan_loss_count(step_results: Sequence[Any]) -> int:
+    """Count optimizer steps whose loss was non-finite (NaN/inf)."""
+    return sum(1 for result in step_results if not math.isfinite(float(result.loss)))
+
+
+def _collapse_var_min(step_results: Sequence[Any]) -> float:
+    """Minimum observed prediction variance-per-dim across steps (collapse floor).
+
+    Values near zero indicate representation collapse (RFC-0005 §3.6). Returns
+    ``0.0`` when no steps ran.
+    """
+    variances = [float(result.pred_var_per_dim) for result in step_results]
+    return min(variances) if variances else 0.0
 
 
 def _write_checkpoint(
