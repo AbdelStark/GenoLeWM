@@ -208,7 +208,7 @@ def _walk_files(paths: Iterable[Path]) -> Iterator[Path]:
         for child in sorted(path.rglob("*")):
             if child.is_dir():
                 continue
-            if any(part in _SKIPPED_DIRS for part in child.parts):
+            if any(part in _SKIPPED_DIRS or part.startswith(".venv") for part in child.parts):
                 continue
             yield child
 

@@ -51,6 +51,9 @@ runs/
 .release/
 .release-smoke/
 
+# Auxiliary local virtualenvs (e.g. torch-enabled ML dev env)
+.venv-ml/
+
 # Jupyter
 .ipynb_checkpoints/
 
