@@ -127,7 +127,16 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        # Install the torch-backed extras on the canonical coverage combo
+        # (ubuntu-latest / 3.12) so ML paths are exercised and counted by the
+        # changed-files coverage gate; keep the other matrix legs lean.
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python }}" = "3.12" ]; then
+            python -m pip install -e ".[dev,train,eval]"
+          else
+            python -m pip install -e ".[dev]"
+          fi
+        shell: bash
       - name: pytest
         # xdist on Windows uses spawn-based workers that re-import the
         # package per worker; combined with module-level state in

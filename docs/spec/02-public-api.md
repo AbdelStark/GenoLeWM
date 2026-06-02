@@ -947,7 +947,7 @@ Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-artifact-provenance-receipts.md)
 | `geno-lewm-update` | Implemented alpha | check or apply explicit user-approved model updates | RFC-0010 |
 | `geno-lewm-rollout` | Entry-point scaffold | multi-edit haplotype rollout; blocked on AR predictor rollout/KV-cache work | RFC-0004 |
 | `geno-lewm-plan` | Entry-point scaffold | CEM planning to a target state; blocked on solver implementation; cost and sampler primitives already exist | RFC-0008 |
-| `geno-lewm-export` | Entry-point scaffold | export to ONNX / Core ML / GGUF; blocked on deployment export implementations | RFC-0010 |
+| `geno-lewm-export` | Implemented (safetensors) | exports a training `predictor_checkpoint.pt` to deploy `predictor.safetensors` + `action_encoder.safetensors` + `export_report.json`; ONNX / Core ML / GGUF targets and quantization remain scaffolds (#67–#70) | RFC-0010 |
 
 All commands accept `--config FILE` (Hydra-compatible), `--seed INT`,
 `--log-level {debug,info,warn,error}`, and `--no-receipt`. Commands that
