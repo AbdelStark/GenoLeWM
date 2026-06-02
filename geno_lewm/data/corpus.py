@@ -66,6 +66,7 @@ class CarbonCorpusConfig:
 
     dataset_id: str = DEFAULT_CARBON_DATASET_ID
     dataset_config: str | None = None
+    revision: str | None = None
     split: str = "train"
     streaming: bool = True
     subset_fraction: float = DEFAULT_PHASE1_SUBSET_FRACTION
@@ -90,6 +91,8 @@ class CarbonCorpusConfig:
         _require_positive_int("stride_bp", self.stride_bp)
         if self.dataset_config is not None:
             _require_nonempty_str("dataset_config", self.dataset_config)
+        if self.revision is not None:
+            _require_nonempty_str("revision", self.revision)
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,7 +321,12 @@ def load_hf_carbon_records(
         args = (config.dataset_id,)
     else:
         args = (config.dataset_id, config.dataset_config)
-    dataset = load_dataset(*args, split=config.split, streaming=config.streaming)
+    dataset = load_dataset(
+        *args,
+        split=config.split,
+        streaming=config.streaming,
+        revision=config.revision,
+    )
     return iter_carbon_records(
         dataset,
         sequence_field=config.sequence_field,

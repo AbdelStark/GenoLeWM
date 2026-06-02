@@ -225,13 +225,13 @@ def test_hf_loader_uses_configured_dataset_and_fields(monkeypatch: pytest.Monkey
 
     assert calls[0] == (
         ("HuggingFaceBio/carbon-pretraining-corpus",),
-        {"split": "train", "streaming": True},
+        {"split": "train", "streaming": True, "revision": None},
     )
     assert default_records == [
         CarbonRecord(record_id=window_sha256("ACGT").hex()[:16], source="mrna", sequence="ACGT")
     ]
     assert calls[1] == (
         ("local/carbon", "v1"),
-        {"split": "validation", "streaming": False},
+        {"split": "validation", "streaming": False, "revision": None},
     )
     assert configured_records == [CarbonRecord(record_id="row-1", source="mrna", sequence="ACGT")]

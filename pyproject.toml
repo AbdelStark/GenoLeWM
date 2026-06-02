@@ -234,6 +234,7 @@ ignore = [
     "PLR2004",  # magic numbers in tests are fine
     "ARG001",   # fixtures are passed but unused in some tests
     "ARG002",   # ditto
+    "ARG005",   # unused lambda args in monkeypatch stubs
     "B011",     # assert False in tests
     "SIM117",   # nested context managers in tests
     "PT011",    # pytest.raises without match
