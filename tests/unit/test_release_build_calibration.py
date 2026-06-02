@@ -63,7 +63,7 @@ def test_build_calibration_examples_requires_window_source(tmp_path: Path) -> No
 def test_load_scorer_modules_requires_manifest(tmp_path: Path) -> None:
     from geno_lewm.deploy import load_scorer_modules
 
-    with pytest.raises(ModelNotFoundError, match="manifest.json"):
+    with pytest.raises(ModelNotFoundError, match=r"manifest\.json"):
         load_scorer_modules(tmp_path)
 
 
