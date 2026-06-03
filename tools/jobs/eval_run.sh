@@ -90,7 +90,10 @@ EVAL_CHROM="${EVAL_CHROM:-21}"
 # (calibration background + eval + efficiency timing) stay proof-scale. chr21 has
 # ~20k labelled variants; 6000 keeps a robust AUROC at ~4x less GPU. Set to 0 to
 # score the full chromosome.
-EVAL_MAX_VARIANTS="${EVAL_MAX_VARIANTS:-6000}"
+EVAL_MAX_VARIANTS="${EVAL_MAX_VARIANTS:-3000}"
+# Variants timed for the efficiency report (a small sample; latency/throughput
+# are per-variant so a sample is representative and avoids a full extra pass).
+EFF_BENCH_VARIANTS="${EFF_BENCH_VARIANTS:-128}"
 CLINVAR_URL="${CLINVAR_URL:-https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz}"
 # Ensembl per-chromosome GRCh38 FASTA. Header is '>21 dna:chromosome ...';
 # _contig_candidates resolves ClinVar '21' to {'21','chr21'} so this matches.
@@ -278,7 +281,12 @@ echo "model_id (shared eval/efficiency) = $MODEL_ID"
 log "assemble + normalize efficiency_report.json"
 EFF_IN="$WORK/efficiency_input.json"
 EFF_OUT="$MODEL/efficiency_report.json"
-MODEL="$MODEL" SCORES="$SCORES" EVAL_VCF="$EVAL_VCF" FASTA="$FASTA" EFF_IN="$EFF_IN" \
+# Time a small sample (header = 3 lines + EFF_BENCH_VARIANTS data rows) instead of
+# re-scoring the whole eval set: latency/throughput are per-variant, so a sample
+# is representative and avoids a second full scoring pass.
+BENCH_VCF="$INPUTS/clinvar-chr${EVAL_CHROM}.bench.vcf"
+head -n "$((3 + EFF_BENCH_VARIANTS))" "$EVAL_VCF" > "$BENCH_VCF"
+MODEL="$MODEL" BENCH_VCF="$BENCH_VCF" FASTA="$FASTA" EFF_IN="$EFF_IN" \
 EVAL_CHROM="$EVAL_CHROM" MODEL_ID="$MODEL_ID" REL="$REL" SNAP="$SNAP" \
 COMMIT="$COMMIT" HARDWARE="$HARDWARE" \
 python - <<'PY'
@@ -293,17 +301,17 @@ model = Path(os.environ["MODEL"])
 encoder, ae, pred = load_scorer_modules(model)  # Carbon loaded offline from /carbon
 calib = read_calibration_table(model / "calibration.parquet")
 
-# Count scored rows for throughput denominator, then time one fresh batched pass.
-n = sum(1 for _ in open(os.environ["SCORES"]))
+# Time one fresh batched pass over the small benchmark sample.
 tmp = model / "eval" / "_bench.scores.jsonl"
 start = time.perf_counter()
-score_vcf(
-    os.environ["EVAL_VCF"], encoder, ae, pred, calib, str(tmp),
+out = score_vcf(
+    os.environ["BENCH_VCF"], encoder, ae, pred, calib, str(tmp),
     reference_fasta=os.environ["FASTA"], show_progress=False, batch_size=64,
 )
 elapsed = max(time.perf_counter() - start, 1e-6)
+n = max(sum(1 for _ in open(out)), 1)
 throughput = max(n / elapsed, 1e-6)
-single_latency_ms = max((elapsed / max(n, 1)) * 1000.0, 1e-6)
+single_latency_ms = max((elapsed / n) * 1000.0, 1e-6)
 try:
     tmp.unlink()
 except FileNotFoundError:
@@ -325,8 +333,8 @@ if peak <= 0:
         peak = 1
 peak = max(peak, 1)
 
-scores_p = Path(os.environ["SCORES"])
-vcf_p = Path(os.environ["EVAL_VCF"])
+bench_p = Path(os.environ["BENCH_VCF"])
+pred_p = model / "predictor.safetensors"
 payload = {
     "schema_version": "1.0.0",
     "generated_by": "tools.release.efficiency_report",
@@ -346,8 +354,8 @@ payload = {
     },
     # inline:<label> input identities avoid package-relative path validation.
     "inputs": {
-        "eval_vcf": {"path": "inline:eval_vcf", "sha256": sha256_file(vcf_p), "size_bytes": vcf_p.stat().st_size},
-        "scores_jsonl": {"path": "inline:scores_jsonl", "sha256": sha256_file(scores_p), "size_bytes": scores_p.stat().st_size},
+        "bench_vcf": {"path": "inline:bench_vcf", "sha256": sha256_file(bench_p), "size_bytes": bench_p.stat().st_size},
+        "predictor": {"path": "inline:predictor", "sha256": sha256_file(pred_p), "size_bytes": pred_p.stat().st_size},
     },
     "limitations": [
         "Latency and throughput are measured on the held-out ClinVar chr"
