@@ -75,6 +75,45 @@ def test_no_chrom_filter_keeps_all_contigs(tmp_path: Path) -> None:
     assert summary["negatives"] == 1
 
 
+def test_fasta_filter_keeps_scoreable_variants(tmp_path: Path) -> None:
+    vcf = _write_vcf(tmp_path)
+    # chr21 contig where pos100 is 'A' (matches 21:100 A>T) and pos200 is 'C'
+    # (matches 21:200 C>G): both kept variants stay scoreable.
+    seq = list("A" * 600)
+    seq[199] = "C"
+    fasta = tmp_path / "ref.fa"
+    fasta.write_text(">21\n" + "".join(seq) + "\n", encoding="utf-8")
+
+    summary = build_clinvar_eval_set(
+        input_vcf=vcf,
+        labels_out=tmp_path / "labels.jsonl",
+        vcf_out=tmp_path / "variants.vcf",
+        chrom="21",
+        fasta=fasta,
+    )
+    assert summary["variants"] == 2
+    assert summary["dropped_unscoreable"] == 0
+
+
+def test_fasta_filter_drops_ref_mismatch(tmp_path: Path) -> None:
+    vcf = _write_vcf(tmp_path)
+    # All-'A' contig: 21:100 (ref A) matches, 21:200 (ref C) does NOT -> dropped.
+    fasta = tmp_path / "ref.fa"
+    fasta.write_text(">21\n" + ("A" * 600) + "\n", encoding="utf-8")
+
+    summary = build_clinvar_eval_set(
+        input_vcf=vcf,
+        labels_out=tmp_path / "labels.jsonl",
+        vcf_out=tmp_path / "variants.vcf",
+        chrom="21",
+        fasta=fasta,
+    )
+    assert summary["variants"] == 1
+    assert summary["dropped_unscoreable"] == 1
+    label_rows = [json.loads(line) for line in (tmp_path / "labels.jsonl").read_text().splitlines()]
+    assert [r["pos"] for r in label_rows] == [100]
+
+
 def test_raises_when_no_labelled_variants_match(tmp_path: Path) -> None:
     vcf = _write_vcf(tmp_path)
     with pytest.raises(InputError, match="no labelled ClinVar variants"):

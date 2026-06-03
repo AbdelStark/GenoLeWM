@@ -56,8 +56,17 @@ def build_clinvar_eval_set(
     vcf_out: Path,
     chrom: str | None = None,
     max_allele_len: int = 16,
+    fasta: Path | None = None,
 ) -> dict[str, Any]:
-    """Write the labels JSONL + matching VCF and return a summary."""
+    """Write the labels JSONL + matching VCF and return a summary.
+
+    When ``fasta`` is given, drop variants that are not scoreable against that
+    reference (off-contig, REF past the contig, or REF disagreeing with the
+    FASTA) using the scorer's own extraction logic. A single unscoreable variant
+    would otherwise abort the whole VCF at scoring time, so filtering both the
+    labels and the VCF here keeps the score keys covering the label keys while
+    guaranteeing the downstream scoring pass cannot abort.
+    """
     labels_out = Path(labels_out)
     vcf_out = Path(vcf_out)
     by_key: dict[tuple[str, int, str, str], dict[str, Any]] = {}
@@ -85,11 +94,19 @@ def build_clinvar_eval_set(
         kept.append(entry["variant"])
     kept.sort(key=lambda v: (v.chrom, v.pos, v.ref, v.alt))
 
+    dropped_unscoreable = 0
+    if fasta is not None:
+        kept, dropped_unscoreable = _filter_scoreable(kept, Path(fasta))
+
     if not kept:
         raise InputError(
             "no labelled ClinVar variants matched the eval-set filters",
-            details={"chrom": chrom, "labelled_rows_seen": seen_labelled},
-            remediation="check the ClinVar VCF and --chrom filter",
+            details={
+                "chrom": chrom,
+                "labelled_rows_seen": seen_labelled,
+                "dropped_unscoreable": dropped_unscoreable,
+            },
+            remediation="check the ClinVar VCF, --chrom filter, and that the FASTA build matches",
         )
 
     positives = sum(1 for v in kept if _binary_label(v.clinical_significance))
@@ -131,8 +148,39 @@ def build_clinvar_eval_set(
         "positives": positives,
         "negatives": negatives,
         "dropped_conflicting": conflicting,
+        "dropped_unscoreable": dropped_unscoreable,
         "labelled_rows_seen": seen_labelled,
     }
+
+
+def _filter_scoreable(
+    variants: list[ClinvarVariant], fasta: Path
+) -> tuple[list[ClinvarVariant], int]:
+    """Keep only variants the scorer can extract a window for against ``fasta``.
+
+    Uses the scorer's own FASTA loader + window extraction so the kept set is
+    exactly what ``geno_lewm.surprise.score.score_vcf`` will accept (no aborts).
+    """
+    # Imported here (not at module top) and reused verbatim from the scorer so the
+    # scoreability check stays identical to the scoring path. score.py is
+    # torch-free at import, so this keeps the tool importable without torch.
+    from geno_lewm.action import EditSpec
+    from geno_lewm.encoder.windowing import DEFAULT_WINDOW_BP
+    from geno_lewm.errors import VcfParseError
+    from geno_lewm.surprise.score import _extract_reference_window, _load_reference_fasta
+
+    reference = _load_reference_fasta(fasta)
+    kept: list[ClinvarVariant] = []
+    dropped = 0
+    for variant in variants:
+        spec = EditSpec(chrom=variant.chrom, pos=variant.pos, ref=variant.ref, alt=variant.alt)
+        try:
+            _extract_reference_window(spec, reference, window_bp=DEFAULT_WINDOW_BP)
+        except VcfParseError:
+            dropped += 1
+            continue
+        kept.append(variant)
+    return kept, dropped
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -142,6 +190,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--vcf-out", type=Path, required=True)
     parser.add_argument("--chrom", default=None, help="Restrict to one contig (e.g. 21).")
     parser.add_argument("--max-allele-len", type=int, default=16)
+    parser.add_argument(
+        "--fasta",
+        type=Path,
+        default=None,
+        help="Optional reference FASTA; drop variants not scoreable against it (no scoring abort).",
+    )
     args = parser.parse_args(argv)
     try:
         summary = build_clinvar_eval_set(
@@ -150,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             vcf_out=args.vcf_out,
             chrom=args.chrom,
             max_allele_len=args.max_allele_len,
+            fasta=args.fasta,
         )
     except GenoLeWMError as exc:
         sys.stderr.write(f"error: {exc}\n")
