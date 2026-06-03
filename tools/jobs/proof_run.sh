@@ -30,7 +30,7 @@ STEPS="${STEPS:-2000}"
 # very long-sequence (O(n^2) attention) forward through Carbon-500M (~9 s/step on
 # a100); the proof uses a smaller window for a fast, completable run. The EVAL
 # job MUST use the same WINDOW_BP so train/score window latents are comparable.
-WINDOW_BP="${WINDOW_BP:-2048}"
+WINDOW_BP="${WINDOW_BP:-4096}"
 UPLOAD_REPO="${UPLOAD_REPO:-abdelstark/geno-lewm-runs}"
 RUN_NAME="${RUN_NAME:-geno-lewm-proof}"
 CLINVAR_URL="${CLINVAR_URL:-https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz}"

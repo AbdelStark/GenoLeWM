@@ -93,7 +93,7 @@ EVAL_CHROM="${EVAL_CHROM:-21}"
 EVAL_MAX_VARIANTS="${EVAL_MAX_VARIANTS:-3000}"
 # MUST match the proof run's WINDOW_BP (proof_run.sh) so the scored window latents
 # match what the predictor was trained on. Smaller windows also make scoring fast.
-WINDOW_BP="${WINDOW_BP:-2048}"
+WINDOW_BP="${WINDOW_BP:-4096}"
 # Variants timed for the efficiency report (a small sample; latency/throughput
 # are per-variant so a sample is representative and avoids a full extra pass).
 EFF_BENCH_VARIANTS="${EFF_BENCH_VARIANTS:-128}"
