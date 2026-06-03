@@ -184,6 +184,17 @@ curl -fsSL "$CLINVAR_URL" -o "$CLINVAR_FULL"
 curl -fsSL "$FASTA_URL"  -o "$FASTA"
 echo "FASTA header: $(zcat "$FASTA" 2>/dev/null | head -1)"
 
+# Pre-filter ClinVar to the eval chromosome at the line level before the
+# (pure-Python) per-variant parse. The full GRCh38 ClinVar has ~3M variants;
+# parsing only the ~50k chr$EVAL_CHROM rows is ~10x faster. ClinVar GRCh38 uses
+# bare contig names ("21"); also match a "chr"-prefixed spelling defensively.
+CLINVAR_CHR="$INPUTS/clinvar.chr${EVAL_CHROM}.vcf.gz"
+zcat "$CLINVAR_FULL" 2>/dev/null \
+  | awk -F'\t' -v c="$EVAL_CHROM" '/^#/ || ($1 == c || $1 == "chr" c)' \
+  | gzip > "$CLINVAR_CHR"
+test -s "$CLINVAR_CHR" || { echo "FATAL: chr$EVAL_CHROM ClinVar subset is empty"; exit 1; }
+echo "ClinVar chr$EVAL_CHROM rows: $(zcat "$CLINVAR_CHR" 2>/dev/null | grep -cv '^#')"
+
 # Emit labels.jsonl + a matching minimal VCF from the SAME de-duplicated,
 # conflict-dropped rows -> score keys exactly cover label keys, no dup keys,
 # guaranteed >=1 positive and >=1 negative or the tool errors out.
@@ -197,7 +208,7 @@ EVAL_VCF="$INPUTS/clinvar-chr${EVAL_CHROM}.vcf"
 CAP_ARGS=()
 if [ "${EVAL_MAX_VARIANTS}" != "0" ]; then CAP_ARGS=(--max-variants "$EVAL_MAX_VARIANTS"); fi
 python -m tools.data.clinvar_eval_set \
-  --input-vcf "$CLINVAR_FULL" --chrom "$EVAL_CHROM" --fasta "$FASTA" \
+  --input-vcf "$CLINVAR_CHR" --chrom "$EVAL_CHROM" --fasta "$FASTA" \
   "${CAP_ARGS[@]}" \
   --labels-out "$LABELS" --vcf-out "$EVAL_VCF"
 echo "labels: $(wc -l < "$LABELS") variants"
