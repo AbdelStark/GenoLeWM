@@ -46,8 +46,14 @@ curl -fsSL "$CLINVAR_URL" -o "$WORK/inputs/clinvar/clinvar-2026-04-15-snv.vcf.gz
 
 log "stage gnomAD chr22 subset ($GNOMAD_LINES lines)"
 # bgzip is gzip-compatible; take the header + first variant rows, then re-gzip.
-curl -fsSL "$GNOMAD_URL" | zcat 2>/dev/null | head -n "$GNOMAD_LINES" \
-  | gzip > "$WORK/inputs/gnomad/gnomad-v4.1-snv.vcf.gz"
+# `head` closes the pipe early on purpose, so curl/zcat get SIGPIPE (curl exit
+# 23) — disable pipefail for this line and assert the subset is non-empty.
+GNOMAD_OUT="$WORK/inputs/gnomad/gnomad-v4.1-snv.vcf.gz"
+set +o pipefail
+curl -fsSL "$GNOMAD_URL" | zcat 2>/dev/null | head -n "$GNOMAD_LINES" | gzip > "$GNOMAD_OUT"
+set -o pipefail
+test -s "$GNOMAD_OUT" || { echo "gnomAD subset is empty"; exit 1; }
+echo "gnomAD subset: $(zcat "$GNOMAD_OUT" 2>/dev/null | wc -l) lines"
 
 log "stage Carbon corpus windows"
 python -m tools.data.carbon_windows \
