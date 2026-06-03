@@ -97,13 +97,18 @@ geno-lewm-train --carbon-train \
   --carbon-model-dir "$CARBON_DIR" --training-config "$CONFIG" \
   --steps "$STEPS" --package-release-run --no-banner --quiet
 
+# Upload the run dir (which holds predictor_checkpoint.pt) FIRST, before export.
+# Training is the expensive step; protecting its output immediately means a
+# later-step failure (or job timeout during export/upload) never discards it.
+log "upload run (checkpoint) to $UPLOAD_REPO to protect the trained artifact"
+hf upload "$UPLOAD_REPO" "$WORK/run" "$RUN_NAME/run" --repo-type model
+
 log "export deploy checkpoint"
 geno-lewm-export --checkpoint "$WORK/run/predictor_checkpoint.pt" \
   --output-dir "$WORK/model" --no-banner --quiet
 
-log "upload checkpoint + run + dataset to $UPLOAD_REPO (protect the trained artifact first)"
+log "upload model + dataset to $UPLOAD_REPO"
 hf upload "$UPLOAD_REPO" "$WORK/model" "$RUN_NAME/model" --repo-type model
-hf upload "$UPLOAD_REPO" "$WORK/run" "$RUN_NAME/run" --repo-type model
 hf upload "$UPLOAD_REPO" "$WORK/dataset" "$RUN_NAME/dataset" --repo-type model
 
 echo "GENO_LEWM_PROOF_OK $RUN_NAME"
