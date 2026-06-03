@@ -193,6 +193,7 @@ def run_carbon_training(
         normalize=config.encoder.normalize,
         encoder_hash=_carbon_weights_hash(carbon_model_dir),
         local_files_only=True,
+        trust_remote_code=config.encoder.trust_remote_code,
     )
     first_items = _next_batch(iterator, config.data.batch_size)
     first_batch = _encode_items(encoder, first_items)

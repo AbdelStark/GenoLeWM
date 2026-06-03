@@ -24,6 +24,9 @@ encoder:
   pool_type: centered_mean
   pool_radius: 8
   normalize: true
+  # Carbon-500M ships a custom HybridDNATokenizer; Transformers needs this to
+  # load it. Safe here because encoder.revision pins the exact commit.
+  trust_remote_code: true
 
 predictor:
   architecture: cross_attention
