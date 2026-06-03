@@ -109,6 +109,28 @@ def test_iter_carbon_records_normalizes_source_sequence_and_subset() -> None:
     assert stable_subset_includes("r1", fraction=1.0)
 
 
+def test_iter_carbon_records_default_source_for_single_source_config() -> None:
+    # eukaryote_generator_10B_subset rows carry no per-row source field.
+    rows = [{"id": "r1", "sequence": "ACGT"}]
+    records = list(
+        iter_carbon_records(rows, subset_fraction=1.0, default_source="eukaryotic_genes")
+    )
+    assert records == [CarbonRecord(record_id="r1", source="eukaryotic_genes", sequence="ACGT")]
+
+
+def test_iter_carbon_records_skip_invalid_drops_ambiguous_bases() -> None:
+    rows = [
+        {"id": "good", "source": "mrna", "sequence": "ACGT"},
+        {"id": "bad", "source": "mrna", "sequence": "ACGTRYSW"},  # IUPAC ambiguity codes
+    ]
+    # Without skip_invalid the ambiguous row aborts the stream.
+    with pytest.raises(InputError, match="unsupported base"):
+        list(iter_carbon_records(rows, subset_fraction=1.0))
+    # With skip_invalid only the clean row survives.
+    records = list(iter_carbon_records(rows, subset_fraction=1.0, skip_invalid=True))
+    assert [r.record_id for r in records] == ["good"]
+
+
 def test_iter_record_windows_extracts_canonical_slices_and_hashes() -> None:
     prefix = "C" * DEFAULT_CORPUS_MARGIN_BP
     first = "A" * DEFAULT_WINDOW_BP
