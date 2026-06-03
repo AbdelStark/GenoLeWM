@@ -22,6 +22,7 @@ WORK="${WORK:-/tmp/geno}"
 CARBON_DIR="${CARBON_DIR:-/carbon}"
 CORPUS_REVISION="${CORPUS_REVISION:-cb4c13a78102933b3a6ac65734d326f7b431d9b7}"
 CARBON_CONFIG="${CARBON_CONFIG:-eukaryote_generator_10B_subset}"
+CARBON_SOURCE="${CARBON_SOURCE:-eukaryotic_genes}"
 MAX_WINDOWS="${MAX_WINDOWS:-20000}"
 GNOMAD_LINES="${GNOMAD_LINES:-60000}"
 STEPS="${STEPS:-2000}"
@@ -59,7 +60,7 @@ echo "gnomAD subset: $(zcat "$GNOMAD_OUT" 2>/dev/null | wc -l) lines"
 log "stage Carbon corpus windows"
 python -m tools.data.carbon_windows \
   --revision "$CORPUS_REVISION" --dataset-config "$CARBON_CONFIG" \
-  --max-windows "$MAX_WINDOWS" \
+  --default-source "$CARBON_SOURCE" --max-windows "$MAX_WINDOWS" \
   --output "$WORK/inputs/carbon/source-mix-windows.jsonl"
 
 log "build dataset snapshot"
