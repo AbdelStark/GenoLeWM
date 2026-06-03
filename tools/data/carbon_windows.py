@@ -53,6 +53,7 @@ def export_carbon_windows(
         dataset_config=dataset_config,
         revision=revision,
         default_source=default_source,
+        skip_invalid=True,
         split=split,
         subset_fraction=subset_fraction,
         subset_seed=subset_seed,

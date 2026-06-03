@@ -68,6 +68,7 @@ class CarbonCorpusConfig:
     dataset_config: str | None = None
     revision: str | None = None
     default_source: str | None = None
+    skip_invalid: bool = False
     split: str = "train"
     streaming: bool = True
     subset_fraction: float = DEFAULT_PHASE1_SUBSET_FRACTION
@@ -278,12 +279,15 @@ def iter_carbon_records(
     subset_fraction: float = 1.0,
     subset_seed: int = 0,
     default_source: str | None = None,
+    skip_invalid: bool = False,
 ) -> Iterator[CarbonRecord]:
     """Yield canonical Carbon records from HF-style row mappings.
 
     Single-source corpus configs (e.g. ``eukaryote_generator_10B_subset``) do
     not carry a per-row ``source_field``; pass ``default_source`` to label every
-    record (it must still be a recognized source key).
+    record (it must still be a recognized source key). With ``skip_invalid``,
+    rows whose sequence carries unsupported (non-ACGTN) bases are skipped rather
+    than raising — corpus shards occasionally contain IUPAC ambiguity codes.
     """
     _require_nonempty_str("sequence_field", sequence_field)
     _require_nonempty_str("source_field", source_field)
@@ -294,6 +298,8 @@ def iter_carbon_records(
     for row_idx, row in enumerate(rows):
         sequence_value = row.get(sequence_field)
         if not isinstance(sequence_value, str):
+            if skip_invalid:
+                continue
             raise InputError(
                 "Carbon corpus row is missing a DNA sequence string",
                 details={"row": row_idx, "sequence_field": sequence_field},
@@ -303,8 +309,13 @@ def iter_carbon_records(
             raw_source is None or (isinstance(raw_source, str) and not raw_source.strip())
         ):
             raw_source = default_source
-        source = normalize_source_label(raw_source)
-        sequence = canonicalize_dna(sequence_value)
+        try:
+            source = normalize_source_label(raw_source)
+            sequence = canonicalize_dna(sequence_value)
+        except InputError:
+            if skip_invalid:
+                continue
+            raise
         raw_record_id = row.get(source_id_field)
         record_id = (
             str(raw_record_id) if raw_record_id not in (None, "") else _fallback_id(sequence)
@@ -347,6 +358,7 @@ def load_hf_carbon_records(
         subset_fraction=config.subset_fraction,
         subset_seed=config.subset_seed,
         default_source=config.default_source,
+        skip_invalid=config.skip_invalid,
     )
 
 
