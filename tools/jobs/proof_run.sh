@@ -44,7 +44,22 @@ mkdir -p "$WORK/inputs/clinvar" "$WORK/inputs/gnomad" "$WORK/inputs/carbon"
 cp "$SPEC_SRC" "$WORK/dataset-snapshot-snv.json"
 
 log "stage ClinVar GRCh38"
-curl -fsSL "$CLINVAR_URL" -o "$WORK/inputs/clinvar/clinvar-2026-04-15-snv.vcf.gz"
+CLINVAR_OUT="$WORK/inputs/clinvar/clinvar-2026-04-15-snv.vcf.gz"
+curl -fsSL "$CLINVAR_URL" -o "$CLINVAR_OUT"
+
+# Hold out the gnomAD training chromosome from the ClinVar eval split so the
+# training edit source and the eval labels are disjoint by construction — no
+# train/eval leakage (the snapshot's leakage gate enforces this).
+HOLDOUT_CHROM="${HOLDOUT_CHROM:-22}"
+log "hold out chr$HOLDOUT_CHROM from ClinVar eval (gnomAD edits use it)"
+set +o pipefail
+zcat "$CLINVAR_OUT" 2>/dev/null \
+  | awk -F'\t' -v c="$HOLDOUT_CHROM" '/^#/ || ($1 != c && $1 != "chr" c)' \
+  | gzip > "$CLINVAR_OUT.tmp"
+set -o pipefail
+test -s "$CLINVAR_OUT.tmp" || { echo "ClinVar holdout filter produced empty file"; exit 1; }
+mv "$CLINVAR_OUT.tmp" "$CLINVAR_OUT"
+echo "ClinVar (chr$HOLDOUT_CHROM held out): $(zcat "$CLINVAR_OUT" 2>/dev/null | grep -cv '^#') variant rows"
 
 log "stage gnomAD chr22 subset ($GNOMAD_LINES lines)"
 # bgzip is gzip-compatible; take the header + first variant rows, then re-gzip.
