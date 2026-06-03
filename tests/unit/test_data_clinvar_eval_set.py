@@ -114,6 +114,45 @@ def test_fasta_filter_drops_ref_mismatch(tmp_path: Path) -> None:
     assert [r["pos"] for r in label_rows] == [100]
 
 
+def test_max_variants_caps_size_and_keeps_both_classes(tmp_path: Path) -> None:
+    header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+    rows = []
+    rid = 0
+    for i in range(8):  # 8 pathogenic
+        rid += 1
+        rows.append(f"21\t{1000 + i}\t{rid}\tA\tT\t.\t.\tCLNSIG=Pathogenic")
+    for i in range(8):  # 8 benign
+        rid += 1
+        rows.append(f"21\t{2000 + i}\t{rid}\tC\tG\t.\t.\tCLNSIG=Benign")
+    vcf = tmp_path / "many.vcf"
+    vcf.write_text(header + "\n".join(rows) + "\n", encoding="utf-8")
+
+    summary = build_clinvar_eval_set(
+        input_vcf=vcf,
+        labels_out=tmp_path / "labels.jsonl",
+        vcf_out=tmp_path / "variants.vcf",
+        chrom="21",
+        max_variants=6,
+        subset_seed=3,
+    )
+    assert summary["variants"] == 6
+    assert summary["subsampled_from"] == 16
+    assert summary["positives"] >= 1
+    assert summary["negatives"] >= 1
+    assert summary["positives"] + summary["negatives"] == 6
+    # Deterministic for a fixed seed.
+    again = build_clinvar_eval_set(
+        input_vcf=vcf,
+        labels_out=tmp_path / "labels2.jsonl",
+        vcf_out=tmp_path / "variants2.jsonl",
+        chrom="21",
+        max_variants=6,
+        subset_seed=3,
+    )
+    assert (tmp_path / "labels.jsonl").read_text() == (tmp_path / "labels2.jsonl").read_text()
+    assert again["variants"] == 6
+
+
 def test_raises_when_no_labelled_variants_match(tmp_path: Path) -> None:
     vcf = _write_vcf(tmp_path)
     with pytest.raises(InputError, match="no labelled ClinVar variants"):

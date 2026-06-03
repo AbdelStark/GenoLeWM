@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,8 @@ def build_clinvar_eval_set(
     chrom: str | None = None,
     max_allele_len: int = 16,
     fasta: Path | None = None,
+    max_variants: int | None = None,
+    subset_seed: int = 0,
 ) -> dict[str, Any]:
     """Write the labels JSONL + matching VCF and return a summary.
 
@@ -97,6 +100,11 @@ def build_clinvar_eval_set(
     dropped_unscoreable = 0
     if fasta is not None:
         kept, dropped_unscoreable = _filter_scoreable(kept, Path(fasta))
+
+    subsampled_from = 0
+    if max_variants is not None and len(kept) > max_variants:
+        subsampled_from = len(kept)
+        kept = _stratified_subsample(kept, max_variants, subset_seed)
 
     if not kept:
         raise InputError(
@@ -149,8 +157,32 @@ def build_clinvar_eval_set(
         "negatives": negatives,
         "dropped_conflicting": conflicting,
         "dropped_unscoreable": dropped_unscoreable,
+        "subsampled_from": subsampled_from,
         "labelled_rows_seen": seen_labelled,
     }
+
+
+def _stratified_subsample(
+    variants: list[ClinvarVariant], max_variants: int, seed: int
+) -> list[ClinvarVariant]:
+    """Deterministically cap the eval set while keeping both label classes.
+
+    Positives (P/LP) and negatives (B/LB) are sampled proportionally, with at
+    least one of each retained so the downstream AUROC always has both classes.
+    """
+    positives = [v for v in variants if _binary_label(v.clinical_significance)]
+    negatives = [v for v in variants if not _binary_label(v.clinical_significance)]
+    total = len(variants)
+    n_pos = max(1, round(max_variants * len(positives) / total)) if positives else 0
+    n_neg = max(1, max_variants - n_pos) if negatives else 0
+    n_pos = min(n_pos, len(positives))
+    n_neg = min(n_neg, len(negatives))
+    rng = random.Random(seed)
+    rng.shuffle(positives)
+    rng.shuffle(negatives)
+    chosen = positives[:n_pos] + negatives[:n_neg]
+    chosen.sort(key=lambda v: (v.chrom, v.pos, v.ref, v.alt))
+    return chosen
 
 
 def _filter_scoreable(
@@ -196,6 +228,13 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional reference FASTA; drop variants not scoreable against it (no scoring abort).",
     )
+    parser.add_argument(
+        "--max-variants",
+        type=int,
+        default=None,
+        help="Cap the eval set size (class-stratified, deterministic) for proof-scale scoring.",
+    )
+    parser.add_argument("--subset-seed", type=int, default=0)
     args = parser.parse_args(argv)
     try:
         summary = build_clinvar_eval_set(
@@ -205,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
             chrom=args.chrom,
             max_allele_len=args.max_allele_len,
             fasta=args.fasta,
+            max_variants=args.max_variants,
+            subset_seed=args.subset_seed,
         )
     except GenoLeWMError as exc:
         sys.stderr.write(f"error: {exc}\n")

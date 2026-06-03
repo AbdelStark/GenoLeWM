@@ -86,6 +86,11 @@ HARDWARE="${HARDWARE:-$(python -c 'import torch;print("cuda:"+torch.cuda.get_dev
 # Held-out ClinVar (GRCh38) + chr21-only FASTA. chr21 keeps memory bounded (the
 # scorer loads the WHOLE FASTA into RAM); a whole-genome FASTA risks OOM.
 EVAL_CHROM="${EVAL_CHROM:-21}"
+# Cap the held-out eval set (class-stratified) so the three scoring passes
+# (calibration background + eval + efficiency timing) stay proof-scale. chr21 has
+# ~20k labelled variants; 6000 keeps a robust AUROC at ~4x less GPU. Set to 0 to
+# score the full chromosome.
+EVAL_MAX_VARIANTS="${EVAL_MAX_VARIANTS:-6000}"
 CLINVAR_URL="${CLINVAR_URL:-https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz}"
 # Ensembl per-chromosome GRCh38 FASTA. Header is '>21 dna:chromosome ...';
 # _contig_candidates resolves ClinVar '21' to {'21','chr21'} so this matches.
@@ -189,8 +194,11 @@ EVAL_VCF="$INPUTS/clinvar-chr${EVAL_CHROM}.vcf"
 # are dropped from BOTH labels + VCF here. One unscoreable row would otherwise
 # abort the whole scoring pass (score.py has no skip path), so this guarantees
 # the GPU scoring below cannot abort while keeping score keys covering labels.
+CAP_ARGS=()
+if [ "${EVAL_MAX_VARIANTS}" != "0" ]; then CAP_ARGS=(--max-variants "$EVAL_MAX_VARIANTS"); fi
 python -m tools.data.clinvar_eval_set \
   --input-vcf "$CLINVAR_FULL" --chrom "$EVAL_CHROM" --fasta "$FASTA" \
+  "${CAP_ARGS[@]}" \
   --labels-out "$LABELS" --vcf-out "$EVAL_VCF"
 echo "labels: $(wc -l < "$LABELS") variants"
 
