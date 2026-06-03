@@ -444,20 +444,14 @@ print("OK: runtime constructed; model_id =", rt.manifest.model_id())
 PY
 
 # --- 11. (optional) full release model_package gate -----------------------
-# Requires training-run evidence (training_preflight_report.json,
-# training_run_manifest.json, training_run_card.md, training_run_SHA256SUMS)
-# staged in the model dir + listed in model_package.json extra_files. These come
-# from the TRAINING job (run dir). Built only if that evidence is available.
+# The proof run (--package-release-run) already emits the training-run evidence
+# (training_preflight_report.json, training_run_manifest.json,
+# training_run_card.md, training_run_SHA256SUMS) into the run dir, so stage those
+# into the model dir and build the full model_package. (No need to re-run
+# tools.release.training_run, which would require a training_run_metadata.json the
+# proof run does not emit.) Built only if that evidence is present.
 if [ -n "$RUN_DIR" ] && [ -f "$RUN_DIR/training_run_manifest.json" ]; then
-  log "build training-run evidence package"
-  python -m tools.release.training_run \
-    --run-dir "$RUN_DIR" \
-    --metadata-json "$RUN_DIR/training_run_metadata.json" || {
-      echo "training_run packaging failed; skipping full model_package gate"; RUN_DIR=""; }
-fi
-
-if [ -n "$RUN_DIR" ]; then
-  # Copy the 4 required evidence files into the model dir.
+  log "stage training-run evidence into the model package"
   for f in training_preflight_report.json training_run_manifest.json \
            training_run_card.md training_run_SHA256SUMS; do
     if [ -f "$RUN_DIR/$f" ]; then cp "$RUN_DIR/$f" "$MODEL/$f"; fi
