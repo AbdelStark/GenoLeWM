@@ -802,7 +802,11 @@ def _extract_reference_window(
             },
         )
     try:
-        extracted = extract_window(sequence, edit_locus=ref_start, window_bp=window_bp)
+        # ``sequence`` comes from _load_reference_fasta, which already returned a
+        # canonicalized contig; skip re-validating the whole chromosome per variant.
+        extracted = extract_window(
+            sequence, edit_locus=ref_start, window_bp=window_bp, assume_canonical=True
+        )
     except InputError as exc:
         raise VcfParseError(
             "could not extract reference window from FASTA",

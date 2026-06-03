@@ -111,6 +111,7 @@ def extract_window(
     *,
     edit_locus: int | None = None,
     window_bp: int = DEFAULT_WINDOW_BP,
+    assume_canonical: bool = False,
 ) -> ExtractedWindow:
     """Extract a supported-width DNA window from ``source_sequence``.
 
@@ -120,9 +121,14 @@ def extract_window(
     the source is shorter than the requested window or the selected
     interval extends past the right edge, trailing ``A`` bases are
     appended per Carbon's tokenizer convention.
+
+    Set ``assume_canonical`` when ``source_sequence`` is already uppercase,
+    validated DNA (e.g. a contig from a loaded reference FASTA) to skip the
+    O(len) re-validation. Re-validating a whole chromosome once per variant
+    otherwise dominates VCF scoring wall-clock.
     """
     _validate_window_bp(window_bp)
-    source = canonicalize_dna(source_sequence)
+    source = source_sequence if assume_canonical else canonicalize_dna(source_sequence)
     if not source:
         raise InputError("source_sequence must be non-empty")
 
