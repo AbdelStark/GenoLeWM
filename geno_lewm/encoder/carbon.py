@@ -48,6 +48,7 @@ class CarbonStateEncoder:
         encoder_hash: bytes | str | None = None,
         local_files_only: bool = True,
         trust_remote_code: bool = False,
+        device: str | None = None,
     ) -> None:
         if not model_id:
             raise InputError("model_id must be non-empty")
@@ -101,6 +102,7 @@ class CarbonStateEncoder:
         self.normalize = normalize
         self.local_files_only = local_files_only
         self.trust_remote_code = trust_remote_code
+        self.device = _resolve_device(device)
         self._encoder_hash = _coerce_encoder_hash(encoder_hash)
         self._d_state: int | None = None
 
@@ -115,6 +117,7 @@ class CarbonStateEncoder:
         self.tokenizer = tokenizer
         self.model = model
         _eval_if_available(self.model)
+        _move_module_to_device(self.model, self.device)
         config = getattr(self.model, "config", None)
         hidden_size = getattr(config, "hidden_size", None)
         if isinstance(hidden_size, int) and not isinstance(hidden_size, bool) and hidden_size > 0:
@@ -151,6 +154,7 @@ class CarbonStateEncoder:
         normalized = tuple(canonicalize_dna(window) for window in windows)
         wrapped = [wrap_dna_for_tokenizer(window) for window in normalized]
         tokenized = _tokenize(self.tokenizer, wrapped)
+        tokenized = _move_inputs_to_device(tokenized, self.device)
         output = _call_model(self.model, tokenized)
         rows_by_item = _hidden_rows_by_item(output, state_layer=self.state_layer)
         if len(rows_by_item) != len(windows):
@@ -248,6 +252,46 @@ def _eval_if_available(model: object) -> None:
     eval_method = getattr(model, "eval", None)
     if callable(eval_method):
         eval_method()
+
+
+def _resolve_device(device: str | None) -> str:
+    """Resolve the encoder device, defaulting to CUDA when available.
+
+    ``None`` or ``"auto"`` selects ``"cuda"`` if a GPU is present (e.g. on a
+    Hugging Face Jobs GPU flavor) and ``"cpu"`` otherwise; an explicit value is
+    used verbatim. Resolution never imports torch eagerly, so the encoder stays
+    importable without the ``[train]`` extra.
+    """
+    if device is not None and device != "auto":
+        return device
+    try:
+        import torch  # type: ignore[import-not-found]
+
+        if bool(torch.cuda.is_available()):
+            return "cuda"
+    except Exception:  # pragma: no cover - depends on optional torch/accelerator
+        return "cpu"
+    return "cpu"
+
+
+def _move_module_to_device(model: object, device: str) -> None:
+    """Move a real torch module to ``device``; no-op for CPU or test fakes."""
+    if device == "cpu":
+        return
+    to = getattr(model, "to", None)
+    if callable(to):
+        to(device)
+
+
+def _move_inputs_to_device(tokenized: Mapping[str, object], device: str) -> Mapping[str, object]:
+    """Move tokenizer output tensors to ``device``; no-op for CPU or fakes."""
+    if device == "cpu":
+        return tokenized
+    moved: dict[str, object] = {}
+    for key, value in tokenized.items():
+        to = getattr(value, "to", None)
+        moved[key] = to(device) if callable(to) else value
+    return moved
 
 
 def _tokenize(tokenizer: object, wrapped_windows: Sequence[str]) -> Mapping[str, object]:
