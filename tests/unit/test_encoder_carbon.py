@@ -103,3 +103,53 @@ class FakeModel:
             else:
                 rows_by_item.append(((0.0, 2.0), (0.0, 4.0), (0.0, 6.0)))
         return SimpleNamespace(hidden_states=(rows_by_item,))
+
+
+class _DeviceFakeModel(FakeModel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.moved_to: str | None = None
+
+    def to(self, device: str) -> _DeviceFakeModel:
+        self.moved_to = device
+        return self
+
+
+def test_resolve_device_explicit_and_default() -> None:
+    from geno_lewm.encoder.carbon import _resolve_device
+
+    assert _resolve_device("cpu") == "cpu"
+    assert _resolve_device("cuda:0") == "cuda:0"
+    # None / "auto" resolve to cuda when a GPU is present, else cpu.
+    assert _resolve_device(None) in {"cpu", "cuda"}
+    assert _resolve_device("auto") in {"cpu", "cuda"}
+
+
+def test_carbon_state_encoder_moves_model_to_cuda() -> None:
+    model = _DeviceFakeModel()
+    encoder = CarbonStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        model=model,
+        tokenizer=FakeTokenizer(),
+        pool_radius=0,
+        device="cuda",
+    )
+    assert encoder.device == "cuda"
+    assert model.moved_to == "cuda"
+    # Encoding still works; tokenizer outputs without .to() pass through.
+    assert encoder.encode("ACGTAC", edit_locus=0) == (1.0, 0.0)
+
+
+def test_carbon_state_encoder_cpu_does_not_move_model() -> None:
+    model = _DeviceFakeModel()
+    encoder = CarbonStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        model=model,
+        tokenizer=FakeTokenizer(),
+        pool_radius=0,
+        device="cpu",
+    )
+    assert encoder.device == "cpu"
+    assert model.moved_to is None
