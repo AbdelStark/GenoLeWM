@@ -38,6 +38,7 @@ def export_carbon_windows(
     *,
     output: Path,
     dataset_id: str = DEFAULT_CARBON_DATASET_ID,
+    dataset_config: str | None = None,
     revision: str | None = None,
     split: str = "train",
     subset_fraction: float = DEFAULT_PHASE1_SUBSET_FRACTION,
@@ -48,6 +49,7 @@ def export_carbon_windows(
     """Stream the pinned Carbon corpus and write source-mix windows as JSONL."""
     config = CarbonCorpusConfig(
         dataset_id=dataset_id,
+        dataset_config=dataset_config,
         revision=revision,
         split=split,
         subset_fraction=subset_fraction,
@@ -93,6 +95,7 @@ def export_carbon_windows(
         "generated_by": GENERATED_BY,
         "output": str(output),
         "dataset_id": dataset_id,
+        "dataset_config": dataset_config,
         "revision": revision,
         "split": split,
         "subset_fraction": subset_fraction,
@@ -106,6 +109,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--dataset-id", default=DEFAULT_CARBON_DATASET_ID)
+    parser.add_argument(
+        "--dataset-config",
+        default=None,
+        help="Corpus config/subset name (e.g. eukaryote_generator_10B_subset).",
+    )
     parser.add_argument("--revision", default=None, help="Pinned corpus commit/revision.")
     parser.add_argument("--split", default="train")
     parser.add_argument("--subset-fraction", type=float, default=DEFAULT_PHASE1_SUBSET_FRACTION)
@@ -118,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
         summary = export_carbon_windows(
             output=args.output,
             dataset_id=args.dataset_id,
+            dataset_config=args.dataset_config,
             revision=args.revision,
             split=args.split,
             subset_fraction=args.subset_fraction,
