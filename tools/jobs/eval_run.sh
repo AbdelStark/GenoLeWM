@@ -91,6 +91,9 @@ EVAL_CHROM="${EVAL_CHROM:-21}"
 # ~20k labelled variants; 6000 keeps a robust AUROC at ~4x less GPU. Set to 0 to
 # score the full chromosome.
 EVAL_MAX_VARIANTS="${EVAL_MAX_VARIANTS:-3000}"
+# MUST match the proof run's WINDOW_BP (proof_run.sh) so the scored window latents
+# match what the predictor was trained on. Smaller windows also make scoring fast.
+WINDOW_BP="${WINDOW_BP:-2048}"
 # Variants timed for the efficiency report (a small sample; latency/throughput
 # are per-variant so a sample is representative and avoids a full extra pass).
 EFF_BENCH_VARIANTS="${EFF_BENCH_VARIANTS:-128}"
@@ -223,6 +226,7 @@ echo "labels: $(wc -l < "$LABELS") variants"
 log "build calibration.parquet"
 python -m tools.release.build_calibration \
   --model-dir "$MODEL" --vcf "$EVAL_VCF" --fasta "$FASTA" \
+  --window-bp "$WINDOW_BP" \
   --output "$MODEL/calibration.parquet"
 test -s "$MODEL/calibration.parquet" || { echo "FATAL: calibration.parquet empty"; exit 1; }
 
@@ -236,6 +240,7 @@ log "score held-out ClinVar -> scores.jsonl (geno_lewm.surprise.score API)"
 SCORES="$EVAL_DIR/scores.jsonl"
 set +e
 MODEL="$MODEL" EVAL_VCF="$EVAL_VCF" FASTA="$FASTA" SCORES="$SCORES" CARBON_DIR="$CARBON_DIR" \
+WINDOW_BP="$WINDOW_BP" \
 python - <<'PY'
 import os
 from pathlib import Path
@@ -250,6 +255,7 @@ out = score_vcf(
     os.environ["EVAL_VCF"], encoder, action_encoder, predictor, calib,
     os.environ["SCORES"],
     reference_fasta=os.environ["FASTA"],
+    window_bp=int(os.environ["WINDOW_BP"]),
     show_progress=False,
 )
 n = sum(1 for _ in open(out))
@@ -288,7 +294,7 @@ BENCH_VCF="$INPUTS/clinvar-chr${EVAL_CHROM}.bench.vcf"
 head -n "$((3 + EFF_BENCH_VARIANTS))" "$EVAL_VCF" > "$BENCH_VCF"
 MODEL="$MODEL" BENCH_VCF="$BENCH_VCF" FASTA="$FASTA" EFF_IN="$EFF_IN" \
 EVAL_CHROM="$EVAL_CHROM" MODEL_ID="$MODEL_ID" REL="$REL" SNAP="$SNAP" \
-COMMIT="$COMMIT" HARDWARE="$HARDWARE" \
+COMMIT="$COMMIT" HARDWARE="$HARDWARE" WINDOW_BP="$WINDOW_BP" \
 python - <<'PY'
 import json, os, time
 from pathlib import Path
@@ -306,7 +312,8 @@ tmp = model / "eval" / "_bench.scores.jsonl"
 start = time.perf_counter()
 out = score_vcf(
     os.environ["BENCH_VCF"], encoder, ae, pred, calib, str(tmp),
-    reference_fasta=os.environ["FASTA"], show_progress=False, batch_size=64,
+    reference_fasta=os.environ["FASTA"], window_bp=int(os.environ["WINDOW_BP"]),
+    show_progress=False, batch_size=64,
 )
 elapsed = max(time.perf_counter() - start, 1e-6)
 n = max(sum(1 for _ in open(out)), 1)

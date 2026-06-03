@@ -26,6 +26,11 @@ CARBON_SOURCE="${CARBON_SOURCE:-eukaryotic_genes}"
 MAX_WINDOWS="${MAX_WINDOWS:-20000}"
 GNOMAD_LINES="${GNOMAD_LINES:-60000}"
 STEPS="${STEPS:-2000}"
+# Carbon window width fed to the encoder. The default 12288 bp makes each step a
+# very long-sequence (O(n^2) attention) forward through Carbon-500M (~9 s/step on
+# a100); the proof uses a smaller window for a fast, completable run. The EVAL
+# job MUST use the same WINDOW_BP so train/score window latents are comparable.
+WINDOW_BP="${WINDOW_BP:-2048}"
 UPLOAD_REPO="${UPLOAD_REPO:-abdelstark/geno-lewm-runs}"
 RUN_NAME="${RUN_NAME:-geno-lewm-proof}"
 CLINVAR_URL="${CLINVAR_URL:-https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz}"
@@ -81,7 +86,7 @@ set +e
 python -m tools.data.carbon_windows \
   --revision "$CORPUS_REVISION" --dataset-config "$CARBON_CONFIG" \
   --default-source "$CARBON_SOURCE" --max-windows "$MAX_WINDOWS" \
-  --output "$CARBON_OUT"
+  --window-bp "$WINDOW_BP" --output "$CARBON_OUT"
 cw_rc=$?
 set -e
 test -s "$CARBON_OUT" || { echo "carbon windows output is empty (rc=$cw_rc)"; exit 1; }
