@@ -254,3 +254,36 @@ def _calibration() -> CalibrationTable:
             ),
         )
     )
+
+
+def test_raw_surprise_coerces_tuple_state_for_real_torch_predictor() -> None:
+    # Regression (bug: "predictor must accept (state, action) ..."): state
+    # encoders (CarbonStateEncoder.encode) return a float tuple, but the real
+    # torch Predictor needs tensors. _raw_surprise must coerce the state.
+    pytest.importorskip("torch")
+    import math as _math
+    from types import SimpleNamespace
+
+    from geno_lewm.action import ActionEncoder
+    from geno_lewm.predictor import build_predictor
+    from geno_lewm.surprise.score import _raw_surprise
+
+    cfg = SimpleNamespace(
+        predictor=SimpleNamespace(d_state=1024, n_heads=8, n_layers=2),
+        action=SimpleNamespace(d_action=64),
+    )
+    predictor = build_predictor(cfg)
+    action_encoder = ActionEncoder(d_action=64)
+
+    class TupleStateEncoder:
+        def encode(self, window: str, *, edit_locus: int | None = None) -> tuple[float, ...]:
+            del edit_locus
+            return tuple(float((i + len(window)) % 5) for i in range(1024))
+
+    window = "ACGT" * 16
+    variant = EditSpec(chrom="1", pos=10, ref=window[9], alt="T" if window[9] != "T" else "A")
+    bucket, sigma = _raw_surprise(
+        variant, TupleStateEncoder(), action_encoder, predictor, reference_window=window
+    )
+    assert isinstance(bucket, str) and bucket
+    assert _math.isfinite(sigma) and sigma >= 0.0

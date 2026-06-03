@@ -470,9 +470,15 @@ _PREDICT_FAILED = object()
 def _try_predict_with_action_mask(
     predict: Callable[..., object], *, state: object, action: object
 ) -> object:
-    state_batched = _unsqueeze_if_vector(state)
     action_batched = _unsqueeze_action_if_needed(action)
-    if state_batched is _PREDICT_FAILED or action_batched is _PREDICT_FAILED:
+    if action_batched is _PREDICT_FAILED:
+        return _PREDICT_FAILED
+    # State encoders (e.g. CarbonStateEncoder.encode) return a plain float tuple,
+    # but the torch predictor needs a tensor. Coerce it to one matching the action
+    # tensor's dtype/device via new_tensor (no torch import needed); tensors pass
+    # through unchanged.
+    state_batched = _unsqueeze_if_vector(_coerce_state_tensor(state, action_batched))
+    if state_batched is _PREDICT_FAILED:
         return _PREDICT_FAILED
     mask_factory = getattr(action_batched, "new_ones", None)
     if not callable(mask_factory):
@@ -485,6 +491,29 @@ def _try_predict_with_action_mask(
     if callable(bool_method):
         mask = cast(Callable[[], object], bool_method)()
     return predict(state_batched, action_batched, mask)
+
+
+def _coerce_state_tensor(state: object, action_tensor: object) -> object:
+    """Return ``state`` as a tensor matching ``action_tensor`` for the predictor.
+
+    State encoders return a flat float tuple; the torch predictor needs a tensor.
+    ``action_tensor.new_tensor`` builds one with the same dtype/device without
+    importing torch here. Values that already look like tensors (have ``ndim``)
+    pass through unchanged.
+    """
+    if getattr(state, "ndim", None) is not None:
+        return state
+    new_tensor = getattr(action_tensor, "new_tensor", None)
+    if not callable(new_tensor):
+        return _PREDICT_FAILED
+    try:
+        floats = list(_as_float_vector(state, name="state encoder output"))
+    except InputError:
+        return _PREDICT_FAILED
+    try:
+        return cast(Callable[[object], object], new_tensor)(floats)
+    except Exception:  # pragma: no cover - defensive tensor construction guard
+        return _PREDICT_FAILED
 
 
 def _unsqueeze_if_vector(value: object) -> object:
