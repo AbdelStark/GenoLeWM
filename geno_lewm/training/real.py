@@ -36,7 +36,7 @@ from geno_lewm.data import (
 )
 from geno_lewm.encoder import CarbonStateEncoder
 from geno_lewm.errors import InputError, RuntimeSetupError
-from geno_lewm.predictor import Predictor
+from geno_lewm.predictor import build_predictor
 from geno_lewm.provenance import sha256_file
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
 from geno_lewm.training.trainer import (
@@ -206,12 +206,7 @@ def run_carbon_training(
         )
 
     action_encoder = ActionEncoder(d_action=config.action.d_action)
-    predictor = Predictor(
-        d_state=config.predictor.d_state,
-        d_action=config.action.d_action,
-        n_heads=config.predictor.n_heads,
-        n_cross_layers=config.predictor.n_layers,
-    )
+    predictor = build_predictor(config)
     optimizer = build_adamw_optimizer(
         predictor=predictor, action_encoder=action_encoder, config=config
     )

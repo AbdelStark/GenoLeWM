@@ -485,6 +485,7 @@
     "geno_lewm.predictor.PredictionLossResult": "class(loss: 'Tensor', pred_loss: 'Tensor', kl_reg: 'Tensor', phase: \"Literal['phase1', 'phase2']\") -> None",
     "geno_lewm.predictor.Predictor": "class(*, d_state: 'int' = 1024, d_action: 'int' = 512, d_hidden: 'int' = 768, n_heads: 'int' = 8, n_cross_layers: 'int' = 4, n_self_layers: 'int' = 2, ffn_dim: 'int' = 768, max_actions: 'int' = 16) -> 'None'",
     "geno_lewm.predictor.ar.ARPredictor": "class(predictor: 'object') -> 'None'",
+    "geno_lewm.predictor.build_predictor": "callable(config: Any) -> geno_lewm.predictor.model.Predictor",
     "geno_lewm.predictor.lejepa_kl_regularizer": "callable(states: 'Tensor', *, eps: 'float' = 1e-06) -> 'Tensor'",
     "geno_lewm.predictor.losses.PredictionLossResult": "class(loss: 'Tensor', pred_loss: 'Tensor', kl_reg: 'Tensor', phase: \"Literal['phase1', 'phase2']\") -> None",
     "geno_lewm.predictor.losses.lejepa_kl_regularizer": "callable(states: 'Tensor', *, eps: 'float' = 1e-06) -> 'Tensor'",

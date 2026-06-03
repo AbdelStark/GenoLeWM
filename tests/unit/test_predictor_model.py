@@ -40,6 +40,32 @@ def test_predictor_default_shape_identity_and_parameter_budget() -> None:
     torch.testing.assert_close(output[0].norm(dim=-1), torch.ones(3), atol=1e-5, rtol=1e-5)
 
 
+def test_build_predictor_state_dict_round_trips_for_train_then_deploy() -> None:
+    # The trainer and the deploy runtime must construct an identically-shaped
+    # predictor via the shared build_predictor, or an exported checkpoint cannot
+    # be loaded for scoring. A train-saved state_dict must load strict=True into
+    # a fresh deploy-side predictor.
+    pytest.importorskip("torch")
+    from types import SimpleNamespace
+
+    from geno_lewm.predictor import build_predictor
+
+    cfg = SimpleNamespace(
+        predictor=SimpleNamespace(d_state=1024, n_heads=8, n_layers=6),
+        action=SimpleNamespace(d_action=64),
+    )
+    trained = build_predictor(cfg)  # training side
+    deployed = build_predictor(cfg)  # deploy/runtime side
+    # Strict load mirrors deploy.runtime._load_module_state(strict=True).
+    deployed.load_state_dict(trained.state_dict(), strict=True)
+    a = {k: tuple(v.shape) for k, v in trained.state_dict().items()}
+    b = {k: tuple(v.shape) for k, v in deployed.state_dict().items()}
+    assert a == b
+    # Sanity: 6 cross blocks (n_layers) + 2 self blocks (default), d_hidden=768.
+    assert "cross_blocks.5.attn.in_proj_weight" in a
+    assert "self_blocks.1.attn.in_proj_weight" in a
+
+
 def test_predictor_rejects_invalid_shapes_and_dimensions() -> None:
     torch = pytest.importorskip("torch")
     from geno_lewm.predictor import Predictor
