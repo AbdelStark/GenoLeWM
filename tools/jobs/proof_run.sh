@@ -58,10 +58,19 @@ test -s "$GNOMAD_OUT" || { echo "gnomAD subset is empty"; exit 1; }
 echo "gnomAD subset: $(zcat "$GNOMAD_OUT" 2>/dev/null | wc -l) lines"
 
 log "stage Carbon corpus windows"
+# The HF `datasets` streaming reader occasionally segfaults during interpreter
+# finalization *after* the JSONL is fully written; tolerate a non-zero exit and
+# validate the output file instead.
+CARBON_OUT="$WORK/inputs/carbon/source-mix-windows.jsonl"
+set +e
 python -m tools.data.carbon_windows \
   --revision "$CORPUS_REVISION" --dataset-config "$CARBON_CONFIG" \
   --default-source "$CARBON_SOURCE" --max-windows "$MAX_WINDOWS" \
-  --output "$WORK/inputs/carbon/source-mix-windows.jsonl"
+  --output "$CARBON_OUT"
+cw_rc=$?
+set -e
+test -s "$CARBON_OUT" || { echo "carbon windows output is empty (rc=$cw_rc)"; exit 1; }
+echo "carbon windows: $(wc -l < "$CARBON_OUT") lines (tool rc=$cw_rc)"
 
 log "build dataset snapshot"
 python -m tools.release.dataset_snapshot \
