@@ -604,6 +604,7 @@ def _build_runtime_encoder(manifest: Manifest, cfg: Any) -> object:
         normalize=cfg.encoder.normalize,
         encoder_hash=manifest.encoder.hash,
         local_files_only=True,
+        trust_remote_code=getattr(cfg.encoder, "trust_remote_code", False),
     )
 
 

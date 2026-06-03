@@ -58,6 +58,10 @@ class EncoderConfig:
     pool_type: str = "centered_mean"
     pool_radius: int = 8
     normalize: bool = True
+    # Carbon-500M ships a custom HybridDNATokenizer (auto_map + tokenizer.py),
+    # so Transformers requires trust_remote_code=True to load it. Default False
+    # (safe); the first-experiment config opts in against a pinned revision.
+    trust_remote_code: bool = False
 
 
 @dataclass(frozen=True, slots=True)
