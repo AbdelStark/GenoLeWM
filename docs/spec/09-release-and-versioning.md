@@ -191,13 +191,16 @@ trusted only after their hashes match the fetched manifest.
     `geno-lewm-train --carbon-preflight --dataset-dir ... --carbon-model-dir ... --training-config ... --run-dir ...`
     before launching the Carbon-backed trainer. The first-experiment
     training config is checked in at
-    `configs/first_experiment/train-carbon-500m-snv.yaml`; preflight
+    `configs/first_experiment/train-carbon-500m-snv.yaml` and requests
+    `runtime.device: cuda`; preflight
     validates the packaged dataset release evidence set, including
     `dataset_package.json`, `dataset_input_check_report.json`,
     `dataset_snapshot_report.json`, and `SHA256SUMS`; rejects stale
     input-check evidence; validates the effective config against the
-    closed GenoLeWM config schema; and records the config hash plus
-    resolved payload in
+    closed GenoLeWM config schema; verifies that a CUDA accelerator is
+    available with at least 40 GiB of device memory by default; and records
+    the config hash, resolved payload, accelerator probe, Carbon model
+    file identities, dependency probes, and dataset evidence in
     `training_preflight_report.json`. After completion,
     package the run with
     `python -m tools.release.training_run --run-dir ... --metadata-json ...`

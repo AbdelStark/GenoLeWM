@@ -14,12 +14,14 @@
 #   cd /repo && pip install -e ".[train]"
 #   bash tools/jobs/proof_run.sh
 #
-# Carbon-500M must be mounted read-only at $CARBON_DIR (default /carbon):
+# Use an A100/H100-class CUDA runner. Carbon-500M must be mounted read-only at
+# $CARBON_DIR (default /carbon):
 #   hf jobs run -v hf://HuggingFaceBio/Carbon-500M:/carbon ...
 set -euo pipefail
 
 WORK="${WORK:-/tmp/geno}"
 CARBON_DIR="${CARBON_DIR:-/carbon}"
+MIN_CUDA_VRAM_GB="${MIN_CUDA_VRAM_GB:-40}"
 CORPUS_REVISION="${CORPUS_REVISION:-cb4c13a78102933b3a6ac65734d326f7b431d9b7}"
 CARBON_CONFIG="${CARBON_CONFIG:-eukaryote_generator_10B_subset}"
 CARBON_SOURCE="${CARBON_SOURCE:-eukaryotic_genes}"
@@ -42,8 +44,26 @@ SPEC_SRC="configs/first_experiment/dataset-snapshot-snv.json"
 log() { echo "=== $* ==="; }
 
 log "proof run: $RUN_NAME (steps=$STEPS windows=$MAX_WINDOWS)"
-python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())" || true
-nvidia-smi || true
+python - <<'PY'
+import os
+import sys
+
+import torch
+
+min_gb = float(os.environ.get("MIN_CUDA_VRAM_GB", "40"))
+print("torch", torch.__version__, "cuda", torch.cuda.is_available())
+if not torch.cuda.is_available():
+    sys.exit("FATAL: CUDA is required for the first-experiment Carbon training proof")
+props = torch.cuda.get_device_properties(0)
+observed_gb = props.total_memory / (1024**3)
+print("cuda_device", props.name, f"{observed_gb:.1f} GiB")
+if observed_gb < min_gb:
+    sys.exit(
+        f"FATAL: CUDA device has {observed_gb:.1f} GiB; "
+        f"need at least {min_gb:.1f} GiB for this proof"
+    )
+PY
+nvidia-smi
 
 mkdir -p "$WORK/inputs/clinvar" "$WORK/inputs/gnomad" "$WORK/inputs/carbon"
 cp "$SPEC_SRC" "$WORK/dataset-snapshot-snv.json"
@@ -96,11 +116,18 @@ log "build dataset snapshot"
 python -m tools.release.dataset_snapshot \
   --spec-json "$WORK/dataset-snapshot-snv.json" --dataset-dir "$WORK/dataset"
 
-log "carbon-train ($STEPS steps on $(python -c 'import torch;print("cuda" if torch.cuda.is_available() else "cpu")'))"
+log "carbon preflight"
+geno-lewm-train --carbon-preflight \
+  --run-dir "$WORK/run" --dataset-dir "$WORK/dataset" \
+  --carbon-model-dir "$CARBON_DIR" --training-config "$CONFIG" \
+  --min-cuda-vram-gb "$MIN_CUDA_VRAM_GB" --no-banner --quiet
+
+log "carbon-train ($STEPS steps on cuda)"
 geno-lewm-train --carbon-train \
   --run-dir "$WORK/run" --dataset-dir "$WORK/dataset" \
   --carbon-model-dir "$CARBON_DIR" --training-config "$CONFIG" \
-  --steps "$STEPS" --package-release-run --no-banner --quiet
+  --steps "$STEPS" --min-cuda-vram-gb "$MIN_CUDA_VRAM_GB" \
+  --package-release-run --no-banner --quiet
 
 # Upload the run dir (which holds predictor_checkpoint.pt) FIRST, before export.
 # Training is the expensive step; protecting its output immediately means a

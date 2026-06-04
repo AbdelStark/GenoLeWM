@@ -154,17 +154,21 @@ The first paper/demo release is not ready until:
   renders the same class-balance summary;
 - train/eval configs are committed under `configs/first_experiment/`,
   and the Carbon preflight records the effective training config hash
-  plus resolved closed-schema config payload;
+  plus resolved closed-schema config payload and CUDA/VRAM accelerator
+  readiness;
 - real training inputs are preflighted with
   `geno-lewm-train --carbon-preflight`;
   preflight requires the generated dataset package evidence set,
   including `dataset_package.json`, `dataset_input_check_report.json`,
-  `dataset_snapshot_report.json`, and `SHA256SUMS`, and rejects stale
-  input-check evidence before launch;
+  `dataset_snapshot_report.json`, and `SHA256SUMS`, requires
+  `runtime.device: cuda` for the first-experiment config, checks the
+  default 40 GiB CUDA memory threshold, and rejects stale input-check
+  evidence before launch;
 - Carbon-encoded minibatches can be trained through
   `geno_lewm.training.TorchTrainer` with AdamW parameter groups, WSD LR
   scheduling, gradient clipping, and distinct data/predictor/LoRA seed
-  records;
+  records; the real launcher places the Carbon encoder, predictor,
+  action encoder, and encoded minibatches on the configured device;
 - completed training run evidence is generated with
   `python -m tools.release.training_run` or
   `geno-lewm-train --carbon-train --package-release-run`, including

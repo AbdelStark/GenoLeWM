@@ -151,6 +151,7 @@ def run_carbon_training(
     if not gnomad_edits:
         raise InputError("Carbon training requires at least one gnomAD edit")
 
+    device = _training_device(config)
     seeds = TrainerSeeds.from_base_seed(config.seed)
     determinism = configure_torch_reproducibility(
         seed=seeds.predictor, deterministic=config.deterministic
@@ -192,11 +193,12 @@ def run_carbon_training(
         pool_radius=config.encoder.pool_radius,
         normalize=config.encoder.normalize,
         encoder_hash=_carbon_weights_hash(carbon_model_dir),
+        device=device,
         local_files_only=True,
         trust_remote_code=config.encoder.trust_remote_code,
     )
     first_items = _next_batch(iterator, config.data.batch_size)
-    first_batch = _encode_items(encoder, first_items)
+    first_batch = _encode_items(encoder, first_items, device=device)
     observed_d_state = int(first_batch.state.shape[1])
     if observed_d_state != config.predictor.d_state:
         raise InputError(
@@ -205,8 +207,12 @@ def run_carbon_training(
             remediation="set predictor.d_state to the encoder output width in the training config",
         )
 
-    action_encoder = ActionEncoder(d_action=config.action.d_action)
-    predictor = build_predictor(config)
+    action_encoder = _move_trainable_to_device(
+        ActionEncoder(d_action=config.action.d_action),
+        device,
+        label="action_encoder",
+    )
+    predictor = _move_trainable_to_device(build_predictor(config), device, label="predictor")
     optimizer = build_adamw_optimizer(
         predictor=predictor, action_encoder=action_encoder, config=config
     )
@@ -253,7 +259,9 @@ def run_carbon_training(
         for step in range(first_step, steps + 1):
             if step > first_step:
                 current_batch = _encode_items(
-                    encoder, _next_batch(iterator, config.data.batch_size)
+                    encoder,
+                    _next_batch(iterator, config.data.batch_size),
+                    device=device,
                 )
             result = trainer.train_step(current_batch, step=step)
             step_results.append(result)
@@ -368,10 +376,43 @@ def _next_batch(
     return tuple(items)
 
 
-def _encode_items(encoder: CarbonStateEncoder, items: Sequence[TrainingDatasetItem]) -> Any:
+def _training_device(config: GenoLeWMConfig) -> str:
+    return config.runtime.device
+
+
+def _move_trainable_to_device(component: object, device: str, *, label: str) -> object:
+    if device == "cpu":
+        return component
+    to = getattr(component, "to", None)
+    if not callable(to):
+        raise RuntimeSetupError(
+            "training component does not support accelerator placement",
+            details={"component": label, "device": device},
+        )
+    try:
+        moved = to(device)
+    except Exception as exc:
+        raise RuntimeSetupError(
+            "failed to move training component to accelerator",
+            details={"component": label, "device": device, "error": str(exc)},
+        ) from exc
+    return component if moved is None else moved
+
+
+def _encode_items(
+    encoder: CarbonStateEncoder,
+    items: Sequence[TrainingDatasetItem],
+    *,
+    device: str,
+) -> Any:
     tuples = tuple(item.training_tuple for item in items)
     source_windows = {item.source_window.window_id: item.source_window.sequence for item in items}
-    return encode_training_batch(encoder=encoder, tuples=tuples, source_windows=source_windows)
+    return encode_training_batch(
+        encoder=encoder,
+        tuples=tuples,
+        source_windows=source_windows,
+        device=device,
+    )
 
 
 def _load_dataset_manifest(dataset_dir: Path) -> dict[str, Any]:

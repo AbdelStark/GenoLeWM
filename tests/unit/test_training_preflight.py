@@ -11,6 +11,7 @@ from geno_lewm.config import load_config
 from geno_lewm.provenance import sha256_file
 from geno_lewm.training.preflight import (
     REPORT_NAME,
+    AcceleratorProbe,
     DependencyProbe,
     TrainingPreflightRequest,
     build_training_preflight_report,
@@ -35,11 +36,14 @@ def test_training_preflight_accepts_packaged_dataset_and_local_carbon(tmp_path: 
         ),
         generated_at="2026-06-01T12:00:00Z",
         dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
     )
 
     assert report.ok is True
     assert report.dataset_snapshot_id == "geno-lewm-data-v0.1.0-r1"
     assert report.carbon["artifacts"]["config"] is not None
+    assert report.accelerator.available is True
+    assert report.accelerator.requested_device == "cuda"
     assert report.training_config["sha256"]
     assert isinstance(report.training_config["resolved"], dict)
     assert report.training_config["resolved"]["run_id"] == "first-snv-test"
@@ -66,6 +70,7 @@ def test_training_preflight_writes_default_report_path(tmp_path: Path) -> None:
             run_dir=run_dir,
         ),
         dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
     )
 
     assert report.ok is True
@@ -88,6 +93,7 @@ def test_training_preflight_reports_missing_dependencies_and_carbon_files(tmp_pa
             run_dir=tmp_path / "run",
         ),
         dependency_probe=_missing_dependency,
+        accelerator_probe=_available_accelerator,
     )
 
     codes = _codes(report)
@@ -112,6 +118,7 @@ def test_training_preflight_rejects_fixture_dataset_by_default(tmp_path: Path) -
             run_dir=tmp_path / "run",
         ),
         dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
     )
 
     assert report.ok is False
@@ -134,6 +141,7 @@ def test_training_preflight_requires_release_dataset_evidence(tmp_path: Path) ->
             run_dir=tmp_path / "run",
         ),
         dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
     )
 
     codes = _codes(report)
@@ -175,6 +183,7 @@ def test_training_preflight_rejects_stale_dataset_input_check_report(
             run_dir=tmp_path / "run",
         ),
         dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
     )
 
     codes = _codes(report)
@@ -202,6 +211,7 @@ def test_training_preflight_rejects_unknown_training_config_keys(tmp_path: Path)
             run_dir=tmp_path / "run",
         ),
         dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
     )
 
     assert report.ok is False
@@ -228,10 +238,59 @@ def test_training_preflight_rejects_wsd_warmup_without_decay_horizon(
             run_dir=tmp_path / "run",
         ),
         dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
     )
 
     assert report.ok is False
     assert "training_config.training.max_steps_wsd_warmup" in _codes(report)
+
+
+def test_training_preflight_requires_cuda_training_device(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("  device: cuda", "  device: cpu"),
+        encoding="utf-8",
+    )
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            training_config=config,
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is False
+    assert "training_config.runtime.device_not_cuda" in _codes(report)
+    assert report.accelerator.requested_device == "cpu"
+
+
+def test_training_preflight_rejects_insufficient_cuda_vram(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            training_config=config,
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_low_memory_accelerator,
+    )
+
+    assert report.ok is False
+    assert "training.cuda.vram_too_low" in _codes(report)
+    assert report.accelerator.total_memory_bytes == 24 * 1024**3
 
 
 def test_first_experiment_configs_are_checked_schema_configs() -> None:
@@ -244,6 +303,7 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     assert train_cfg.deterministic is True
     assert train_cfg.training.max_steps == 20000
     assert train_cfg.optimizer.warmup_steps < train_cfg.training.max_steps
+    assert train_cfg.runtime.device == "cuda"
     assert eval_cfg.run_id == "first-snv-clinvar-eval-r1"
     assert "clinvar_coding" in eval_cfg.eval.benchmarks
 
@@ -328,7 +388,7 @@ def _write_training_config(root: Path) -> Path:
                 "  wandb_project: null",
                 "runtime:",
                 "  backend: torch",
-                "  device: cpu",
+                "  device: cuda",
             ]
         )
         + "\n",
@@ -356,6 +416,43 @@ def _missing_dependency(import_name: str, required: bool) -> DependencyProbe:
         available=False,
         version=None,
         reason="missing in test",
+    )
+
+
+def _available_accelerator(
+    requested_device: str | None,
+    required: bool,
+    min_memory_bytes: int,
+) -> AcceleratorProbe:
+    available = requested_device == "cuda"
+    return AcceleratorProbe(
+        requested_device=requested_device,
+        required=required,
+        available=available,
+        device_count=1 if available else 0,
+        device_name="NVIDIA H100 80GB HBM3",
+        total_memory_bytes=80 * 1024**3 if available else None,
+        min_memory_bytes=min_memory_bytes,
+        reason="available in test" if available else "test config did not request cuda",
+        issue_code=None if available else "training_config.runtime.device_not_cuda",
+    )
+
+
+def _low_memory_accelerator(
+    requested_device: str | None,
+    required: bool,
+    min_memory_bytes: int,
+) -> AcceleratorProbe:
+    return AcceleratorProbe(
+        requested_device=requested_device,
+        required=required,
+        available=False,
+        device_count=1,
+        device_name="NVIDIA RTX 4090",
+        total_memory_bytes=24 * 1024**3,
+        min_memory_bytes=min_memory_bytes,
+        reason="insufficient VRAM in test",
+        issue_code="training.cuda.vram_too_low",
     )
 
 

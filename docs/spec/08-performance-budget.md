@@ -103,6 +103,13 @@ predictor throughput.
 
 The Phase 1 baseline must complete in under 24 hours on a single H100; an
 implementation that breaks this budget is not shippable.
+The first-experiment training config is a CUDA job config, and
+`training_preflight_report.json` rejects the release run unless
+`runtime.device: cuda` resolves to an available accelerator with at least
+40 GiB of device memory by default. A100/H100-class runners are the
+supported target for this release pass; smaller GPUs may be useful for
+debugging only when the preflight threshold is explicitly lowered and the
+result is not treated as first-paper evidence.
 
 ## Planning latency
 

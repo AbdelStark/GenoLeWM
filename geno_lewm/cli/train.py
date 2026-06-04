@@ -24,6 +24,7 @@ from geno_lewm.config import (
 from geno_lewm.errors import InputError
 from geno_lewm.training import run_carbon_training, run_fixture_training
 from geno_lewm.training.preflight import (
+    MIN_CUDA_VRAM_GB,
     REPORT_NAME as TRAINING_PREFLIGHT_REPORT_NAME,
     TrainingPreflightReport,
     TrainingPreflightRequest,
@@ -117,6 +118,20 @@ def main(
         bool,
         typer.Option("--require-native-runtime/--no-require-native-runtime"),
     ] = True,
+    require_accelerator: Annotated[
+        bool,
+        typer.Option(
+            "--require-accelerator/--no-require-accelerator",
+            help="Require CUDA accelerator readiness in Carbon training preflight.",
+        ),
+    ] = True,
+    min_cuda_vram_gb: Annotated[
+        float,
+        typer.Option(
+            "--min-cuda-vram-gb",
+            help="Minimum CUDA device memory required by Carbon training preflight.",
+        ),
+    ] = MIN_CUDA_VRAM_GB,
     package_release_run: Annotated[
         bool,
         typer.Option(
@@ -203,6 +218,8 @@ def main(
                 run_dir=run_dir,
                 allow_fixture_dataset=allow_fixture_dataset,
                 require_native_runtime=require_native_runtime,
+                require_accelerator=require_accelerator,
+                min_cuda_vram_gb=min_cuda_vram_gb,
             ),
             preflight_output,
         )
@@ -237,6 +254,8 @@ def main(
                 resume_from=resume_from,
                 allow_fixture_dataset=allow_fixture_dataset,
                 require_native_runtime=require_native_runtime,
+                require_accelerator=require_accelerator,
+                min_cuda_vram_gb=min_cuda_vram_gb,
                 package_release_run=package_release_run,
             ),
             commit_sha=_current_commit_sha(Path.cwd()),
@@ -433,6 +452,8 @@ def _carbon_train_command_string(
     resume_from: Path | None,
     allow_fixture_dataset: bool,
     require_native_runtime: bool,
+    require_accelerator: bool,
+    min_cuda_vram_gb: float,
     package_release_run: bool,
 ) -> str:
     parts = [
@@ -463,6 +484,10 @@ def _carbon_train_command_string(
         parts.append("--allow-fixture-dataset")
     if not require_native_runtime:
         parts.append("--no-require-native-runtime")
+    if not require_accelerator:
+        parts.append("--no-require-accelerator")
+    if min_cuda_vram_gb != MIN_CUDA_VRAM_GB:
+        parts.extend(["--min-cuda-vram-gb", str(min_cuda_vram_gb)])
     if package_release_run:
         parts.append("--package-release-run")
     return " ".join(parts)
