@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+import geno_lewm.encoder.carbon as carbon_mod
 from geno_lewm.encoder import CarbonStateEncoder
 from geno_lewm.errors import InputError, RuntimeSetupError
 
@@ -61,6 +64,40 @@ def test_carbon_state_encoder_batch_uses_per_item_loci() -> None:
     states = encoder.encode_batch(["ACGTAC", "CCCCCC"], [0, None])
 
     assert states == ((1.0, 0.0), (0.0, 4.0))
+
+
+def test_carbon_state_encoder_calls_model_in_inference_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context_active = False
+
+    @contextlib.contextmanager
+    def fake_inference_context() -> Iterator[None]:
+        nonlocal context_active
+        context_active = True
+        try:
+            yield
+        finally:
+            context_active = False
+
+    class AssertingModel(FakeModel):
+        def __call__(self, *, input_ids: list[list[int]], output_hidden_states: bool) -> object:
+            assert context_active is True
+            return super().__call__(
+                input_ids=input_ids,
+                output_hidden_states=output_hidden_states,
+            )
+
+    monkeypatch.setattr(carbon_mod, "torch_inference_context", fake_inference_context)
+    encoder = CarbonStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        model=AssertingModel(),
+        tokenizer=FakeTokenizer(),
+        pool_radius=0,
+    )
+
+    assert encoder.encode("ACGTAC", edit_locus=0) == (1.0, 0.0)
 
 
 def test_carbon_state_encoder_validates_component_pairing() -> None:

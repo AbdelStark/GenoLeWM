@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
 import platform
 import socket
 import urllib.request
+from collections.abc import Iterator
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from typing import NoReturn
@@ -50,7 +52,12 @@ from geno_lewm.provenance import (
     sha256_file,
     write_manifest,
 )
-from geno_lewm.surprise import CalibrationBucket, CalibrationTable, write_calibration_table
+from geno_lewm.surprise import (
+    CalibrationBucket,
+    CalibrationTable,
+    SurpriseResult,
+    write_calibration_table,
+)
 
 
 class FakeEncoder:
@@ -337,6 +344,46 @@ def test_runtime_scores_with_manifest_verified_local_components(tmp_path: Path) 
 
     assert result.bucket_id == "*"
     assert result.sigma_raw > 0.0
+
+
+def test_runtime_score_variant_enters_inference_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_runtime_model_dir(tmp_path)
+    context_active = False
+
+    @contextlib.contextmanager
+    def fake_inference_context() -> Iterator[None]:
+        nonlocal context_active
+        context_active = True
+        try:
+            yield
+        finally:
+            context_active = False
+
+    def fake_score_variant(*_args: object, **_kwargs: object) -> SurpriseResult:
+        assert context_active is True
+        return SurpriseResult(
+            sigma_raw=0.25,
+            sigma_calibrated=0.5,
+            bucket_id="*",
+            confidence=1.0,
+            low_confidence=False,
+        )
+
+    monkeypatch.setattr(runtime_mod, "torch_inference_context", fake_inference_context)
+    monkeypatch.setattr(runtime_mod, "score_surprise_variant", fake_score_variant)
+    runtime = GenoLeWMRuntime(
+        tmp_path,
+        encoder=FakeEncoder(),
+        action_encoder=FakeActionEncoder(),
+        predictor=EchoPredictor(),
+    )
+
+    result = runtime.score_variant(EditSpec(chrom="1", pos=1, ref="A", alt="T"), window="ACGT")
+
+    assert result.sigma_raw == 0.25
 
 
 def test_runtime_auto_loads_manifest_components_when_optional_runtime_available(

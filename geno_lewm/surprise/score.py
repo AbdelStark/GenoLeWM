@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal, TypeAlias, cast
 
 from geno_lewm._artifact_sources import SCORE_JSONL_GENERATED_BY, SCORE_JSONL_SCHEMA_VERSION
+from geno_lewm._inference import torch_inference_context
 from geno_lewm.action import EditSpec, RelEdit, apply_edit
 from geno_lewm.encoder.windowing import DEFAULT_WINDOW_BP, canonicalize_dna, extract_window
 from geno_lewm.errors import InputError, VcfParseError
@@ -166,10 +167,11 @@ def _raw_surprise(
     rel_edit = variant.relative_to(start_bp, start_bp + len(window) - 1)
     edited_window = apply_edit(window, rel_edit, preserve_length=True)
 
-    state = _encode_window(encoder, window, edit_locus=rel_edit.rel_pos)
-    target = _encode_window(encoder, edited_window, edit_locus=rel_edit.rel_pos)
-    action = _encode_action(action_encoder, rel_edit)
-    prediction = _predict_next_state(predictor, state=state, action=action)
+    with torch_inference_context():
+        state = _encode_window(encoder, window, edit_locus=rel_edit.rel_pos)
+        target = _encode_window(encoder, edited_window, edit_locus=rel_edit.rel_pos)
+        action = _encode_action(action_encoder, rel_edit)
+        prediction = _predict_next_state(predictor, state=state, action=action)
 
     target_vector = _as_float_vector(target, name="target encoder output")
     prediction_vector = _as_float_vector(prediction, name="predictor output")

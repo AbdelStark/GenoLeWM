@@ -14,6 +14,7 @@ import importlib
 from collections.abc import Callable, Mapping, Sequence
 from typing import Literal, cast
 
+from geno_lewm._inference import torch_inference_context
 from geno_lewm.encoder.pooling import (
     DEFAULT_POOL_RADIUS_TOKENS,
     POOL_CENTERED_MEAN,
@@ -155,7 +156,8 @@ class CarbonStateEncoder:
         wrapped = [wrap_dna_for_tokenizer(window) for window in normalized]
         tokenized = _tokenize(self.tokenizer, wrapped)
         tokenized = _move_inputs_to_device(tokenized, self.device)
-        output = _call_model(self.model, tokenized)
+        with torch_inference_context():
+            output = _call_model(self.model, tokenized)
         rows_by_item = _hidden_rows_by_item(output, state_layer=self.state_layer)
         if len(rows_by_item) != len(windows):
             raise InputError(

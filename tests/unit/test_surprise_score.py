@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+import geno_lewm.surprise.score as score_mod
 from geno_lewm import EditSpec
 from geno_lewm._artifact_sources import SCORE_JSONL_GENERATED_BY, SCORE_JSONL_SCHEMA_VERSION
 from geno_lewm.errors import InputError, VcfParseError
@@ -58,6 +61,45 @@ def test_score_variant_computes_raw_and_calibrated_surprise() -> None:
     assert result.confidence == 1.0
     assert result.low_confidence is False
     assert result.to_dict()["sigma_raw"] == result.sigma_raw
+
+
+def test_score_variant_runs_model_path_in_inference_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context_active = False
+
+    @contextlib.contextmanager
+    def fake_inference_context() -> Iterator[None]:
+        nonlocal context_active
+        context_active = True
+        try:
+            yield
+        finally:
+            context_active = False
+
+    class AssertingEncoder(FakeEncoder):
+        def encode(self, window: str, *, edit_locus: int | None = None) -> tuple[float, ...]:
+            assert context_active is True
+            return super().encode(window, edit_locus=edit_locus)
+
+    class AssertingPredictor(EchoPredictor):
+        def __call__(self, state: object, action: object) -> object:
+            assert context_active is True
+            return super().__call__(state, action)
+
+    monkeypatch.setattr(score_mod, "torch_inference_context", fake_inference_context)
+
+    result = score_variant(
+        EditSpec(chrom="1", pos=1, ref="A", alt="T"),
+        AssertingEncoder(),
+        FakeActionEncoder(),
+        AssertingPredictor(),
+        _calibration(),
+        reference_window="ACGT",
+        region="missense_variant",
+    )
+
+    assert result.bucket_id == "coding_missense|mid|none"
 
 
 def test_score_variant_supports_parent_bucket_backoff() -> None:
