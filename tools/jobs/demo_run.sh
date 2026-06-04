@@ -99,7 +99,13 @@ grep -qv '^#' "$DEMO_VCF" || fail "demo VCF has no variant records"
 echo "demo VCF: $(grep -cv '^#' "$DEMO_VCF") scoreable variants"
 
 log "run terminal demo (LIVE geno-lewm-score; writes 6 artifacts into $DEMO_DIR)"
-HF_HUB_OFFLINE=1 python -m tools.demo.terminal_inference \
+# Do NOT set HF_HUB_OFFLINE: the runtime builds the scorer (loads Carbon) in
+# GenoLeWMRuntime.__init__ OUTSIDE the fail-closed network guard, and Carbon's
+# trust_remote_code module resolves via an auto_map that references the HF repo,
+# so offline mode blocks the code fetch ("couldn't connect to huggingface.co").
+# The eval job loaded Carbon the same way with network available; scoring itself
+# still runs under the runtime's network guard (Carbon is already loaded by then).
+python -m tools.demo.terminal_inference \
   --model-dir "$MODEL_DIR" \
   --vcf "$DEMO_VCF" \
   --fasta "$DEMO_FASTA" \
