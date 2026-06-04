@@ -24,6 +24,7 @@ from geno_lewm.encoder.pooling import POOL_GLOBAL_MEAN
 from geno_lewm.encoder.windowing import window_sha256
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.predictor.losses import predictor_loss
+from geno_lewm.training.collapse import CollapseMonitor
 
 __all__ = [
     "TorchDeterminismReport",
@@ -138,6 +139,10 @@ class TorchTrainer:
         self.optimizer = optimizer
         self.config = config
         self.total_steps = total_steps
+        self.collapse_monitor = CollapseMonitor(
+            log_every_steps=config.training.collapse_log_every_steps,
+        )
+        self.last_collapse_alerts: tuple[dict[str, object], ...] = ()
 
     def train_step(self, batch: TorchTrainerBatch, *, step: int) -> TorchTrainerStepResult:
         """Run one optimizer step over an encoded Carbon-state batch."""
@@ -168,6 +173,24 @@ class TorchTrainer:
             phase=self.config.phase,
             mask=batch.action_mask,
         )
+        action_count = int(batch.action_mask.sum().item())
+        self.last_collapse_alerts = ()
+        if action_count > 0:
+            collapse_check = self.collapse_monitor.observe(
+                _masked_training_rows(prediction, batch.action_mask),
+                _masked_training_rows(batch.target, batch.action_mask),
+                kl_reg=_scalar(loss_result.kl_reg),
+                step=step,
+            )
+            if collapse_check is not None:
+                self.last_collapse_alerts = tuple(
+                    {
+                        "criterion": alert.criterion,
+                        "value": alert.value,
+                        "threshold": alert.threshold,
+                    }
+                    for alert in collapse_check.alerts
+                )
         loss_result.loss.backward()
         if self.config.optimizer.grad_clip > 0:
             parameters = _trainable_parameters((self.predictor, self.action_encoder))
@@ -179,7 +202,7 @@ class TorchTrainer:
             loss=_scalar(loss_result.loss),
             pred_loss=_scalar(loss_result.pred_loss),
             kl_reg=_scalar(loss_result.kl_reg),
-            action_count=int(batch.action_mask.sum().item()),
+            action_count=action_count,
             pred_var_per_dim=_pred_var_per_dim(prediction),
         )
 
@@ -609,6 +632,21 @@ def _pred_var_per_dim(prediction: Tensor) -> float:
     if flat.shape[0] < 1:
         return 0.0
     return float(flat.var(dim=0, unbiased=False).mean().item())
+
+
+def _masked_training_rows(value: Tensor, mask: Tensor) -> Tensor:
+    """Flatten valid action-token rows before collapse diagnostics."""
+    if len(value.shape) != 3:
+        raise InputError(
+            "training collapse monitor expects [batch, actions, dim] tensors",
+            details={"shape": tuple(value.shape)},
+        )
+    if len(mask.shape) != 2:
+        raise InputError(
+            "training collapse monitor expects [batch, actions] masks",
+            details={"shape": tuple(mask.shape)},
+        )
+    return value[mask]
 
 
 def _seed_numpy(seed: int) -> None:

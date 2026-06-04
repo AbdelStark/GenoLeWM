@@ -55,7 +55,15 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
     config = load_config(_write_training_config(tmp_path))
     results = [
         _step_result(loss=0.5, var=0.8, step=1),
-        _step_result(loss=float("nan"), var=0.2, step=2),
+        TorchTrainerStepResult(
+            step=2,
+            lr_multiplier=1.0,
+            loss=float("nan"),
+            pred_loss=float("nan"),
+            kl_reg=0.0,
+            action_count=1,
+            pred_var_per_dim=0.2,
+        ),
         _step_result(loss=0.3, var=0.9, step=3),
     ]
     path = tmp_path / "metrics.json"
@@ -67,12 +75,14 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
         sample_count=24,
         final_loss=0.3,
         step_results=results,
+        collapse_alert_count=1,
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         resume_checkpoint_path=None,
     )
     metrics = json.loads(path.read_text(encoding="utf-8"))["metrics"]
     assert metrics["nan_loss_count"] == 1
     assert metrics["collapse_var_min"]["value"] == pytest.approx(0.2)
+    assert metrics["collapse_alert_count"] == 1
 
 
 def test_validate_resume_checkpoint_accepts_matching_identity(tmp_path: Path) -> None:

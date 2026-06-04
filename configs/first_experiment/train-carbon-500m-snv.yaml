@@ -45,6 +45,12 @@ action:
   sub_encoders:
     - snv
 
+training:
+  # Real Carbon-backed run horizon. Fixture smoke runs use the CLI --steps
+  # control separately and do not redefine this first-experiment horizon.
+  max_steps: 20000
+  collapse_log_every_steps: 500
+
 optimizer:
   name: adamw
   lr: 3.0e-4
@@ -52,10 +58,8 @@ optimizer:
   beta2: 0.95
   weight_decay: 0.1
   grad_clip: 1.0
-  # WSD warmup. The real-run horizon is passed on the CLI as --steps and
-  # MUST exceed warmup_steps for the schedule to enter its stable+decay phases
-  # (the first paper run targets --steps 20000); the fixture smoke path uses a
-  # small --steps intentionally and does not decay.
+  # WSD warmup. The configured real-run horizon must exceed warmup_steps for
+  # the schedule to enter its stable and decay phases.
   warmup_steps: 1000
   schedule: wsd
 

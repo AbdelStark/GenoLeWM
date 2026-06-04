@@ -174,8 +174,6 @@ def test_train_carbon_train_can_package_release_run_after_success(
             str(config),
             "--preflight-output",
             str(side_preflight),
-            "--steps",
-            "2",
             "--package-release-run",
         ],
     )
@@ -193,6 +191,7 @@ def test_train_carbon_train_can_package_release_run_after_success(
     assert (run_dir / "training_run_SHA256SUMS").is_file()
     metadata = json.loads((run_dir / CARBON_TRAINING_METADATA_NAME).read_text(encoding="utf-8"))
     assert "--package-release-run" in metadata["command"]
+    assert "--steps" not in metadata["command"]
     assert metadata["training_config"] == "training_config.effective.yaml"
     assert metadata["training_preflight_report"] == "training_preflight_report.json"
 

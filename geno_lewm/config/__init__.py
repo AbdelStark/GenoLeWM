@@ -12,7 +12,8 @@ Public surface:
 - :class:`EncoderConfig`, :class:`PredictorConfig`,
   :class:`ActionEncoderConfig`, :class:`OptimizerConfig`,
   :class:`DataConfig`, :class:`EvalConfig`,
-  :class:`ObservabilityConfig`, :class:`RuntimeConfig` —
+  :class:`ObservabilityConfig`, :class:`RuntimeConfig`,
+  :class:`TrainingConfig` —
   per-subsystem schemas.
 - :func:`load_config` — load YAML + validate; raises
   :class:`UnknownTopLevelKeyError` on unknown top-level keys
@@ -48,6 +49,7 @@ from geno_lewm.config.schema import (
     OptimizerConfig,
     PredictorConfig,
     RuntimeConfig,
+    TrainingConfig,
     iter_top_level_field_names,
 )
 
@@ -62,6 +64,7 @@ __all__ = [
     "OptimizerConfig",
     "PredictorConfig",
     "RuntimeConfig",
+    "TrainingConfig",
     "config_to_dict",
     "describe_field",
     "iter_top_level_field_names",

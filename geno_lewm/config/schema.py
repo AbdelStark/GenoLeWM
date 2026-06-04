@@ -34,6 +34,7 @@ __all__ = [
     "OptimizerConfig",
     "PredictorConfig",
     "RuntimeConfig",
+    "TrainingConfig",
     "iter_top_level_field_names",
 ]
 
@@ -83,6 +84,20 @@ class ActionEncoderConfig:
     d_action: int = 64
     max_len: int = 16
     sub_encoders: tuple[str, ...] = ("snv", "ins", "del", "mnv")
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingConfig:
+    """Real Carbon-backed training launch controls.
+
+    ``max_steps`` is the configured horizon for ``geno-lewm-train
+    --carbon-train``. Fixture smoke runs keep using the CLI ``--steps``
+    control so small release-plumbing tests cannot silently define the
+    first real training horizon.
+    """
+
+    max_steps: int = 50
+    collapse_log_every_steps: int = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +179,7 @@ class GenoLeWMConfig:
     encoder: EncoderConfig = field(default_factory=EncoderConfig)
     predictor: PredictorConfig = field(default_factory=PredictorConfig)
     action: ActionEncoderConfig = field(default_factory=ActionEncoderConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     data: DataConfig = field(default_factory=DataConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)

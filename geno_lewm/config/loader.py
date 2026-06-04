@@ -43,6 +43,7 @@ from geno_lewm.config.schema import (
     OptimizerConfig,
     PredictorConfig,
     RuntimeConfig,
+    TrainingConfig,
 )
 from geno_lewm.errors import (
     ConfigError,
@@ -76,6 +77,7 @@ _SUBSYSTEM_MAP: tuple[tuple[str, type], ...] = (
     ("encoder", EncoderConfig),
     ("predictor", PredictorConfig),
     ("action", ActionEncoderConfig),
+    ("training", TrainingConfig),
     ("optimizer", OptimizerConfig),
     ("data", DataConfig),
     ("eval", EvalConfig),
