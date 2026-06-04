@@ -13,6 +13,10 @@ given and always recording the realized digest + size. Run as::
         --sha256 sha256:<expected>
 
 A ``--manifest`` JSON ([{url, output, sha256?}, ...]) fetches multiple files.
+Each fetch requires an explicit ``--acknowledge-source-terms`` flag or a
+manifest entry with ``"acknowledge_source_terms": true`` so operators cannot
+stage ClinVar/gnomAD inputs without recording that upstream source terms were
+reviewed.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from urllib.parse import urlparse
 GENERATED_BY = "tools.data.download"
 _CHUNK_BYTES = 1 << 20
 _ALLOWED_SCHEMES = frozenset({"https", "ftp"})
+_DEFAULT_SOURCE_TERMS = "upstream source terms"
 
 
 class DownloadError(RuntimeError):
@@ -41,12 +46,19 @@ def download_file(
     *,
     expected_sha256: str | None = None,
     overwrite: bool = False,
+    acknowledge_source_terms: bool = False,
+    license_terms: str | None = None,
     timeout_seconds: float = 120.0,
 ) -> dict[str, Any]:
     """Fetch ``url`` to ``output``, returning its realized sha256 + size."""
     scheme = urlparse(url).scheme.lower()
     if scheme not in _ALLOWED_SCHEMES:
         raise DownloadError(f"unsupported URL scheme {scheme!r}; allowed: https, ftp")
+    source_terms = _require_source_terms_acknowledged(
+        url,
+        acknowledged=acknowledge_source_terms,
+        license_terms=license_terms,
+    )
     output = Path(output)
     if output.exists() and not overwrite:
         raise DownloadError(f"output already exists (pass overwrite): {output}")
@@ -85,10 +97,17 @@ def download_file(
         "output": str(output),
         "sha256": realized,
         "size_bytes": size,
+        "source_terms": source_terms,
+        "source_terms_acknowledged": True,
     }
 
 
-def download_manifest(entries: list[dict[str, Any]], *, overwrite: bool = False) -> dict[str, Any]:
+def download_manifest(
+    entries: list[dict[str, Any]],
+    *,
+    overwrite: bool = False,
+    acknowledge_source_terms: bool = False,
+) -> dict[str, Any]:
     """Fetch every ``{url, output, sha256?}`` entry; return a combined report."""
     results: list[dict[str, Any]] = []
     for index, entry in enumerate(entries):
@@ -96,15 +115,70 @@ def download_manifest(entries: list[dict[str, Any]], *, overwrite: bool = False)
         output = entry.get("output")
         if not isinstance(url, str) or not isinstance(output, str):
             raise DownloadError(f"manifest entry {index} must include string url + output")
+        entry_ack = _manifest_entry_acknowledgement(entry, acknowledge_source_terms, index)
+        license_terms = entry.get("license_terms")
+        if license_terms is not None and not isinstance(license_terms, str):
+            raise DownloadError(f"manifest entry {index} license_terms must be a string")
         results.append(
             download_file(
                 url,
                 Path(output),
                 expected_sha256=entry.get("sha256"),
                 overwrite=overwrite,
+                acknowledge_source_terms=entry_ack,
+                license_terms=license_terms,
             )
         )
     return {"generated_by": GENERATED_BY, "count": len(results), "files": results}
+
+
+def _manifest_entry_acknowledgement(
+    entry: dict[str, Any],
+    global_acknowledgement: bool,
+    index: int,
+) -> bool:
+    if global_acknowledgement:
+        return True
+    raw = entry.get("acknowledge_source_terms", entry.get("license_acknowledged", False))
+    if not isinstance(raw, bool):
+        raise DownloadError(f"manifest entry {index} acknowledge_source_terms must be a boolean")
+    return raw
+
+
+def _require_source_terms_acknowledged(
+    url: str,
+    *,
+    acknowledged: bool,
+    license_terms: str | None,
+) -> str:
+    terms = _source_terms_label(url, license_terms)
+    if not acknowledged:
+        raise DownloadError(
+            "source terms must be acknowledged before downloading "
+            f"{url} ({terms}); pass --acknowledge-source-terms or set "
+            "acknowledge_source_terms=true in the manifest"
+        )
+    return terms
+
+
+def _source_terms_label(url: str, license_terms: str | None) -> str:
+    if license_terms is not None:
+        stripped = license_terms.strip()
+        if not stripped:
+            raise DownloadError("license_terms must not be empty")
+        return stripped
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path.lower()
+    if _host_matches(host, "broadinstitute.org") or "gnomad" in path:
+        return "gnomAD data-use terms"
+    if _host_matches(host, "ncbi.nlm.nih.gov") or "clinvar" in path:
+        return "NCBI ClinVar source terms"
+    return _DEFAULT_SOURCE_TERMS
+
+
+def _host_matches(host: str, domain: str) -> bool:
+    return host == domain or host.endswith(f".{domain}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -113,6 +187,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, help="Destination path for --url.")
     parser.add_argument("--sha256", default=None, help="Expected sha256:<hex> for --url.")
     parser.add_argument("--manifest", type=Path, help="JSON list of {url, output, sha256?}.")
+    parser.add_argument(
+        "--acknowledge-source-terms",
+        action="store_true",
+        help="Record that upstream source terms for each URL were reviewed before download.",
+    )
+    parser.add_argument("--license-terms", default=None, help="Source-terms label for --url.")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -121,13 +201,19 @@ def main(argv: list[str] | None = None) -> int:
             entries = json.loads(args.manifest.read_text(encoding="utf-8"))
             if not isinstance(entries, list):
                 raise DownloadError("manifest must be a JSON list")
-            report = download_manifest(entries, overwrite=args.overwrite)
+            report = download_manifest(
+                entries,
+                overwrite=args.overwrite,
+                acknowledge_source_terms=args.acknowledge_source_terms,
+            )
         elif args.url is not None and args.output is not None:
             report = download_file(
                 args.url,
                 args.output,
                 expected_sha256=args.sha256,
                 overwrite=args.overwrite,
+                acknowledge_source_terms=args.acknowledge_source_terms,
+                license_terms=args.license_terms,
             )
         else:
             parser.error("provide either --manifest or both --url and --output")

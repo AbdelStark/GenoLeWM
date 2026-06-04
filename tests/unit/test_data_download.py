@@ -43,12 +43,51 @@ def test_download_file_writes_and_hashes(tmp_path: Path, monkeypatch: pytest.Mon
     _patch_urlopen(monkeypatch, payload)
     out = tmp_path / "clinvar" / "clinvar.vcf.gz"
 
-    report = download_file("https://ftp.example.test/clinvar.vcf.gz", out)
+    report = download_file(
+        "https://ftp.example.test/clinvar.vcf.gz",
+        out,
+        acknowledge_source_terms=True,
+    )
 
     assert out.read_bytes() == payload
     assert report["size_bytes"] == len(payload)
     assert report["sha256"] == "sha256:" + hashlib.sha256(payload).hexdigest()
+    assert report["source_terms_acknowledged"] is True
+    assert report["source_terms"] == "NCBI ClinVar source terms"
     assert not out.with_name(out.name + ".part").exists()
+
+
+def test_download_file_requires_source_terms_acknowledgement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_urlopen(monkeypatch, b"payload")
+
+    with pytest.raises(DownloadError, match="source terms must be acknowledged"):
+        download_file("https://gnomad.broadinstitute.org/downloads", tmp_path / "gnomad.vcf.gz")
+
+    assert not (tmp_path / "gnomad.vcf.gz").exists()
+
+
+def test_source_terms_label_matches_known_hosts_without_suffix_spoofing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_urlopen(monkeypatch, b"payload")
+
+    broad_report = download_file(
+        "https://gnomad.broadinstitute.org/downloads/source.vcf.gz",
+        tmp_path / "gnomad.vcf.gz",
+        acknowledge_source_terms=True,
+    )
+    spoofed_report = download_file(
+        "https://broadinstitute.org.evil.test/downloads/source.vcf.gz",
+        tmp_path / "spoofed.vcf.gz",
+        acknowledge_source_terms=True,
+    )
+
+    assert broad_report["source_terms"] == "gnomAD data-use terms"
+    assert spoofed_report["source_terms"] == "upstream source terms"
 
 
 def test_download_file_verifies_expected_sha256(
@@ -58,13 +97,22 @@ def test_download_file_verifies_expected_sha256(
     _patch_urlopen(monkeypatch, payload)
     good = "sha256:" + hashlib.sha256(payload).hexdigest()
     out = tmp_path / "ok.vcf.gz"
-    assert download_file("https://x.test/a", out, expected_sha256=good)["sha256"] == good
+    assert (
+        download_file(
+            "https://x.test/a",
+            out,
+            expected_sha256=good,
+            acknowledge_source_terms=True,
+        )["sha256"]
+        == good
+    )
 
     with pytest.raises(DownloadError, match="sha256 mismatch"):
         download_file(
             "https://x.test/b",
             tmp_path / "bad.vcf.gz",
             expected_sha256="sha256:" + "0" * 64,
+            acknowledge_source_terms=True,
         )
     assert not (tmp_path / "bad.vcf.gz").exists()
 
@@ -81,19 +129,54 @@ def test_download_file_refuses_existing_without_overwrite(
     out = tmp_path / "exists.vcf.gz"
     out.write_bytes(b"old")
     with pytest.raises(DownloadError, match="already exists"):
-        download_file("https://x.test/a", out)
-    assert download_file("https://x.test/a", out, overwrite=True)["size_bytes"] == 1
+        download_file("https://x.test/a", out, acknowledge_source_terms=True)
+    assert (
+        download_file(
+            "https://x.test/a",
+            out,
+            overwrite=True,
+            acknowledge_source_terms=True,
+        )["size_bytes"]
+        == 1
+    )
 
 
 def test_download_manifest_fetches_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_urlopen(monkeypatch, b"payload")
     entries = [
-        {"url": "https://x.test/a", "output": str(tmp_path / "a")},
-        {"url": "https://x.test/b", "output": str(tmp_path / "b")},
+        {
+            "url": "https://x.test/a",
+            "output": str(tmp_path / "a"),
+            "license_terms": "test source terms",
+        },
+        {
+            "url": "https://x.test/b",
+            "output": str(tmp_path / "b"),
+            "license_terms": "test source terms",
+        },
     ]
-    report = download_manifest(entries)
+    report = download_manifest(entries, acknowledge_source_terms=True)
     assert report["count"] == 2
+    assert {item["source_terms"] for item in report["files"]} == {"test source terms"}
     assert (tmp_path / "a").is_file() and (tmp_path / "b").is_file()
+
+
+def test_download_manifest_accepts_per_entry_acknowledgement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_urlopen(monkeypatch, b"payload")
+    entries = [
+        {
+            "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz",
+            "output": str(tmp_path / "clinvar.vcf.gz"),
+            "acknowledge_source_terms": True,
+        }
+    ]
+
+    report = download_manifest(entries)
+
+    assert report["files"][0]["source_terms"] == "NCBI ClinVar source terms"
 
 
 def test_download_cli_requires_url_or_manifest(capsys: pytest.CaptureFixture[str]) -> None:
@@ -106,7 +189,19 @@ def test_download_cli_single(
 ) -> None:
     _patch_urlopen(monkeypatch, b"payload")
     out = tmp_path / "x.vcf.gz"
-    rc = download.main(["--url", "https://x.test/x.vcf.gz", "--output", str(out)])
+    rc = download.main(
+        [
+            "--url",
+            "https://x.test/x.vcf.gz",
+            "--output",
+            str(out),
+            "--acknowledge-source-terms",
+            "--license-terms",
+            "test source terms",
+        ]
+    )
     assert rc == 0
     assert out.is_file()
-    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["size_bytes"] == 7
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert payload["size_bytes"] == 7
+    assert payload["source_terms"] == "test source terms"
