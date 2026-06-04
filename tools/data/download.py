@@ -168,12 +168,17 @@ def _source_terms_label(url: str, license_terms: str | None) -> str:
             raise DownloadError("license_terms must not be empty")
         return stripped
     parsed = urlparse(url)
-    normalized = f"{parsed.netloc}{parsed.path}".lower()
-    if "gnomad" in normalized or "broadinstitute.org" in normalized:
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path.lower()
+    if _host_matches(host, "broadinstitute.org") or "gnomad" in path:
         return "gnomAD data-use terms"
-    if "clinvar" in normalized or "ncbi.nlm.nih.gov" in normalized:
+    if _host_matches(host, "ncbi.nlm.nih.gov") or "clinvar" in path:
         return "NCBI ClinVar source terms"
     return _DEFAULT_SOURCE_TERMS
+
+
+def _host_matches(host: str, domain: str) -> bool:
+    return host == domain or host.endswith(f".{domain}")
 
 
 def main(argv: list[str] | None = None) -> int:

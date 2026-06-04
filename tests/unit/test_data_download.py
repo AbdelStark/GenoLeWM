@@ -69,6 +69,27 @@ def test_download_file_requires_source_terms_acknowledgement(
     assert not (tmp_path / "gnomad.vcf.gz").exists()
 
 
+def test_source_terms_label_matches_known_hosts_without_suffix_spoofing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_urlopen(monkeypatch, b"payload")
+
+    broad_report = download_file(
+        "https://gnomad.broadinstitute.org/downloads/source.vcf.gz",
+        tmp_path / "gnomad.vcf.gz",
+        acknowledge_source_terms=True,
+    )
+    spoofed_report = download_file(
+        "https://broadinstitute.org.evil.test/downloads/source.vcf.gz",
+        tmp_path / "spoofed.vcf.gz",
+        acknowledge_source_terms=True,
+    )
+
+    assert broad_report["source_terms"] == "gnomAD data-use terms"
+    assert spoofed_report["source_terms"] == "upstream source terms"
+
+
 def test_download_file_verifies_expected_sha256(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
