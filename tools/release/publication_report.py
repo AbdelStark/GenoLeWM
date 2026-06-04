@@ -2643,9 +2643,8 @@ def _observed_downloaded_files(
         if root is None:
             continue
         path = _reported_file_path(raw_path, clean_machine_report_path)
-        try:
-            destination = path.resolve().relative_to(root.resolve()).as_posix()
-        except ValueError:
+        destination = _download_destination(path, root)
+        if destination is None:
             _issue(
                 issues,
                 "error",
@@ -2659,6 +2658,16 @@ def _observed_downloaded_files(
             "source_url": source_url if isinstance(source_url, str) else "",
         }
     return observed
+
+
+def _download_destination(path: Path, root: Path) -> str | None:
+    try:
+        destination = path.relative_to(root)
+    except ValueError:
+        return None
+    if not destination.parts or ".." in destination.parts:
+        return None
+    return destination.as_posix()
 
 
 def _report_root(

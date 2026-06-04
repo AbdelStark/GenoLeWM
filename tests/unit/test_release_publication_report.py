@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-
-import pytest
 
 from geno_lewm.provenance import sha256_file
 from tools.release.issue_refs import issue_ref_payload
@@ -695,10 +692,6 @@ def test_publication_evidence_report_rejects_candidate_wrong_dataset_package_pat
     assert {issue.issue_refs for issue in report.issues} == {(163,)}
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="win32 Path.resolve() breaks downloaded-artifact matching; tracked by #179",
-)
 def test_publication_evidence_report_rejects_missing_uploaded_demo_download(
     tmp_path: Path,
 ) -> None:
@@ -707,7 +700,7 @@ def test_publication_evidence_report_rejects_missing_uploaded_demo_download(
     clean_machine["downloaded_artifacts"] = [
         artifact
         for artifact in clean_machine["downloaded_artifacts"]
-        if not str(artifact["path"]).endswith("demo/terminal-demo-transcript.md")
+        if Path(str(artifact["path"])).name != "terminal-demo-transcript.md"
     ]
     paths["clean_machine"].write_text(json.dumps(clean_machine, indent=2, sort_keys=True) + "\n")
 
@@ -721,6 +714,37 @@ def test_publication_evidence_report_rejects_missing_uploaded_demo_download(
     assert report.ok is False
     assert {issue.code for issue in report.issues} == {
         "candidate.artifacts.terminal_transcript.download_missing",
+        "clean_machine.downloaded_artifact.missing_expected",
+    }
+
+
+def test_publication_evidence_report_rejects_downloaded_artifact_parent_escape(
+    tmp_path: Path,
+) -> None:
+    paths = _write_publication_inputs(tmp_path)
+    outside = _write_artifact_file(tmp_path / "downloads" / "outside.md", "demo:outside\n")
+    clean_machine = json.loads(paths["clean_machine"].read_text(encoding="utf-8"))
+    transcript = next(
+        artifact
+        for artifact in clean_machine["downloaded_artifacts"]
+        if Path(str(artifact["path"])).name == "terminal-demo-transcript.md"
+    )
+    transcript["path"] = str(tmp_path / "downloads" / "demo" / ".." / outside.name)
+    transcript["sha256"] = sha256_file(outside)
+    transcript["size_bytes"] = outside.stat().st_size
+    paths["clean_machine"].write_text(json.dumps(clean_machine, indent=2, sort_keys=True) + "\n")
+
+    report = build_publication_evidence_report(
+        plan_path=paths["plan"],
+        release_candidate_path=paths["candidate"],
+        publish_report_path=paths["publish"],
+        clean_machine_report_path=paths["clean_machine"],
+    )
+
+    assert report.ok is False
+    assert {issue.code for issue in report.issues} == {
+        "candidate.artifacts.terminal_transcript.download_missing",
+        "clean_machine.downloaded_artifact.outside_root",
         "clean_machine.downloaded_artifact.missing_expected",
     }
 
