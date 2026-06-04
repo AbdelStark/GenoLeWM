@@ -216,6 +216,10 @@ def run_demo_transcript(
             details={
                 "returncode": completed.returncode,
                 "transcript": str(request.transcript_path),
+                # Surface the score subprocess output so failures are diagnosable
+                # without re-running (it is captured, not streamed).
+                "stderr_tail": _tail_text(completed.stderr),
+                "stdout_tail": _tail_text(completed.stdout),
             },
             remediation="fix the model artifacts or score command before publishing the transcript",
         )
@@ -727,6 +731,13 @@ def _stream_identity(text: str) -> dict[str, object]:
         "size_bytes": len(data),
         "line_count": 0 if not text else len(text.splitlines()),
     }
+
+
+def _tail_text(text: str | None, *, limit: int = 2000) -> str:
+    """Return the trailing ``limit`` chars of captured subprocess output."""
+    if not text:
+        return ""
+    return text[-limit:]
 
 
 def _load_batch_receipt_summary(path: Path) -> dict[str, object]:

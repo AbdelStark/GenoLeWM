@@ -618,21 +618,12 @@ def _build_runtime_action_encoder(cfg: Any) -> object:
 
 
 def _build_runtime_predictor(cfg: Any) -> object:
-    from geno_lewm.predictor import Predictor
+    # Must build the SAME predictor as training (geno_lewm.training.real) or an
+    # exported checkpoint will not load. build_predictor is the shared source of
+    # truth for that construction.
+    from geno_lewm.predictor import build_predictor
 
-    n_layers = cfg.predictor.n_layers
-    n_self_layers = min(2, max(0, n_layers - 1))
-    n_cross_layers = max(1, n_layers - n_self_layers)
-    return Predictor(
-        d_state=cfg.predictor.d_state,
-        d_action=cfg.predictor.d_action,
-        d_hidden=cfg.predictor.d_state,
-        n_heads=cfg.predictor.n_heads,
-        n_cross_layers=n_cross_layers,
-        n_self_layers=n_self_layers,
-        ffn_dim=cfg.predictor.d_state,
-        max_actions=cfg.action.max_len,
-    )
+    return build_predictor(cfg)
 
 
 def _load_module_state(module: object, path: Path, *, artifact: str) -> None:

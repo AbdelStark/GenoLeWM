@@ -197,11 +197,23 @@ def indel(
     p_ins = type_mix[0] / sum(type_mix)
 
     out: list[RelEdit] = []
-    for _ in range(n):
+    # Each requested indel resamples on a non-ACGT anchor or an N-containing
+    # deletion segment so the sampler reliably returns ``n`` edits on windows
+    # with occasional N bases (e.g. the Carbon pretraining corpus), matching
+    # uniform_snv. Without this, a single N hit dropped a slot and returned
+    # fewer than ``n`` edits, which the data builder treats as a hard error for
+    # sources (synthetic_indel) that have no fallback. Bound the total attempts
+    # so a pathological all-N window fails loudly instead of looping forever.
+    # On all-ACGT windows every attempt succeeds first try, so the draw sequence
+    # (and output) is identical to a plain ``for _ in range(n)`` loop.
+    max_attempts = n * 16 + 16
+    attempts = 0
+    while len(out) < n and attempts < max_attempts:
+        attempts += 1
         pos = _pick_position(rng, len(window), edge_margin)
         ref_anchor = window[pos]
         if ref_anchor not in _OTHER_BASE:
-            continue  # skip non-ACGT anchor
+            continue  # non-ACGT anchor; resample
         # Event length in [1, V1_MAX_LEN-1] so total ref or alt length ≤ V1_MAX_LEN.
         # We respect the caller's distribution but clip to V1_MAX_LEN-1.
         ev_len = min(_draw_indel_length(rng, length_dist), V1_MAX_LEN - 1)
@@ -217,33 +229,44 @@ def indel(
                     alt_bases=ref_anchor + inserted,
                 )
             )
-        else:
-            # Deletion: ref = anchor + ev_len following bases, alt = anchor.
-            end = pos + 1 + ev_len
-            if end > len(window) - edge_margin:
-                # Cannot fit deletion without crossing right margin; retry as INS.
-                inserted = _rand_bases(rng, ev_len)
-                out.append(
-                    RelEdit(
-                        rel_pos=pos,
-                        edit_type=EditType.INS,
-                        ref_bases=ref_anchor,
-                        alt_bases=ref_anchor + inserted,
-                    )
-                )
-                continue
-            ref_seg = window[pos:end]
-            # Skip when ref segment contains N's (cannot construct valid RelEdit).
-            if any(c not in _OTHER_BASE for c in ref_seg):
-                continue
+            continue
+
+        # Deletion: ref = anchor + ev_len following bases, alt = anchor.
+        end = pos + 1 + ev_len
+        if end > len(window) - edge_margin:
+            # Cannot fit deletion without crossing right margin; emit INS instead.
+            inserted = _rand_bases(rng, ev_len)
             out.append(
                 RelEdit(
                     rel_pos=pos,
-                    edit_type=EditType.DEL,
-                    ref_bases=ref_seg,
-                    alt_bases=ref_anchor,
+                    edit_type=EditType.INS,
+                    ref_bases=ref_anchor,
+                    alt_bases=ref_anchor + inserted,
                 )
             )
+            continue
+        ref_seg = window[pos:end]
+        # Resample when the ref segment contains N's (cannot build a valid RelEdit).
+        if any(c not in _OTHER_BASE for c in ref_seg):
+            continue
+        out.append(
+            RelEdit(
+                rel_pos=pos,
+                edit_type=EditType.DEL,
+                ref_bases=ref_seg,
+                alt_bases=ref_anchor,
+            )
+        )
+    if len(out) < n:
+        raise InputError(
+            "could not sample enough indels in the window's interior (too many N bases)",
+            details={
+                "requested": n,
+                "produced": len(out),
+                "window_len": len(window),
+                "edge_margin": edge_margin,
+            },
+        )
     return out
 
 

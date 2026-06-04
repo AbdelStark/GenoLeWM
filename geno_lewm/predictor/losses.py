@@ -75,17 +75,26 @@ def lejepa_kl_regularizer(
     if d_state <= 0:
         raise InputError("states must have a non-empty feature dimension")
 
-    flat = states.reshape(-1, d_state).to(dtype=torch.float32)
+    # float64 for the covariance spectrum: a minibatch with fewer samples than
+    # d_state yields a rank-deficient empirical covariance, and float32 slogdet
+    # loses sign reliability once many eigenvalues approach the stabilizer. The
+    # covariance is symmetric PSD, so eigvalsh gives a stable spectrum directly.
+    flat = states.reshape(-1, d_state).to(dtype=torch.float64)
     if flat.shape[0] == 0:
         raise InputError("states must contain at least one sample")
     mean = flat.mean(dim=0)
     centered = flat - mean
     covariance = centered.T @ centered / flat.shape[0]
-    eye = torch.eye(d_state, dtype=covariance.dtype, device=covariance.device)
-    sign, logdet = torch.linalg.slogdet(covariance + eps * eye)
-    if torch.any(sign <= 0):
-        raise InputError("stabilized covariance must be positive definite")
-    return 0.5 * (mean.pow(2).sum() + torch.trace(covariance) - logdet - d_state)
+    trace = torch.diagonal(covariance).sum()
+    # logdet of the stabilized covariance ``cov + eps * I`` via its symmetric
+    # eigenvalues. This is the same quantity as ``slogdet(cov + eps * I)`` but
+    # never hits the float32 sign instability that slogdet exhibits when the
+    # batch is rank-deficient (fewer samples than d_state). Clamp tiny negative
+    # numerical eigenvalues to zero before adding the floor.
+    eigvals = torch.linalg.eigvalsh(covariance)
+    logdet = torch.log(torch.clamp(eigvals, min=0.0) + eps).sum()
+    kl = 0.5 * (mean.pow(2).sum() + trace - logdet - d_state)
+    return kl.to(dtype=states.dtype)
 
 
 def predictor_loss(

@@ -73,6 +73,35 @@ def test_clinvar_slot_falls_back_to_synthetic_snv_when_unavailable() -> None:
     }
 
 
+def test_absolute_providers_fall_back_to_synthetic_on_unplaced_windows() -> None:
+    # The synthetic Carbon pretraining corpus yields windows with no genome
+    # coordinates (chrom is None). Absolute VCF providers cannot place variants
+    # there, so both gnomAD and ClinVar slots fall back to synthetic SNVs and the
+    # window still produces a full RFC-0006 edit tuple.
+    unplaced = WindowContext(
+        record_id="carbon-1",
+        source="eukaryotic_genes",
+        sequence="A" * 256,
+        start_bp=0,
+        chrom=None,
+    )
+    providers = {
+        SOURCE_GNOMAD_COMMON: variant_provider((EditSpec("1", 101, "A", "C"),)),
+        SOURCE_SYNTHETIC_SNV: _fixed_provider(*[_snv(20 + 4 * i) for i in range(7)]),
+        SOURCE_SYNTHETIC_INDEL: _fixed_provider(_ins(60)),
+        SOURCE_CLINVAR: variant_provider((EditSpec("1", 113, "A", "T"),)),
+    }
+
+    tuples = build_training_tuples(unplaced, providers, rng=random.Random(3))
+
+    # 3 gnomAD + 1 ClinVar slots both fall back to synthetic_snv (3 native + 4).
+    assert Counter(item.edit_source for item in tuples) == {
+        SOURCE_SYNTHETIC_SNV: 7,
+        SOURCE_SYNTHETIC_INDEL: 1,
+    }
+    assert all(item.window_id == unplaced.window_id for item in tuples)
+
+
 def test_holdout_policy_excludes_chr_window_and_intersecting_edits() -> None:
     providers = {
         SOURCE_SYNTHETIC_SNV: _fixed_provider(_snv(20)),

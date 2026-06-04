@@ -80,8 +80,17 @@ DEFAULT_EDIT_SOURCE_COUNTS: tuple[EditSourceCount, ...] = (
 )
 """RFC-0006 §3.3 per-window source allocation for ``N_edits = 8``."""
 
-DEFAULT_SOURCE_FALLBACKS: dict[str, str] = {SOURCE_CLINVAR: SOURCE_SYNTHETIC_SNV}
-"""Default fallback when a hard-negative ClinVar edit is unavailable."""
+DEFAULT_SOURCE_FALLBACKS: dict[str, str] = {
+    SOURCE_CLINVAR: SOURCE_SYNTHETIC_SNV,
+    SOURCE_GNOMAD_COMMON: SOURCE_SYNTHETIC_SNV,
+}
+"""Default fallback when an absolute VCF edit is unavailable for a window.
+
+ClinVar hard-negatives and gnomAD common variants are placed (absolute) sources:
+they only apply to windows that carry genome coordinates. On unplaced windows
+(the synthetic Carbon pretraining corpus) the absolute providers yield nothing
+and the builder draws synthetic SNVs instead, so pretraining-corpus windows
+still produce full edit tuples."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -408,10 +417,12 @@ def variant_provider(variants: Sequence[EditSpec]) -> _EditProvider:
         if count == 0:
             return ()
         if window.chrom is None:
-            raise InputError(
-                "absolute variant providers require window.chrom",
-                remediation="supply placed WindowContext values for gnomAD/ClinVar variants",
-            )
+            # Unplaced windows (e.g. the synthetic Carbon pretraining corpus)
+            # carry no genome coordinates, so absolute VCF variants cannot be
+            # mapped onto them. Yield nothing and let the source fallback supply
+            # synthetic edits (see DEFAULT_SOURCE_FALLBACKS). Placed windows with
+            # a chrom still receive their real gnomAD/ClinVar variants.
+            return ()
         candidates = [
             variant.relative_to(window.start_bp, window.end_bp - 1)
             for variant in normalized

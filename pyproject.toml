@@ -57,7 +57,11 @@ dependencies = [
 [project.optional-dependencies]
 train = [
     "torch>=2.3",
-    "transformers>=4.45",
+    # Carbon-500M ships custom (trust_remote_code) modeling code that imports
+    # LlamaModel via the auto-map; transformers 5.x changed that lazy import and
+    # breaks Carbon loading on the cu124/torch-2.6 job stack with
+    # "Could not import module 'LlamaModel'". Pin to the 4.x line that loads it.
+    "transformers>=4.45,<5",
     "safetensors>=0.4",
     "datasets>=2.20",
     "numpy>=1.26",

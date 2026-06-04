@@ -51,6 +51,24 @@ def test_mnv_is_deterministic() -> None:
     assert a == b
 
 
+def test_indel_returns_full_count_on_window_with_n_bases() -> None:
+    # Carbon corpus windows can contain N; the sampler must resample over N
+    # anchors / N deletion segments and still return exactly n edits (a single
+    # dropped slot crashes the data builder for the no-fallback indel source).
+    w = ("ACGTNNNNNN" * 60) + "ACGT" * 20  # ~60% N bases
+    edits = indel(w, 8, rng=_seeded(5))
+    assert len(edits) == 8
+    for e in edits:
+        # Every emitted edit must be anchored on a real ACGT base.
+        assert w[e.rel_pos] in "ACGT"
+
+
+def test_indel_raises_on_all_n_window() -> None:
+    w = "N" * 512
+    with pytest.raises(InputError, match="could not sample enough indels"):
+        indel(w, 4, rng=_seeded(0))
+
+
 # ---------------------------------------------------------------------------
 # Validation.
 

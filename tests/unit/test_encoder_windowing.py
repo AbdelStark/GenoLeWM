@@ -60,6 +60,19 @@ def test_extract_window_uses_source_midpoint_when_untargeted() -> None:
     assert window.start_bp == (len(source) // 2) - (window.window_bp // 2)
 
 
+def test_extract_window_assume_canonical_matches_default_and_skips_validation() -> None:
+    # On already-canonical input, assume_canonical produces an identical window
+    # (used to skip re-validating a whole chromosome per VCF variant).
+    source = ("ACGTN" * 6000)[:29_000]
+    assert extract_window(source, edit_locus=12_345) == extract_window(
+        source, edit_locus=12_345, assume_canonical=True
+    )
+    # With assume_canonical the input is trusted verbatim: lowercase is NOT
+    # uppercased and invalid bases are NOT rejected (caller guarantees canonical).
+    trusted = extract_window("acgt" + "A" * 30_000, edit_locus=1, assume_canonical=True)
+    assert trusted.sequence.startswith("acgt")
+
+
 @given(DNA)
 def test_canonicalize_then_hash_is_stable(sequence: str) -> None:
     canonical = canonicalize_dna(sequence)

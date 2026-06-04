@@ -371,6 +371,8 @@ def main(argv: list[str] | None = None) -> int:
             ).to_dict()
     except GenoLeWMError as exc:
         sys.stderr.write(f"error: {exc}\n")
+        if exc.details:
+            sys.stderr.write(f"  details: {json.dumps(exc.details, sort_keys=True)}\n")
         return exit_code_for(exc)
     sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return 0
