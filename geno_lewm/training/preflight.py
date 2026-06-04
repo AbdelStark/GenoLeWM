@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib
 import importlib.metadata
 import importlib.util
 import json
@@ -28,6 +29,7 @@ REQUIRED_TRAINING_MODULES: Final = (
     "pyarrow",
     "pyarrow.parquet",
 )
+MIN_CUDA_VRAM_GB: Final = 40.0
 _DATASET_CORE_FILES: Final = (
     "dataset_package.json",
     "dataset_manifest.json",
@@ -44,9 +46,11 @@ _EVAL_PREFIXES: Final = ("eval", "test", "holdout", "validation", "val")
 Severity = Literal["error", "warning"]
 
 __all__ = [
+    "MIN_CUDA_VRAM_GB",
     "REPORT_NAME",
     "REQUIRED_TRAINING_MODULES",
     "SCHEMA_VERSION",
+    "AcceleratorProbe",
     "DependencyProbe",
     "TrainingPreflightIssue",
     "TrainingPreflightReport",
@@ -66,6 +70,8 @@ class TrainingPreflightRequest:
     run_dir: Path
     allow_fixture_dataset: bool = False
     require_native_runtime: bool = True
+    require_accelerator: bool = True
+    min_cuda_vram_gb: float = MIN_CUDA_VRAM_GB
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +115,34 @@ class DependencyProbe:
 
 
 @dataclass(frozen=True, slots=True)
+class AcceleratorProbe:
+    """CUDA accelerator readiness probe for Carbon-backed training."""
+
+    requested_device: str | None
+    required: bool
+    available: bool
+    device_count: int
+    device_name: str | None
+    total_memory_bytes: int | None
+    min_memory_bytes: int
+    reason: str
+    issue_code: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "requested_device": self.requested_device,
+            "required": self.required,
+            "available": self.available,
+            "device_count": self.device_count,
+            "device_name": self.device_name,
+            "total_memory_bytes": self.total_memory_bytes,
+            "min_memory_bytes": self.min_memory_bytes,
+            "reason": self.reason,
+            "issue_code": self.issue_code,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class TrainingPreflightReport:
     """Machine-readable readiness evidence for the real training path."""
 
@@ -121,6 +155,7 @@ class TrainingPreflightReport:
     run_dir: dict[str, object]
     dataset: dict[str, object]
     carbon: dict[str, object]
+    accelerator: AcceleratorProbe
     dependencies: tuple[DependencyProbe, ...]
     issues: tuple[TrainingPreflightIssue, ...]
 
@@ -135,12 +170,14 @@ class TrainingPreflightReport:
             "run_dir": self.run_dir,
             "dataset": self.dataset,
             "carbon": self.carbon,
+            "accelerator": self.accelerator.to_dict(),
             "dependencies": [probe.to_dict() for probe in self.dependencies],
             "issues": [issue.to_dict() for issue in self.issues],
         }
 
 
 DependencyProbeFn = Callable[[str, bool], DependencyProbe]
+AcceleratorProbeFn = Callable[[str | None, bool, int], AcceleratorProbe]
 
 
 def build_training_preflight_report(
@@ -148,17 +185,33 @@ def build_training_preflight_report(
     *,
     generated_at: str | None = None,
     dependency_probe: DependencyProbeFn | None = None,
+    accelerator_probe: AcceleratorProbeFn | None = None,
 ) -> TrainingPreflightReport:
     """Build clean-machine readiness evidence for Carbon-backed training."""
     issues: list[TrainingPreflightIssue] = []
     dependency_probe = dependency_probe or _probe_dependency
+    accelerator_probe = accelerator_probe or _probe_accelerator
     dataset = _inspect_dataset(request.dataset_dir, request.allow_fixture_dataset, issues)
     carbon = _inspect_carbon_model_dir(request.carbon_model_dir, issues)
     training_config = _inspect_training_config(request.training_config, issues)
     run_dir = _inspect_run_dir(request.run_dir)
+    min_cuda_memory_bytes = _min_cuda_memory_bytes(request.min_cuda_vram_gb)
+    accelerator = accelerator_probe(
+        _requested_training_device(training_config),
+        request.require_accelerator,
+        min_cuda_memory_bytes,
+    )
     dependencies = tuple(
         dependency_probe(name, request.require_native_runtime) for name in REQUIRED_TRAINING_MODULES
     )
+    if accelerator.required and not accelerator.available:
+        _issue(
+            issues,
+            "error",
+            accelerator.issue_code or "training.accelerator_unavailable",
+            request.training_config,
+            accelerator.reason,
+        )
     for probe in dependencies:
         if probe.required and not probe.available:
             _issue(
@@ -179,6 +232,7 @@ def build_training_preflight_report(
         run_dir=run_dir,
         dataset=dataset,
         carbon=carbon,
+        accelerator=accelerator,
         dependencies=dependencies,
         issues=tuple(issues),
     )
@@ -190,12 +244,14 @@ def write_training_preflight_report(
     *,
     generated_at: str | None = None,
     dependency_probe: DependencyProbeFn | None = None,
+    accelerator_probe: AcceleratorProbeFn | None = None,
 ) -> TrainingPreflightReport:
     """Write ``training_preflight_report.json`` and return the report."""
     report = build_training_preflight_report(
         request,
         generated_at=generated_at,
         dependency_probe=dependency_probe,
+        accelerator_probe=accelerator_probe,
     )
     output = request.run_dir / REPORT_NAME if output is None else output
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -966,6 +1022,116 @@ def _probe_dependency(import_name: str, required: bool) -> DependencyProbe:
         available=True,
         version=version,
         reason="importable",
+    )
+
+
+def _requested_training_device(training_config: dict[str, object]) -> str | None:
+    resolved = training_config.get("resolved")
+    if not isinstance(resolved, dict):
+        return None
+    runtime = resolved.get("runtime")
+    if not isinstance(runtime, dict):
+        return None
+    device = runtime.get("device")
+    return device if isinstance(device, str) else None
+
+
+def _min_cuda_memory_bytes(min_cuda_vram_gb: float) -> int:
+    if isinstance(min_cuda_vram_gb, bool) or min_cuda_vram_gb <= 0:
+        return int(MIN_CUDA_VRAM_GB * 1024**3)
+    return int(float(min_cuda_vram_gb) * 1024**3)
+
+
+def _probe_accelerator(
+    requested_device: str | None,
+    required: bool,
+    min_memory_bytes: int,
+) -> AcceleratorProbe:
+    if requested_device != "cuda":
+        return AcceleratorProbe(
+            requested_device=requested_device,
+            required=required,
+            available=False,
+            device_count=0,
+            device_name=None,
+            total_memory_bytes=None,
+            min_memory_bytes=min_memory_bytes,
+            reason="Carbon-backed first-experiment training requires runtime.device: cuda",
+            issue_code="training_config.runtime.device_not_cuda",
+        )
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError:
+        return AcceleratorProbe(
+            requested_device=requested_device,
+            required=required,
+            available=False,
+            device_count=0,
+            device_name=None,
+            total_memory_bytes=None,
+            min_memory_bytes=min_memory_bytes,
+            reason="torch is required to probe CUDA availability",
+            issue_code="training.cuda.torch_unavailable",
+        )
+    cuda = getattr(torch, "cuda", None)
+    if cuda is None or not bool(cuda.is_available()):
+        return AcceleratorProbe(
+            requested_device=requested_device,
+            required=required,
+            available=False,
+            device_count=0,
+            device_name=None,
+            total_memory_bytes=None,
+            min_memory_bytes=min_memory_bytes,
+            reason="CUDA is not available for Carbon-backed training",
+            issue_code="training.cuda.unavailable",
+        )
+    device_count = int(cuda.device_count()) if callable(getattr(cuda, "device_count", None)) else 0
+    device_name = None
+    total_memory_bytes = None
+    try:
+        props = cuda.get_device_properties(0)
+        device_name = str(getattr(props, "name", None) or cuda.get_device_name(0))
+        total_memory_bytes = int(props.total_memory)
+    except Exception:
+        get_name = getattr(cuda, "get_device_name", None)
+        device_name = str(get_name(0)) if callable(get_name) else None
+    if total_memory_bytes is None:
+        return AcceleratorProbe(
+            requested_device=requested_device,
+            required=required,
+            available=False,
+            device_count=device_count,
+            device_name=device_name,
+            total_memory_bytes=None,
+            min_memory_bytes=min_memory_bytes,
+            reason="CUDA device memory could not be probed",
+            issue_code="training.cuda.memory_unknown",
+        )
+    if total_memory_bytes < min_memory_bytes:
+        return AcceleratorProbe(
+            requested_device=requested_device,
+            required=required,
+            available=False,
+            device_count=device_count,
+            device_name=device_name,
+            total_memory_bytes=total_memory_bytes,
+            min_memory_bytes=min_memory_bytes,
+            reason=(
+                f"CUDA device memory {total_memory_bytes} bytes is below the required "
+                f"{min_memory_bytes} bytes"
+            ),
+            issue_code="training.cuda.vram_too_low",
+        )
+    return AcceleratorProbe(
+        requested_device=requested_device,
+        required=required,
+        available=True,
+        device_count=device_count,
+        device_name=device_name,
+        total_memory_bytes=total_memory_bytes,
+        min_memory_bytes=min_memory_bytes,
+        reason="cuda accelerator satisfies the training preflight requirement",
     )
 
 

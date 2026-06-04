@@ -25,9 +25,11 @@ Implemented:
 - deterministic `geno-lewm-train --fixture-smoke` path that writes
   resolved config, metrics, logs, checkpoint, dataset manifest, and
   training-run metadata for release plumbing tests;
-- preflight-gated `geno-lewm-train --carbon-train` path that can resume
-  from compatible Carbon checkpoints after validating run id, dataset
-  snapshot, seed split, and config identity;
+- preflight-gated `geno-lewm-train --carbon-train` path that records
+  CUDA/VRAM readiness, places the predictor/action encoder on the
+  configured device, and can resume from compatible Carbon checkpoints
+  after validating run id, dataset snapshot, seed split, and config
+  identity;
 - RFC-0006 training tuple builder with per-window source mix,
   ClinVar-to-synthetic fallback, absolute variant providers, and
   holdout filtering;
@@ -109,7 +111,7 @@ clean-machine replay evidence.
 | Gate | Local contract | Missing release evidence |
 | --- | --- | --- |
 | Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked snapshot spec; `--check-inputs` records staged upstream input hashes/sizes; `python -m tools.release.dataset_snapshot` and `python -m tools.release.dataset_package` generate package metadata, data card, manifest, split-integrity, input-check report, snapshot report, and checksums once local upstream files are staged | Actual pinned Carbon, gnomAD, and ClinVar inputs have not been processed into a published dataset package ([#163](https://github.com/AbdelStark/GenoLeWM/issues/163)) |
-| Carbon-backed training | `geno-lewm-train --carbon-preflight` and `geno-lewm-train --carbon-train --package-release-run` bind config, dataset, Carbon model, metrics, logs, checkpoint, and training-run checksums | A clean supported `geno-lewm[train]` run over the published dataset snapshot has not completed ([#164](https://github.com/AbdelStark/GenoLeWM/issues/164)) |
+| Carbon-backed training | `geno-lewm-train --carbon-preflight` and `geno-lewm-train --carbon-train --package-release-run` bind config, dataset, CUDA/VRAM readiness, Carbon model, metrics, logs, checkpoint, and training-run checksums | A clean supported `geno-lewm[train]` GPU run over the published dataset snapshot has not completed ([#164](https://github.com/AbdelStark/GenoLeWM/issues/164)) |
 | Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, and `python -m bench.inference --release-efficiency` generate metrics, report, effective eval config, and efficiency evidence | Real scores, labels, baseline scores, and benchmark outputs from the released checkpoint/dataset pair are not packaged yet ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)) |
 | Source distribution | `python -m build`, `twine check`, and `python -m tools.release.check_sdist_assets dist/*.tar.gz` verify package metadata and the release-critical repo assets needed by the dataset, model, eval, efficiency, terminal-demo, clean-replay, and publication-evidence gates | No tagged package release has been built by the protected release workflow yet |
 | Terminal demo | `python tools/demo/terminal_inference.py` emits transcript, score/receipt JSONL, runtime preflight, batch receipt report, and terminal demo manifest | No clean-machine replay from public model, dataset, and demo artifacts exists yet ([#166](https://github.com/AbdelStark/GenoLeWM/issues/166)) |

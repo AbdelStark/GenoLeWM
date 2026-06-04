@@ -21,9 +21,11 @@ from geno_lewm.training.fixture import (
     run_fixture_training,
 )
 from geno_lewm.training.preflight import (
+    MIN_CUDA_VRAM_GB,
     REPORT_NAME,
     REQUIRED_TRAINING_MODULES,
     SCHEMA_VERSION,
+    AcceleratorProbe,
     DependencyProbe,
     TrainingPreflightIssue,
     TrainingPreflightReport,
@@ -75,9 +77,11 @@ __all__ = [
     "FIXTURE_LOG_NAME",
     "FIXTURE_METRICS_NAME",
     "FIXTURE_TRAINING_METADATA_NAME",
+    "MIN_CUDA_VRAM_GB",
     "REPORT_NAME",
     "REQUIRED_TRAINING_MODULES",
     "SCHEMA_VERSION",
+    "AcceleratorProbe",
     "CarbonTrainingReport",
     "CollapseAlert",
     "CollapseCheck",

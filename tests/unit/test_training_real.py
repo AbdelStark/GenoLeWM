@@ -11,7 +11,9 @@ from geno_lewm.config import load_config
 from geno_lewm.errors import InputError
 from geno_lewm.training.real import (
     _collapse_var_min,
+    _move_trainable_to_device,
     _nan_loss_count,
+    _training_device,
     _validate_resume_checkpoint_payload,
     _write_metrics,
 )
@@ -83,6 +85,30 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
     assert metrics["nan_loss_count"] == 1
     assert metrics["collapse_var_min"]["value"] == pytest.approx(0.2)
     assert metrics["collapse_alert_count"] == 1
+
+
+def test_training_device_uses_runtime_config_device(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+
+    assert _training_device(config) == "cuda"
+
+
+def test_move_trainable_to_device_invokes_module_to_for_accelerator() -> None:
+    module = _DeviceModule()
+
+    moved = _move_trainable_to_device(module, "cuda", label="predictor")
+
+    assert moved is module
+    assert module.devices == ["cuda"]
+
+
+def test_move_trainable_to_device_leaves_cpu_module_in_place() -> None:
+    module = _DeviceModule()
+
+    moved = _move_trainable_to_device(module, "cpu", label="predictor")
+
+    assert moved is module
+    assert module.devices == []
 
 
 def test_validate_resume_checkpoint_accepts_matching_identity(tmp_path: Path) -> None:
@@ -169,3 +195,12 @@ def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dic
         "action_encoder": {},
         "optimizer": {},
     }
+
+
+class _DeviceModule:
+    def __init__(self) -> None:
+        self.devices: list[str] = []
+
+    def to(self, device: str) -> _DeviceModule:
+        self.devices.append(device)
+        return self

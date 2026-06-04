@@ -38,7 +38,7 @@ As of June 2, 2026:
 | Desktop/runtime scaffolds | Present but not a complete product |
 | Carbon encoder integration | Lazy `CarbonStateEncoder` wrapper is implemented; clean-machine checkpoint-backed inference remains a gap |
 | Data/training stream | Carbon window sampler, tuple-builder contract, `GenoLeWMDataset` iterator, source-state cache lookup in the trainer batch encoder, and local gnomAD/ClinVar VCF-to-Parquet prep commands exist; real shard publication and warm-cache throughput validation remain gaps |
-| Predictor/training | Base cross-attention `Predictor`, `ARPredictor` rollout wrapper, losses, collapse checks, deterministic fixture smoke training, torch trainer core, WSD scheduling, optimizer grouping, `geno-lewm-train --carbon-preflight`, and preflight-gated `geno-lewm-train --carbon-train` launch plumbing exist; true attention KV-cache speedups and the first Carbon-backed experiment remain open |
+| Predictor/training | Base cross-attention `Predictor`, `ARPredictor` rollout wrapper, losses, collapse checks, deterministic fixture smoke training, torch trainer core, WSD scheduling, optimizer grouping, CUDA/VRAM-aware `geno-lewm-train --carbon-preflight`, and preflight-gated `geno-lewm-train --carbon-train` launch plumbing exist; true attention KV-cache speedups and the first Carbon-backed experiment remain open |
 | Evaluation | `geno-lewm-carbon-baseline` writes Carbon zero-shot score JSONL from a local Carbon LM and held-out VCF/FASTA; `geno-lewm-eval` computes measured ClinVar-style binary metrics, deterministic bootstrap CIs, optional measured-baseline deltas from matched score/label JSONL artifacts with identical evaluated variant-key hashes, and an effective eval config artifact; `geno-lewm-eval-all` aggregates validated metric JSON into source `eval_metrics.json` plus generated `eval_report.md`; `bench.inference --release-efficiency` writes validated latency, throughput, memory, hardware/runtime, and input identity evidence; first full benchmark table is not published |
 | Package/model release | PyPI release workflow and package metadata exist; first PyPI tag and model checkpoint release to the Hub remain open |
 
@@ -295,7 +295,7 @@ for real artifacts from the first experiment.
 | Evidence artifact | Local contract | Paper-release status |
 | --- | --- | --- |
 | Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked rebuild spec; `--check-inputs` hashes staged upstream files; the same spec with `--dataset-dir ... --overwrite` writes `dataset_input_check_report.json`, `dataset_snapshot_report.json`, `dataset_package.json`, `dataset_manifest.json`, `data_card.md`, `split_integrity.json`, and `SHA256SUMS` | Blocked on running the command against the actual pinned Carbon, gnomAD, and ClinVar inputs, then publishing the resulting files ([#163](https://github.com/AbdelStark/GenoLeWM/issues/163)) |
-| Training run | `geno-lewm-train --carbon-preflight ...` and `geno-lewm-train --carbon-train --package-release-run ...` bind config, dataset, Carbon model, checkpoint, logs, metrics, and `training_run_SHA256SUMS` | Blocked on a completed clean-machine Carbon-backed run over the published dataset snapshot ([#164](https://github.com/AbdelStark/GenoLeWM/issues/164)) |
+| Training run | `geno-lewm-train --carbon-preflight ...` and `geno-lewm-train --carbon-train --package-release-run ...` bind config, dataset, CUDA/VRAM readiness, Carbon model, checkpoint, logs, metrics, and `training_run_SHA256SUMS` | Blocked on a completed clean-machine Carbon-backed run over the published dataset snapshot ([#164](https://github.com/AbdelStark/GenoLeWM/issues/164)) |
 | Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, and `python -m bench.inference --release-efficiency` generate `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`, and `efficiency_report.json` | Blocked on real GenoLeWM scores, Carbon zero-shot baseline scores, labels, and benchmark outputs from the released checkpoint/dataset pair ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)) |
 | Terminal demo | `python tools/demo/terminal_inference.py ...` records `terminal-demo-transcript.md`, `terminal_demo_manifest.json`, `runtime_preflight_report.json`, `scores.jsonl`, `receipts.jsonl`, and `batch_receipt_report.json` | Blocked on public model, dataset, and demo artifacts plus a clean-machine replay from those artifacts ([#166](https://github.com/AbdelStark/GenoLeWM/issues/166)) |
 | Paper and publication evidence | `python -m tools.release.paper_draft`, `python -m tools.release.paper_package`, `python -m tools.release.release_candidate`, `python -m tools.release.clean_machine_demo`, and `python -m tools.release.publication_report` bind the paper, Hub plan, public links, replay, and final evidence report | Blocked on the real artifact set and a protected publish workflow run with reachable public links ([#167](https://github.com/AbdelStark/GenoLeWM/issues/167), [#101](https://github.com/AbdelStark/GenoLeWM/issues/101)) |
@@ -366,8 +366,10 @@ The project is not paper-ready until all of these are true:
   that preflight now requires the packaged dataset release evidence set:
   `dataset_package.json`, `dataset_manifest.json`, `data_card.md`,
   `split_integrity.json`, `dataset_input_check_report.json`,
-  `dataset_snapshot_report.json`, and `SHA256SUMS`, and it rejects stale
-  input-check evidence before the trainer can launch;
+  `dataset_snapshot_report.json`, and `SHA256SUMS`, requires the
+  first-experiment config to resolve `runtime.device: cuda`, checks CUDA
+  availability plus the default 40 GiB minimum device-memory threshold,
+  and rejects stale input-check evidence before the trainer can launch;
   the single-process launcher is
   `geno-lewm-train --carbon-train --dataset-dir ... --carbon-model-dir ... --training-config ... --run-dir ...`;
   the CLI writes `training_config.effective.yaml`, preflights that exact

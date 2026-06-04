@@ -85,4 +85,6 @@ observability:
 
 runtime:
   backend: torch
-  device: cpu
+  # First paper training is a CUDA GPU job; preflight rejects cpu-only launch
+  # configs for this Carbon-backed run.
+  device: cuda

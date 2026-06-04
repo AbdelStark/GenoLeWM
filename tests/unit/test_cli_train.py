@@ -18,6 +18,7 @@ from geno_lewm.training.real import (
     CarbonTrainingReport,
 )
 from tests.unit.test_training_preflight import (
+    _available_accelerator,
     _available_dependency,
     _missing_dependency,
     _write_carbon_model_dir,
@@ -79,6 +80,7 @@ def test_train_carbon_preflight_cli_writes_report(
     config = _write_training_config(tmp_path)
     run_dir = tmp_path / "run"
     monkeypatch.setattr(training_preflight, "_probe_dependency", _available_dependency)
+    monkeypatch.setattr(training_preflight, "_probe_accelerator", _available_accelerator)
 
     rc = _dispatch.run_app(
         app,
@@ -116,6 +118,7 @@ def test_train_carbon_train_runs_preflight_before_launch(
     config = _write_training_config(tmp_path)
     run_dir = tmp_path / "run"
     monkeypatch.setattr(training_preflight, "_probe_dependency", _missing_dependency)
+    monkeypatch.setattr(training_preflight, "_probe_accelerator", _available_accelerator)
 
     rc = _dispatch.run_app(
         app,
@@ -156,6 +159,7 @@ def test_train_carbon_train_can_package_release_run_after_success(
     run_dir = tmp_path / "run"
     side_preflight = tmp_path / "preflight-sidecar.json"
     monkeypatch.setattr(training_preflight, "_probe_dependency", _available_dependency)
+    monkeypatch.setattr(training_preflight, "_probe_accelerator", _available_accelerator)
     monkeypatch.setattr(train_cli, "run_carbon_training", _fake_carbon_training)
 
     rc = _dispatch.run_app(
@@ -209,6 +213,7 @@ def test_train_carbon_train_passes_resume_checkpoint_to_launcher(
     resume_path = tmp_path / "resume.pt"
     resume_path.write_bytes(b"checkpoint bytes\n")
     monkeypatch.setattr(training_preflight, "_probe_dependency", _available_dependency)
+    monkeypatch.setattr(training_preflight, "_probe_accelerator", _available_accelerator)
     monkeypatch.setattr(train_cli, "run_carbon_training", _fake_carbon_training)
 
     rc = _dispatch.run_app(
@@ -242,6 +247,47 @@ def test_train_carbon_train_passes_resume_checkpoint_to_launcher(
     assert str(resume_path) in metadata["command"]
     assert metadata["resumed_from_step"] == 1
     assert metadata["resume_checkpoint"] == resume_path.name
+
+
+def test_train_carbon_train_records_accelerator_preflight_overrides(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    run_dir = tmp_path / "run"
+    monkeypatch.setattr(training_preflight, "_probe_dependency", _available_dependency)
+    monkeypatch.setattr(training_preflight, "_probe_accelerator", _available_accelerator)
+    monkeypatch.setattr(train_cli, "run_carbon_training", _fake_carbon_training)
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--carbon-train",
+            "--run-dir",
+            str(run_dir),
+            "--dataset-dir",
+            str(dataset_dir),
+            "--carbon-model-dir",
+            str(carbon_dir),
+            "--training-config",
+            str(config),
+            "--no-require-accelerator",
+            "--min-cuda-vram-gb",
+            "24",
+        ],
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    metadata = json.loads((run_dir / CARBON_TRAINING_METADATA_NAME).read_text(encoding="utf-8"))
+    assert "--no-require-accelerator" in metadata["command"]
+    assert "--min-cuda-vram-gb 24.0" in metadata["command"]
 
 
 def _fake_carbon_training(
