@@ -10,6 +10,8 @@ import pytest
 from geno_lewm._artifact_sources import SCORE_JSONL_GENERATED_BY
 from geno_lewm.errors import InputError
 from geno_lewm.evaluation import (
+    BinaryEvalResult,
+    VariantKey,
     _require_score_jsonl_generated_by,
     build_eval_report_payload,
     evaluate_score_labels,
@@ -253,6 +255,138 @@ def test_evaluate_score_labels_requires_positive_and_negative_labels(tmp_path: P
 
     with pytest.raises(InputError, match="at least one positive and one negative"):
         evaluate_score_labels(scores, labels)
+
+
+def test_variant_keys_and_eval_options_validate_inputs(tmp_path: Path) -> None:
+    scores, labels = _write_score_label_artifacts(tmp_path)
+
+    with pytest.raises(InputError, match="chrom must be non-empty"):
+        VariantKey("", 1, "A", "C")
+    with pytest.raises(InputError, match="pos must be positive"):
+        VariantKey("1", 0, "A", "C")
+    with pytest.raises(InputError, match="ref and alt must be non-empty"):
+        VariantKey("1", 1, "", "C")
+
+    with pytest.raises(InputError, match="score_field must be a non-empty string"):
+        evaluate_score_labels(scores, labels, score_field="")
+    with pytest.raises(InputError, match="threshold must be a finite number"):
+        evaluate_score_labels(scores, labels, threshold=float("nan"))
+    with pytest.raises(InputError, match="split must be a non-empty string"):
+        evaluate_score_labels(scores, labels, split=" ")
+    with pytest.raises(InputError, match="bootstrap_resamples must be an integer"):
+        evaluate_score_labels(scores, labels, bootstrap_resamples=True)  # type: ignore[arg-type]
+    with pytest.raises(InputError, match="bootstrap_resamples must be non-negative"):
+        evaluate_score_labels(scores, labels, bootstrap_resamples=-1)
+    with pytest.raises(InputError, match="bootstrap_seed must be an integer"):
+        evaluate_score_labels(scores, labels, bootstrap_seed=False)  # type: ignore[arg-type]
+    with pytest.raises(InputError, match="ci_level must be greater than 0"):
+        evaluate_score_labels(scores, labels, ci_level=1.0)
+
+
+def test_evaluate_score_labels_rejects_label_jsonl_shape_errors(tmp_path: Path) -> None:
+    scores, _labels = _write_score_label_artifacts(tmp_path)
+    labels = tmp_path / "bad_labels.jsonl"
+
+    with pytest.raises(InputError, match="JSONL artifact is missing"):
+        evaluate_score_labels(scores, tmp_path / "missing.jsonl")
+
+    labels.write_text("{not-json}\n", encoding="utf-8")
+    with pytest.raises(InputError, match="invalid JSON"):
+        evaluate_score_labels(scores, labels)
+
+    labels.write_text("[1, 2, 3]\n", encoding="utf-8")
+    with pytest.raises(InputError, match="records must be objects"):
+        evaluate_score_labels(scores, labels)
+
+    _write_jsonl(labels, [{"chrom": "1", "pos": 10, "ref": "A", "clinical_significance": "P"}])
+    with pytest.raises(InputError, match="missing a key field"):
+        evaluate_score_labels(scores, labels)
+
+    _write_jsonl(
+        labels,
+        [{"chrom": "1", "pos": "bad", "ref": "A", "alt": "C", "clinical_significance": "P"}],
+    )
+    with pytest.raises(InputError, match="variant pos must be an integer"):
+        evaluate_score_labels(scores, labels)
+
+    _write_jsonl(labels, [{"chrom": "1", "pos": 10, "ref": "A", "alt": "C"}])
+    with pytest.raises(InputError, match="clinical_significance or label"):
+        evaluate_score_labels(scores, labels)
+
+    _write_jsonl(
+        labels,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "clinical_significance": "P"},
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "clinical_significance": "LP"},
+        ],
+    )
+    with pytest.raises(InputError, match="duplicate variant keys"):
+        evaluate_score_labels(scores, labels)
+
+    _write_jsonl(labels, [{"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "label": "VUS"}])
+    with pytest.raises(InputError, match="no P/LP/B/LB variants"):
+        evaluate_score_labels(scores, labels)
+
+
+def test_evaluate_score_labels_rejects_score_jsonl_shape_errors(tmp_path: Path) -> None:
+    scores = tmp_path / "bad_scores.jsonl"
+    labels = tmp_path / "labels.jsonl"
+    _write_jsonl(
+        labels,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "clinical_significance": "P"},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "clinical_significance": "B"},
+        ],
+    )
+
+    _write_jsonl(
+        scores,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.9},
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.8},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "sigma_calibrated": 0.1},
+        ],
+    )
+    with pytest.raises(InputError, match="duplicate variant keys"):
+        evaluate_score_labels(scores, labels)
+
+    _write_jsonl(
+        scores,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": True},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "sigma_calibrated": 0.1},
+        ],
+    )
+    with pytest.raises(InputError, match="sigma_calibrated must be a finite number"):
+        evaluate_score_labels(scores, labels)
+
+
+def test_eval_result_rejects_partial_confidence_interval_bounds() -> None:
+    result = BinaryEvalResult(
+        split="eval",
+        score_field="sigma_calibrated",
+        threshold=0.5,
+        labelled_variants=2,
+        evaluated_variants=2,
+        positive_variants=1,
+        negative_variants=1,
+        extra_score_variants=0,
+        auroc=1.0,
+        average_precision=1.0,
+        accuracy=1.0,
+        balanced_accuracy=1.0,
+        sensitivity=1.0,
+        specificity=1.0,
+        ci_level=0.95,
+        bootstrap_resamples=10,
+        bootstrap_seed=1,
+        auroc_ci_low=0.9,
+    )
+
+    with pytest.raises(InputError, match="bounds must be supplied together"):
+        result.to_report_metrics()
+    with pytest.raises(InputError, match="bounds must be supplied together"):
+        result.to_summary_dict()
 
 
 def _write_score_label_artifacts(root: Path) -> tuple[Path, Path]:
