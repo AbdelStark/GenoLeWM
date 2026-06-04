@@ -32,6 +32,8 @@ GENERATED_BY: Final = "tools.release.model_package"
 MODEL_PACKAGE_NAME: Final = "model_package.json"
 EVAL_METRICS_NAME: Final = "eval_metrics.json"
 EVAL_CONFIG_NAME: Final = "eval_config.effective.yaml"
+CALIBRATION_REPORT_NAME: Final = "calibration_report.json"
+CALIBRATION_REPORT_GENERATED_BY: Final = "tools.release.build_calibration"
 PLACEHOLDER_RE: Final = re.compile(
     r"\b(?:tbd|todo|placeholder|coming soon|fake|dummy|lorem ipsum)\b",
     re.IGNORECASE,
@@ -469,6 +471,8 @@ def _verify_extra_files(model_dir: Path, files: tuple[str, ...]) -> None:
         path = _safe_relative(model_dir, relative)
         if not path.is_file():
             raise InputError("extra model package file is missing", details={"path": str(path)})
+    if CALIBRATION_REPORT_NAME in files:
+        _verify_calibration_report(model_dir, _load_manifest_for_verification(model_dir))
 
 
 def _eval_artifact_checksum_files(
@@ -488,6 +492,108 @@ def _eval_artifact_checksum_files(
             )
         files.append(relative)
     return tuple(dict.fromkeys(files))
+
+
+def _load_manifest_for_verification(model_dir: Path) -> Manifest:
+    return load_manifest(model_dir / "manifest.json")
+
+
+def _verify_calibration_report(model_dir: Path, manifest: Manifest) -> None:
+    report_path = model_dir / CALIBRATION_REPORT_NAME
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise InputError(
+            "failed to read calibration_report.json",
+            details={"path": str(report_path)},
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise InputError(
+            "calibration_report.json is invalid JSON",
+            details={"path": str(report_path), "line": exc.lineno, "column": exc.colno},
+        ) from exc
+    if not isinstance(payload, dict):
+        raise InputError("calibration_report.json must be a JSON object")
+    if payload.get("generated_by") != CALIBRATION_REPORT_GENERATED_BY:
+        raise InputError(
+            "calibration_report.json generated_by is invalid",
+            details={
+                "expected": CALIBRATION_REPORT_GENERATED_BY,
+                "observed": payload.get("generated_by"),
+            },
+        )
+    if payload.get("model_id") != manifest.model_id():
+        raise InputError(
+            "calibration_report.json model_id must match manifest",
+            details={"expected": manifest.model_id(), "observed": payload.get("model_id")},
+        )
+    if payload.get("model_release") != manifest.release_id:
+        raise InputError(
+            "calibration_report.json model_release must match manifest",
+            details={"expected": manifest.release_id, "observed": payload.get("model_release")},
+        )
+    _verify_identity(
+        payload.get("model_manifest"),
+        expected_path="model/manifest.json",
+        actual_path=model_dir / "manifest.json",
+        field="calibration_report.json model_manifest",
+    )
+    _verify_identity(
+        payload.get("calibration_artifact"),
+        expected_path=manifest.calibration.file,
+        actual_path=_safe_relative(model_dir, manifest.calibration.file),
+        field="calibration_report.json calibration_artifact",
+    )
+    _verify_input_identity(payload.get("inputs"), key="vcf")
+    _verify_input_identity(payload.get("inputs"), key="fasta")
+
+
+def _verify_input_identity(raw_inputs: object, *, key: str) -> None:
+    if not isinstance(raw_inputs, dict):
+        raise InputError("calibration_report.json inputs must be an object")
+    raw_identity = raw_inputs.get(key)
+    if not isinstance(raw_identity, dict):
+        raise InputError(
+            "calibration_report.json input identity is missing",
+            details={"input": key},
+        )
+    _required_text(raw_identity, "path", prefix=f"inputs.{key}.")
+    _required_sha256(raw_identity.get("sha256"), field=f"inputs.{key}.sha256")
+    _required_positive_int(raw_identity.get("size_bytes"), field=f"inputs.{key}.size_bytes")
+
+
+def _verify_identity(
+    raw_identity: object,
+    *,
+    expected_path: str,
+    actual_path: Path,
+    field: str,
+) -> None:
+    if not isinstance(raw_identity, dict):
+        raise InputError(f"{field} identity must be an object")
+    observed_path = _required_text(raw_identity, "path", prefix=f"{field}.")
+    if observed_path != expected_path:
+        raise InputError(
+            f"{field} path must match expected artifact",
+            details={"expected": expected_path, "observed": observed_path},
+        )
+    observed_hash = _required_sha256(raw_identity.get("sha256"), field=f"{field}.sha256")
+    expected_hash = sha256_file(actual_path)
+    if observed_hash != expected_hash:
+        raise InputError(
+            f"{field} hash must match packaged artifact",
+            details={"expected": expected_hash, "observed": observed_hash},
+        )
+    observed_size = _required_positive_int(
+        raw_identity.get("size_bytes"),
+        field=f"{field}.size_bytes",
+    )
+    expected_size = actual_path.stat().st_size
+    if observed_size != expected_size:
+        raise InputError(
+            f"{field} size must match packaged artifact",
+            details={"expected": expected_size, "observed": observed_size},
+        )
 
 
 def _model_relative_eval_artifact(raw_path: str, *, key: str) -> str | None:
@@ -612,6 +718,18 @@ def _required_text(payload: dict[str, Any], key: str, *, prefix: str = "") -> st
     if not isinstance(value, str) or not value.strip():
         raise InputError(f"{prefix}{key} must be a non-empty string")
     return value.strip()
+
+
+def _required_sha256(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        raise InputError(f"{field} must be a sha256:<hex> digest")
+    return value
+
+
+def _required_positive_int(value: object, *, field: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise InputError(f"{field} must be a positive integer")
+    return value
 
 
 def _optional_text(payload: dict[str, Any], key: str, *, prefix: str = "") -> str | None:

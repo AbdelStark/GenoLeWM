@@ -30,6 +30,7 @@ from tools.release.efficiency_report import (
 )
 from tools.release.eval_report import parse_report_input, render_report
 from tools.release.model_package import (
+    CALIBRATION_REPORT_NAME,
     EVAL_METRICS_NAME,
     GENERATED_BY as MODEL_PACKAGE_GENERATED_BY,
     MODEL_PACKAGE_NAME,
@@ -239,6 +240,32 @@ def test_parse_model_package_requires_training_run_evidence_extra_files() -> Non
     }
 
 
+def test_build_model_package_accepts_calibration_report_extra_file(tmp_path: Path) -> None:
+    metadata_path = _write_model_inputs(tmp_path)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["extra_files"].append(CALIBRATION_REPORT_NAME)
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+    _write_calibration_report(tmp_path)
+
+    report = build_model_package(tmp_path, metadata_path)
+
+    assert CALIBRATION_REPORT_NAME in report.files
+
+
+def test_build_model_package_rejects_stale_calibration_report(tmp_path: Path) -> None:
+    metadata_path = _write_model_inputs(tmp_path)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["extra_files"].append(CALIBRATION_REPORT_NAME)
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+    report_path = _write_calibration_report(tmp_path)
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    payload["calibration_artifact"]["sha256"] = "sha256:" + "0" * 64
+    report_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="calibration_artifact hash"):
+        build_model_package(tmp_path, metadata_path)
+
+
 def _write_model_inputs(
     root: Path,
     *,
@@ -287,6 +314,49 @@ def _write_model_dir(root: Path, *, release_id: str) -> None:
     )
     write_manifest(manifest, root / "manifest.json")
     build_training_run_package(root, training_metadata)
+
+
+def _write_calibration_report(root: Path) -> Path:
+    manifest = load_manifest(root / "manifest.json")
+    payload = {
+        "schema_version": "1.0.0",
+        "generated_by": "tools.release.build_calibration",
+        "model_id": manifest.model_id(),
+        "model_release": manifest.release_id,
+        "model_manifest": {
+            "path": "model/manifest.json",
+            "sha256": sha256_file(root / "manifest.json"),
+            "size_bytes": (root / "manifest.json").stat().st_size,
+        },
+        "manifest_calibration": {
+            "path": manifest.calibration.file,
+            "sha256": manifest.calibration.hash,
+        },
+        "inputs": {
+            "vcf": {
+                "path": "background.vcf",
+                "sha256": sha256_bytes(b"background-vcf"),
+                "size_bytes": len(b"background-vcf"),
+            },
+            "fasta": {
+                "path": "reference.fa",
+                "sha256": sha256_bytes(b"reference-fasta"),
+                "size_bytes": len(b"reference-fasta"),
+            },
+        },
+        "calibration_artifact": {
+            "path": manifest.calibration.file,
+            "sha256": sha256_file(root / manifest.calibration.file),
+            "size_bytes": (root / manifest.calibration.file).stat().st_size,
+        },
+        "parameters": {"window_bp": 4096, "seed": 0},
+        "examples": 10,
+        "buckets": 1,
+        "low_confidence_buckets": 0,
+    }
+    path = root / CALIBRATION_REPORT_NAME
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
 
 
 def _metadata() -> dict[str, object]:
