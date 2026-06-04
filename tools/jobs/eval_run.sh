@@ -451,9 +451,15 @@ PY
 # tools.release.training_run, which would require a training_run_metadata.json the
 # proof run does not emit.) Built only if that evidence is present.
 if [ -n "$RUN_DIR" ] && [ -f "$RUN_DIR/training_run_manifest.json" ]; then
-  log "stage training-run evidence into the model package"
+  log "stage the FULL training-run evidence package into the model package"
+  # Copy every file training_run_SHA256SUMS references (not just the summaries):
+  # tools.release.paper_package re-validates the whole training-run package, so
+  # the predictor_checkpoint.pt / train.log / metrics.json / *.effective.yaml /
+  # dataset_manifest.json it points at must be present, not only the manifest.
   for f in training_preflight_report.json training_run_manifest.json \
-           training_run_card.md training_run_SHA256SUMS; do
+           training_run_card.md training_run_SHA256SUMS \
+           dataset_manifest.json training_config.effective.yaml metrics.json \
+           train.log predictor_checkpoint.pt; do
     if [ -f "$RUN_DIR/$f" ]; then cp "$RUN_DIR/$f" "$MODEL/$f"; fi
   done
 fi

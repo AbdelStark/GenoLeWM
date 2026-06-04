@@ -32,6 +32,7 @@ RUNS_REPO="${RUNS_REPO:-abdelstark/geno-lewm-runs}"
 RUN_NAME="${RUN_NAME:-geno-lewm-proof}"
 EVAL_SUBPATH="${EVAL_SUBPATH:-$RUN_NAME/eval}"
 DATASET_SUBPATH="${DATASET_SUBPATH:-$RUN_NAME/dataset}"
+RUN_SUBPATH="${RUN_SUBPATH:-$RUN_NAME/run}"
 
 EVAL_CHROM="${EVAL_CHROM:-21}"
 DEMO_MAX_VARIANTS="${DEMO_MAX_VARIANTS:-32}"
@@ -76,6 +77,26 @@ hf download "$RUNS_REPO" --repo-type model --include "$DATASET_SUBPATH/*" --loca
 cp -a "$WORK/dl-dataset/$DATASET_SUBPATH/." "$DATASET_DIR/"
 for f in dataset_manifest.json dataset_package.json data_card.md SHA256SUMS; do
   test -s "$DATASET_DIR/$f" || fail "dataset package missing required file: $f"
+done
+
+# Stage the FULL training-run evidence package into the model dir. paper_package
+# re-validates the whole training-run package, but the eval package ships only the
+# summary files (training_run_manifest/card/SHA256SUMS/preflight); the files
+# training_run_SHA256SUMS references (predictor_checkpoint.pt, train.log,
+# metrics.json, training_config.effective.yaml, dataset_manifest.json) live in the
+# run dir. Copy them into the model root (the eval stub at model/eval/
+# dataset_manifest.json is a different path, so no collision).
+log "stage full training-run evidence from $RUNS_REPO ($RUN_SUBPATH)"
+hf download "$RUNS_REPO" --repo-type model --include "$RUN_SUBPATH/*" --local-dir "$WORK/dl-run" \
+  || fail "could not download run dir $RUN_SUBPATH"
+RUN_DIR="$WORK/dl-run/$RUN_SUBPATH"
+for f in dataset_manifest.json training_config.effective.yaml metrics.json train.log \
+         predictor_checkpoint.pt training_run_manifest.json training_run_card.md \
+         training_run_SHA256SUMS training_preflight_report.json; do
+  test -s "$RUN_DIR/$f" && cp "$RUN_DIR/$f" "$MODEL_DIR/$f"
+done
+for f in dataset_manifest.json training_config.effective.yaml metrics.json train.log predictor_checkpoint.pt; do
+  test -s "$MODEL_DIR/$f" || fail "training-run evidence still missing after staging: $f"
 done
 
 # --- 2. build the DEMO dir from a LIVE geno-lewm-score run ----------------
