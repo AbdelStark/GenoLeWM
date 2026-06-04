@@ -8,10 +8,13 @@ import pytest
 
 from geno_lewm.data import (
     CLINVAR_SCHEMA_VERSION,
+    ClinvarVariant,
     iter_clinvar_shard,
+    iter_clinvar_vcf_variants,
     label_set,
     prepare_clinvar_shard,
 )
+from geno_lewm.errors import InputError
 
 
 def test_prepare_clinvar_shard_preserves_vus_but_excludes_from_labels(tmp_path: Path) -> None:
@@ -46,6 +49,92 @@ def test_prepare_clinvar_shard_is_idempotent_without_overwrite(tmp_path: Path) -
     assert second.records_read == 0
     assert second.records_written == 6
     assert second.size_bytes == first.size_bytes
+
+
+def test_iter_clinvar_vcf_variants_maps_labels_and_fallback_ids(tmp_path: Path) -> None:
+    vcf_path = tmp_path / "clinvar.vcf"
+    vcf_path.write_text(
+        "\n".join(
+            [
+                "##fileformat=VCFv4.2",
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+                "chr1\t100\t123\tA\tG\t.\t.\tCLNSIG=likely%20pathogenic;CLNREVSTAT=.;GENEINFO=.",
+                "1\t101\trs2\tC\tT\t.\t.\tCLNSIG=vus;CLNVID=456",
+                "1\t102\trs3\tG\tA\t.\t.\tCLNSIG=likely_benign;ALLELEID=789",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rows = list(iter_clinvar_vcf_variants(vcf_path))
+
+    assert [row.clinical_significance for row in rows] == ["LP", "VUS", "LB"]
+    assert [row.review_status for row in rows] == [".", "unknown", "unknown"]
+    assert [row.gene_symbol for row in rows] == [None, None, None]
+    assert [row.clinvar_id for row in rows] == [123, 456, 789]
+
+    with pytest.raises(InputError, match="max_allele_len must be a positive integer"):
+        list(iter_clinvar_vcf_variants(vcf_path, max_allele_len=False))
+
+
+def test_iter_clinvar_vcf_variants_requires_numeric_identifier(tmp_path: Path) -> None:
+    vcf_path = tmp_path / "clinvar_missing_id.vcf"
+    vcf_path.write_text(
+        "\n".join(
+            [
+                "##fileformat=VCFv4.2",
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+                "1\t100\trs-not-numeric\tA\tG\t.\t.\tCLNSIG=Pathogenic",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InputError, match="ClinVar row must contain CLNVID"):
+        list(iter_clinvar_vcf_variants(vcf_path))
+
+
+def test_prepare_clinvar_shard_writes_empty_filtered_shard(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    vcf_path = tmp_path / "clinvar_filtered.vcf"
+    vcf_path.write_text(
+        "\n".join(
+            [
+                "##fileformat=VCFv4.2",
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+                "1\t100\t123\tA\t<DEL>\t.\t.\tCLNSIG=Pathogenic",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = prepare_clinvar_shard(vcf_path, tmp_path, release="2026-04-15")
+
+    assert report.records_read == 1
+    assert report.allele_records_seen == 1
+    assert report.records_written == 0
+    assert report.skipped_allele == 1
+    assert list(iter_clinvar_shard(report.output_path)) == []
+
+
+def test_clinvar_reports_and_release_validation(tmp_path: Path) -> None:
+    variant = ClinvarVariant(
+        chrom="1",
+        pos=10,
+        ref="A",
+        alt="C",
+        clinical_significance="P",
+        review_status="criteria_provided",
+        gene_symbol="BRCA1",
+        clinvar_id=123,
+    )
+
+    assert variant.to_dict()["schema_version"] == CLINVAR_SCHEMA_VERSION
+    with pytest.raises(InputError, match="release must be a non-empty string"):
+        prepare_clinvar_shard(tmp_path / "missing.vcf", tmp_path, release="")
 
 
 def _write_clinvar_vcf(path: Path) -> Path:

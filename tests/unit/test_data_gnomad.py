@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from geno_lewm.data import GNOMAD_SCHEMA_VERSION, iter_gnomad_shard, prepare_gnomad_shard
+from geno_lewm.data import (
+    GNOMAD_SCHEMA_VERSION,
+    GnomadVariant,
+    iter_gnomad_shard,
+    iter_gnomad_vcf_variants,
+    prepare_gnomad_shard,
+)
+from geno_lewm.data.gnomad import _optional_float
+from geno_lewm.errors import InputError
 
 
 def test_prepare_gnomad_shard_filters_common_pass_variants(tmp_path: Path) -> None:
@@ -46,6 +54,79 @@ def test_prepare_gnomad_shard_is_idempotent_without_overwrite(tmp_path: Path) ->
     assert second.records_read == 0
     assert second.records_written == 2
     assert second.size_bytes == first.size_bytes
+
+
+def test_iter_gnomad_vcf_variants_filters_and_validates_inputs(tmp_path: Path) -> None:
+    vcf_path = _write_gnomad_vcf(tmp_path / "gnomad.vcf")
+
+    rows = list(iter_gnomad_vcf_variants(vcf_path, min_af=0.01, max_allele_len=1))
+
+    assert [(row.chrom, row.pos, row.ref, row.alt, row.af_global) for row in rows] == [
+        ("1", 10, "A", "C", pytest.approx(0.02)),
+        ("MT", 40, "C", "T", pytest.approx(0.02)),
+    ]
+    assert rows[1].af_eas == pytest.approx(0.04)
+
+    with pytest.raises(InputError, match="min_af must be between 0 and 1"):
+        list(iter_gnomad_vcf_variants(vcf_path, min_af=True))
+    with pytest.raises(InputError, match="min_af must be between 0 and 1"):
+        list(iter_gnomad_vcf_variants(vcf_path, min_af=1.5))
+    with pytest.raises(InputError, match="max_allele_len must be a positive integer"):
+        list(iter_gnomad_vcf_variants(vcf_path, max_allele_len=0))
+
+
+def test_prepare_gnomad_shard_writes_empty_filtered_shard(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    vcf_path = tmp_path / "rare_or_filtered.vcf"
+    vcf_path.write_text(
+        "\n".join(
+            [
+                "##fileformat=VCFv4.2",
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+                "1\t10\trs1\tA\tC\t.\tLowQual\tAF=0.5",
+                "1\t11\trs2\tA\tG\t.\tPASS\tAF=0.001",
+                "1\t12\trs3\tA\t<DEL>\t.\tPASS\tAF=0.5",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = prepare_gnomad_shard(vcf_path, tmp_path, release="v4.1", min_af=0.01)
+
+    assert report.records_read == 3
+    assert report.allele_records_seen == 3
+    assert report.records_written == 0
+    assert report.skipped_filter == 1
+    assert report.skipped_af == 1
+    assert report.skipped_allele == 1
+    assert list(iter_gnomad_shard(report.output_path)) == []
+
+
+def test_gnomad_reports_and_private_float_validation(tmp_path: Path) -> None:
+    variant = GnomadVariant(
+        chrom="1",
+        pos=10,
+        ref="A",
+        alt="C",
+        af_global=0.1,
+        af_afr=None,
+        af_ami=None,
+        af_amr=None,
+        af_asj=None,
+        af_eas=None,
+        af_fin=None,
+        af_nfe=None,
+        af_oth=None,
+        af_sas=None,
+        filter="PASS",
+    )
+    assert variant.to_dict()["schema_version"] == GNOMAD_SCHEMA_VERSION
+    assert _optional_float("0.125") == pytest.approx(0.125)
+    with pytest.raises(InputError, match="non-float allele frequency"):
+        _optional_float(object())
+    with pytest.raises(InputError, match="release must be a non-empty string"):
+        prepare_gnomad_shard(tmp_path / "missing.vcf", tmp_path, release="")
 
 
 def _write_gnomad_vcf(path: Path) -> Path:

@@ -18,6 +18,7 @@ from geno_lewm.data import (
     GenoLeWMDataset,
     HoldoutInterval,
     HoldoutPolicy,
+    TrainingTuple,
     WindowContext,
     build_training_tuples,
     synthetic_indel_provider,
@@ -238,6 +239,135 @@ def test_genolewm_dataset_respects_holdouts_and_validates_windows() -> None:
     invalid = GenoLeWMDataset((object(),), providers, seed=1, mix=mix)  # type: ignore[arg-type]
     with pytest.raises(InputError, match="WindowContext"):
         list(invalid)
+
+
+def test_builder_dataclasses_validate_contract_boundaries() -> None:
+    with pytest.raises(InputError, match="source must be a non-empty string"):
+        EditSourceCount("", 1)
+    with pytest.raises(InputError, match="count must be a non-negative integer"):
+        EditSourceCount(SOURCE_SYNTHETIC_SNV, True)  # type: ignore[arg-type]
+    with pytest.raises(InputError, match="record_id must be a non-empty string"):
+        _window(record_id="")
+    with pytest.raises(InputError, match="source must be a non-empty string"):
+        WindowContext(record_id="record-1", source="", sequence="A")
+    with pytest.raises(InputError, match="start_bp must be a non-negative integer"):
+        WindowContext(record_id="record-1", source="source", sequence="A", start_bp=-1)
+    with pytest.raises(InputError, match="chrom must be a non-empty string"):
+        WindowContext(record_id="record-1", source="source", sequence="A", chrom="")
+    with pytest.raises(InputError, match="window sequence must be non-empty"):
+        WindowContext(record_id="record-1", source="source", sequence="")
+    with pytest.raises(InputError, match="end_bp must be greater than start_bp"):
+        HoldoutInterval("1", 10, 10)
+    with pytest.raises(InputError, match="HoldoutInterval"):
+        HoldoutPolicy(intervals=(object(),))  # type: ignore[arg-type]
+
+    window = _window()
+    with pytest.raises(InputError, match="window_end_bp must be greater"):
+        TrainingTuple(
+            window_id=window.window_id,
+            source_record_id=window.record_id,
+            edit_source=SOURCE_SYNTHETIC_SNV,
+            rel_edits=(_snv(1),),
+            target_window=window.sequence,
+            window_start_bp=10,
+            window_end_bp=10,
+        )
+    with pytest.raises(InputError, match="rel_edits must contain at least one edit"):
+        TrainingTuple(
+            window_id=window.window_id,
+            source_record_id=window.record_id,
+            edit_source=SOURCE_SYNTHETIC_SNV,
+            rel_edits=(),
+            target_window=window.sequence,
+            window_start_bp=0,
+            window_end_bp=1,
+        )
+    with pytest.raises(InputError, match="RelEdit values"):
+        TrainingTuple(
+            window_id=window.window_id,
+            source_record_id=window.record_id,
+            edit_source=SOURCE_SYNTHETIC_SNV,
+            rel_edits=(object(),),  # type: ignore[arg-type]
+            target_window=window.sequence,
+            window_start_bp=0,
+            window_end_bp=1,
+        )
+
+
+def test_builder_rejects_invalid_mix_rng_and_fallbacks() -> None:
+    window = _window()
+    providers = {SOURCE_SYNTHETIC_SNV: _fixed_provider(_snv(20))}
+
+    with pytest.raises(InputError, match="window must be a WindowContext"):
+        build_training_tuples(object(), providers, rng=random.Random(1))  # type: ignore[arg-type]
+    with pytest.raises(InputError, match=r"rng must be a random\.Random"):
+        build_training_tuples(window, providers, rng=object())  # type: ignore[arg-type]
+    with pytest.raises(InputError, match="must contain at least one source"):
+        build_training_tuples(window, providers, rng=random.Random(1), mix=())
+    with pytest.raises(InputError, match="must request at least one edit"):
+        build_training_tuples(
+            window,
+            providers,
+            rng=random.Random(1),
+            mix=(EditSourceCount(SOURCE_SYNTHETIC_SNV, 0),),
+        )
+    with pytest.raises(InputError, match="EditSourceCount values"):
+        build_training_tuples(
+            window,
+            providers,
+            rng=random.Random(1),
+            mix=(object(),),  # type: ignore[arg-type]
+        )
+
+    bad_provider = {SOURCE_SYNTHETIC_SNV: _fixed_provider(object())}  # type: ignore[arg-type]
+    with pytest.raises(InputError, match="RelEdit values"):
+        build_training_tuples(
+            window,
+            bad_provider,
+            rng=random.Random(1),
+            mix=(EditSourceCount(SOURCE_SYNTHETIC_SNV, 1),),
+        )
+
+    with pytest.raises(InputError, match="has no fallback"):
+        build_training_tuples(
+            window,
+            {SOURCE_GNOMAD_COMMON: _fixed_provider()},
+            rng=random.Random(1),
+            mix=(EditSourceCount(SOURCE_GNOMAD_COMMON, 1),),
+            fallback_sources={},
+        )
+    with pytest.raises(InputError, match="fallback edit source did not produce enough edits"):
+        build_training_tuples(
+            window,
+            {
+                SOURCE_GNOMAD_COMMON: _fixed_provider(),
+                SOURCE_SYNTHETIC_SNV: _fixed_provider(),
+            },
+            rng=random.Random(1),
+            mix=(EditSourceCount(SOURCE_GNOMAD_COMMON, 1),),
+        )
+
+
+def test_dataset_rejects_invalid_window_sources_and_can_disable_indel_length_preservation() -> None:
+    providers = {SOURCE_SYNTHETIC_INDEL: _fixed_provider(_ins(20))}
+    mix = (EditSourceCount(SOURCE_SYNTHETIC_INDEL, 1),)
+
+    invalid = GenoLeWMDataset("not-a-window-source", providers, seed=1, mix=mix)
+    with pytest.raises(InputError, match="windows must be an iterable"):
+        list(invalid)
+
+    items = list(
+        GenoLeWMDataset(
+            lambda: (_window(sequence="A" * 64),),
+            providers,
+            seed=1,
+            mix=mix,
+            preserve_length=False,
+        )
+    )
+
+    assert len(items) == 1
+    assert len(items[0].target_window) > 64
 
 
 def _window(
