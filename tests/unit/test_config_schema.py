@@ -16,6 +16,7 @@ from geno_lewm.config import (
     ObservabilityConfig,
     OptimizerConfig,
     RuntimeConfig,
+    TrainingConfig,
     config_to_dict,
     describe_field,
     load_config,
@@ -41,6 +42,7 @@ def test_default_top_level_constructs() -> None:
     assert cfg.phase == "phase1"
     assert isinstance(cfg.encoder, EncoderConfig)
     assert isinstance(cfg.runtime, RuntimeConfig)
+    assert isinstance(cfg.training, TrainingConfig)
 
 
 def test_top_level_keys_match_dataclass_fields() -> None:
@@ -239,6 +241,12 @@ def test_runtime_config_defaults() -> None:
     r = RuntimeConfig()
     assert r.backend in ("onnx", "coreml", "gguf", "torch")
     assert r.device in ("cpu", "cuda", "mps")
+
+
+def test_training_config_defaults() -> None:
+    t = TrainingConfig()
+    assert t.max_steps > 0
+    assert t.collapse_log_every_steps > 0
 
 
 # ---------------------------------------------------------------------------

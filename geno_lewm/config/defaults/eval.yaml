@@ -32,6 +32,10 @@ action:
     - del
     - mnv
 
+training:
+  max_steps: 1
+  collapse_log_every_steps: 500
+
 optimizer:
   name: adamw
   lr: 0.0

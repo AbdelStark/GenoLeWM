@@ -226,6 +226,7 @@ def run_carbon_training(
     )
 
     step_results = []
+    collapse_alert_count = 0
     sample_count = resumed_from_step * config.data.batch_size
     log_mode = "a" if resumed_from_step else "w"
     with log_path.open(log_mode, encoding="utf-8") as log:
@@ -256,8 +257,18 @@ def run_carbon_training(
                 )
             result = trainer.train_step(current_batch, step=step)
             step_results.append(result)
+            collapse_alerts = _last_collapse_alerts(trainer)
+            collapse_alert_count += len(collapse_alerts)
             sample_count += len(current_batch.window_ids)
             log.write(json.dumps({"event": "train.step", **result.to_dict()}) + "\n")
+            for alert in collapse_alerts:
+                log.write(
+                    json.dumps(
+                        {"event": "training.collapse.alert", "step": step, **alert},
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
         log.write(json.dumps({"event": "train.end", "steps_completed": steps}) + "\n")
 
     final = step_results[-1]
@@ -269,6 +280,7 @@ def run_carbon_training(
         sample_count=sample_count,
         final_loss=final.loss,
         step_results=step_results,
+        collapse_alert_count=collapse_alert_count,
         dataset_snapshot_id=dataset_snapshot_id,
         resume_checkpoint_path=resume_from,
     )
@@ -493,6 +505,7 @@ def _write_metrics(
     sample_count: int,
     final_loss: float,
     step_results: Sequence[Any],
+    collapse_alert_count: int,
     dataset_snapshot_id: str,
     resume_checkpoint_path: Path | None,
 ) -> None:
@@ -515,6 +528,7 @@ def _write_metrics(
             "resumed_from_step": resumed_from_step,
             "nan_loss_count": _nan_loss_count(step_results),
             "collapse_var_min": {"value": _collapse_var_min(step_results)},
+            "collapse_alert_count": collapse_alert_count,
         },
         "history": [result.to_dict() for result in step_results],
     }
@@ -534,6 +548,13 @@ def _collapse_var_min(step_results: Sequence[Any]) -> float:
     """
     variances = [float(result.pred_var_per_dim) for result in step_results]
     return min(variances) if variances else 0.0
+
+
+def _last_collapse_alerts(trainer: TorchTrainer) -> tuple[dict[str, object], ...]:
+    alerts = getattr(trainer, "last_collapse_alerts", ())
+    if not isinstance(alerts, tuple):
+        return ()
+    return alerts
 
 
 def _write_checkpoint(
@@ -746,7 +767,11 @@ def _write_training_metadata(
         "runtime": _runtime_notes(preflight_report),
         "seeds": {"base": config.seed, **seeds.to_dict()},
         "determinism": json.dumps(determinism, sort_keys=True),
-        "monitoring": {"collapse_monitoring": True, "nan_monitoring": True},
+        "monitoring": {
+            "collapse_monitoring": True,
+            "collapse_log_every_steps": config.training.collapse_log_every_steps,
+            "nan_monitoring": True,
+        },
         "resumed_from_step": resumed_from_step,
         "resume_checkpoint": None
         if resume_checkpoint_path is None

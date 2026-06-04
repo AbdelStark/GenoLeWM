@@ -190,7 +190,7 @@ def test_training_preflight_rejects_unknown_training_config_keys(tmp_path: Path)
     carbon_dir = _write_carbon_model_dir(tmp_path)
     config = _write_training_config(tmp_path)
     config.write_text(
-        config.read_text(encoding="utf-8") + "\ntraining:\n  max_steps: 100\n",
+        config.read_text(encoding="utf-8") + "\ntraining:\n  unsupported: 100\n",
         encoding="utf-8",
     )
 
@@ -208,6 +208,32 @@ def test_training_preflight_rejects_unknown_training_config_keys(tmp_path: Path)
     assert "training_config.schema_invalid" in _codes(report)
 
 
+def test_training_preflight_rejects_wsd_warmup_without_decay_horizon(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    text = config.read_text(encoding="utf-8")
+    text = text.replace("  max_steps: 2", "  max_steps: 10")
+    text = text.replace("  warmup_steps: 0", "  warmup_steps: 10")
+    config.write_text(text, encoding="utf-8")
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            training_config=config,
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+    )
+
+    assert report.ok is False
+    assert "training_config.training.max_steps_wsd_warmup" in _codes(report)
+
+
 def test_first_experiment_configs_are_checked_schema_configs() -> None:
     root = Path(__file__).resolve().parents[2]
     train_cfg = load_config(root / "configs/first_experiment/train-carbon-500m-snv.yaml")
@@ -216,6 +242,8 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     assert train_cfg.run_id == "first-snv-carbon-500m-r1"
     assert train_cfg.action.sub_encoders == ("snv",)
     assert train_cfg.deterministic is True
+    assert train_cfg.training.max_steps == 20000
+    assert train_cfg.optimizer.warmup_steps < train_cfg.training.max_steps
     assert eval_cfg.run_id == "first-snv-clinvar-eval-r1"
     assert "clinvar_coding" in eval_cfg.eval.benchmarks
 
@@ -276,6 +304,9 @@ def _write_training_config(root: Path) -> Path:
                 "  max_len: 16",
                 "  sub_encoders:",
                 "    - snv",
+                "training:",
+                "  max_steps: 2",
+                "  collapse_log_every_steps: 1",
                 "optimizer:",
                 "  name: adamw",
                 "  lr: 3.0e-4",
@@ -283,7 +314,7 @@ def _write_training_config(root: Path) -> Path:
                 "  beta2: 0.95",
                 "  weight_decay: 0.1",
                 "  grad_clip: 1.0",
-                "  warmup_steps: 1000",
+                "  warmup_steps: 0",
                 "  schedule: wsd",
                 "eval:",
                 "  benchmarks:",

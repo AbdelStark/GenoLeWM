@@ -9,11 +9,13 @@ import pytest
 
 import geno_lewm.training.trainer as trainer_module
 from geno_lewm.action import EditType, RelEdit
-from geno_lewm.config import load_default
+from geno_lewm.config import load_config, load_default
 from geno_lewm.data import TrainingTuple, WindowContext
 from geno_lewm.encoder.windowing import window_sha256
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.training.trainer import (
+    TorchTrainer,
+    TorchTrainerBatch,
     TrainerSeeds,
     encode_training_batch,
     make_action_mask,
@@ -222,6 +224,38 @@ def test_pred_var_per_dim_matches_population_variance() -> None:
     assert _pred_var_per_dim(torch.zeros(1, 3, 5)) == pytest.approx(0.0)
 
 
+def test_torch_trainer_records_live_collapse_alerts() -> None:
+    torch = pytest.importorskip("torch")
+    cfg = load_config(
+        {"training": {"collapse_log_every_steps": 1}, "optimizer": {"warmup_steps": 0}}
+    )
+    predictor = CollapsedPredictor(torch)
+    action_encoder = DummyActionEncoder(torch)
+    optimizer = torch.optim.SGD(
+        list(predictor.parameters()) + list(action_encoder.parameters()),
+        lr=0.01,
+    )
+    trainer = TorchTrainer(
+        predictor=predictor,
+        action_encoder=action_encoder,
+        optimizer=optimizer,
+        config=cfg,
+        total_steps=1,
+    )
+    batch = TorchTrainerBatch(
+        state=torch.tensor([[0.0, 0.0], [1.0, 1.0]]),
+        target=torch.tensor([[[0.0, 0.0]], [[2.0, 2.0]]]),
+        rel_edits=((_edit(),), (_edit(),)),
+        action_mask=torch.tensor([[True], [True]]),
+        window_ids=("a", "b"),
+    )
+
+    result = trainer.train_step(batch, step=1)
+
+    assert result.action_count == 2
+    assert any(alert["criterion"] == "pred_var_per_dim" for alert in trainer.last_collapse_alerts)
+
+
 def _edit(rel_pos: int = 0) -> RelEdit:
     return RelEdit(rel_pos=rel_pos, edit_type=EditType.SNV, ref_bases="A", alt_bases="T")
 
@@ -252,3 +286,30 @@ class FakeCarbonEncoder:
             (float(len(window)), -1.0 if locus is None else float(locus))
             for window, locus in zip(windows, edit_loci, strict=True)
         )
+
+
+class DummyActionEncoder:
+    def __init__(self, torch_module) -> None:
+        self._torch = torch_module
+        self.bias = torch_module.nn.Parameter(torch_module.zeros(2))
+
+    def parameters(self):
+        return (self.bias,)
+
+    def __call__(self, rel_edits):
+        batch = len(rel_edits)
+        width = max(len(row) for row in rel_edits)
+        return self.bias.view(1, 1, 2).expand(batch, width, 2)
+
+
+class CollapsedPredictor:
+    def __init__(self, torch_module) -> None:
+        self._torch = torch_module
+        self.bias = torch_module.nn.Parameter(torch_module.zeros(2))
+
+    def parameters(self):
+        return (self.bias,)
+
+    def __call__(self, state, actions, action_mask):
+        del actions
+        return self.bias.view(1, 1, 2).expand(state.shape[0], action_mask.shape[1], 2)

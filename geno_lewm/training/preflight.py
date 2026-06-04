@@ -394,7 +394,8 @@ def _inspect_training_config(
         )
         return payload
     payload["resolved"] = config_to_dict(resolved)
-    for key in ("encoder", "data", "predictor", "action", "optimizer"):
+    _verify_training_horizon(resolved, training_config, issues)
+    for key in ("encoder", "data", "predictor", "action", "training", "optimizer"):
         if key not in decoded:
             _issue(
                 issues,
@@ -404,6 +405,46 @@ def _inspect_training_config(
                 f"{key} block is not present in the training config",
             )
     return payload
+
+
+def _verify_training_horizon(
+    config: object,
+    training_config: Path,
+    issues: list[TrainingPreflightIssue],
+) -> None:
+    max_steps = getattr(getattr(config, "training", None), "max_steps", None)
+    if not _is_positive_int(max_steps):
+        _issue(
+            issues,
+            "error",
+            "training_config.training.max_steps_invalid",
+            training_config,
+            "training.max_steps must be a positive integer",
+        )
+        return
+    assert isinstance(max_steps, int)
+    collapse_log_every = getattr(
+        getattr(config, "training", None), "collapse_log_every_steps", None
+    )
+    if not _is_positive_int(collapse_log_every):
+        _issue(
+            issues,
+            "error",
+            "training_config.training.collapse_log_every_steps_invalid",
+            training_config,
+            "training.collapse_log_every_steps must be a positive integer",
+        )
+    optimizer = getattr(config, "optimizer", None)
+    warmup_steps = getattr(optimizer, "warmup_steps", None)
+    schedule = getattr(optimizer, "schedule", None)
+    if schedule == "wsd" and isinstance(warmup_steps, int) and max_steps <= warmup_steps:
+        _issue(
+            issues,
+            "error",
+            "training_config.training.max_steps_wsd_warmup",
+            training_config,
+            "training.max_steps must exceed optimizer.warmup_steps for the WSD schedule",
+        )
 
 
 def _inspect_run_dir(run_dir: Path) -> dict[str, object]:

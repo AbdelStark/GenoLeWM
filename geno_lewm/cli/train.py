@@ -61,9 +61,15 @@ def main(
         typer.Option("--run-dir", help="Directory where training artifacts are written."),
     ] = None,
     steps: Annotated[
-        int,
-        typer.Option("--steps", help="Target total fixture smoke steps."),
-    ] = 50,
+        int | None,
+        typer.Option(
+            "--steps",
+            help=(
+                "Override total training steps. Defaults to 50 for fixture smoke and "
+                "training.max_steps for Carbon training."
+            ),
+        ),
+    ] = None,
     resume_from: Annotated[
         Path | None,
         typer.Option(
@@ -184,6 +190,7 @@ def main(
             deterministic=opts.deterministic,
             run_id=opts.run_id,
         )
+        carbon_steps = _resolve_carbon_steps(resolved, steps)
         effective_training_config = write_resolved_config(
             resolved,
             run_dir / _EFFECTIVE_TRAINING_CONFIG_NAME,
@@ -215,13 +222,14 @@ def main(
             dataset_dir=dataset_dir,
             carbon_model_dir=carbon_model_dir,
             run_dir=run_dir,
-            steps=steps,
+            steps=carbon_steps,
             command=_carbon_train_command_string(
                 run_dir=run_dir,
                 dataset_dir=dataset_dir,
                 carbon_model_dir=carbon_model_dir,
                 training_config=training_config,
-                steps=steps,
+                steps=carbon_steps,
+                steps_override=steps is not None,
                 set_overrides=opts.set_overrides,
                 seed=opts.seed,
                 deterministic=opts.deterministic,
@@ -256,6 +264,7 @@ def main(
     if run_dir is None:
         raise InputError("geno-lewm-train --fixture-smoke requires --run-dir")
 
+    fixture_steps = _resolve_fixture_steps(steps)
     resolved = _resolve_training_config(
         config_path=config,
         set_overrides=opts.set_overrides,
@@ -266,11 +275,11 @@ def main(
     fixture_report = run_fixture_training(
         config=resolved,
         run_dir=run_dir,
-        steps=steps,
+        steps=fixture_steps,
         resume_from=resume_from,
         command=_command_string(
             run_dir=run_dir,
-            steps=steps,
+            steps=fixture_steps,
             resume_from=resume_from,
             config_path=config,
             set_overrides=opts.set_overrides,
@@ -310,6 +319,36 @@ def _resolve_training_config(
     if deterministic and not resolved.deterministic:
         resolved = dataclasses.replace(resolved, deterministic=True)
     return resolved
+
+
+def _resolve_fixture_steps(steps: int | None) -> int:
+    return 50 if steps is None else steps
+
+
+def _resolve_carbon_steps(config: GenoLeWMConfig, steps_override: int | None) -> int:
+    steps = config.training.max_steps if steps_override is None else steps_override
+    if isinstance(steps, bool) or not isinstance(steps, int) or steps <= 0:
+        raise InputError(
+            "Carbon training steps must be a positive integer",
+            details={
+                "source": "training.max_steps" if steps_override is None else "--steps",
+                "value": steps,
+            },
+        )
+    if config.optimizer.schedule == "wsd" and steps <= config.optimizer.warmup_steps:
+        raise InputError(
+            "Carbon training steps must exceed optimizer.warmup_steps for the WSD schedule",
+            details={
+                "source": "training.max_steps" if steps_override is None else "--steps",
+                "steps": steps,
+                "warmup_steps": config.optimizer.warmup_steps,
+            },
+            remediation=(
+                "increase training.max_steps in the committed config or pass an explicit "
+                "--steps override greater than optimizer.warmup_steps"
+            ),
+        )
+    return steps
 
 
 def _apply_set_override(payload: dict[str, Any], raw: str) -> None:
@@ -386,6 +425,7 @@ def _carbon_train_command_string(
     carbon_model_dir: Path,
     training_config: Path,
     steps: int,
+    steps_override: bool,
     set_overrides: tuple[str, ...],
     seed: int | None,
     deterministic: bool,
@@ -406,9 +446,9 @@ def _carbon_train_command_string(
         str(carbon_model_dir),
         "--training-config",
         str(training_config),
-        "--steps",
-        str(steps),
     ]
+    if steps_override:
+        parts.extend(["--steps", str(steps)])
     for override in set_overrides:
         parts.extend(["--set", override])
     if seed is not None:
