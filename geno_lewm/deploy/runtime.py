@@ -16,6 +16,7 @@ from typing import Any, NoReturn
 from unittest.mock import patch
 
 from geno_lewm._artifact_sources import SCORE_JSONL_GENERATED_BY, SCORE_JSONL_SCHEMA_VERSION
+from geno_lewm._inference import torch_inference_context
 from geno_lewm.action import EditSpec, RelEdit
 from geno_lewm.encoder.windowing import canonicalize_dna
 from geno_lewm.errors import (
@@ -164,7 +165,7 @@ class GenoLeWMRuntime:
         if window is not None:
             normalized_window = canonicalize_dna(window)
         scorer = self._scorer
-        with fail_closed_network_guard():
+        with fail_closed_network_guard(), torch_inference_context():
             if scorer is not None:
                 if normalized_window is None:
                     raise InputError(
@@ -227,7 +228,7 @@ class GenoLeWMRuntime:
         if normalized_receipt is not None and normalized_receipt == normalized_output:
             raise InputError("--receipt must differ from --output for VCF scoring")
         scorer = self._scorer
-        with fail_closed_network_guard():
+        with fail_closed_network_guard(), torch_inference_context():
             if scorer is not None:
                 if normalized_receipt is None:
                     score_surprise_vcf(
