@@ -13,7 +13,7 @@ import json
 import math
 import platform
 import shutil
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -157,18 +157,18 @@ def run_carbon_training(
     determinism = configure_torch_reproducibility(
         seed=seeds.predictor, deterministic=config.deterministic
     )
-    dataset = GenoLeWMDataset(
+    providers = {
+        SOURCE_GNOMAD_COMMON: variant_provider(gnomad_edits),
+        SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
+        SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
+        SOURCE_CLINVAR: variant_provider(clinvar_edits),
+    }
+    iterator = _repeat_training_items(
         windows,
-        {
-            SOURCE_GNOMAD_COMMON: variant_provider(gnomad_edits),
-            SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
-            SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
-            SOURCE_CLINVAR: variant_provider(clinvar_edits),
-        },
+        providers,
         seed=seeds.data,
         fallback_sources=_dataset_fallback_sources(windows),
     )
-    iterator = dataset.iter_with_source_windows()
     resumed_from_step = 0
     resume_checkpoint: _ResumeCheckpoint | None = None
     if resume_from is not None:
@@ -376,6 +376,38 @@ def _skip_training_items(
                 details={"items_to_skip": item_count, "items_skipped": index},
                 remediation="resume with the same dataset snapshot and training config",
             ) from exc
+
+
+def _repeat_training_items(
+    windows: Sequence[WindowContext],
+    providers: Mapping[str, Any],
+    *,
+    seed: int,
+    fallback_sources: Mapping[str, str],
+) -> Iterator[TrainingDatasetItem]:
+    """Yield deterministic repeated passes over a finite release dataset."""
+    epoch = 0
+    while True:
+        dataset = GenoLeWMDataset(
+            windows,
+            providers,
+            seed=seed + epoch,
+            fallback_sources=fallback_sources,
+        )
+        produced = 0
+        for item in dataset.iter_with_source_windows():
+            produced += 1
+            yield item
+        if produced == 0:
+            raise InputError(
+                "training dataset epoch produced no usable tuples",
+                details={"epoch": epoch, "window_count": len(windows)},
+                remediation=(
+                    "provide placed windows with matching edit shards or restore explicit "
+                    "fallback sources for the active release dataset"
+                ),
+            )
+        epoch += 1
 
 
 def _next_batch(
