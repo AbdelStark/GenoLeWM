@@ -2012,10 +2012,20 @@ def _downloaded_artifact_by_group_path(
         if (
             artifact.get("group") == group
             and isinstance(raw_path, str)
-            and Path(raw_path).as_posix().endswith(suffix)
+            and _path_has_component_suffix(raw_path, suffix)
         ):
             return artifact
     return None
+
+
+def _path_has_component_suffix(raw_path: str, suffix: str) -> bool:
+    raw_parts = Path(raw_path).parts
+    suffix_parts = Path(suffix).parts
+    return bool(
+        suffix_parts
+        and len(raw_parts) >= len(suffix_parts)
+        and raw_parts[-len(suffix_parts) :] == suffix_parts
+    )
 
 
 def _load_json_artifact(
