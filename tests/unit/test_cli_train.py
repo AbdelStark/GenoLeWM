@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,6 +27,22 @@ from tests.unit.test_training_preflight import (
     _write_training_config,
 )
 from tools.release.training_run import GENERATED_BY as TRAINING_RUN_GENERATED_BY
+
+
+def test_current_commit_sha_uses_full_head(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    full_sha = "cd2bfccb33ec5a2df3c4707e8be8443f4682dad3"
+
+    def fake_run(args, *, cwd, check, capture_output, text):
+        assert args == ["git", "rev-parse", "HEAD"]
+        assert cwd == tmp_path
+        assert check is False
+        assert capture_output is True
+        assert text is True
+        return SimpleNamespace(returncode=0, stdout=f"{full_sha}\n")
+
+    monkeypatch.setattr(train_cli.subprocess, "run", fake_run)
+
+    assert train_cli._current_commit_sha(tmp_path) == full_sha
 
 
 def test_train_requires_explicit_fixture_smoke(capsys) -> None:

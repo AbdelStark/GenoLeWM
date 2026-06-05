@@ -224,6 +224,64 @@ assert mid == sys.argv[2], f"encoder.model_id={mid!r} (expected {sys.argv[2]!r})
 print("encoder.model_id =", mid)
 PY
 
+# Early proof runs recorded a 12-character training commit while eval and
+# efficiency evidence record the full commit. Normalize only that exact prefix
+# case, then refresh both the training-run and model-level checksum manifests.
+log "normalize training-run commit evidence and refresh model package checksums"
+python - "$MODEL_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from tools.release.training_run import (
+    CARD_NAME,
+    CHECKSUMS_NAME,
+    MANIFEST_NAME,
+    _manifest_from_payload,
+    _write_sha256sums,
+    render_training_run_card,
+    verify_training_run_manifest,
+)
+
+model = Path(sys.argv[1])
+metrics = json.loads((model / "eval_metrics.json").read_text(encoding="utf-8"))
+eval_commit = str(metrics.get("commit") or "").strip().lower()
+if not eval_commit:
+    raise SystemExit("FATAL: eval_metrics.json is missing commit")
+manifest_path = model / MANIFEST_NAME
+if not manifest_path.is_file():
+    raise SystemExit("FATAL: model package missing training_run_manifest.json")
+payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+current = str(payload.get("commit_sha") or "").strip().lower()
+if not current:
+    raise SystemExit("FATAL: training_run_manifest.json is missing commit_sha")
+if current != eval_commit:
+    if not eval_commit.startswith(current):
+        raise SystemExit(
+            "FATAL: training_run_manifest.json commit_sha does not match "
+            f"eval_metrics.json commit: {current!r} vs {eval_commit!r}"
+        )
+    payload["commit_sha"] = eval_commit
+    manifest_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    manifest = _manifest_from_payload(payload)
+    (model / CARD_NAME).write_text(render_training_run_card(manifest), encoding="utf-8")
+    _write_sha256sums(
+        model,
+        model / CHECKSUMS_NAME,
+        (MANIFEST_NAME, CARD_NAME, *(artifact.path for artifact in manifest.artifacts)),
+    )
+    verify_training_run_manifest(model, require_preflight=True)
+    print("normalized training_run_manifest.json commit_sha =", eval_commit)
+else:
+    print("training_run_manifest.json commit_sha already matches eval commit")
+PY
+python -m tools.release.model_package --model-dir "$MODEL_DIR" --metadata-json "$MODEL_DIR/model_package.json" >/tmp/model-package-refresh.json \
+  || fail "model_package refresh failed after training-run commit normalization"
+cat /tmp/model-package-refresh.json
+
 log "download dataset package from $RUNS_REPO ($DATASET_SUBPATH)"
 hf download "$RUNS_REPO" --repo-type model --include "$DATASET_SUBPATH/*" --local-dir "$WORK/dl-dataset" \
   || fail "could not download dataset package $DATASET_SUBPATH from $RUNS_REPO (build it with tools.release.dataset_snapshot in the proof stage)"
@@ -265,12 +323,14 @@ grep -qv '^#' "$DEMO_VCF" || fail "demo VCF has no variant records"
 echo "demo VCF: $(grep -cv '^#' "$DEMO_VCF") scoreable variants"
 
 log "run terminal demo (LIVE geno-lewm-score; writes 6 artifacts into $DEMO_DIR)"
-# HF_HUB_OFFLINE=1: the score subprocess loads Carbon offline from /carbon.
+# Keep network available here: Carbon trusted remote code may need Hub metadata
+# even when weights are mounted at /carbon. The runtime guard still blocks model
+# inference network calls and records that evidence in runtime_preflight_report.
 # Do NOT pass --allow-fixture-manifest (real ids pass) nor --no-require-native-
 # runtime (deps verified above). --carbon-cache-dir makes the carbon evidence
 # explicit; omit --require-carbon-cache (the mount layout may not match the
 # cache-marker check, and the demo run is the authoritative carbon check anyway).
-HF_HUB_OFFLINE=1 python -m tools.demo.terminal_inference \
+python -m tools.demo.terminal_inference \
   --model-dir "$MODEL_DIR" \
   --vcf "$DEMO_VCF" \
   --fasta "$DEMO_FASTA" \

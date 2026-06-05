@@ -495,7 +495,7 @@ def _carbon_train_command_string(
 
 def _current_commit_sha(cwd: Path) -> str:
     result = subprocess.run(
-        ["git", "rev-parse", "--short=12", "HEAD"],
+        ["git", "rev-parse", "HEAD"],
         cwd=cwd,
         check=False,
         capture_output=True,
