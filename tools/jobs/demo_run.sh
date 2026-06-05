@@ -20,7 +20,7 @@
 #    offline with no config patching; the real release ids pass the demo's
 #    fixture gate, so we pass neither --allow-fixture-manifest nor
 #    --no-require-native-runtime nor --allow-placeholders.
-#  * paper_draft splices the eval report (honest ~chance AUROC) into the paper;
+#  * paper_draft splices the measured eval report into the paper;
 #    paper_package re-renders it byte-exact + verifies the package SHA256SUMS.
 set -euo pipefail
 
@@ -48,7 +48,7 @@ PAPER_UPLOAD_SUBPATH="${PAPER_UPLOAD_SUBPATH:-$RUN_NAME/paper}"
 log()  { echo "=== $* ==="; }
 fail() { echo "FATAL: $*" >&2; exit 1; }
 
-log "demo+paper run: $RUN_NAME (PROOF-scale; held-out ClinVar chr$EVAL_CHROM AUROC ~0.52, near chance)"
+log "demo+paper run: $RUN_NAME (held-out ClinVar chr$EVAL_CHROM metrics come from eval_metrics.json)"
 [ -n "${HF_TOKEN:-}" ] || fail "HF_TOKEN is required (download package + upload demo/paper)"
 export HF_TOKEN
 test -d "$CARBON_DIR" || fail "Carbon-500M not mounted at $CARBON_DIR"
@@ -66,10 +66,18 @@ hf download "$RUNS_REPO" --repo-type model --include "$EVAL_SUBPATH/*" --local-d
   || fail "could not download $EVAL_SUBPATH from $RUNS_REPO"
 cp -a "$WORK/dl-model/$EVAL_SUBPATH/." "$MODEL_DIR/"
 for f in manifest.json model_package.json model_card.md SHA256SUMS eval_metrics.json \
-         eval_report.md efficiency_report.json training_config.yaml \
+         eval_report.md efficiency_report.json \
          predictor.safetensors action_encoder.safetensors calibration.parquet; do
   test -s "$MODEL_DIR/$f" || fail "model package missing required file: $f"
 done
+TRAINING_CONFIG_FILE="$(python - "$MODEL_DIR" <<'PY'
+import json, sys
+manifest = json.load(open(f"{sys.argv[1]}/manifest.json"))
+print(manifest["training"]["config_file"])
+PY
+)"
+test -s "$MODEL_DIR/$TRAINING_CONFIG_FILE" \
+  || fail "model package missing manifest training config: $TRAINING_CONFIG_FILE"
 
 log "download dataset package from $RUNS_REPO ($DATASET_SUBPATH)"
 hf download "$RUNS_REPO" --repo-type model --include "$DATASET_SUBPATH/*" --local-dir "$WORK/dl-dataset" \
@@ -145,7 +153,7 @@ assert m.get("status") == "passed", m.get("status")
 print("demo status:", m["status"])
 PY
 
-# --- 3. generate + verify the PAPER (honest near-chance AUROC) ------------
+# --- 3. generate + verify the PAPER from measured eval artifacts ----------
 log "generate paper draft"
 python -m tools.release.paper_draft \
   --model-dir "$MODEL_DIR" --dataset-dir "$DATASET_DIR" --demo-dir "$DEMO_DIR" \
@@ -153,20 +161,13 @@ python -m tools.release.paper_draft \
   || fail "paper_draft failed"
 test -s "$PAPER_PATH" || fail "paper.md is empty"
 
-# paper_package is the strict release-coherence gate. It additionally requires
-# the training-run + eval + efficiency + deploy-manifest to share ONE commit and
-# ONE training config. This proof builds those across SEPARATE HF Jobs (training
-# at one commit with the original config; eval at a later commit with the
-# /carbon-patched config), so it reports training_config_*_mismatch /
-# *_commit_mismatch. That is a release-packaging-coherence limitation of the
-# multi-job proof, NOT a paper-content problem (paper_draft already validated the
-# content and spliced the real ~chance AUROC). Run it as advisory so the demo +
-# paper still ship; a single-coherent-pass release would make it pass.
-PAPER_PACKAGE_OK=1
+# paper_package is the strict release-coherence gate. It requires the training
+# run, eval, efficiency, deploy manifest, dataset, demo, and paper to share one
+# commit and one training config identity.
 python -m tools.release.paper_package \
   --model-dir "$MODEL_DIR" --dataset-dir "$DATASET_DIR" --demo-dir "$DEMO_DIR" \
   --paper-path "$PAPER_PATH" \
-  || { PAPER_PACKAGE_OK=0; echo "WARNING: paper_package release-coherence gate failed (cross-job commit/config); paper.md content is valid"; }
+  || fail "paper_package release-coherence gate failed"
 
 echo "AUROC (from eval): $(python -c "import json;print([x['value'] for x in json.load(open('$MODEL_DIR/eval_metrics.json'))['metrics'] if x['name']=='auroc'][0])")"
 
@@ -177,4 +178,4 @@ if [ "$UPLOAD" = "1" ]; then
   hf upload "$RUNS_REPO" "$PAPER_PATH" "$PAPER_UPLOAD_SUBPATH/$PAPER_FILENAME" --repo-type model
 fi
 
-echo "GENO_LEWM_DEMO_PAPER_OK $RUN_NAME demo=$DEMO_DIR paper=$PAPER_PATH paper_package_ok=$PAPER_PACKAGE_OK"
+echo "GENO_LEWM_DEMO_PAPER_OK $RUN_NAME demo=$DEMO_DIR paper=$PAPER_PATH paper_package_ok=1"

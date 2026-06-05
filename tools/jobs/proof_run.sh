@@ -27,7 +27,9 @@ CARBON_CONFIG="${CARBON_CONFIG:-eukaryote_generator_10B_subset}"
 CARBON_SOURCE="${CARBON_SOURCE:-eukaryotic_genes}"
 MAX_WINDOWS="${MAX_WINDOWS:-20000}"
 GNOMAD_LINES="${GNOMAD_LINES:-60000}"
-STEPS="${STEPS:-2000}"
+STEPS="${STEPS:-20000}"
+TUPLE_THROUGHPUT_SAMPLES="${TUPLE_THROUGHPUT_SAMPLES:-4096}"
+MIN_TUPLES_PER_SECOND="${MIN_TUPLES_PER_SECOND:-5000}"
 # Carbon window width fed to the encoder. The default 12288 bp makes each step a
 # very long-sequence (O(n^2) attention) forward through Carbon-500M (~9 s/step on
 # a100); the proof uses a smaller window for a fast, completable run. The EVAL
@@ -37,6 +39,7 @@ UPLOAD_REPO="${UPLOAD_REPO:-abdelstark/geno-lewm-runs}"
 RUN_NAME="${RUN_NAME:-geno-lewm-proof}"
 CLINVAR_URL="${CLINVAR_URL:-https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz}"
 GNOMAD_URL="${GNOMAD_URL:-https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz}"
+FASTA22_URL="${FASTA22_URL:-https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz}"
 
 CONFIG="configs/first_experiment/train-carbon-500m-snv.yaml"
 SPEC_SRC="configs/first_experiment/dataset-snapshot-snv.json"
@@ -44,6 +47,7 @@ SPEC_SRC="configs/first_experiment/dataset-snapshot-snv.json"
 log() { echo "=== $* ==="; }
 
 log "proof run: $RUN_NAME (steps=$STEPS windows=$MAX_WINDOWS)"
+test "$CARBON_DIR" = "/carbon" || { echo "FATAL: coherent release config expects Carbon mounted at /carbon"; exit 1; }
 python - <<'PY'
 import os
 import sys
@@ -65,7 +69,7 @@ if observed_gb < min_gb:
 PY
 nvidia-smi
 
-mkdir -p "$WORK/inputs/clinvar" "$WORK/inputs/gnomad" "$WORK/inputs/carbon"
+mkdir -p "$WORK/inputs/clinvar" "$WORK/inputs/gnomad" "$WORK/inputs/carbon" "$WORK/inputs/reference"
 cp "$SPEC_SRC" "$WORK/dataset-snapshot-snv.json"
 
 log "stage ClinVar GRCh38"
@@ -97,6 +101,11 @@ set -o pipefail
 test -s "$GNOMAD_OUT" || { echo "gnomAD subset is empty"; exit 1; }
 echo "gnomAD subset: $(zcat "$GNOMAD_OUT" 2>/dev/null | wc -l) lines"
 
+log "stage GRCh38 chr22 reference FASTA for placed windows"
+FASTA22_OUT="$WORK/inputs/reference/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz"
+curl -fsSL "$FASTA22_URL" -o "$FASTA22_OUT"
+echo "FASTA chr22 header: $(zcat "$FASTA22_OUT" 2>/dev/null | head -1)"
+
 log "stage Carbon corpus windows"
 # The HF `datasets` streaming reader occasionally segfaults during interpreter
 # finalization *after* the JSONL is fully written; tolerate a non-zero exit and
@@ -115,6 +124,12 @@ echo "carbon windows: $(wc -l < "$CARBON_OUT") lines (tool rc=$cw_rc)"
 log "build dataset snapshot"
 python -m tools.release.dataset_snapshot \
   --spec-json "$WORK/dataset-snapshot-snv.json" --dataset-dir "$WORK/dataset"
+
+log "tuple-builder throughput gate"
+python -m tools.data.tuple_throughput \
+  --dataset-dir "$WORK/dataset" \
+  --samples "$TUPLE_THROUGHPUT_SAMPLES" \
+  --min-tuples-per-second "$MIN_TUPLES_PER_SECOND"
 
 log "carbon preflight"
 geno-lewm-train --carbon-preflight \

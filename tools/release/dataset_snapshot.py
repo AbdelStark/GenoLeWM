@@ -13,9 +13,11 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Final
 
-from geno_lewm.data import prepare_clinvar_shard, prepare_gnomad_shard
+from geno_lewm.action import EditSpec
+from geno_lewm.data import iter_gnomad_shard, prepare_clinvar_shard, prepare_gnomad_shard
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import sha256_file
+from tools.data.placed_windows import export_placed_variant_windows
 from tools.release.dataset_integrity import DEFAULT_REPORT_NAME
 from tools.release.dataset_package import (
     GENERATED_BY as DATASET_PACKAGE_GENERATED_BY,
@@ -295,9 +297,27 @@ def build_dataset_snapshot(
     gnomad = spec.get("gnomad")
     if not isinstance(gnomad, dict):
         raise InputError("gnomad must be an object")
-    files.append(
-        _stage_gnomad_file(gnomad, spec_dir=spec_dir, dataset_dir=dataset_dir, overwrite=overwrite)
+    gnomad_file = _stage_gnomad_file(
+        gnomad,
+        spec_dir=spec_dir,
+        dataset_dir=dataset_dir,
+        overwrite=overwrite,
     )
+    files.append(gnomad_file)
+
+    placed = spec.get("placed_windows")
+    if placed is not None:
+        if not isinstance(placed, dict):
+            raise InputError("placed_windows must be an object when supplied")
+        files.append(
+            _stage_placed_windows_file(
+                placed,
+                spec_dir=spec_dir,
+                dataset_dir=dataset_dir,
+                gnomad_path=dataset_dir / gnomad_file.path,
+                overwrite=overwrite,
+            )
+        )
 
     clinvar = spec.get("clinvar")
     if not isinstance(clinvar, dict):
@@ -475,6 +495,74 @@ def _stage_gnomad_file(
     )
 
 
+def _stage_placed_windows_file(
+    item: dict[str, Any],
+    *,
+    spec_dir: Path,
+    dataset_dir: Path,
+    gnomad_path: Path,
+    overwrite: bool,
+) -> SnapshotFile:
+    source_value = _required_text(item, "input_fasta", prefix="placed_windows.")
+    source = _resolve_source(spec_dir, source_value)
+    target_relative = _required_text(item, "path", prefix="placed_windows.")
+    target = _safe_relative(dataset_dir, target_relative)
+    already_exists = False
+    if target.exists() and not overwrite:
+        records = _count_records(target)
+        already_exists = True
+    else:
+        variants = (
+            EditSpec(row.chrom, row.pos, row.ref, row.alt) for row in iter_gnomad_shard(gnomad_path)
+        )
+        report = export_placed_variant_windows(
+            variants,
+            reference_fasta=source,
+            output=target,
+            source=_optional_text(item, "source", prefix="placed_windows.") or "gnomad_common",
+            variant_source=_optional_text(item, "variant_source", prefix="placed_windows.")
+            or "gnomad",
+            window_bp=_optional_positive_int(
+                item,
+                "window_bp",
+                default=4096,
+                prefix="placed_windows.",
+            ),
+            max_windows=_optional_non_negative_int(
+                item,
+                "max_windows",
+                prefix="placed_windows.",
+            ),
+            min_variants_per_window=_optional_positive_int(
+                item,
+                "min_variants_per_window",
+                default=3,
+                prefix="placed_windows.",
+            ),
+        )
+        records = report.windows_written
+        if records <= 0:
+            raise InputError(
+                "placed_windows generated no records",
+                details={
+                    "input_fasta": _public_source_reference(source_value),
+                    "gnomad_shard": gnomad_path.relative_to(dataset_dir).as_posix(),
+                },
+            )
+    return SnapshotFile(
+        path=target_relative,
+        source_path=_public_source_reference(source_value),
+        source_sha256=sha256_file(source),
+        source_size_bytes=source.stat().st_size,
+        split=_required_text(item, "split", prefix="placed_windows."),
+        records=records,
+        description=_required_text(item, "description", prefix="placed_windows."),
+        sha256=sha256_file(target),
+        size_bytes=target.stat().st_size,
+        already_exists=already_exists,
+    )
+
+
 def _stage_clinvar_file(
     item: dict[str, Any],
     *,
@@ -647,6 +735,39 @@ def _check_spec_files(spec: dict[str, Any]) -> tuple[dict[str, str], ...]:
             seen_paths=seen_paths,
         )
     )
+
+    placed = spec.get("placed_windows")
+    if placed is not None:
+        if not isinstance(placed, dict):
+            raise InputError("placed_windows must be an object when supplied")
+        _optional_spec_text(placed, "source", prefix="placed_windows.")
+        _optional_spec_text(placed, "variant_source", prefix="placed_windows.")
+        _optional_positive_int(placed, "window_bp", default=4096, prefix="placed_windows.")
+        _optional_non_negative_int(placed, "max_windows", prefix="placed_windows.")
+        _optional_positive_int(
+            placed,
+            "min_variants_per_window",
+            default=3,
+            prefix="placed_windows.",
+        )
+        files.append(
+            _checked_file_entry(
+                path=_required_spec_path(placed, "path", prefix="placed_windows."),
+                kind="placed_windows",
+                source_path=_required_spec_path(
+                    placed,
+                    "input_fasta",
+                    prefix="placed_windows.",
+                ),
+                split=_required_spec_text(placed, "split", prefix="placed_windows."),
+                description=_required_spec_text(
+                    placed,
+                    "description",
+                    prefix="placed_windows.",
+                ),
+                seen_paths=seen_paths,
+            )
+        )
 
     clinvar = spec.get("clinvar")
     if not isinstance(clinvar, dict):

@@ -23,12 +23,10 @@
 #               publish report + clean-machine replay into
 #               publication_evidence_report.json (ok=true).
 #
-# HONEST CLAIM BOUNDARY: this is a PROOF-scale release whose held-out ClinVar
-# chr21 AUROC is ~0.52 (0.519249), i.e. statistically near chance. The paper and
-# model card carry that number verbatim (it flows eval_metrics.json ->
-# eval_report.md -> paper). Nothing in this script inflates or hides it; the
-# release tooling refuses placeholder/fixture wording, so the published binder
-# is an honest negative/near-chance result, not a performance claim.
+# HONEST CLAIM BOUNDARY: this release carries the measured held-out ClinVar
+# metrics verbatim from eval_metrics.json -> eval_report.md -> paper. Nothing in
+# this script writes or overrides model-quality claims; the release tooling
+# refuses placeholder/fixture wording.
 #
 # Run inside a Job from a fresh clone of the repo:
 #   git clone --depth 1 https://github.com/AbdelStark/GenoLeWM /repo
@@ -41,7 +39,7 @@
 # Carbon-500M MUST be mounted read-only at $CARBON_DIR (default /carbon) because
 # both the DEMO (step 2) and the clean-machine replay (step 6) build a
 # CarbonStateEncoder offline (local_files_only=True) from the model package's
-# training_config.yaml, whose encoder.model_id is already '/carbon'
+# manifest training config, whose encoder.model_id is already '/carbon'
 # (geno_lewm/deploy/runtime.py:594-608; verified in the package config + manifest).
 #
 # ---------------------------------------------------------------------------
@@ -157,7 +155,7 @@ fail() { echo "FATAL: $*" >&2; exit 1; }
 
 # --- 0. environment preflight ---------------------------------------------
 log "publish run: $RUN_NAME  repo=$REPO_ID dataset=$DATASET_URL demo=$DEMO_URL"
-log "HONEST: PROOF-scale release; held-out ClinVar chr21 AUROC ~0.52 (near chance)"
+log "HONEST: held-out ClinVar metrics come from eval_metrics.json; no fixed quality claim is injected"
 
 [ -n "${HF_TOKEN:-}" ] || fail "HF_TOKEN is required (model + dataset publish to the Hugging Face Hub)"
 # GitHub is ALWAYS required: the demo upload command is unconditional and the
@@ -202,16 +200,25 @@ hf download "$RUNS_REPO" --repo-type model --include "$EVAL_SUBPATH/*" --local-d
   || fail "could not download $EVAL_SUBPATH from $RUNS_REPO"
 cp -a "$WORK/dl-model/$EVAL_SUBPATH/." "$MODEL_DIR/"
 for f in manifest.json model_package.json model_card.md SHA256SUMS eval_metrics.json \
-         eval_config.effective.yaml eval_report.md efficiency_report.json training_config.yaml \
+         eval_config.effective.yaml eval_report.md efficiency_report.json \
          predictor.safetensors action_encoder.safetensors calibration.parquet \
          training_run_manifest.json training_run_card.md training_run_SHA256SUMS \
          training_preflight_report.json; do
   test -s "$MODEL_DIR/$f" || fail "model package missing required file: $f"
 done
-# The committed config must already point encoder.model_id at the Carbon mount.
-python - "$MODEL_DIR" "$CARBON_DIR" <<'PY' || fail "model package training_config.yaml encoder.model_id is not the Carbon mount path"
+# The committed/effective config must already point encoder.model_id at the Carbon mount.
+TRAINING_CONFIG_FILE="$(python - "$MODEL_DIR" <<'PY'
+import json, sys
+manifest = json.load(open(f"{sys.argv[1]}/manifest.json"))
+print(manifest["training"]["config_file"])
+PY
+)"
+test -s "$MODEL_DIR/$TRAINING_CONFIG_FILE" \
+  || fail "model package missing manifest training config: $TRAINING_CONFIG_FILE"
+python - "$MODEL_DIR/$TRAINING_CONFIG_FILE" "$CARBON_DIR" <<'PY' \
+  || fail "model package manifest training config encoder.model_id is not the Carbon mount path"
 import sys, yaml
-cfg = yaml.safe_load(open(f"{sys.argv[1]}/training_config.yaml"))
+cfg = yaml.safe_load(open(sys.argv[1]))
 mid = (cfg.get("encoder") or {}).get("model_id")
 assert mid == sys.argv[2], f"encoder.model_id={mid!r} (expected {sys.argv[2]!r}); demo would not load Carbon offline"
 print("encoder.model_id =", mid)
@@ -286,9 +293,9 @@ PY
 # hub_release re-hash; DO NOT mutate them after this point.
 
 # --- 3. generate the PAPER ------------------------------------------------
-# AUROC ~0.52 flows eval_metrics.json -> eval_report.md sections -> paper. No
-# --allow-placeholders for a real release; text derives from real artifacts.
-log "generate paper draft (honest near-chance AUROC from the eval report)"
+# Measured metrics flow eval_metrics.json -> eval_report.md sections -> paper.
+# No --allow-placeholders for a real release; text derives from real artifacts.
+log "generate paper draft from the measured eval report"
 python -m tools.release.paper_draft \
   --model-dir "$MODEL_DIR" \
   --dataset-dir "$DATASET_DIR" \
@@ -316,8 +323,8 @@ python -m tools.release.paper_package \
 log "ensure GitHub release tag exists: $GH_REPO @ $GH_TAG"
 if ! gh release view "$GH_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
   gh release create "$GH_TAG" --repo "$GH_REPO" \
-    --title "GenoLeWM $GH_TAG (proof; ClinVar chr21 AUROC ~0.52)" \
-    --notes "Proof-scale GenoLeWM release. Held-out ClinVar chr21 rank-based AUROC ~0.52 (near chance). Demo + paper assets attached; model + dataset on the Hugging Face Hub." \
+    --title "GenoLeWM $GH_TAG first experiment" \
+    --notes "GenoLeWM first-experiment release. Measured held-out ClinVar metrics are in eval_metrics.json, eval_report.md, and paper.md. Demo + paper assets attached; model + dataset on the Hugging Face Hub." \
     || fail "could not create GitHub release tag $GH_TAG on $GH_REPO (need write access + GH_TOKEN)"
 else
   echo "release tag $GH_TAG already exists"
@@ -413,5 +420,5 @@ echo "GENO_LEWM_PUBLISH_OK $RUN_NAME"
 echo "  model    : https://huggingface.co/$REPO_ID"
 echo "  dataset  : $DATASET_URL"
 echo "  demo     : $DEMO_URL"
-echo "  paper    : $PAPER_URL  (AUROC ~0.52, honest near-chance proof)"
+echo "  paper    : $PAPER_URL"
 echo "  binder   : $BINDER_OUT (ok=true)"

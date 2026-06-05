@@ -1,11 +1,12 @@
 # GenoLeWM first-experiment Carbon-backed training config.
 #
-# This is the checked config intended for the first paper run. Runtime-specific
-# paths stay on the command line so the same file can be used across machines:
+# This is the checked config intended for the first paper run. The coherent
+# release jobs mount Carbon-500M at /carbon for train, eval, and demo so the
+# committed config is the single runtime commitment:
 #
 #   geno-lewm-train --carbon-preflight \
 #     --dataset-dir ARTIFACTS/dataset \
-#     --carbon-model-dir ARTIFACTS/carbon-500m \
+#     --carbon-model-dir /carbon \
 #     --training-config configs/first_experiment/train-carbon-500m-snv.yaml \
 #     --run-dir runs/first-snv-carbon-500m-r1
 
@@ -16,7 +17,7 @@ deterministic: true
 schema_version: 1.0.0
 
 encoder:
-  model_id: HuggingFaceBio/Carbon-500M
+  model_id: /carbon
   # Pinned Carbon-500M commit for reproducibility (apache-2.0, llama arch).
   revision: 5d31d59b3c845b288a13aedb1358934196852eec
   dtype: bf16

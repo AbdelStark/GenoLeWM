@@ -21,6 +21,7 @@ from typing import Any
 from geno_lewm.action import ActionEncoder, EditSpec
 from geno_lewm.config import GenoLeWMConfig, write_resolved_config
 from geno_lewm.data import (
+    DEFAULT_SOURCE_FALLBACKS,
     SOURCE_CLINVAR,
     SOURCE_GNOMAD_COMMON,
     SOURCE_SYNTHETIC_INDEL,
@@ -165,6 +166,7 @@ def run_carbon_training(
             SOURCE_CLINVAR: variant_provider(clinvar_edits),
         },
         seed=seeds.data,
+        fallback_sources=_dataset_fallback_sources(windows),
     )
     iterator = dataset.iter_with_source_windows()
     resumed_from_step = 0
@@ -444,23 +446,45 @@ def _dataset_files(manifest: dict[str, Any]) -> tuple[dict[str, Any], ...]:
 
 
 def _load_windows(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[WindowContext]:
-    for item in files:
-        path_text = _required_text(item, "path")
-        if not (path_text.startswith("carbon/") and path_text.endswith(".jsonl")):
-            continue
+    placed_paths = _window_jsonl_paths(files, prefix="placed/")
+    path_texts = placed_paths or _window_jsonl_paths(files, prefix="carbon/")
+    require_chrom = bool(placed_paths)
+    for path_text in path_texts:
         path = _safe_dataset_path(dataset_dir, path_text)
         with path.open(encoding="utf-8") as handle:
             for line_no, line in enumerate(handle, start=1):
                 if not line.strip():
                     continue
                 payload = _json_object_line(line, path=path, line_no=line_no)
+                chrom = _optional_text(payload, "chrom")
+                if require_chrom and chrom is None:
+                    raise InputError(
+                        "placed training window rows must include chrom",
+                        details={"path": str(path), "line": line_no},
+                    )
                 yield WindowContext(
                     record_id=_required_text(payload, "record_id"),
                     source=_required_text(payload, "source"),
                     sequence=_required_text(payload, "sequence"),
                     start_bp=_optional_int(payload, "start_bp", default=0),
-                    chrom=_optional_text(payload, "chrom"),
+                    chrom=chrom,
                 )
+
+
+def _window_jsonl_paths(files: Sequence[dict[str, Any]], *, prefix: str) -> tuple[str, ...]:
+    paths: list[str] = []
+    for item in files:
+        path_text = _required_text(item, "path")
+        if path_text.startswith(prefix) and path_text.endswith(".jsonl"):
+            paths.append(path_text)
+    return tuple(paths)
+
+
+def _dataset_fallback_sources(windows: Sequence[WindowContext]) -> dict[str, str]:
+    """Return source fallbacks for a release dataset's active window stream."""
+    if windows and all(window.chrom is not None for window in windows):
+        return {SOURCE_CLINVAR: SOURCE_SYNTHETIC_SNV}
+    return dict(DEFAULT_SOURCE_FALLBACKS)
 
 
 def _load_gnomad_edits(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[EditSpec]:

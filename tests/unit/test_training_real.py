@@ -11,6 +11,10 @@ from geno_lewm.config import load_config
 from geno_lewm.errors import InputError
 from geno_lewm.training.real import (
     _collapse_var_min,
+    _dataset_fallback_sources,
+    _dataset_files,
+    _load_dataset_manifest,
+    _load_windows,
     _move_trainable_to_device,
     _nan_loss_count,
     _training_device,
@@ -18,7 +22,7 @@ from geno_lewm.training.real import (
     _write_metrics,
 )
 from geno_lewm.training.trainer import TorchTrainerStepResult, TrainerSeeds
-from tests.unit.test_training_preflight import _write_training_config
+from tests.unit.test_training_preflight import _write_release_dataset, _write_training_config
 
 
 def _step_result(*, loss: float, var: float, step: int = 1) -> TorchTrainerStepResult:
@@ -91,6 +95,19 @@ def test_training_device_uses_runtime_config_device(tmp_path: Path) -> None:
     config = load_config(_write_training_config(tmp_path))
 
     assert _training_device(config) == "cuda"
+
+
+def test_release_training_loader_prefers_placed_windows(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    files = _dataset_files(_load_dataset_manifest(dataset_dir))
+
+    windows = tuple(_load_windows(dataset_dir, files))
+
+    assert len(windows) == 1
+    assert windows[0].chrom == "1"
+    assert windows[0].source == "gnomad_common"
+    assert _dataset_fallback_sources(windows) == {"clinvar": "synthetic_snv"}
 
 
 def test_move_trainable_to_device_invokes_module_to_for_accelerator() -> None:

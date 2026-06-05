@@ -33,15 +33,27 @@ def test_checked_first_experiment_snapshot_spec_is_valid() -> None:
     assert report.staged_paths == (
         "carbon/source-mix-windows.jsonl",
         "gnomad/v4.1/variants.parquet",
+        "placed/gnomad-common-windows.jsonl",
         "clinvar/2026-04-15/variants.parquet",
     )
     assert report.source_paths == (
         "inputs/carbon/source-mix-windows.jsonl",
         "inputs/gnomad/gnomad-v4.1-snv.vcf.gz",
+        "inputs/reference/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz",
         "inputs/clinvar/clinvar-2026-04-15-snv.vcf.gz",
     )
-    assert report.splits == ("eval_clinvar", "train_carbon", "train_gnomad_common")
-    assert report.sources == ("Carbon pretraining corpus", "gnomAD", "ClinVar")
+    assert report.splits == (
+        "eval_clinvar",
+        "train_carbon",
+        "train_placed_gnomad_common",
+        "train_gnomad_common",
+    )
+    assert report.sources == (
+        "Carbon pretraining corpus",
+        "gnomAD",
+        "Ensembl GRCh38 chromosome FASTA",
+        "ClinVar",
+    )
     assert all(not Path(path).is_absolute() for path in report.source_paths)
     assert all(".." not in Path(path).parts for path in report.source_paths)
 
@@ -62,6 +74,7 @@ def test_dataset_snapshot_main_check_spec_outputs_json(
     assert payload["staged_paths"] == [
         "carbon/source-mix-windows.jsonl",
         "gnomad/v4.1/variants.parquet",
+        "placed/gnomad-common-windows.jsonl",
         "clinvar/2026-04-15/variants.parquet",
     ]
 
@@ -74,20 +87,28 @@ def test_dataset_snapshot_input_check_records_source_identities(tmp_path: Path) 
     assert report.snapshot_id == "geno-lewm-data-v0.1.0-r1"
     assert report.generated_by == INPUT_CHECK_GENERATED_BY
     assert report.total_size_bytes == sum(file.size_bytes for file in report.inputs)
-    assert [file.kind for file in report.inputs] == ["carbon", "gnomad", "clinvar"]
+    assert [file.kind for file in report.inputs] == [
+        "carbon",
+        "gnomad",
+        "placed_windows",
+        "clinvar",
+    ]
     assert [file.source_path for file in report.inputs] == [
         "inputs/carbon_windows.jsonl",
         "inputs/gnomad.vcf",
+        "inputs/reference.fa",
         "inputs/clinvar.vcf",
     ]
     assert [file.staged_path for file in report.inputs] == [
         "carbon/windows.jsonl",
         "gnomad/v4.1/variants.parquet",
+        "placed/gnomad-windows.jsonl",
         "clinvar/2026-04-15/variants.parquet",
     ]
     assert [file.sha256 for file in report.inputs] == [
         sha256_file(tmp_path / "inputs" / "carbon_windows.jsonl"),
         sha256_file(tmp_path / "inputs" / "gnomad.vcf"),
+        sha256_file(tmp_path / "inputs" / "reference.fa"),
         sha256_file(tmp_path / "inputs" / "clinvar.vcf"),
     ]
 
@@ -107,11 +128,17 @@ def test_dataset_snapshot_main_check_inputs_outputs_json(
     assert payload["generated_by"] == INPUT_CHECK_GENERATED_BY
     assert payload["snapshot_id"] == "geno-lewm-data-v0.1.0-r1"
     assert payload["snapshot_spec"]["sha256"] == sha256_file(spec_path)
-    assert payload["source_count"] == 3
-    assert [item["kind"] for item in payload["inputs"]] == ["carbon", "gnomad", "clinvar"]
+    assert payload["source_count"] == 4
+    assert [item["kind"] for item in payload["inputs"]] == [
+        "carbon",
+        "gnomad",
+        "placed_windows",
+        "clinvar",
+    ]
     assert [item["source_path"] for item in payload["inputs"]] == [
         "inputs/carbon_windows.jsonl",
         "inputs/gnomad.vcf",
+        "inputs/reference.fa",
         "inputs/clinvar.vcf",
     ]
 
@@ -126,6 +153,7 @@ def test_build_dataset_snapshot_stages_inputs_and_packages_dataset(tmp_path: Pat
     assert report.snapshot_id == "geno-lewm-data-v0.1.0-r1"
     assert (dataset_dir / "carbon" / "windows.jsonl").is_file()
     assert (dataset_dir / "gnomad" / "v4.1" / "variants.parquet").is_file()
+    assert (dataset_dir / "placed" / "gnomad-windows.jsonl").is_file()
     assert (dataset_dir / "clinvar" / "2026-04-15" / "variants.parquet").is_file()
     assert (dataset_dir / "dataset_package.json").is_file()
     assert (dataset_dir / "dataset_manifest.json").is_file()
@@ -140,10 +168,12 @@ def test_build_dataset_snapshot_stages_inputs_and_packages_dataset(tmp_path: Pat
     assert [file["path"] for file in manifest["files"]] == [
         "carbon/windows.jsonl",
         "gnomad/v4.1/variants.parquet",
+        "placed/gnomad-windows.jsonl",
         "clinvar/2026-04-15/variants.parquet",
     ]
     assert manifest["splits"]["train_carbon"]["records"] == 1
-    assert manifest["splits"]["train_gnomad_common"]["records"] == 1
+    assert manifest["splits"]["train_gnomad_common"]["records"] == 3
+    assert manifest["splits"]["train_placed_gnomad_common"]["records"] == 1
     assert manifest["splits"]["eval_clinvar"]["records"] == 1
     snapshot_report = json.loads((dataset_dir / REPORT_NAME).read_text(encoding="utf-8"))
     assert snapshot_report["schema_version"] == "1.0.0"
@@ -175,6 +205,7 @@ def test_build_dataset_snapshot_stages_inputs_and_packages_dataset(tmp_path: Pat
     assert [file["source_sha256"] for file in snapshot_report["files"]] == [
         sha256_file(tmp_path / "inputs" / "carbon_windows.jsonl"),
         sha256_file(tmp_path / "inputs" / "gnomad.vcf"),
+        sha256_file(tmp_path / "inputs" / "reference.fa"),
         sha256_file(tmp_path / "inputs" / "clinvar.vcf"),
     ]
     assert all(str(tmp_path) not in file["source_path"] for file in snapshot_report["files"])
@@ -205,7 +236,7 @@ def test_dataset_snapshot_main_outputs_json_report(
     assert payload["snapshot_spec"]["sha256"] == sha256_file(spec_path)
     assert payload["package"]["generated_by"] == DATASET_PACKAGE_GENERATED_BY
     assert payload["package"]["snapshot_id"] == "geno-lewm-data-v0.1.0-r1"
-    assert len(payload["files"]) == 3
+    assert len(payload["files"]) == 4
 
 
 def test_dataset_snapshot_rejects_missing_local_input(tmp_path: Path) -> None:
@@ -463,11 +494,14 @@ def _write_spec(root: Path) -> Path:
     inputs.mkdir()
     carbon = inputs / "carbon_windows.jsonl"
     carbon.write_text(
-        '{"record_id":"carbon-r1","source":"mrna","chrom":"1","start_bp":0,"end_bp":128}\n',
+        '{"record_id":"carbon-r1","source":"mrna","chrom":"1","start_bp":0,"end_bp":128,"sequence":"'
+        + ("A" * 128)
+        + '"}\n',
         encoding="utf-8",
     )
     gnomad = _write_gnomad_vcf(inputs / "gnomad.vcf")
     clinvar = _write_clinvar_vcf(inputs / "clinvar.vcf")
+    reference = _write_reference_fasta(inputs / "reference.fa")
     spec = {
         "schema_version": "1.0.0",
         "snapshot_id": "geno-lewm-data-v0.1.0-r1",
@@ -492,17 +526,27 @@ def _write_spec(root: Path) -> Path:
                 "url": "https://www.ncbi.nlm.nih.gov/clinvar/",
                 "license": "NCBI public data terms",
             },
+            {
+                "name": "Ensembl GRCh38 chromosome FASTA",
+                "revision": "release-110 fixture",
+                "url": "https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/",
+                "license": "Ensembl genome browser data terms",
+            },
         ],
         "license": "Apache-2.0 for package metadata; upstream data licenses apply.",
         "preprocessing": [
             "Stage pinned Carbon source-mix windows from local upstream release files.",
             "Filter local gnomAD VCF rows to PASS alleles above the global AF threshold.",
+            "Generate placed windows from the gnomAD shard and a staged reference FASTA.",
             "Normalize local ClinVar VCF rows and preserve labelled and unlabelled classes.",
         ],
         "split_policy": "Training splits exclude held-out ClinVar evaluation variant keys.",
         "splits": {
             "train_carbon": {"description": "Carbon source-mix windows for training"},
             "train_gnomad_common": {"description": "gnomAD common variants for edit sampling"},
+            "train_placed_gnomad_common": {
+                "description": "reference-placed gnomAD windows for training"
+            },
             "eval_clinvar": {"description": "held-out ClinVar SNV labels"},
         },
         "leakage_checks": [
@@ -529,6 +573,17 @@ def _write_spec(root: Path) -> Path:
             "split": "train_gnomad_common",
             "description": "gnomAD PASS common variants used for edit sampling",
         },
+        "placed_windows": {
+            "input_fasta": reference.relative_to(root).as_posix(),
+            "path": "placed/gnomad-windows.jsonl",
+            "split": "train_placed_gnomad_common",
+            "description": "reference-placed gnomAD windows generated for training",
+            "source": "gnomad_common",
+            "variant_source": "gnomad",
+            "window_bp": 4096,
+            "min_variants_per_window": 1,
+            "max_windows": 1,
+        },
         "clinvar": {
             "input_vcf": clinvar.relative_to(root).as_posix(),
             "release": "2026-04-15",
@@ -548,9 +603,19 @@ def _write_gnomad_vcf(path: Path) -> Path:
                 "##fileformat=VCFv4.2",
                 "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
                 "1\t10\trs1\tA\tC\t.\tPASS\tAF=0.02;AF_afr=0.03",
+                "1\t20\trs2\tA\tG\t.\tPASS\tAF=0.03;AF_afr=0.04",
+                "1\t30\trs3\tA\tT\t.\tPASS\tAF=0.04;AF_afr=0.05",
             ]
         )
         + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_reference_fasta(path: Path) -> Path:
+    path.write_text(
+        ">1 dna:chromosome chromosome:GRCh38:1:1:512:1 REF\n" + ("A" * 512) + "\n",
         encoding="utf-8",
     )
     return path

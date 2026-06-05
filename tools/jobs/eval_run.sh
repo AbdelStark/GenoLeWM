@@ -29,12 +29,9 @@
 # WHY THE STEP ORDER IS WHAT IT IS (verified against the code):
 #
 #  * The runtime loads Carbon from cfg.encoder.model_id with local_files_only=
-#    True (runtime.py:598,606; carbon.py from_pretrained). The committed config
-#    ships encoder.model_id=HuggingFaceBio/Carbon-500M, which will NOT resolve
-#    offline from a /carbon bind mount. So we PATCH encoder.model_id -> /carbon
-#    in the training config BEFORE author_manifest copies it in (author_manifest
-#    reads the file verbatim via load_config; it has no --set). trust_remote_code
-#    is already true in the first-experiment config and is preserved.
+#    True (runtime.py:598,606; carbon.py from_pretrained). The committed release
+#    config already ships encoder.model_id=/carbon, matching the train/eval/demo
+#    HF Jobs mount. This job validates that identity and never rewrites config.
 #
 #  * GenoLeWMRuntime.__init__ (runtime.py:137-138) hash-verifies predictor,
 #    action_encoder, calibration AND eval. So geno-lewm-score (and bench) cannot
@@ -147,28 +144,33 @@ else
   RUN_DIR=""
 fi
 
-# --- 1. patch the commitment config: encoder.model_id -> /carbon ----------
-# author_manifest copies the training config verbatim and the runtime reads
-# cfg.encoder.model_id with local_files_only=True, so it MUST be the mount path.
-log "patch encoder.model_id -> $CARBON_DIR (and keep trust_remote_code)"
-PATCHED_CFG="$WORK/training_config.patched.yaml"
-CFG_SRC="$CFG" CARBON_DIR="$CARBON_DIR" OUT="$PATCHED_CFG" python - <<'PY'
+# --- 1. validate the committed commitment config -------------------------
+log "validate committed training config uses Carbon mount $CARBON_DIR"
+CFG_SRC="$CFG" CARBON_DIR="$CARBON_DIR" python - <<'PY'
 import os
 from geno_lewm.config import load_config
-import yaml
-src = os.environ["CFG_SRC"]; carbon = os.environ["CARBON_DIR"]; out = os.environ["OUT"]
-with open(src) as fh:
-    payload = yaml.safe_load(fh)
-payload.setdefault("encoder", {})["model_id"] = carbon
-# Carbon-500M needs the custom HybridDNATokenizer -> trust_remote_code MUST be on.
-payload["encoder"]["trust_remote_code"] = True
-with open(out, "w") as fh:
-    yaml.safe_dump(payload, fh, sort_keys=True)
-cfg = load_config(out)  # validates schema + rejects unknown keys
-assert cfg.encoder.model_id == carbon, cfg.encoder.model_id
-assert cfg.encoder.trust_remote_code is True
-print("patched encoder.model_id =", cfg.encoder.model_id, "trust_remote_code =", cfg.encoder.trust_remote_code)
+
+cfg = load_config(os.environ["CFG_SRC"])
+if cfg.encoder.model_id != os.environ["CARBON_DIR"]:
+    raise SystemExit(
+        "FATAL: encoder.model_id="
+        + repr(cfg.encoder.model_id)
+        + " (expected "
+        + repr(os.environ["CARBON_DIR"])
+        + ")"
+    )
+if cfg.encoder.trust_remote_code is not True:
+    raise SystemExit("FATAL: encoder.trust_remote_code must be true for Carbon-500M")
+print("encoder.model_id =", cfg.encoder.model_id, "trust_remote_code =", cfg.encoder.trust_remote_code)
 PY
+
+TRAINING_CFG_FOR_MANIFEST="$CFG"
+TRAINING_CONFIG_NAME="training_config.yaml"
+if [ -n "$RUN_DIR" ] && [ -f "$RUN_DIR/training_config.effective.yaml" ]; then
+  TRAINING_CFG_FOR_MANIFEST="$RUN_DIR/training_config.effective.yaml"
+  TRAINING_CONFIG_NAME="training_config.effective.yaml"
+  log "using training-run effective config for manifest identity: $TRAINING_CONFIG_NAME"
+fi
 
 # --- 2. preliminary manifest (placeholder calibration/eval hashes) --------
 # Lets load_scorer_modules parse manifest.json so calibration + python-API
@@ -176,10 +178,11 @@ PY
 log "author preliminary manifest (--allow-missing-evidence)"
 python -m tools.release.author_manifest \
   --model-dir "$MODEL" \
-  --training-config "$PATCHED_CFG" \
+  --training-config "$TRAINING_CFG_FOR_MANIFEST" \
   --encoder-weights "$CARBON_DIR" \
   --model-name "$MODEL_NAME" --model-version "$MODEL_VERSION" \
   --release-id "$REL" --dataset-snapshot "$SNAP" \
+  --config-name "$TRAINING_CONFIG_NAME" \
   --allow-missing-evidence
 
 # --- 3. stage the held-out ClinVar eval set + FASTA -----------------------
@@ -382,8 +385,8 @@ test -s "$EFF_OUT" || { echo "FATAL: efficiency_report.json empty"; exit 1; }
 # package-relative. config-artifact points at the copied training config.
 log "AUROC eval (--score-field sigma_raw) -> eval_metrics.json"
 METRICS="$MODEL/eval_metrics.json"
-# manifest.json training config name copied by author_manifest (default).
-TRAIN_CFG_IN_PKG="$MODEL/training_config.yaml"
+# manifest.json training config name copied by author_manifest.
+TRAIN_CFG_IN_PKG="$MODEL/$TRAINING_CONFIG_NAME"
 # A dataset manifest is required by the eval CLI as an artifact reference; if the
 # real one is not staged, write a minimal package-relative stub inside the pkg.
 DATASET_MANIFEST="$MODEL/eval/dataset_manifest.json"
@@ -422,14 +425,15 @@ test -s "$EVAL_REPORT" || { echo "FATAL: eval_report.md empty"; exit 1; }
 # --- 9. re-author manifest with REAL calibration + eval hashes ------------
 # Now calibration.parquet AND eval_report.md exist; committing their real hashes
 # makes GenoLeWMRuntime() construct cleanly (no placeholder mismatch). Use the
-# SAME patched config (encoder.model_id=/carbon) and same ids.
+# SAME committed/effective config identity and same ids.
 log "re-author manifest (real evidence hashes, no placeholder)"
 python -m tools.release.author_manifest \
   --model-dir "$MODEL" \
-  --training-config "$PATCHED_CFG" \
+  --training-config "$TRAINING_CFG_FOR_MANIFEST" \
   --encoder-weights "$CARBON_DIR" \
   --model-name "$MODEL_NAME" --model-version "$MODEL_VERSION" \
-  --release-id "$REL" --dataset-snapshot "$SNAP"
+  --release-id "$REL" --dataset-snapshot "$SNAP" \
+  --config-name "$TRAINING_CONFIG_NAME"
 
 # --- 10. verify the deploy package loads OFFLINE through the runtime -------
 # This is the verifiable deploy package gate: it runs _verify_manifest_artifacts

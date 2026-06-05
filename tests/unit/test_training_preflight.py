@@ -301,6 +301,7 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     assert train_cfg.run_id == "first-snv-carbon-500m-r1"
     assert train_cfg.action.sub_encoders == ("snv",)
     assert train_cfg.deterministic is True
+    assert train_cfg.encoder.model_id == "/carbon"
     assert train_cfg.training.max_steps == 20000
     assert train_cfg.optimizer.warmup_steps < train_cfg.training.max_steps
     assert train_cfg.runtime.device == "cuda"
