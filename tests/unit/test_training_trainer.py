@@ -101,7 +101,7 @@ def test_encode_training_batch_uses_carbon_encoder_and_masks_ragged_actions(
     assert batch.target.shape == (2, 2, 2)
     assert batch.action_mask.tolist() == [[True, False], [True, True]]
     assert encoder.calls == [
-        (("ACGTAC", "ACGTAC"), (None, None)),
+        (("ACGTAC",), (None,)),
         (("ATGTAC", "ACCTAC"), (1, 2)),
     ]
     torch.testing.assert_close(batch.target[0, 1], torch.zeros(2))
@@ -173,6 +173,57 @@ def test_source_states_reuses_cache_without_torch(
     assert encoder.calls == []
     assert observed_keys[0].pool_type == "global_mean"
     assert observed_keys[0].pool_radius == 0
+
+
+def test_source_states_reuses_in_memory_cache_without_torch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(trainer_module, "default_cache_dir", lambda: tmp_path / "empty-cache")
+    encoder = FakeCarbonEncoder()
+
+    first = trainer_module._source_states(encoder, ["ACGTAC", "ACGTAC"])
+    second = trainer_module._source_states(encoder, ["ACGTAC"])
+
+    assert first == ((6.0, -1.0), (6.0, -1.0))
+    assert second == ((6.0, -1.0),)
+    assert encoder.calls == [(("ACGTAC",), (None,))]
+
+
+def test_encode_training_batch_reuses_in_memory_source_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("torch")
+    monkeypatch.setattr(trainer_module, "default_cache_dir", lambda: tmp_path / "empty-cache")
+    source = WindowContext(record_id="w1", source="fixture", sequence="ACGTAC", chrom="1")
+    item = TrainingTuple(
+        window_id=source.window_id,
+        source_record_id=source.record_id,
+        edit_source="synthetic_snv",
+        rel_edits=(_edit(rel_pos=1),),
+        target_window="ATGTAC",
+        window_start_bp=0,
+        window_end_bp=6,
+    )
+    encoder = FakeCarbonEncoder()
+
+    encode_training_batch(
+        encoder=encoder,
+        tuples=[item],
+        source_windows={source.window_id: source.sequence},
+    )
+    encode_training_batch(
+        encoder=encoder,
+        tuples=[item],
+        source_windows={source.window_id: source.sequence},
+    )
+
+    assert encoder.calls == [
+        (("ACGTAC",), (None,)),
+        (("ATGTAC",), (1,)),
+        (("ATGTAC",), (1,)),
+    ]
 
 
 def test_encode_training_batch_rejects_missing_source_window() -> None:

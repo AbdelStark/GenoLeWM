@@ -232,6 +232,7 @@ def run_carbon_training(
         config=config,
         total_steps=steps,
     )
+    progress_every = max(1, int(config.training.collapse_log_every_steps))
 
     step_results = []
     collapse_alert_count = 0
@@ -271,6 +272,22 @@ def run_carbon_training(
             collapse_alert_count += len(collapse_alerts)
             sample_count += len(current_batch.window_ids)
             log.write(json.dumps({"event": "train.step", **result.to_dict()}) + "\n")
+            if step in (first_step, steps) or step % progress_every == 0:
+                print(
+                    json.dumps(
+                        {
+                            "event": "train.progress",
+                            "run_id": config.run_id,
+                            "step": step,
+                            "total_steps": steps,
+                            "sample_count": sample_count,
+                            "loss": result.loss,
+                            "pred_var_per_dim": result.pred_var_per_dim,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
             for alert in collapse_alerts:
                 log.write(
                     json.dumps(
