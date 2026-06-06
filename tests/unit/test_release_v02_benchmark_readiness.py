@@ -272,9 +272,14 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
     assert rows["inference_efficiency"]["samples"] == 3
     conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
     assert "clinvar_coding passed" in conclusions
+    assert "track=variant_effect_prediction, split=clinvar_coding" in conclusions
     assert "auroc=0.73" in conclusions
     assert "Baseline deltas: accuracy=0.01" in conclusions
+    assert "Confidence intervals: accuracy=[0.63,0.73]" in conclusions
+    assert "auroc=[0.68,0.78]" in conclusions
+    assert "Evaluated variant-key identities: accuracy=sha256:" in conclusions
     assert "inference_efficiency passed" in conclusions
+    assert "track=inference_efficiency" in conclusions
     assert "single_variant_latency_ms=10" in conclusions
     assert "batched_throughput_variants_per_s=50" in conclusions
 

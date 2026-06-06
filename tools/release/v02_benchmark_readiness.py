@@ -1026,13 +1026,21 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
         benchmark = str(row["benchmark_id"])
         status = str(row["status"])
         if status == "pass":
+            context = _format_row_context(row)
             values = _format_metric_values(row.get("observed_values"))
             deltas = _format_metric_values(row.get("delta_vs_baseline"))
-            conclusion = f"{benchmark} passed with measured artifact coverage" + (
-                f": {values}" if values else "."
-            )
+            intervals = _format_confidence_intervals(row.get("confidence_intervals"))
+            variant_identities = _format_text_values(row.get("evaluated_variant_key_identities"))
+            conclusion = f"{benchmark} passed with measured artifact coverage"
+            if context:
+                conclusion += f" ({context})"
+            conclusion += f": {values}." if values else "."
             if deltas:
                 conclusion += f" Baseline deltas: {deltas}."
+            if intervals:
+                conclusion += f" Confidence intervals: {intervals}."
+            if variant_identities:
+                conclusion += f" Evaluated variant-key identities: {variant_identities}."
             conclusions.append(conclusion)
         elif status == "rescoped":
             values = _format_metric_values(row.get("observed_values"))
@@ -1079,6 +1087,17 @@ def _scope_decisions(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return decisions
 
 
+def _format_row_context(row: dict[str, object]) -> str:
+    parts: list[str] = []
+    track = row.get("track")
+    split = row.get("split")
+    if isinstance(track, str) and track:
+        parts.append(f"track={track}")
+    if isinstance(split, str) and split:
+        parts.append(f"split={split}")
+    return ", ".join(parts)
+
+
 def _format_metric_values(raw: object) -> str:
     if not isinstance(raw, dict) or not raw:
         return ""
@@ -1088,6 +1107,38 @@ def _format_metric_values(raw: object) -> str:
         if isinstance(value, bool) or not isinstance(value, int | float):
             continue
         items.append(f"{key}={float(value):.6g}")
+    return ", ".join(items)
+
+
+def _format_confidence_intervals(raw: object) -> str:
+    if not isinstance(raw, dict) or not raw:
+        return ""
+    items: list[str] = []
+    for key in sorted(raw):
+        value = raw[key]
+        if not isinstance(value, dict):
+            continue
+        low = value.get("ci_low")
+        high = value.get("ci_high")
+        if (
+            isinstance(low, bool)
+            or isinstance(high, bool)
+            or not isinstance(low, int | float)
+            or not isinstance(high, int | float)
+        ):
+            continue
+        items.append(f"{key}=[{float(low):.6g},{float(high):.6g}]")
+    return ", ".join(items)
+
+
+def _format_text_values(raw: object) -> str:
+    if not isinstance(raw, dict) or not raw:
+        return ""
+    items: list[str] = []
+    for key in sorted(raw):
+        value = raw[key]
+        if isinstance(value, str) and value:
+            items.append(f"{key}={value}")
     return ", ".join(items)
 
 

@@ -298,6 +298,9 @@ trusted only after their hashes match the fetched manifest.
     paths do not enter release reports. The readiness report MUST carry
     measured efficiency latency, throughput, peak memory, runtime/sample
     context, limitations, and sanitized efficiency command provenance.
+    Metric conclusions MUST include split/track context, measured values,
+    baseline deltas, confidence intervals, and evaluated variant-key
+    identities when those fields are available.
     If the RFC-0004 AR rollout speed target is not met and the project
     explicitly accepts a re-scope in #42/#197, generate
     `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
