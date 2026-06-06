@@ -149,6 +149,16 @@ def test_write_suite_report_execute_runs_steps_in_manifest_directory(tmp_path: P
     assert len(calls) == 8
     assert all(cwd == tmp_path for _, cwd in calls)
     assert all(step["status"] == "pass" for step in report["steps"])
+    first_step = report["steps"][0]
+    first_output = tmp_path / "eval" / "clinvar_coding.scores.jsonl"
+    assert first_step["output_identities"] == [
+        {
+            "path": "eval/clinvar_coding.scores.jsonl",
+            "sha256": sha256_file(first_output),
+            "size_bytes": first_output.stat().st_size,
+        }
+    ]
+    assert str(tmp_path) not in json.dumps(report["steps"], sort_keys=True)
 
 
 def test_write_suite_report_execute_rejects_missing_declared_outputs(tmp_path: Path) -> None:

@@ -231,9 +231,11 @@ The first paper/demo release is not ready until:
   can plan or execute the v0.2 benchmark commands from a JSON manifest;
   plan-only reports keep `ok=false`, while execute-mode clears each
   step's declared output files, then requires the command to exit
-  successfully and write those outputs again, with measured claims still
-  deferred to generated artifact validators; the suite report records
-  the manifest by package-local path plus SHA-256 and size identity;
+  successfully and write those outputs again, recording passed-step
+  output identities by package-local path plus SHA-256 and size, with
+  measured claims still deferred to generated artifact validators; the
+  suite report records the manifest by package-local path plus SHA-256
+  and size identity;
 - `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
   resolves explicit cache keys for measured source, target, and
   candidate latent states into examples JSONL;

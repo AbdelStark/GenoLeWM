@@ -193,6 +193,10 @@ def write_suite_report(
                         failed = True
                     else:
                         report["status"] = "pass"
+                        report["output_identities"] = _output_identities(
+                            step,
+                            root=manifest_path.parent,
+                        )
                 else:
                     report["status"] = "failed"
                     failed = True
@@ -754,6 +758,17 @@ def _missing_output_findings(step: SuiteStep, *, root: Path) -> list[str]:
         f"missing declared output {output}"
         for output in step.outputs
         if not (root / output).is_file()
+    ]
+
+
+def _output_identities(step: SuiteStep, *, root: Path) -> list[dict[str, object]]:
+    return [
+        {
+            "path": output,
+            "sha256": sha256_file(root / output),
+            "size_bytes": (root / output).stat().st_size,
+        }
+        for output in step.outputs
     ]
 
 
