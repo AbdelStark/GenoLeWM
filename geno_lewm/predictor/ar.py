@@ -42,11 +42,10 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
 
         The wrapper defines the public RFC-0004 rollout contract: each
         action is scored against the state predicted by the previous
-        action, producing ``[s_hat[t+1], ..., s_hat[t+K]]``. It is
-        intentionally a thin orchestration layer around the existing
-        ``Predictor.forward`` method; attention-key/value cache speedups
-        remain a separate optimization because the current base predictor
-        does not expose cacheable attention internals.
+        action, producing ``[s_hat[t+1], ..., s_hat[t+K]]``. When the
+        wrapped predictor exposes rollout-cache hooks, static action
+        projections are encoded once before the autoregressive loop;
+        otherwise the wrapper falls back to repeated ``forward`` calls.
         """
 
         def __init__(self, predictor: object) -> None:
@@ -73,9 +72,19 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             current = state
             outputs: list[Tensor] = []
             call_mask = torch.ones((actions.shape[0], 1), dtype=torch.bool, device=actions.device)
+            action_tokens = self._cached_action_tokens(actions)
+            upcast_output_mlp = actions.shape[1] > 20
             for step in range(actions.shape[1]):
                 active = mask[:, step].unsqueeze(-1)
-                prediction = self.predictor(current, actions[:, step : step + 1, :], call_mask)
+                if action_tokens is None:
+                    prediction = self.predictor(current, actions[:, step : step + 1, :], call_mask)
+                else:
+                    prediction = self.predictor._forward_one_step_from_action_token(
+                        current,
+                        action_tokens[:, step, :],
+                        call_mask,
+                        upcast_output_mlp=upcast_output_mlp,
+                    )
                 next_state = prediction[:, 0, :]
                 current = torch.where(active, next_state, current)
                 outputs.append(torch.where(active, next_state, torch.zeros_like(next_state)))
@@ -217,6 +226,13 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                 )
             if not state.is_floating_point():
                 raise InputError("state must be a floating-point tensor")
+
+        def _cached_action_tokens(self, actions: Tensor) -> Tensor | None:
+            encode = getattr(self.predictor, "_encode_rollout_actions", None)
+            step = getattr(self.predictor, "_forward_one_step_from_action_token", None)
+            if not callable(encode) or not callable(step):
+                return None
+            return encode(actions)
 
 
 def _required_positive_int(obj: object, name: str) -> int:

@@ -164,26 +164,87 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
         ) -> Tensor:
             """Return per-action next-state predictions of shape ``(B, K, d_state)``."""
             mask = self._validate_inputs(state, actions, action_mask)
-            batch_size, steps, _d_action = actions.shape
-            device = actions.device
+            state_token = self._encode_state_token(state)
+            action_tokens = self._encode_forward_actions(actions)
+            return self._predict_from_tokens(
+                state,
+                state_token,
+                action_tokens,
+                mask,
+                upcast_output_mlp=actions.shape[1] > 20,
+            )
 
-            state_token = self.state_projection(state).unsqueeze(1)
-            action_tokens = self.action_projection(actions)
-
+        def _encode_state_token(self, state: Tensor) -> Tensor:
+            batch_size = state.shape[0]
+            device = state.device
             state_type = torch.zeros((batch_size, 1), dtype=torch.long, device=device)
-            action_type = torch.ones((batch_size, steps), dtype=torch.long, device=device)
             state_position = torch.zeros((batch_size, 1), dtype=torch.long, device=device)
-            action_positions = torch.arange(1, steps + 1, dtype=torch.long, device=device)
-            action_positions = action_positions.unsqueeze(0).expand(batch_size, -1)
-
+            state_token = self.state_projection(state).unsqueeze(1)
             state_token = state_token + self.token_type_embedding(state_type)
             state_token = state_token + self.step_position_embedding(state_position)
+            return state_token
+
+        def _encode_forward_actions(self, actions: Tensor) -> Tensor:
+            batch_size, steps, _d_action = actions.shape
+            device = actions.device
+            action_type = torch.ones((batch_size, steps), dtype=torch.long, device=device)
+            action_positions = torch.arange(1, steps + 1, dtype=torch.long, device=device)
+            action_positions = action_positions.unsqueeze(0).expand(batch_size, -1)
+            action_tokens = self.action_projection(actions)
             action_tokens = action_tokens + self.token_type_embedding(action_type)
             action_tokens = action_tokens + self.step_position_embedding(action_positions)
+            return action_tokens
 
+        def _encode_rollout_actions(self, actions: Tensor) -> Tensor:
+            """Encode actions once for repeated single-step rollout calls.
+
+            ``ARPredictor`` is logically equivalent to calling
+            ``forward(current_state, action[:, step:step+1], ones)`` for
+            every step. In that convention each action is the first and
+            only action token for its call, so all cached actions use the
+            single-step position embedding rather than absolute rollout
+            positions.
+            """
+            batch_size, steps, _d_action = actions.shape
+            device = actions.device
+            action_type = torch.ones((batch_size, steps), dtype=torch.long, device=device)
+            action_positions = torch.ones((batch_size, steps), dtype=torch.long, device=device)
+            action_tokens = self.action_projection(actions)
+            action_tokens = action_tokens + self.token_type_embedding(action_type)
+            action_tokens = action_tokens + self.step_position_embedding(action_positions)
+            return action_tokens
+
+        def _forward_one_step_from_action_token(
+            self,
+            state: Tensor,
+            action_token: Tensor,
+            action_mask: Tensor,
+            *,
+            upcast_output_mlp: bool = False,
+        ) -> Tensor:
+            action_tokens = action_token.unsqueeze(1)
+            return self._predict_from_tokens(
+                state,
+                self._encode_state_token(state),
+                action_tokens,
+                action_mask,
+                upcast_output_mlp=upcast_output_mlp,
+            )
+
+        def _predict_from_tokens(
+            self,
+            state: Tensor,
+            state_token: Tensor,
+            action_tokens: Tensor,
+            mask: Tensor,
+            *,
+            upcast_output_mlp: bool,
+        ) -> Tensor:
             for block in self.cross_blocks:
                 state_token, action_tokens = block(state_token, action_tokens, mask)
 
+            batch_size, steps, _d_hidden = action_tokens.shape
+            device = action_tokens.device
             tokens = torch.cat((state_token, action_tokens), dim=1)
             token_mask = torch.cat(
                 (
@@ -196,10 +257,51 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                 tokens = block(tokens, token_mask)
 
             action_output = tokens[:, 1:, :]
-            delta = self.output_mlp(action_output)
+            delta = self._output_delta(action_output, upcast_output_mlp=upcast_output_mlp)
             base = state.unsqueeze(1).expand(-1, steps, -1)
-            prediction = functional.normalize(base + delta, p=2.0, dim=-1, eps=1.0e-12)
+            if upcast_output_mlp:
+                prediction = functional.normalize(
+                    base.float() + delta,
+                    p=2.0,
+                    dim=-1,
+                    eps=1.0e-12,
+                )
+            else:
+                prediction = functional.normalize(base + delta, p=2.0, dim=-1, eps=1.0e-12)
             return prediction.masked_fill(~mask.unsqueeze(-1), 0.0)
+
+        def _output_delta(self, action_output: Tensor, *, upcast_output_mlp: bool) -> Tensor:
+            if not upcast_output_mlp:
+                return self.output_mlp(action_output)
+
+            first = self.output_mlp[0]
+            norm = self.output_mlp[2]
+            final = self.output_mlp[3]
+            if not (
+                isinstance(first, nn.Linear)
+                and isinstance(norm, nn.LayerNorm)
+                and isinstance(final, nn.Linear)
+            ):  # pragma: no cover - protects future output_mlp edits.
+                raise RuntimeSetupError("Predictor output_mlp has an unsupported layout")
+
+            hidden = functional.linear(
+                action_output.float(),
+                first.weight.float(),
+                None if first.bias is None else first.bias.float(),
+            )
+            hidden = functional.gelu(hidden)
+            hidden = functional.layer_norm(
+                hidden,
+                norm.normalized_shape,
+                None if norm.weight is None else norm.weight.float(),
+                None if norm.bias is None else norm.bias.float(),
+                norm.eps,
+            )
+            return functional.linear(
+                hidden,
+                final.weight.float(),
+                None if final.bias is None else final.bias.float(),
+            )
 
         def _validate_inputs(self, state: Tensor, actions: Tensor, action_mask: Tensor) -> Tensor:
             if state.ndim != 2:

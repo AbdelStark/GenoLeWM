@@ -67,6 +67,99 @@ def test_ar_rollout_matches_repeated_one_step_forward() -> None:
     )
 
 
+def test_ar_rollout_reuses_cached_action_projection() -> None:
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import ARPredictor, Predictor
+
+    torch.manual_seed(17)
+    predictor = Predictor(
+        d_state=10,
+        d_action=5,
+        d_hidden=10,
+        n_heads=2,
+        n_cross_layers=2,
+        n_self_layers=1,
+        ffn_dim=20,
+        max_actions=5,
+    )
+    torch.nn.init.normal_(predictor.output_mlp[-1].weight, mean=0.0, std=0.02)
+    torch.nn.init.normal_(predictor.output_mlp[-1].bias, mean=0.0, std=0.02)
+
+    state = torch.nn.functional.normalize(torch.randn(3, 10), dim=-1)
+    actions = torch.randn(3, 5, 5)
+    current = state
+    expected = []
+    step_mask = torch.ones(3, 1, dtype=torch.bool)
+    for step in range(actions.shape[1]):
+        pred = predictor(current, actions[:, step : step + 1, :], step_mask)[:, 0, :]
+        expected.append(pred)
+        current = pred
+
+    calls = 0
+    original_forward = predictor.action_projection.forward
+
+    def counted_forward(input_tensor: torch.Tensor) -> torch.Tensor:
+        nonlocal calls
+        calls += 1
+        return original_forward(input_tensor)
+
+    predictor.action_projection.forward = counted_forward  # type: ignore[method-assign]
+    observed = ARPredictor(predictor).rollout_tensor(state, actions)
+
+    assert calls == 1
+    torch.testing.assert_close(
+        observed,
+        torch.stack(expected, dim=1),
+        atol=1e-6,
+        rtol=1e-6,
+    )
+
+
+def test_ar_rollout_requests_fp32_output_path_for_long_rollouts() -> None:
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import ARPredictor
+
+    class CachedPredictor:
+        d_state = 4
+        d_action = 2
+        max_actions = 24
+
+        def __init__(self) -> None:
+            self.upcast_flags: list[bool] = []
+
+        def __call__(
+            self,
+            state: torch.Tensor,
+            actions: torch.Tensor,
+            action_mask: torch.Tensor,
+        ) -> torch.Tensor:
+            raise AssertionError("cached rollout should not call the fallback forward path")
+
+        def _encode_rollout_actions(self, actions: torch.Tensor) -> torch.Tensor:
+            return torch.zeros(actions.shape[0], actions.shape[1], self.d_state)
+
+        def _forward_one_step_from_action_token(
+            self,
+            state: torch.Tensor,
+            action_token: torch.Tensor,
+            action_mask: torch.Tensor,
+            *,
+            upcast_output_mlp: bool = False,
+        ) -> torch.Tensor:
+            del action_token, action_mask
+            self.upcast_flags.append(upcast_output_mlp)
+            return torch.nn.functional.normalize(state + 0.01, dim=-1).unsqueeze(1)
+
+    predictor = CachedPredictor()
+    state = torch.nn.functional.normalize(torch.randn(1, 4), dim=-1)
+    actions = torch.randn(1, 21, 2)
+
+    trajectory = ARPredictor(predictor).rollout(state, actions)
+
+    assert len(trajectory) == 21
+    assert predictor.upcast_flags == [True] * 21
+
+
 def test_ar_rollout_accepts_sequence_input_and_masks_padding() -> None:
     torch = pytest.importorskip("torch")
     from geno_lewm.predictor import ARPredictor, Predictor
