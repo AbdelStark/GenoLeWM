@@ -219,6 +219,8 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
         ) -> Tensor:
             """Return the final predicted state after all valid actions."""
             actions = self._normalize_actions(action_sequence)
+            if action_mask is None:
+                return self.rollout_tensor(state, actions)[:, -1, :]
             mask = self._normalize_mask(actions, action_mask)
             trajectory = self.rollout_tensor(state, actions, mask)
             indices = mask.sum(dim=1) - 1

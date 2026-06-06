@@ -156,6 +156,82 @@ def test_ar_rollout_reuses_cached_action_projection() -> None:
     )
 
 
+def test_predict_haplotype_without_mask_uses_unmasked_cache_path() -> None:
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import ARPredictor, Predictor
+
+    torch.manual_seed(23)
+    predictor = Predictor(
+        d_state=10,
+        d_action=5,
+        d_hidden=10,
+        n_heads=2,
+        n_cross_layers=2,
+        n_self_layers=1,
+        ffn_dim=20,
+        max_actions=4,
+    )
+    torch.nn.init.normal_(predictor.output_mlp[-1].weight, mean=0.0, std=0.02)
+    torch.nn.init.normal_(predictor.output_mlp[-1].bias, mean=0.0, std=0.02)
+
+    state = torch.nn.functional.normalize(torch.randn(2, 10), dim=-1)
+    actions = torch.randn(2, 4, 5)
+    current = state
+    step_mask = torch.ones(2, 1, dtype=torch.bool)
+    for step in range(actions.shape[1]):
+        current = predictor(current, actions[:, step : step + 1, :], step_mask)[:, 0, :]
+    expected = current
+
+    cache_calls = 0
+    state_step_calls = 0
+    original_cache = predictor._precompute_rollout_action_cache
+    original_state_step = predictor._forward_one_step_unmasked_state_from_action_token
+
+    def counted_cache(action_tokens: torch.Tensor) -> object:
+        nonlocal cache_calls
+        cache_calls += 1
+        return original_cache(action_tokens)
+
+    def counted_state_step(
+        state_tensor: torch.Tensor,
+        action_token: torch.Tensor,
+        action_cache: object | None = None,
+        *,
+        state_token_bias: torch.Tensor | None = None,
+        upcast_output_mlp: bool = False,
+    ) -> torch.Tensor:
+        nonlocal state_step_calls
+        state_step_calls += 1
+        assert action_cache is not None
+        return original_state_step(
+            state_tensor,
+            action_token,
+            action_cache,
+            state_token_bias=state_token_bias,
+            upcast_output_mlp=upcast_output_mlp,
+        )
+
+    def masked_step_is_not_expected(
+        state_tensor: torch.Tensor,
+        action_token: torch.Tensor,
+        action_mask: torch.Tensor,
+        *,
+        upcast_output_mlp: bool = False,
+    ) -> torch.Tensor:
+        del state_tensor, action_token, action_mask, upcast_output_mlp
+        raise AssertionError("unmasked predict_haplotype should not use the masked step path")
+
+    predictor._precompute_rollout_action_cache = counted_cache  # type: ignore[method-assign]
+    predictor._forward_one_step_unmasked_state_from_action_token = counted_state_step  # type: ignore[method-assign]
+    predictor._forward_one_step_from_action_token = masked_step_is_not_expected  # type: ignore[method-assign]
+
+    observed = ARPredictor(predictor).predict_haplotype(state, actions)
+
+    assert cache_calls == 1
+    assert state_step_calls == actions.shape[1]
+    torch.testing.assert_close(observed, expected, atol=1e-6, rtol=1e-6)
+
+
 def test_ar_rollout_requests_fp32_output_path_for_real_predictor_long_rollout() -> None:
     torch = pytest.importorskip("torch")
     from geno_lewm.predictor import ARPredictor, Predictor
