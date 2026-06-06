@@ -1163,6 +1163,51 @@ def test_release_inputs_row_rejects_plan_only_suite_report(tmp_path: Path) -> No
     assert "suite_report.status must be pass" in findings
 
 
+def test_release_inputs_row_rejects_metrics_not_generated_by_suite(
+    tmp_path: Path,
+) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                ],
+                release_ready=True,
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(
+        json.dumps(_efficiency_payload(release_ready=True)),
+        encoding="utf-8",
+    )
+    suite.write_text(
+        json.dumps(_suite_report_payload(aggregate_metrics_output="eval/other_metrics.json")),
+        encoding="utf-8",
+    )
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        suite_report=suite,
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    assert rows["release_inputs"]["status"] == "failed"
+    findings = "\n".join(rows["release_inputs"]["findings"])
+    assert (
+        "suite_report.output_identities must include metrics_json inputs: eval_metrics.json"
+        in findings
+    )
+
+
 def test_readiness_rejects_invalid_suite_report_source(tmp_path: Path) -> None:
     suite = tmp_path / "v0.2_benchmark_suite_report.json"
     payload = _suite_report_payload()
@@ -1432,7 +1477,9 @@ def _passing_rollout_payload() -> dict[str, object]:
     }
 
 
-def _suite_report_payload() -> dict[str, object]:
+def _suite_report_payload(
+    *, aggregate_metrics_output: str = "eval_metrics.json"
+) -> dict[str, object]:
     return {
         "schema_version": v02_benchmark_suite.SCHEMA_VERSION,
         "generated_by": v02_benchmark_suite.GENERATED_BY,
@@ -1452,7 +1499,7 @@ def _suite_report_payload() -> dict[str, object]:
             _suite_step_payload(
                 step_id="aggregate.eval_all",
                 kind="aggregate_eval",
-                outputs=("eval/eval_metrics.json", "eval/eval_report.md"),
+                outputs=(aggregate_metrics_output, "eval/eval_report.md"),
                 issue_refs=("#56", "#197"),
             ),
             _suite_step_payload(

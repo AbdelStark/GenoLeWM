@@ -170,6 +170,7 @@ def build_readiness_report(
     if require_release_inputs:
         rows.append(
             _release_inputs_row(
+                metrics_json=metrics_json,
                 metric_reports=metric_reports,
                 rollout_speed_report=rollout_speed_report,
                 efficiency=efficiency,
@@ -671,6 +672,7 @@ def _load_rollout_speed_scope_decision(
 
 def _release_inputs_row(
     *,
+    metrics_json: tuple[Path, ...],
     metric_reports: tuple[EvalReportInput, ...],
     rollout_speed_report: Path | None,
     efficiency: EfficiencyReport | None,
@@ -691,7 +693,13 @@ def _release_inputs_row(
     if efficiency is not None:
         findings.extend(_efficiency_release_input_findings(efficiency))
     if suite_payload is not None:
-        findings.extend(_suite_release_input_findings(suite_payload))
+        findings.extend(
+            _suite_release_input_findings(
+                suite_payload,
+                metrics_json=metrics_json,
+                suite_report=suite_report,
+            )
+        )
     if findings:
         status = (
             "missing"
@@ -926,7 +934,12 @@ def _efficiency_release_input_findings(report: EfficiencyReport) -> list[str]:
     return findings
 
 
-def _suite_release_input_findings(payload: dict[str, object]) -> list[str]:
+def _suite_release_input_findings(
+    payload: dict[str, object],
+    *,
+    metrics_json: tuple[Path, ...],
+    suite_report: Path | None,
+) -> list[str]:
     findings: list[str] = []
     if payload.get("execute") is not True:
         findings.append("suite_report.execute must be true")
@@ -944,6 +957,7 @@ def _suite_release_input_findings(payload: dict[str, object]) -> list[str]:
         findings.append("suite_report.steps must list executed benchmark steps")
         return findings
     output_identity_count = 0
+    output_paths: set[str] = set()
     for index, raw_step in enumerate(steps, start=1):
         prefix = f"suite_report.steps[{index}]"
         if not isinstance(raw_step, dict):
@@ -965,6 +979,7 @@ def _suite_release_input_findings(payload: dict[str, object]) -> list[str]:
                 path = raw_identity.get("path")
                 if isinstance(path, str):
                     identity_paths.append(path)
+                    output_paths.add(path)
                 findings.extend(_artifact_identity_findings(raw_identity, field=identity_field))
             else:
                 findings.append(f"{identity_field} must be an artifact identity object")
@@ -973,7 +988,26 @@ def _suite_release_input_findings(payload: dict[str, object]) -> list[str]:
             findings.append(f"{prefix}.output_identities must match declared outputs")
     if output_identity_count == 0:
         findings.append("suite_report must record at least one output identity")
+    if suite_report is not None:
+        expected_metrics = [
+            _suite_relative_input_path(path, root=suite_report.parent) for path in metrics_json
+        ]
+        missing_metrics = [path for path in expected_metrics if path not in output_paths]
+        if missing_metrics:
+            findings.append(
+                "suite_report.output_identities must include metrics_json inputs: "
+                + ", ".join(missing_metrics)
+            )
     return findings
+
+
+def _suite_relative_input_path(path: Path, *, root: Path) -> str:
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            return _public_safe_identity_path(path)
+    return path.as_posix()
 
 
 def _suite_declared_outputs(
