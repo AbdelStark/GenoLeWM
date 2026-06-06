@@ -197,6 +197,77 @@ def test_eval_all_require_v02_vep_metrics_accepts_required_metric_rows(
     assert "traitgym_mendelian" in report
 
 
+def test_eval_all_require_v02_rollout_metrics_rejects_incomplete_aggregate(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    metrics = tmp_path / "metrics.json"
+    output_metrics = tmp_path / "aggregate.metrics.json"
+    output_report = tmp_path / "eval_report.md"
+    metrics.write_text(
+        json.dumps(_payload("rollout_phased_haplotypes", "cosine_similarity_mean", 0.91)),
+        encoding="utf-8",
+    )
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--metrics-json",
+            str(metrics),
+            "--output-metrics",
+            str(output_metrics),
+            "--output-report",
+            str(output_report),
+            "--require-v02-rollout-metrics",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert "v0.2 rollout-fidelity metric coverage is incomplete" in captured.err
+    assert not output_metrics.exists()
+    assert not output_report.exists()
+
+
+def test_eval_all_require_v02_rollout_metrics_accepts_required_metric_rows(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    metrics = tmp_path / "metrics.json"
+    output_metrics = tmp_path / "aggregate.metrics.json"
+    output_report = tmp_path / "eval_report.md"
+    metrics.write_text(json.dumps(_v02_rollout_payload()), encoding="utf-8")
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--metrics-json",
+            str(metrics),
+            "--output-metrics",
+            str(output_metrics),
+            "--output-report",
+            str(output_report),
+            "--require-v02-rollout-metrics",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    summary = json.loads(captured.out)
+    assert summary["metrics"] == 6
+    aggregate = load_report_input(output_metrics)
+    assert len(aggregate.metrics) == 6
+    artifacts = dict(aggregate.artifacts)
+    assert artifacts["input_1.rollout_states"] == "eval/rollout_states.jsonl"
+    report = output_report.read_text(encoding="utf-8")
+    assert "rollout_phased_haplotypes" in report
+    assert "rollout_synthetic_edit_chains" in report
+
+
 def test_eval_all_rejects_mismatched_release_identity(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -363,6 +434,35 @@ def _v02_vep_payload() -> dict[str, object]:
     return payload
 
 
+def _v02_rollout_payload() -> dict[str, object]:
+    payload = _payload("rollout_phased_haplotypes", "cosine_similarity_mean", 0.91)
+    metrics = [
+        _rollout_metric("rollout_phased_haplotypes", "cosine_similarity_mean", 0.91),
+        _rollout_metric("rollout_phased_haplotypes", "l2_distance_mean", 0.12),
+        _rollout_metric("rollout_phased_haplotypes", "recall_at_k", 0.66),
+        _rollout_metric("rollout_synthetic_edit_chains", "cosine_similarity_mean", 0.89),
+        _rollout_metric("rollout_synthetic_edit_chains", "l2_distance_mean", 0.15),
+        _rollout_metric("rollout_synthetic_edit_chains", "recall_at_k", 0.63),
+    ]
+    payload["metrics"] = metrics
+    payload["generated_at"] = "2026-06-01T00:03:00Z"
+    artifacts = payload["artifacts"]
+    assert isinstance(artifacts, dict)
+    artifacts.pop("scores")
+    artifacts.pop("labels")
+    artifacts["rollout_states"] = "eval/rollout_states.jsonl"
+    artifacts["baseline_rollout_states"] = "eval/rollout_states.jsonl"
+    payload["conclusions"] = [
+        (
+            f"The {metric['name']} metric value {metric['value']:.6g} on "
+            f"{metric['split']} was evaluated from measured rollout state rows "
+            f"with delta {metric['delta_vs_baseline']:.6g} versus {metric['baseline']}."
+        )
+        for metric in metrics
+    ]
+    return payload
+
+
 def _binary_metrics(split: str) -> list[dict[str, object]]:
     return [
         _baseline_metric(split, "auroc", 0.73),
@@ -391,3 +491,21 @@ def _baseline_metric(split: str, metric_name: str, value: float) -> dict[str, ob
         "baseline_evaluated_variant_keys_sha256": variant_hash,
     }
     return metric
+
+
+def _rollout_metric(split: str, metric_name: str, value: float) -> dict[str, object]:
+    state_hash = sha256_bytes(f"{split}-{metric_name}-rollout-state-ids".encode())
+    return {
+        "name": metric_name,
+        "value": value,
+        "split": split,
+        "unit": "score",
+        "higher_is_better": metric_name != "l2_distance_mean",
+        "baseline": "source_state",
+        "baseline_value": value - 0.01 if metric_name != "l2_distance_mean" else value + 0.01,
+        "delta_vs_baseline": 0.01 if metric_name != "l2_distance_mean" else -0.01,
+        "n": 1200,
+        "notes": f"held-out {split} rollout states",
+        "evaluated_variant_keys_sha256": state_hash,
+        "baseline_evaluated_variant_keys_sha256": state_hash,
+    }

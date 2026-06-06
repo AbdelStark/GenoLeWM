@@ -233,6 +233,42 @@ def require_v02_vep_benchmark_metrics(reports: tuple[EvalReportInput, ...]) -> N
         )
 
 
+def v02_rollout_benchmark_metric_findings(
+    reports: tuple[EvalReportInput, ...],
+) -> list[dict[str, object]]:
+    """Return missing/incomplete v0.2 rollout-fidelity rows for measured eval reports."""
+    metric_rows = tuple(metric for report in reports for metric in report.metrics)
+    findings: list[dict[str, object]] = []
+    for requirement in ROLLOUT_FIDELITY_REQUIREMENTS:
+        row = _benchmark_row(requirement, metric_rows)
+        if row["status"] == "pass":
+            continue
+        findings.append(
+            {
+                "benchmark_id": row["benchmark_id"],
+                "split": row["split"],
+                "status": row["status"],
+                "missing_metrics": row["missing_metrics"],
+                "issue_refs": row["issue_refs"],
+            }
+        )
+    return findings
+
+
+def require_v02_rollout_benchmark_metrics(reports: tuple[EvalReportInput, ...]) -> None:
+    """Require the measured rollout-fidelity rows needed before a v0.2 readiness report."""
+    findings = v02_rollout_benchmark_metric_findings(reports)
+    if findings:
+        raise InputError(
+            "v0.2 rollout-fidelity metric coverage is incomplete",
+            details={"findings": findings},
+            remediation=(
+                "aggregate measured rollout phased-haplotype and synthetic edit-chain "
+                "metrics with cosine similarity, L2 distance, and Recall@k rows"
+            ),
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)

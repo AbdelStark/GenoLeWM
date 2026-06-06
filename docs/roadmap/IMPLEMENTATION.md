@@ -97,7 +97,7 @@ re-run. Do not use local fixture/tooling evidence alone for v0.2 claims.
 | --- | --- | --- |
 | #163 dataset snapshot | `python -m tools.release.dataset_snapshot`; `python -m tools.release.dataset_package` | Completed for v0.1; v0.2 needs broader benchmark snapshots and refreshed split evidence |
 | #164 first Carbon-backed run | `geno-lewm-train --carbon-preflight`; `geno-lewm-train --carbon-train --package-release-run` | Completed for v0.1; v0.2 training should wait for stronger data/eval gates |
-| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all --require-v02-vep-metrics`; `geno-lewm-rollout`; `python -m bench.inference --release-efficiency` | Completed for the narrow v0.1 release; broader benchmark and real rollout state-row metrics remain open |
+| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`; `geno-lewm-rollout`; `python -m bench.inference --release-efficiency` | Completed for the narrow v0.1 release; broader benchmark and real rollout state-row metrics remain open |
 | #197 v0.2 benchmark readiness | `python -m tools.release.v02_benchmark_readiness --metrics-json ... --rollout-speed-report ... --efficiency-report ... --output ... --require-ok` | New coverage/provenance contract; `--require-ok` records measured values/deltas and also requires CI-bearing VEP metrics plus non-fixture, package-relative release inputs; expected `ok=false` until broader benchmark rows and #42 rollout speed pass from measured artifacts |
 | #20 release packaging | `python -m build`; `twine check`; `python -m tools.release.check_sdist_assets dist/*.tar.gz` over the full first-publication toolchain | Tagged package release built by the protected workflow from the checked tree |
 | #166 terminal showcase | `python tools/demo/terminal_inference.py`; `python -m tools.release.clean_machine_demo` | Completed for v0.1; future demos should demonstrate stronger benchmark/planning behavior without clinical claims |
@@ -215,14 +215,16 @@ The first paper/demo release is not ready until:
   `geno-lewm-eval` requires primary score rows from `geno-lewm-score`
   and Carbon baseline rows from `geno-lewm-carbon-baseline`;
 - evaluation report is generated from packaged measured metrics JSON
-  with `geno-lewm-eval-all --require-v02-vep-metrics`, which refreshes
-  and records `eval_config.effective.yaml` plus metrics inputs as
-  package-relative artifact paths under the aggregate metrics directory
-  and fails incomplete v0.2 VEP coverage; `geno-lewm-rollout` can add
-  rollout-fidelity metric rows from measured latent-state JSONL with
-  per-K stratification; the eval-report parser rejects metrics payloads
-  missing the required `eval_config` artifact; baseline comparisons must
-  supply `baseline`, `baseline_value`, and `delta_vs_baseline` together; conclusions must
+  with
+  `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`,
+  which refreshes and records `eval_config.effective.yaml` plus metrics
+  inputs as package-relative artifact paths under the aggregate metrics
+  directory and fails incomplete v0.2 VEP or rollout-fidelity coverage;
+  `geno-lewm-rollout` can add rollout-fidelity metric rows from measured
+  latent-state JSONL with per-K stratification; the eval-report parser
+  rejects metrics payloads missing the required `eval_config` artifact;
+  baseline comparisons must supply `baseline`, `baseline_value`, and
+  `delta_vs_baseline` together; conclusions must
   explicitly reference every measured metric name, split, measured value,
   and baseline delta when present from `eval_metrics.json`;
   `negative_findings` must be non-empty and render as

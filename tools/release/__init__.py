@@ -17,10 +17,11 @@ Two mechanical helpers used by the release checklist in
   documented release gates.
 * :mod:`tools.release.eval_report` renders ``eval_report.md`` from
   measured metrics JSON, keeping paper/demo results generated and
-  claim-bounded; ``geno-lewm-eval-all --require-v02-vep-metrics`` can
-  fail the aggregate when required #197 VEP metric rows are missing before
-  the all-up readiness report is generated, and ``geno-lewm-rollout`` can
-  contribute measured rollout-fidelity metric rows from latent-state JSONL.
+  claim-bounded; ``geno-lewm-eval-all --require-v02-vep-metrics
+  --require-v02-rollout-metrics`` can fail the aggregate when required
+  #197 VEP or rollout-fidelity metric rows are missing before the all-up
+  readiness report is generated, and ``geno-lewm-rollout`` can contribute
+  measured rollout-fidelity metric rows from latent-state JSONL.
 * :mod:`tools.release.efficiency_report` validates measured single-variant
   latency, batched throughput, peak memory, hardware/runtime notes, and
   input identities as ``efficiency_report.json``.

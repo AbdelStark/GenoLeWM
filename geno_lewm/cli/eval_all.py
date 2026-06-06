@@ -24,7 +24,10 @@ from tools.release.eval_report import (
     parse_report_input,
     render_report,
 )
-from tools.release.v02_benchmark_readiness import require_v02_vep_benchmark_metrics
+from tools.release.v02_benchmark_readiness import (
+    require_v02_rollout_benchmark_metrics,
+    require_v02_vep_benchmark_metrics,
+)
 
 __all__ = ["app", "cli_main"]
 
@@ -68,6 +71,16 @@ def main(
         typer.Option(
             "--require-v02-vep-metrics",
             help=("Fail unless the aggregate contains the v0.2 VEP metric rows required by #197."),
+        ),
+    ] = False,
+    require_v02_rollout_metrics: Annotated[
+        bool,
+        typer.Option(
+            "--require-v02-rollout-metrics",
+            help=(
+                "Fail unless the aggregate contains the v0.2 rollout-fidelity "
+                "metric rows required by #197."
+            ),
         ),
     ] = False,
     config: Annotated[str | None, _S["config"]] = None,
@@ -122,6 +135,8 @@ def main(
     aggregate_input = parse_report_input(aggregate_payload)
     if require_v02_vep_metrics:
         require_v02_vep_benchmark_metrics((aggregate_input,))
+    if require_v02_rollout_metrics:
+        require_v02_rollout_benchmark_metrics((aggregate_input,))
     rendered = render_report(aggregate_input)
     metrics_output.parent.mkdir(parents=True, exist_ok=True)
     report_output.parent.mkdir(parents=True, exist_ok=True)

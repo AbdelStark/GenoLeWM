@@ -940,7 +940,7 @@ Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-artifact-provenance-receipts.md)
 | `geno-lewm-score` | Implemented alpha | score a single variant or a VCF from a local model directory | RFC-0009, RFC-0010 |
 | `geno-lewm-eval` | Implemented alpha | compute measured metrics JSON and optional measured-baseline deltas from score/label artifacts | RFC-0007 |
 | `geno-lewm-carbon-baseline` | Implemented alpha | generate Carbon zero-shot baseline score JSONL for `geno-lewm-eval` | RFC-0007 |
-| `geno-lewm-eval-all` | Implemented alpha | aggregate measured metrics JSON into source `eval_metrics.json` plus generated `eval_report.md`; `--require-v02-vep-metrics` gates the #197 VEP metric subset | RFC-0007 |
+| `geno-lewm-eval-all` | Implemented alpha | aggregate measured metrics JSON into source `eval_metrics.json` plus generated `eval_report.md`; `--require-v02-vep-metrics` and `--require-v02-rollout-metrics` gate the #197 VEP and rollout-fidelity metric subsets | RFC-0007 |
 | `geno-lewm-verify` | Implemented alpha | verify a checksum receipt against a manifest | RFC-0011 |
 | `geno-lewm-cache-windows` | Partial alpha | repair/reindex local cache shards; full Carbon-corpus cache construction remains open | RFC-0006 |
 | `geno-lewm-prepare-gnomad` | Implemented alpha | build the gnomAD Parquet shard from an explicit local VCF/VCF.gz | RFC-0006 |

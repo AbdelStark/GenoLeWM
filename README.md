@@ -342,12 +342,15 @@ report is expected to remain `ok=false` until the broader benchmark suite and
 pass from measured artifacts.
 
 Before building the all-up readiness report, use
-`geno-lewm-eval-all --require-v02-vep-metrics` to fail the aggregate
-metrics refresh when coding/non-coding ClinVar, BRCA2 saturation, or
-TraitGym Mendelian VEP rows are missing required Carbon-baseline deltas,
-confidence intervals, or evaluated variant-key identities. This is only
-an aggregate coverage gate; efficiency, rollout speed, and release-input
-provenance still belong to `tools.release.v02_benchmark_readiness`.
+`geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`
+to fail the aggregate metrics refresh when coding/non-coding ClinVar,
+BRCA2 saturation, TraitGym Mendelian, or rollout-fidelity rows are
+missing required measured metric coverage. The VEP gate requires
+Carbon-baseline deltas, confidence intervals, and evaluated variant-key
+identities; the rollout gate requires phased-haplotype and synthetic
+edit-chain cosine/L2/Recall@k rows. These are only aggregate coverage
+gates; efficiency, rollout speed, and release-input provenance still
+belong to `tools.release.v02_benchmark_readiness`.
 
 For rollout-fidelity evidence, `geno-lewm-rollout --states-jsonl ... --output-metrics ...`
 now aggregates measured latent-state rows into eval-compatible

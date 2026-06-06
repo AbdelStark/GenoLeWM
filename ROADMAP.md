@@ -121,7 +121,7 @@ must reuse them with stronger data, evaluation, and rollout evidence.
 | --- | --- | --- |
 | Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked snapshot spec; `--check-inputs` records staged upstream input hashes/sizes; `python -m tools.release.dataset_snapshot` and `python -m tools.release.dataset_package` generate package metadata, data card, manifest, split-integrity, input-check report, snapshot report, and checksums once local upstream files are staged | Completed and published for v0.1 ([#163](https://github.com/AbdelStark/GenoLeWM/issues/163)); v0.2 needs broader benchmark snapshots and refreshed split evidence |
 | Carbon-backed training | `geno-lewm-train --carbon-preflight` and `geno-lewm-train --carbon-train --package-release-run` bind config, dataset, CUDA/VRAM readiness, Carbon model, metrics, logs, checkpoint, and training-run checksums | Completed and published for v0.1 ([#164](https://github.com/AbdelStark/GenoLeWM/issues/164)); v0.2 training should wait for stronger data/eval gates |
-| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all --require-v02-vep-metrics`, `geno-lewm-rollout`, and `python -m bench.inference --release-efficiency` generate metrics, report, effective eval config, aggregate VEP/rollout metric coverage checks, and efficiency evidence | Completed for the narrow v0.1 release ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)); broader GenoLeWM-vs-Carbon deltas, real rollout state-row artifacts, and benchmark gates remain open |
+| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`, `geno-lewm-rollout`, and `python -m bench.inference --release-efficiency` generate metrics, report, effective eval config, aggregate VEP/rollout metric coverage checks, and efficiency evidence | Completed for the narrow v0.1 release ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)); broader GenoLeWM-vs-Carbon deltas, real rollout state-row artifacts, and benchmark gates remain open |
 | v0.2 benchmark readiness | `python -m tools.release.v02_benchmark_readiness --metrics-json ... --rollout-speed-report ... --efficiency-report ... --output ... --require-ok` reconciles measured eval values/deltas, efficiency, AR rollout speed, confidence-interval coverage, and release-input provenance into `v0.2_benchmark_readiness_report.json` | New v0.2 gate for [#197](https://github.com/AbdelStark/GenoLeWM/issues/197); expected `ok=false` until broader benchmark rows, CI-bearing VEP metrics, non-fixture release inputs, and the [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target pass |
 | Source distribution | `python -m build`, `twine check`, and `python -m tools.release.check_sdist_assets dist/*.tar.gz` verify package metadata and the release-critical repo assets needed by the dataset, model, eval, efficiency, terminal-demo, clean-replay, and publication-evidence gates | No tagged package release has been built by the protected release workflow yet |
 | Terminal demo | `python tools/demo/terminal_inference.py` emits transcript, score/receipt JSONL, runtime preflight, batch receipt report, and terminal demo manifest | Completed for v0.1 ([#166](https://github.com/AbdelStark/GenoLeWM/issues/166)); v0.2 should demonstrate benchmark/planning behavior without clinical claims |
@@ -364,9 +364,10 @@ baseline, not a reason to publish stronger model-quality claims.
 - `eval_config.effective.yaml` records the committed eval config plus
   explicit CLI overrides used to generate or aggregate the report;
   `geno-lewm-eval` writes it beside the metrics JSON, and
-  `geno-lewm-eval-all --require-v02-vep-metrics` refreshes it while
-  recording metrics inputs as package-relative artifact paths under the
-  aggregate metrics directory and failing incomplete v0.2 VEP coverage;
+  `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`
+  refreshes it while recording metrics inputs as package-relative
+  artifact paths under the aggregate metrics directory and failing
+  incomplete v0.2 VEP or rollout-fidelity coverage;
   accepted metrics payloads must include this file as the `eval_config`
   artifact;
 - `efficiency_report.json` is generated with
@@ -413,10 +414,10 @@ baseline, not a reason to publish stronger model-quality claims.
   source headers, rejects eval/efficiency identity mismatches against
   the manifest release id and training dataset snapshot, and rejects
   stale Markdown;
-- `geno-lewm-eval-all --metrics-json ... --output-metrics ... --output-report ... --require-v02-vep-metrics`
+- `geno-lewm-eval-all --metrics-json ... --output-metrics ... --output-report ... --require-v02-vep-metrics --require-v02-rollout-metrics`
   aggregates validated measured metrics into the paper-report artifact
-  without rerunning benchmarks, rejects incomplete v0.2 VEP metric
-  coverage, and records required
+  without rerunning benchmarks, rejects incomplete v0.2 VEP and
+  rollout-fidelity metric coverage, and records required
   `eval_config.effective.yaml`;
 - report distinguishes measured values from planned targets;
 - all metrics link to config, commit, dataset manifest, and checkpoint;
