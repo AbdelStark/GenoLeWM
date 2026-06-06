@@ -273,14 +273,18 @@ trusted only after their hashes match the fetched manifest.
     record command status but do not replace the generated metric,
     efficiency, rollout-speed, package, or readiness validators.
     Rollout benchmark entries may include a state-generation step that
-    runs `python -m tools.release.rollout_state_rows --examples-jsonl ... --model-dir ...`
-    before `geno-lewm-rollout`. That helper must consume supplied
-    measured source/target/candidate latent examples, load the
+    first runs `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
+    when the manifest supplies cache-keyed example specs, then runs
+    `python -m tools.release.rollout_state_rows --examples-jsonl ... --model-dir ...`
+    before `geno-lewm-rollout`. The examples helper must resolve
+    package-local cache keys for measured source/target/candidate latent
+    states and record the cache index plus spec identities. The rows
+    helper must consume those measured latent examples, load the
     manifest-backed action encoder and predictor, write
     `geno-lewm-rollout-states` JSONL, and record package-relative
-    provenance. It does not run Carbon encoding or construct held-out
-    haplotypes, so those input examples remain required benchmark
-    artifacts.
+    provenance. These helpers do not run Carbon encoding or construct
+    held-out haplotypes, so those cache-backed specs remain required
+    benchmark inputs.
     If the RFC-0004 AR rollout speed target is not met and the project
     explicitly accepts a re-scope in #42/#197, generate
     `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`

@@ -29,6 +29,9 @@ Two mechanical helpers used by the release checklist in
   benchmark command graph from a JSON manifest, composing score,
   Carbon-baseline, eval, rollout, aggregate, and readiness commands while
   keeping plan-only reports explicitly non-evidence.
+* :mod:`tools.release.rollout_state_examples` resolves explicit cache
+  keys for measured source, target, and candidate latent states into the
+  examples JSONL consumed by rollout-state row generation.
 * :mod:`tools.release.v02_benchmark_readiness` reconciles measured eval,
   efficiency, and AR rollout speed artifacts into
   ``v0.2_benchmark_readiness_report.json``; release mode records measured

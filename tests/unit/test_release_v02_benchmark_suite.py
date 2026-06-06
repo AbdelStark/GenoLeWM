@@ -24,6 +24,7 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
         "clinvar_coding.score",
         "clinvar_coding.carbon_baseline",
         "clinvar_coding.eval",
+        "rollout_phased_haplotypes.rollout_examples",
         "rollout_phased_haplotypes.rollout_states",
         "rollout_phased_haplotypes.rollout",
         "aggregate.eval_all",
@@ -44,6 +45,12 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
     assert commands["aggregate.eval_all"].count("--metrics-json") == 2
     assert "--require-v02-vep-metrics" in commands["aggregate.eval_all"]
     assert "--require-v02-rollout-metrics" in commands["aggregate.eval_all"]
+    assert commands["rollout_phased_haplotypes.rollout_examples"][:3] == (
+        "python",
+        "-m",
+        "tools.release.rollout_state_examples",
+    )
+    assert "--cache-dir" in commands["rollout_phased_haplotypes.rollout_examples"]
     assert commands["rollout_phased_haplotypes.rollout_states"][:3] == (
         "python",
         "-m",
@@ -103,7 +110,7 @@ def test_write_suite_report_execute_runs_steps_in_manifest_directory(tmp_path: P
 
     assert report["ok"] is True
     assert report["status"] == "pass"
-    assert len(calls) == 7
+    assert len(calls) == 8
     assert all(cwd == tmp_path for _, cwd in calls)
     assert all(step["status"] == "pass" for step in report["steps"])
 
@@ -137,7 +144,7 @@ def test_write_suite_report_execute_stops_after_first_failure(tmp_path: Path) ->
     assert call_count == 1
     statuses = [step["status"] for step in report["steps"]]
     assert statuses[0] == "failed"
-    assert statuses[1:] == ["not_run"] * 6
+    assert statuses[1:] == ["not_run"] * 7
 
 
 def test_suite_manifest_rejects_nonportable_paths(tmp_path: Path) -> None:
@@ -222,7 +229,12 @@ def _manifest_payload() -> dict[str, object]:
                 "metrics_json": "eval/rollout_phased_haplotypes.metrics.json",
                 "recall_k": 10,
                 "state_generation": {
+                    "spec_jsonl": "eval/rollout_phased_haplotypes.example_specs.jsonl",
+                    "cache_dir": "cache/window_embeddings",
                     "examples_jsonl": "eval/rollout_phased_haplotypes.examples.jsonl",
+                    "examples_report_json": (
+                        "eval/rollout_phased_haplotypes.state_examples_report.json"
+                    ),
                     "report_json": "eval/rollout_phased_haplotypes.state_rows_report.json",
                 },
             },

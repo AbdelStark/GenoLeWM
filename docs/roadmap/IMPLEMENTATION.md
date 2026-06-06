@@ -97,7 +97,7 @@ re-run. Do not use local fixture/tooling evidence alone for v0.2 claims.
 | --- | --- | --- |
 | #163 dataset snapshot | `python -m tools.release.dataset_snapshot`; `python -m tools.release.dataset_package` | Completed for v0.1; v0.2 needs broader benchmark snapshots and refreshed split evidence |
 | #164 first Carbon-backed run | `geno-lewm-train --carbon-preflight`; `geno-lewm-train --carbon-train --package-release-run` | Completed for v0.1; v0.2 training should wait for stronger data/eval gates |
-| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`; `geno-lewm-rollout`; `python -m tools.release.rollout_state_rows`; `python -m tools.release.v02_benchmark_suite`; `python -m bench.inference --release-efficiency` | Completed for the narrow v0.1 release; broader benchmark and real held-out latent rollout examples remain open |
+| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`; `geno-lewm-rollout`; `python -m tools.release.rollout_state_examples`; `python -m tools.release.rollout_state_rows`; `python -m tools.release.v02_benchmark_suite`; `python -m bench.inference --release-efficiency` | Completed for the narrow v0.1 release; broader benchmark and real held-out latent rollout specs/states remain open |
 | #197 v0.2 benchmark readiness | `python -m tools.release.v02_benchmark_readiness --metrics-json ... --rollout-speed-report ... --rollout-speed-scope-report ... --efficiency-report ... --output ... --require-ok` | New coverage/provenance contract; `--require-ok` records measured values/deltas and also requires CI-bearing VEP metrics plus non-fixture, package-relative release inputs; expected `ok=false` until broader benchmark rows pass and #42 rollout speed either passes from measured artifacts or is explicitly re-scoped with `tools.release.rollout_speed_scope` |
 | #20 release packaging | `python -m build`; `twine check`; `python -m tools.release.check_sdist_assets dist/*.tar.gz` over the full first-publication toolchain | Tagged package release built by the protected workflow from the checked tree |
 | #166 terminal showcase | `python tools/demo/terminal_inference.py`; `python -m tools.release.clean_machine_demo` | Completed for v0.1; future demos should demonstrate stronger benchmark/planning behavior without clinical claims |
@@ -232,11 +232,14 @@ The first paper/demo release is not ready until:
   plan-only reports keep `ok=false`, while execute-mode reports command
   status and still defer measured claims to generated artifact
   validators;
+- `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
+  resolves explicit cache keys for measured source, target, and
+  candidate latent states into examples JSONL;
 - `python -m tools.release.rollout_state_rows --examples-jsonl ... --model-dir ...`
-  generates rollout-state JSONL from supplied measured latent examples
-  and the manifest-backed action encoder/predictor. It is a bridge from
-  precomputed source/target/candidate states to `geno-lewm-rollout`, not
-  a Carbon encoder run or held-out haplotype generator;
+  generates rollout-state JSONL from those measured latent examples and
+  the manifest-backed action encoder/predictor. These helpers bridge
+  precomputed source/target/candidate states to `geno-lewm-rollout`; they
+  are not Carbon encoder runs or held-out haplotype generators;
 - `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
   records an accepted #42/#197 re-scope for failed RFC-0004 AR rollout
   speed targets. Readiness consumes it only when the report binds the

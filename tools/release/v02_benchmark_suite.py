@@ -397,6 +397,46 @@ def _append_rollout_steps(
     metrics = _path_text(benchmark.get("metrics_json"), field=f"{benchmark_id}.metrics_json")
     state_generation = _optional_mapping(benchmark, "state_generation")
     if state_generation is not None:
+        examples = _path_text(
+            state_generation.get("examples_jsonl"),
+            field=f"{benchmark_id}.state_generation.examples_jsonl",
+        )
+        spec_jsonl = _optional_path_text(
+            state_generation,
+            "spec_jsonl",
+            field=f"{benchmark_id}.state_generation.spec_jsonl",
+        )
+        if spec_jsonl is not None:
+            examples_report = _path_text(
+                state_generation.get("examples_report_json"),
+                field=f"{benchmark_id}.state_generation.examples_report_json",
+            )
+            steps.append(
+                SuiteStep(
+                    step_id=f"{benchmark_id}.rollout_examples",
+                    kind="rollout_state_examples",
+                    command=(
+                        "python",
+                        "-m",
+                        "tools.release.rollout_state_examples",
+                        "--spec-jsonl",
+                        spec_jsonl,
+                        "--cache-dir",
+                        _path_text(
+                            state_generation.get("cache_dir"),
+                            field=f"{benchmark_id}.state_generation.cache_dir",
+                        ),
+                        "--artifact-root",
+                        shared["artifact_root"],
+                        "--output-jsonl",
+                        examples,
+                        "--output-report",
+                        examples_report,
+                    ),
+                    outputs=(examples, examples_report),
+                    issue_refs=("#57", "#197"),
+                )
+            )
         report = _path_text(
             state_generation.get("report_json"),
             field=f"{benchmark_id}.state_generation.report_json",
@@ -410,10 +450,7 @@ def _append_rollout_steps(
                     "-m",
                     "tools.release.rollout_state_rows",
                     "--examples-jsonl",
-                    _path_text(
-                        state_generation.get("examples_jsonl"),
-                        field=f"{benchmark_id}.state_generation.examples_jsonl",
-                    ),
+                    examples,
                     "--model-dir",
                     shared["model_dir"],
                     "--artifact-root",

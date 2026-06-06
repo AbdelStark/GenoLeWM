@@ -338,10 +338,14 @@ measured evidence. With `--execute`, `ok=true` only means every planned
 command completed, and the generated metrics, efficiency, rollout-speed,
 and readiness artifacts must still validate separately.
 For rollout benchmarks, the manifest can optionally include a
-`state_generation` block so
-`python -m tools.release.rollout_state_rows` runs before
-`geno-lewm-rollout`; that generator consumes supplied measured latent
-examples and the manifest-backed action encoder/predictor to produce
+`state_generation` block. When it names `spec_jsonl`, `cache_dir`, and
+`examples_report_json`, the suite first runs
+`python -m tools.release.rollout_state_examples` to resolve
+cache-keyed measured source/target/candidate latent states into
+`tools.release.rollout_state_examples` JSONL. It then runs
+`python -m tools.release.rollout_state_rows` before `geno-lewm-rollout`;
+that second generator consumes the measured latent examples and the
+manifest-backed action encoder/predictor to produce
 `geno-lewm-rollout-states` JSONL.
 
 ```bash
@@ -384,9 +388,11 @@ now aggregates measured latent-state rows into eval-compatible
 with source-state baseline deltas and per-K stratification. It does not
 generate held-out haplotypes or run Carbon encoding; those measured
 state-row artifacts are still v0.2 benchmark inputs. The lower-level
-`tools.release.rollout_state_rows` helper only bridges precomputed
-measured latent examples to rollout-state JSONL; it does not create the
-held-out examples or Carbon states.
+`tools.release.rollout_state_examples` helper resolves explicit
+cache-key specs into measured latent examples, and
+`tools.release.rollout_state_rows` bridges those examples to
+rollout-state JSONL. Neither helper runs Carbon encoding, constructs
+held-out haplotypes, or turns fixture states into benchmark evidence.
 
 - audit data issues #49, #50, #51, and #52 against the actual v0.1
   pipeline and turn remaining deltas into narrower v0.2 work;
