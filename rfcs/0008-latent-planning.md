@@ -3,12 +3,13 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-06
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004
 - **Supersedes:** —
-- **Implementation status:** Partial; cost functions and the factored
-  `ActionSampler` are implemented. CEM solver and CLI integration are
-  not yet implemented.
+- **Implementation status:** Partial; cost functions, the factored
+  `ActionSampler`, numeric distance helpers, and an evaluator-first CEM
+  solver core are implemented. Predictor-backed planning and CLI
+  integration are not yet implemented.
 
 ---
 

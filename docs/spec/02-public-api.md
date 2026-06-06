@@ -776,6 +776,13 @@ def weighted_type_cost(edits: Sequence[RelEdit],
                        weights: Mapping[EditType, float] = DEFAULT_TYPE_COSTS) -> float: ...
 def custom_cost(edits: Sequence[RelEdit],
                 cost_fn: Callable[[Sequence[RelEdit]], float]) -> float: ...
+```
+
+The cost functions and sampler are implemented and remain the stable
+top-level planning exports.
+
+```python
+# geno_lewm.planning.cem
 
 @dataclass
 class PlanningConfig:
@@ -783,33 +790,59 @@ class PlanningConfig:
     n_iterations: int = 5
     n_samples: int = 1024
     n_elite: int = 64
-    distance: str = "l2"
-    cost: str = "count"
     cost_weight: float = 0.0
     stopping_eps: float = 0.05
     patience: int = 2
     seed: int | None = None
+    smoothing: float = 0.1
+
+@dataclass
+class CandidateEvaluation:
+    distance: float
+    predicted_state: Any | None = None
+
+@dataclass
+class CEMIterationLog:
+    iteration: int
+    best_distance: float
+    best_cost: float
+    best_objective: float
+    elite_mean_distance: float
+    elite_mean_objective: float
+    n_candidates: int
 
 @dataclass
 class PlanningResult:
-    best_edits: list[RelEdit]
+    best_edits: tuple[RelEdit, ...]
     best_distance: float
-    best_predicted_state: Tensor
-    n_predictor_calls: int
-    iterations: list[CEMIterationLog]
+    best_cost: float
+    best_objective: float
+    best_predicted_state: Any | None
+    n_evaluations: int
+    iterations: tuple[CEMIterationLog, ...]
     elapsed_seconds: float
+    stopped_reason: str
 
-def plan(initial_state: Tensor,
-         target_state: Tensor,
-         predictor: Predictor,
-         action_encoder: ActionEncoder,
-         sampler: ActionSampler | None = None,
-         config: PlanningConfig | None = None) -> PlanningResult: ...
+def plan(evaluate: Callable[[Sequence[RelEdit]], float | CandidateEvaluation],
+         sampler: ActionSampler,
+         *,
+         config: PlanningConfig | None = None,
+         cost_fn: Callable[[Sequence[RelEdit]], float] | None = None) -> PlanningResult: ...
+
+def l2_distance(predicted: Iterable[float], target: Iterable[float]) -> float: ...
+def cosine_distance(predicted: Iterable[float], target: Iterable[float]) -> float: ...
+def region_distance(predicted: Iterable[float],
+                    target: Iterable[float],
+                    indices: Iterable[int]) -> float: ...
+def projection_distance(predicted: Iterable[float],
+                        target: Iterable[float],
+                        projection: Iterable[Iterable[float]]) -> float: ...
 ```
 
-The cost functions and sampler are implemented. `PlanningConfig`,
-`PlanningResult`, and `plan` define the upcoming CEM solver surface and
-are not stable top-level exports yet.
+`geno_lewm.planning.cem` implements a deterministic evaluator-first CEM
+solver core for local integrations. Predictor/action-encoder wiring,
+runtime performance acceptance, and the `geno-lewm-plan` CLI remain open
+v0.2 work. `PlanningConfig`, `PlanningResult`, and `plan` are not stable top-level exports yet.
 
 Defined by [RFC-0008 §3.3](../rfcs/0008-latent-planning.md#33-edit-search-space),
 [§3.5](../rfcs/0008-latent-planning.md#35-cost-functions), and
@@ -947,7 +980,7 @@ Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-artifact-provenance-receipts.md)
 | `geno-lewm-prepare-clinvar` | Implemented alpha | build the ClinVar Parquet shard from an explicit local VCF/VCF.gz | RFC-0006 |
 | `geno-lewm-update` | Implemented alpha | check or apply explicit user-approved model updates | RFC-0010 |
 | `geno-lewm-rollout` | Implemented alpha | aggregate measured latent rollout state rows into eval-compatible cosine, L2, Recall@k, naive-baseline, and per-K stratification metrics; real held-out state-row generation remains v0.2 work | RFC-0004, RFC-0007 |
-| `geno-lewm-plan` | Entry-point scaffold | CEM planning to a target state; blocked on solver implementation; cost and sampler primitives already exist | RFC-0008 |
+| `geno-lewm-plan` | Entry-point scaffold | CEM planning to a target state; pure solver core, cost, and sampler primitives exist, while predictor-backed CLI integration and evidence remain open | RFC-0008 |
 | `geno-lewm-export` | Implemented (safetensors) | exports a training `predictor_checkpoint.pt` to deploy `predictor.safetensors` + `action_encoder.safetensors` + `export_report.json`; ONNX / Core ML / GGUF targets and quantization remain scaffolds (#67–#70) | RFC-0010 |
 
 All commands accept `--config FILE` (Hydra-compatible), `--seed INT`,

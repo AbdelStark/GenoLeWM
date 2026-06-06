@@ -653,7 +653,8 @@ After the first paper/demo release, the v0.2 workstreams are:
 - indels and MNVs;
 - multi-edit rollout;
 - calibrated surprise-score validation beyond the v0.1 artifact;
-- planning with CEM;
+- planning with CEM; the pure solver core exists, while predictor-backed
+  planning, CLI evidence, and performance acceptance remain open;
 - ONNX/Core ML export and local desktop workflow;
 - larger Carbon checkpoints and LoRA adaptation.
 

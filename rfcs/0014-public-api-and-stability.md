@@ -60,8 +60,10 @@ Summary:
 - `geno_lewm.predictor`: `Predictor`, `ARPredictor`.
 - `geno_lewm.surprise`: `SurpriseResult`, `score_variant`, `score_vcf`.
 - `geno_lewm.planning`: action sampler and edit-sequence cost
-  primitives. `PlanningConfig`, `PlanningResult`, and `plan` are the
-  upcoming CEM solver surface, not stable top-level exports yet.
+  primitives.
+- `geno_lewm.planning.cem`: evaluator-first CEM solver core and numeric
+  distance helpers. Predictor-backed planning remains integration work;
+  `PlanningConfig`, `PlanningResult`, and `plan` are not stable top-level exports yet.
 - `geno_lewm.deploy`: `GenoLeWMRuntime`.
 - `geno_lewm.provenance`: `Receipt`, `write_receipt`, `read_receipt`,
   manifest helpers, checksum helpers, and commitment helpers.
