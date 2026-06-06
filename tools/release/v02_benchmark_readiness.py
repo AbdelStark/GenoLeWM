@@ -22,6 +22,12 @@ from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import sha256_file
 from tools.release.efficiency_report import EfficiencyReport, load_efficiency_report
 from tools.release.eval_report import EvalReportInput, MetricResult, load_report_input
+from tools.release.rollout_speed_scope import (
+    DECISION as ROLLOUT_SPEED_SCOPE_DECISION,
+    GENERATED_BY as ROLLOUT_SPEED_SCOPE_GENERATED_BY,
+    SCHEMA_VERSION as ROLLOUT_SPEED_SCOPE_SCHEMA_VERSION,
+    STATUS as ROLLOUT_SPEED_SCOPE_STATUS,
+)
 
 SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.v02_benchmark_readiness"
@@ -114,6 +120,7 @@ def build_readiness_report(
     *,
     metrics_json: tuple[Path, ...] = (),
     rollout_speed_report: Path | None = None,
+    rollout_speed_scope_report: Path | None = None,
     efficiency_report: Path | None = None,
     command: tuple[str, ...] = (),
     require_release_inputs: bool = False,
@@ -129,7 +136,13 @@ def build_readiness_report(
     metric_rows = tuple(metric for report in metric_reports for metric in report.metrics)
     rows = [_benchmark_row(requirement, metric_rows) for requirement in BENCHMARK_REQUIREMENTS]
     rows.append(_efficiency_row(efficiency))
-    rows.append(_rollout_speed_row(rollout_speed_report, expected_commit=identity.get("commit")))
+    rows.append(
+        _rollout_speed_row(
+            rollout_speed_report,
+            rollout_speed_scope_report=rollout_speed_scope_report,
+            expected_commit=identity.get("commit"),
+        )
+    )
     if require_release_inputs:
         rows.append(
             _release_inputs_row(
@@ -139,12 +152,16 @@ def build_readiness_report(
             )
         )
     missing_or_failed = [
-        str(row["benchmark_id"]) for row in rows if str(row.get("status")) != "pass"
+        str(row["benchmark_id"])
+        for row in rows
+        if str(row.get("status")) not in {"pass", "rescoped"}
     ]
+    scope_decisions = _scope_decisions(rows)
     ok = not missing_or_failed
     artifact_inputs = _artifact_inputs(
         metrics_json=metrics_json,
         rollout_speed_report=rollout_speed_report,
+        rollout_speed_scope_report=rollout_speed_scope_report,
         efficiency_report=efficiency_report,
     )
     return {
@@ -161,9 +178,13 @@ def build_readiness_report(
         "release_inputs_required": require_release_inputs,
         "inputs": artifact_inputs,
         "benchmark_rows": rows,
+        "scope_decisions": scope_decisions,
         "missing_or_failed_benchmarks": missing_or_failed,
         "metric_conclusions": _metric_conclusions(rows),
-        "negative_findings": _negative_findings(missing_or_failed),
+        "negative_findings": _negative_findings(
+            missing_or_failed,
+            scope_decisions=scope_decisions,
+        ),
         "claim_boundary": (
             "This report validates benchmark coverage and artifact provenance only; it is not "
             "clinical, privacy, deployment, or model-quality evidence beyond the measured inputs."
@@ -176,6 +197,7 @@ def write_readiness_report(
     output: Path,
     metrics_json: tuple[Path, ...] = (),
     rollout_speed_report: Path | None = None,
+    rollout_speed_scope_report: Path | None = None,
     efficiency_report: Path | None = None,
     command: tuple[str, ...] = (),
     require_release_inputs: bool = False,
@@ -184,6 +206,7 @@ def write_readiness_report(
     report = build_readiness_report(
         metrics_json=metrics_json,
         rollout_speed_report=rollout_speed_report,
+        rollout_speed_scope_report=rollout_speed_scope_report,
         efficiency_report=efficiency_report,
         command=command,
         require_release_inputs=require_release_inputs,
@@ -278,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
             output=args.output,
             metrics_json=tuple(args.metrics_json or ()),
             rollout_speed_report=args.rollout_speed_report,
+            rollout_speed_scope_report=args.rollout_speed_scope_report,
             efficiency_report=args.efficiency_report,
             command=command,
             require_release_inputs=args.require_release_inputs or args.require_ok,
@@ -377,7 +401,14 @@ def _efficiency_row(report: EfficiencyReport | None) -> dict[str, object]:
     }
 
 
-def _rollout_speed_row(path: Path | None, *, expected_commit: str | None) -> dict[str, object]:
+def _rollout_speed_row(
+    path: Path | None,
+    *,
+    rollout_speed_scope_report: Path | None,
+    expected_commit: str | None,
+) -> dict[str, object]:
+    if path is None and rollout_speed_scope_report is not None:
+        raise InputError("rollout speed scope report requires a rollout speed report")
     if path is None:
         return {
             "benchmark_id": "ar_rollout_speed",
@@ -411,6 +442,7 @@ def _rollout_speed_row(path: Path | None, *, expected_commit: str | None) -> dic
     rows = _require_list(payload.get("rows"), "rollout speed rows")
     observed: dict[str, float] = {}
     failed: list[str] = []
+    failed_target_rows: list[dict[str, object]] = []
     for row in rows:
         if not isinstance(row, dict):
             raise InputError("rollout speed rows must be objects")
@@ -420,6 +452,14 @@ def _rollout_speed_row(path: Path | None, *, expected_commit: str | None) -> dic
         observed[f"k{horizon}_speedup"] = speedup
         if not _required_bool(row, "target_met"):
             failed.append(f"K={horizon}: {speedup:.6g}x < {target:.6g}x")
+            failed_target_rows.append(
+                {
+                    "horizon": horizon,
+                    "measured_speedup": speedup,
+                    "target_speedup": target,
+                    "shortfall": max(0.0, target - speedup),
+                }
+            )
     missing_metrics = [
         metric for metric in ROLLOUT_SPEED_REQUIRED_METRICS if metric not in observed
     ]
@@ -431,7 +471,23 @@ def _rollout_speed_row(path: Path | None, *, expected_commit: str | None) -> dic
         status = "incomplete"
     else:
         status = "pass"
-    return {
+    if rollout_speed_scope_report is not None and status != "failed":
+        raise InputError(
+            "rollout speed scope report is only valid for failed rollout speed targets",
+            details={"rollout_speed_status": status},
+        )
+    scope_decision = None
+    if rollout_speed_scope_report is not None:
+        scope_decision = _load_rollout_speed_scope_decision(
+            rollout_speed_scope_report,
+            rollout_speed_report=path,
+            rollout_commit=commit,
+            rollout_report_ok=report_ok,
+            observed_values=observed,
+            failed_targets=failed_target_rows,
+        )
+        status = "rescoped"
+    row_payload: dict[str, object] = {
         "benchmark_id": "ar_rollout_speed",
         "track": "rollout_performance",
         "status": status,
@@ -443,6 +499,114 @@ def _rollout_speed_row(path: Path | None, *, expected_commit: str | None) -> dic
         "commit": commit,
         "command": command,
         "issue_refs": ["#42", "#197"],
+    }
+    if scope_decision is not None:
+        row_payload["scope_decision"] = scope_decision
+    return row_payload
+
+
+def _load_rollout_speed_scope_decision(
+    path: Path,
+    *,
+    rollout_speed_report: Path,
+    rollout_commit: str,
+    rollout_report_ok: bool,
+    observed_values: dict[str, float],
+    failed_targets: list[dict[str, object]],
+) -> dict[str, object]:
+    payload = _load_json(path, label="rollout speed scope report")
+    schema_version = payload.get("schema_version")
+    if schema_version != ROLLOUT_SPEED_SCOPE_SCHEMA_VERSION:
+        raise InputError(
+            "rollout speed scope report schema_version is invalid",
+            details={
+                "expected": ROLLOUT_SPEED_SCOPE_SCHEMA_VERSION,
+                "observed": schema_version,
+            },
+        )
+    generated_by = payload.get("generated_by")
+    if generated_by != ROLLOUT_SPEED_SCOPE_GENERATED_BY:
+        raise InputError(
+            "rollout speed scope report generated_by is invalid",
+            details={
+                "expected": ROLLOUT_SPEED_SCOPE_GENERATED_BY,
+                "observed": generated_by,
+            },
+        )
+    if payload.get("ok") is not True:
+        raise InputError("rollout speed scope report must have ok=true")
+    status = _required_text(payload, "status")
+    if status != ROLLOUT_SPEED_SCOPE_STATUS:
+        raise InputError(
+            "rollout speed scope report status is invalid",
+            details={"expected": ROLLOUT_SPEED_SCOPE_STATUS, "observed": status},
+        )
+    decision = _required_text(payload, "decision")
+    if decision != ROLLOUT_SPEED_SCOPE_DECISION:
+        raise InputError(
+            "rollout speed scope report decision is invalid",
+            details={"expected": ROLLOUT_SPEED_SCOPE_DECISION, "observed": decision},
+        )
+    raw_issue_refs = payload.get("issue_refs")
+    if (
+        not isinstance(raw_issue_refs, list)
+        or "#42" not in raw_issue_refs
+        or "#197" not in raw_issue_refs
+    ):
+        raise InputError("rollout speed scope report issue_refs must include #42 and #197")
+    raw_identity = payload.get("rollout_speed_report")
+    if not isinstance(raw_identity, dict):
+        raise InputError("rollout speed scope report must bind rollout_speed_report")
+    expected_identity = _file_identity(rollout_speed_report)
+    identity_mismatches = {
+        key: {"expected": expected_identity[key], "observed": raw_identity.get(key)}
+        for key in ("sha256", "size_bytes")
+        if raw_identity.get(key) != expected_identity[key]
+    }
+    if identity_mismatches:
+        raise InputError(
+            "rollout speed scope report does not match rollout speed report",
+            details={"mismatches": identity_mismatches},
+        )
+    raw_summary = payload.get("rollout_speed_summary")
+    if not isinstance(raw_summary, dict):
+        raise InputError("rollout speed scope report must bind rollout_speed_summary")
+    summary_mismatches: dict[str, object] = {}
+    if raw_summary.get("commit") != rollout_commit:
+        summary_mismatches["commit"] = {
+            "expected": rollout_commit,
+            "observed": raw_summary.get("commit"),
+        }
+    if raw_summary.get("report_ok") != rollout_report_ok:
+        summary_mismatches["report_ok"] = {
+            "expected": rollout_report_ok,
+            "observed": raw_summary.get("report_ok"),
+        }
+    if raw_summary.get("observed_values") != observed_values:
+        summary_mismatches["observed_values"] = {
+            "expected": observed_values,
+            "observed": raw_summary.get("observed_values"),
+        }
+    if raw_summary.get("failed_targets") != failed_targets:
+        summary_mismatches["failed_targets"] = {
+            "expected": failed_targets,
+            "observed": raw_summary.get("failed_targets"),
+        }
+    if summary_mismatches:
+        raise InputError(
+            "rollout speed scope report summary is stale",
+            details={"mismatches": summary_mismatches},
+        )
+    return {
+        "report": _file_identity(path),
+        "decision": decision,
+        "status": status,
+        "accepted_by": _required_text(payload, "accepted_by"),
+        "accepted_at": _required_text(payload, "accepted_at"),
+        "decision_url": _required_text(payload, "decision_url"),
+        "rationale": _required_text(payload, "rationale"),
+        "replacement_target": _required_text(payload, "replacement_target"),
+        "issue_refs": raw_issue_refs,
     }
 
 
@@ -669,6 +833,7 @@ def _artifact_inputs(
     *,
     metrics_json: tuple[Path, ...],
     rollout_speed_report: Path | None,
+    rollout_speed_scope_report: Path | None,
     efficiency_report: Path | None,
 ) -> dict[str, object]:
     inputs: dict[str, object] = {
@@ -676,6 +841,8 @@ def _artifact_inputs(
     }
     if rollout_speed_report is not None:
         inputs["rollout_speed_report"] = _file_identity(rollout_speed_report)
+    if rollout_speed_scope_report is not None:
+        inputs["rollout_speed_scope_report"] = _file_identity(rollout_speed_scope_report)
     if efficiency_report is not None:
         inputs["efficiency_report"] = _file_identity(efficiency_report)
     return inputs
@@ -764,6 +931,12 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
             if deltas:
                 conclusion += f" Baseline deltas: {deltas}."
             conclusions.append(conclusion)
+        elif status == "rescoped":
+            values = _format_metric_values(row.get("observed_values"))
+            conclusions.append(
+                f"{benchmark} was explicitly rescoped after failed measured targets"
+                + (f": {values}." if values else ".")
+            )
         else:
             raw_issue_refs = row.get("issue_refs")
             issue_refs = (
@@ -778,6 +951,25 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
     return conclusions
 
 
+def _scope_decisions(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    decisions: list[dict[str, object]] = []
+    for row in rows:
+        if row.get("status") != "rescoped":
+            continue
+        raw = row.get("scope_decision")
+        if isinstance(raw, dict):
+            decisions.append(
+                {
+                    "benchmark_id": row.get("benchmark_id"),
+                    "decision": raw.get("decision"),
+                    "accepted_at": raw.get("accepted_at"),
+                    "decision_url": raw.get("decision_url"),
+                    "issue_refs": raw.get("issue_refs"),
+                }
+            )
+    return decisions
+
+
 def _format_metric_values(raw: object) -> str:
     if not isinstance(raw, dict) or not raw:
         return ""
@@ -790,14 +982,24 @@ def _format_metric_values(raw: object) -> str:
     return ", ".join(items)
 
 
-def _negative_findings(missing_or_failed: list[str]) -> list[str]:
+def _negative_findings(
+    missing_or_failed: list[str],
+    *,
+    scope_decisions: list[dict[str, object]],
+) -> list[str]:
     if not missing_or_failed:
-        return [
+        findings = [
             (
                 "No clinical utility, privacy, runtime-assurance, or deployment claim is established "
                 "by benchmark coverage alone."
             )
         ]
+        if scope_decisions:
+            findings.append(
+                "At least one benchmark target was explicitly rescoped; original failed "
+                "measurements remain recorded and are not passing speed evidence."
+            )
+        return findings
     return [
         (
             "The v0.2 benchmark suite is incomplete or below target for: "
@@ -884,6 +1086,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Optional bench.rollout report JSON for RFC-0004 speed gates.",
     )
     parser.add_argument(
+        "--rollout-speed-scope-report",
+        type=Path,
+        help="Optional accepted rollout-speed scope report for explicit #42 re-scope decisions.",
+    )
+    parser.add_argument(
         "--efficiency-report",
         type=Path,
         help="Optional validated efficiency_report.json for RFC-0007 efficiency coverage.",
@@ -908,6 +1115,8 @@ def _command_from_args(args: argparse.Namespace) -> tuple[str, ...]:
         command.extend(("--metrics-json", str(path)))
     if args.rollout_speed_report is not None:
         command.extend(("--rollout-speed-report", str(args.rollout_speed_report)))
+    if args.rollout_speed_scope_report is not None:
+        command.extend(("--rollout-speed-scope-report", str(args.rollout_speed_scope_report)))
     if args.efficiency_report is not None:
         command.extend(("--efficiency-report", str(args.efficiency_report)))
     command.extend(("--output", str(args.output)))

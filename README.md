@@ -342,6 +342,7 @@ and readiness artifacts must still validate separately.
 python -m tools.release.v02_benchmark_readiness \
   --metrics-json .../eval_metrics.json \
   --rollout-speed-report .../rollout.ar_speed.json \
+  --rollout-speed-scope-report .../rollout_speed_scope.json \
   --efficiency-report .../efficiency_report.json \
   --output .../v0.2_benchmark_readiness_report.json \
   --require-ok
@@ -351,9 +352,14 @@ With `--require-ok`, the gate also requires release-shaped input
 provenance: package-relative score/label or aggregate metrics inputs,
 efficiency input identities, measured VEP values with baseline deltas
 and confidence intervals, and non-fixture release identity text. The
-report is expected to remain `ok=false` until the broader benchmark suite and
+report is expected to remain `ok=false` until the broader benchmark suite
+passes from measured artifacts and the
 [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target
-pass from measured artifacts.
+either passes or is explicitly re-scoped through
+`python -m tools.release.rollout_speed_scope`. A scope report must bind
+the failing `bench.rollout` report, issue refs, accepted decision URL,
+rationale, and replacement target; readiness then records the AR-speed
+row as `rescoped` while preserving the failed measured speedups.
 
 Before building the all-up readiness report, use
 `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`

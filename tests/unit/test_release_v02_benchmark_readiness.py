@@ -9,7 +9,7 @@ import pytest
 
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_bytes
-from tools.release import v02_benchmark_readiness
+from tools.release import rollout_speed_scope, v02_benchmark_readiness
 
 
 def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
@@ -140,6 +140,93 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
     assert "clinvar_coding passed" in conclusions
     assert "auroc=0.73" in conclusions
     assert "Baseline deltas: accuracy=0.01" in conclusions
+
+
+def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    scope = tmp_path / "rollout_speed_scope.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                    *_binary_metrics("clinvar_noncoding", baseline=True),
+                    _metric("brca2", "spearman_rho", 0.61, baseline=True),
+                    _metric("traitgym_mendelian", "spearman_rho", 0.44, baseline=True),
+                    _metric("rollout_phased_haplotypes", "cosine_similarity_mean", 0.91),
+                    _metric("rollout_phased_haplotypes", "l2_distance_mean", 0.12),
+                    _metric("rollout_phased_haplotypes", "recall_at_k", 0.66),
+                    _metric("rollout_synthetic_edit_chains", "cosine_similarity_mean", 0.89),
+                    _metric("rollout_synthetic_edit_chains", "l2_distance_mean", 0.15),
+                    _metric("rollout_synthetic_edit_chains", "recall_at_k", 0.63),
+                ]
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_failing_rollout_payload()), encoding="utf-8")
+    rollout_speed_scope.write_scope_report(
+        rollout_speed_report=rollout,
+        output=scope,
+        accepted_by="maintainer",
+        accepted_at="2026-06-06T12:00:00Z",
+        decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        replacement_target="Report measured rollout speed until #42 accepts a new target.",
+    )
+    efficiency.write_text(json.dumps(_efficiency_payload()), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        rollout_speed_scope_report=scope,
+        efficiency_report=efficiency,
+    )
+
+    assert report["ok"] is True
+    assert report["missing_or_failed_benchmarks"] == []
+    rows = _rows_by_id(report)
+    assert rows["ar_rollout_speed"]["status"] == "rescoped"
+    assert rows["ar_rollout_speed"]["failed_targets"]
+    assert rows["ar_rollout_speed"]["scope_decision"]["decision"] == (
+        "rescope_rfc0004_speed_target"
+    )
+    assert report["scope_decisions"] == [
+        {
+            "benchmark_id": "ar_rollout_speed",
+            "decision": "rescope_rfc0004_speed_target",
+            "accepted_at": "2026-06-06T12:00:00Z",
+            "decision_url": "https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+            "issue_refs": ["#42", "#197"],
+        }
+    ]
+    assert "not passing speed evidence" in "\n".join(report["negative_findings"])
+
+
+def test_readiness_rejects_stale_rollout_speed_rescope(tmp_path: Path) -> None:
+    rollout = tmp_path / "rollout.ar_speed.json"
+    scope = tmp_path / "rollout_speed_scope.json"
+    rollout.write_text(json.dumps(_failing_rollout_payload()), encoding="utf-8")
+    rollout_speed_scope.write_scope_report(
+        rollout_speed_report=rollout,
+        output=scope,
+        accepted_by="maintainer",
+        accepted_at="2026-06-06T12:00:00Z",
+        decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        replacement_target="Report measured rollout speed until #42 accepts a new target.",
+    )
+    payload = _failing_rollout_payload()
+    payload["rows"][0]["measured_speedup"] = 1.7
+    rollout.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputError, match="does not match rollout speed report"):
+        v02_benchmark_readiness.build_readiness_report(
+            rollout_speed_report=rollout,
+            rollout_speed_scope_report=scope,
+        )
 
 
 def test_vep_rows_require_confidence_intervals(tmp_path: Path) -> None:
@@ -574,6 +661,30 @@ def _passing_rollout_payload() -> dict[str, object]:
                 "measured_speedup": 5.2,
                 "target_speedup": 5.0,
                 "target_met": True,
+            },
+        ],
+    }
+
+
+def _failing_rollout_payload() -> dict[str, object]:
+    return {
+        "schema_version": "1.0.0",
+        "generated_by": "bench.rollout",
+        "ok": False,
+        "commit": "abcdef1234567890",
+        "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
+        "rows": [
+            {
+                "horizon": 5,
+                "measured_speedup": 1.8,
+                "target_speedup": 2.0,
+                "target_met": False,
+            },
+            {
+                "horizon": 20,
+                "measured_speedup": 1.9,
+                "target_speedup": 5.0,
+                "target_met": False,
             },
         ],
     }

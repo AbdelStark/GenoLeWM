@@ -272,6 +272,15 @@ trusted only after their hashes match the fetched manifest.
     suite reports must keep `ok=false`; execute-mode suite reports
     record command status but do not replace the generated metric,
     efficiency, rollout-speed, package, or readiness validators.
+    If the RFC-0004 AR rollout speed target is not met and the project
+    explicitly accepts a re-scope in #42/#197, generate
+    `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
+    with the accepted decision URL, rationale, replacement target, and
+    issue refs. `tools.release.v02_benchmark_readiness` may then consume
+    `--rollout-speed-scope-report ...`, but only when that report binds
+    the exact failing `bench.rollout` hash/size and failed K targets.
+    The readiness row is recorded as `rescoped`, not as passing
+    rollout-speed evidence.
 15. For model/demo releases: normalize measured efficiency evidence as
     `<model-dir>/efficiency_report.json` with
     `python -m bench.inference --release-efficiency --model-dir ... --vcf ... --fasta ... --variant ... --window ... --output-json ...`;

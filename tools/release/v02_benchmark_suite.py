@@ -460,6 +460,17 @@ def _readiness_step(
         "--output",
         output,
     ]
+    rollout_speed_scope_report = readiness.get("rollout_speed_scope_report")
+    if rollout_speed_scope_report is not None:
+        command.extend(
+            (
+                "--rollout-speed-scope-report",
+                _path_text(
+                    rollout_speed_scope_report,
+                    field="readiness.rollout_speed_scope_report",
+                ),
+            )
+        )
     if _optional_bool(readiness, "require_ok", default=False):
         command.append("--require-ok")
     if _optional_bool(readiness, "require_release_inputs", default=False):
