@@ -45,7 +45,8 @@ Implemented:
   `geno-lewm-prepare-gnomad` and `geno-lewm-prepare-clinvar`;
 - `geno-lewm-eval` artifact-level metrics and deterministic bootstrap
   confidence intervals from score JSONL and held-out ClinVar-style
-  label JSONL;
+  label JSONL, plus continuous Spearman evaluation for v0.2 BRCA2 and
+  TraitGym-style score/label artifacts;
 - `geno-lewm-carbon-baseline` Carbon zero-shot baseline score artifact
   generation from an explicit local Carbon LM, VCF, FASTA, and optional
   log-likelihood cache;
@@ -53,6 +54,10 @@ Implemented:
   into packaged source `eval_metrics.json` plus generated
   `eval_report.md`, with `eval_config.effective.yaml` recorded as an
   required eval artifact;
+- `tools.release.v02_benchmark_suite`, with a checked
+  `configs/first_experiment/v0.2_benchmark_suite.template.json`
+  planning template for the #197 VEP, Carbon-baseline, rollout, aggregate,
+  and readiness command graph;
 - `bench.inference --release-efficiency` generation of validated
   single-variant latency, batched throughput, peak memory,
   hardware/runtime notes, command, and input identities;
@@ -92,8 +97,9 @@ Not implemented end-to-end yet:
 - attention KV-cache speedups for RFC-0004 autoregressive rollout;
 - broader held-out benchmark coverage beyond the narrow v0.1 chr21
   ClinVar release slice;
-- measured v0.2 GenoLeWM-vs-Carbon baseline deltas over coding and
-  non-coding splits with exact evaluated variant identities;
+- measured v0.2 GenoLeWM-vs-Carbon baseline deltas over coding,
+  non-coding, BRCA2 saturation, and TraitGym Mendelian splits with exact
+  evaluated variant identities;
 - rollout-fidelity state-row generation plus performance regression gates
   beyond the implemented `geno-lewm-rollout` metrics aggregator;
 - planning-ready API/CLI demos backed by measured predictor evidence;

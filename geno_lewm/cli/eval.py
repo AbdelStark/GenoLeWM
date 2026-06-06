@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 
@@ -20,8 +20,12 @@ from geno_lewm.evaluation import (
     DEFAULT_CI_LEVEL,
     DEFAULT_EVAL_SCORE_FIELD,
     DEFAULT_EVAL_THRESHOLD,
+    BinaryEvalResult,
+    ContinuousEvalResult,
     _require_score_jsonl_generated_by,
+    build_continuous_eval_report_payload,
     build_eval_report_payload,
+    evaluate_continuous_score_labels,
     evaluate_score_labels,
 )
 
@@ -93,6 +97,20 @@ def main(
             help="Name recorded for the optional measured baseline artifact.",
         ),
     ] = None,
+    metric_mode: Annotated[
+        Literal["binary", "spearman"],
+        typer.Option(
+            "--metric-mode",
+            help="Metric family to compute: binary ClinVar metrics or continuous Spearman rho.",
+        ),
+    ] = "binary",
+    label_field: Annotated[
+        str,
+        typer.Option(
+            "--label-field",
+            help="Numeric label field used when --metric-mode=spearman.",
+        ),
+    ] = "value",
     threshold: Annotated[
         float,
         typer.Option("--threshold", help="Decision threshold for accuracy metrics."),
@@ -209,70 +227,124 @@ def main(
         baseline_scores=baseline_scores_jsonl,
     )
     _require_score_jsonl_generated_by(scores_path, expected=SCORE_JSONL_GENERATED_BY)
-    result = evaluate_score_labels(
-        scores_path,
-        labels_path,
-        score_field=score_field,
-        threshold=threshold,
-        split=split,
-        bootstrap_resamples=bootstrap_resamples,
-        bootstrap_seed=bootstrap_seed,
-        ci_level=ci_level,
-    )
-    baseline_result = None
-    if baseline_scores_jsonl is not None:
-        expected_baseline_generated_by = _baseline_expected_generated_by(
-            resolved_baseline_name or ""
-        )
-        if expected_baseline_generated_by is not None:
-            _require_score_jsonl_generated_by(
-                baseline_scores_jsonl,
-                expected=expected_baseline_generated_by,
-            )
-        baseline_result = evaluate_score_labels(
-            baseline_scores_jsonl,
+    summary_result: BinaryEvalResult | ContinuousEvalResult
+    summary_baseline: BinaryEvalResult | ContinuousEvalResult | None
+    if metric_mode == "binary":
+        binary_result = evaluate_score_labels(
+            scores_path,
             labels_path,
-            score_field=baseline_score_field,
+            score_field=score_field,
             threshold=threshold,
             split=split,
             bootstrap_resamples=bootstrap_resamples,
             bootstrap_seed=bootstrap_seed,
             ci_level=ci_level,
         )
-    payload = build_eval_report_payload(
-        result,
-        model_id=_required_text("model-id", model_id),
-        model_release=_required_text("model-release", model_release),
-        dataset_snapshot=_required_text("dataset-snapshot", dataset_snapshot),
-        commit=_required_text("commit", commit),
-        hardware=_required_text("hardware", hardware),
-        checkpoint=report_artifacts["checkpoint"],
-        config=report_artifacts["config"],
-        dataset_manifest=report_artifacts["dataset_manifest"],
-        eval_config=report_artifacts["eval_config"],
-        efficiency_report=report_artifacts["efficiency_report"],
-        scores=report_artifacts["scores"],
-        labels=report_artifacts["labels"],
-        baseline_result=baseline_result,
-        baseline_name=resolved_baseline_name,
-        baseline_scores=report_artifacts.get("baseline_scores"),
-    )
+        binary_baseline_result = None
+        if baseline_scores_jsonl is not None:
+            expected_baseline_generated_by = _baseline_expected_generated_by(
+                resolved_baseline_name or ""
+            )
+            if expected_baseline_generated_by is not None:
+                _require_score_jsonl_generated_by(
+                    baseline_scores_jsonl,
+                    expected=expected_baseline_generated_by,
+                )
+            binary_baseline_result = evaluate_score_labels(
+                baseline_scores_jsonl,
+                labels_path,
+                score_field=baseline_score_field,
+                threshold=threshold,
+                split=split,
+                bootstrap_resamples=bootstrap_resamples,
+                bootstrap_seed=bootstrap_seed,
+                ci_level=ci_level,
+            )
+        payload = build_eval_report_payload(
+            binary_result,
+            model_id=_required_text("model-id", model_id),
+            model_release=_required_text("model-release", model_release),
+            dataset_snapshot=_required_text("dataset-snapshot", dataset_snapshot),
+            commit=_required_text("commit", commit),
+            hardware=_required_text("hardware", hardware),
+            checkpoint=report_artifacts["checkpoint"],
+            config=report_artifacts["config"],
+            dataset_manifest=report_artifacts["dataset_manifest"],
+            eval_config=report_artifacts["eval_config"],
+            efficiency_report=report_artifacts["efficiency_report"],
+            scores=report_artifacts["scores"],
+            labels=report_artifacts["labels"],
+            baseline_result=binary_baseline_result,
+            baseline_name=resolved_baseline_name,
+            baseline_scores=report_artifacts.get("baseline_scores"),
+        )
+        summary_result = binary_result
+        summary_baseline = binary_baseline_result
+    else:
+        continuous_result = evaluate_continuous_score_labels(
+            scores_path,
+            labels_path,
+            score_field=score_field,
+            label_field=label_field,
+            split=split,
+            bootstrap_resamples=bootstrap_resamples,
+            bootstrap_seed=bootstrap_seed,
+            ci_level=ci_level,
+        )
+        continuous_baseline_result = None
+        if baseline_scores_jsonl is not None:
+            expected_baseline_generated_by = _baseline_expected_generated_by(
+                resolved_baseline_name or ""
+            )
+            if expected_baseline_generated_by is not None:
+                _require_score_jsonl_generated_by(
+                    baseline_scores_jsonl,
+                    expected=expected_baseline_generated_by,
+                )
+            continuous_baseline_result = evaluate_continuous_score_labels(
+                baseline_scores_jsonl,
+                labels_path,
+                score_field=baseline_score_field,
+                label_field=label_field,
+                split=split,
+                bootstrap_resamples=bootstrap_resamples,
+                bootstrap_seed=bootstrap_seed,
+                ci_level=ci_level,
+            )
+        payload = build_continuous_eval_report_payload(
+            continuous_result,
+            model_id=_required_text("model-id", model_id),
+            model_release=_required_text("model-release", model_release),
+            dataset_snapshot=_required_text("dataset-snapshot", dataset_snapshot),
+            commit=_required_text("commit", commit),
+            hardware=_required_text("hardware", hardware),
+            checkpoint=report_artifacts["checkpoint"],
+            config=report_artifacts["config"],
+            dataset_manifest=report_artifacts["dataset_manifest"],
+            eval_config=report_artifacts["eval_config"],
+            efficiency_report=report_artifacts["efficiency_report"],
+            scores=report_artifacts["scores"],
+            labels=report_artifacts["labels"],
+            baseline_result=continuous_baseline_result,
+            baseline_name=resolved_baseline_name,
+            baseline_scores=report_artifacts.get("baseline_scores"),
+        )
+        summary_result = continuous_result
+        summary_baseline = continuous_baseline_result
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    baseline_summary = _baseline_summary(
+        metric_mode,
+        summary_result,
+        summary_baseline,
+        resolved_baseline_name,
+    )
     typer.echo(
         json.dumps(
             {
                 "metrics_json": str(output_path),
-                **result.to_summary_dict(),
-                **(
-                    {}
-                    if baseline_result is None
-                    else {
-                        "baseline_name": resolved_baseline_name,
-                        "baseline_auroc": baseline_result.auroc,
-                        "auroc_delta_vs_baseline": result.auroc - baseline_result.auroc,
-                    }
-                ),
+                **summary_result.to_summary_dict(),
+                **baseline_summary,
             },
             sort_keys=True,
         )
@@ -334,6 +406,41 @@ def _baseline_expected_generated_by(name: str) -> str | None:
     if name == "carbon_zero_shot":
         return CARBON_ZERO_SHOT_GENERATED_BY
     return None
+
+
+def _baseline_summary(
+    metric_mode: str,
+    result: BinaryEvalResult | ContinuousEvalResult,
+    baseline_result: BinaryEvalResult | ContinuousEvalResult | None,
+    baseline_name: str | None,
+) -> dict[str, object]:
+    if baseline_result is None:
+        return {}
+    if metric_mode == "spearman":
+        if not isinstance(result, ContinuousEvalResult) or not isinstance(
+            baseline_result,
+            ContinuousEvalResult,
+        ):
+            raise InputError("metric mode and continuous eval result do not match")
+        primary = result.spearman_rho
+        baseline = baseline_result.spearman_rho
+        return {
+            "baseline_name": baseline_name,
+            "baseline_spearman_rho": baseline,
+            "spearman_rho_delta_vs_baseline": primary - baseline,
+        }
+    if not isinstance(result, BinaryEvalResult) or not isinstance(
+        baseline_result,
+        BinaryEvalResult,
+    ):
+        raise InputError("metric mode and binary eval result do not match")
+    primary = result.auroc
+    baseline = baseline_result.auroc
+    return {
+        "baseline_name": baseline_name,
+        "baseline_auroc": baseline,
+        "auroc_delta_vs_baseline": primary - baseline,
+    }
 
 
 def cli_main() -> int:

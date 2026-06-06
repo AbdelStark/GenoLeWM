@@ -269,7 +269,14 @@ trusted only after their hashes match the fetched manifest.
     `python -m tools.release.v02_benchmark_suite --manifest ... --output-report ...`
     to plan or execute the benchmark command graph for scoring,
     Carbon-baseline scoring, per-benchmark eval, rollout metrics,
-    aggregate report generation, and readiness validation. Plan-only
+    aggregate report generation, and readiness validation. The checked
+    `configs/first_experiment/v0.2_benchmark_suite.template.json`
+    manifest is a source-controlled template for the required coding
+    ClinVar, non-coding ClinVar, BRCA2 saturation, TraitGym Mendelian,
+    phased-haplotype rollout, and synthetic edit-chain rollout rows.
+    BRCA2 and TraitGym eval steps MUST use
+    `geno-lewm-eval --metric-mode spearman` over continuous labels,
+    while ClinVar eval steps use binary ClinVar metrics. Plan-only
     suite reports must keep `ok=false`; execute-mode suite reports
     clear each step's declared output files, then require each command
     to exit successfully and write those output files again. Passed

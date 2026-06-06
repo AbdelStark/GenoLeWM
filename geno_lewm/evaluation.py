@@ -23,8 +23,11 @@ __all__ = [
     "NEGATIVE_CLINVAR_LABELS",
     "POSITIVE_CLINVAR_LABELS",
     "BinaryEvalResult",
+    "ContinuousEvalResult",
     "VariantKey",
+    "build_continuous_eval_report_payload",
     "build_eval_report_payload",
+    "evaluate_continuous_score_labels",
     "evaluate_score_labels",
 ]
 
@@ -211,6 +214,78 @@ class BinaryEvalResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ContinuousEvalResult:
+    """Measured continuous-label evaluation over matched score records."""
+
+    split: str
+    score_field: str
+    label_field: str
+    labelled_variants: int
+    evaluated_variants: int
+    extra_score_variants: int
+    spearman_rho: float
+    ci_level: float
+    bootstrap_resamples: int
+    bootstrap_seed: int
+    spearman_rho_ci_low: float | None = None
+    spearman_rho_ci_high: float | None = None
+    _evaluated_variant_keys_sha256: str = field(default="", init=False, repr=False, compare=False)
+
+    @property
+    def evaluated_variant_keys_sha256(self) -> str:
+        """SHA-256 identity of the sorted evaluated variant-key set, when known."""
+        return self._evaluated_variant_keys_sha256
+
+    def to_report_metrics(self) -> list[dict[str, object]]:
+        """Render Spearman correlation in ``tools.release.eval_report`` input shape."""
+        notes = (
+            f"continuous labels use {self.label_field}; scores use {self.score_field}; "
+            f"{self._ci_note()}"
+        )
+        return [
+            {
+                "name": "spearman_rho",
+                "value": self.spearman_rho,
+                "split": self.split,
+                "unit": "correlation",
+                "higher_is_better": True,
+                "n": self.evaluated_variants,
+                "notes": notes,
+                **_evaluated_variant_hash_payload(self.evaluated_variant_keys_sha256),
+                **_ci_payload(self.spearman_rho_ci_low, self.spearman_rho_ci_high),
+            }
+        ]
+
+    def to_summary_dict(self) -> dict[str, object]:
+        """Return a compact JSON summary for CLI stdout."""
+        return {
+            "split": self.split,
+            "score_field": self.score_field,
+            "label_field": self.label_field,
+            "labelled_variants": self.labelled_variants,
+            "evaluated_variants": self.evaluated_variants,
+            "evaluated_variant_keys_sha256": self.evaluated_variant_keys_sha256 or None,
+            "extra_score_variants": self.extra_score_variants,
+            "spearman_rho": self.spearman_rho,
+            "ci_level": self.ci_level,
+            "bootstrap_resamples": self.bootstrap_resamples,
+            "bootstrap_seed": self.bootstrap_seed,
+            "spearman_rho_ci": _ci_summary(
+                self.spearman_rho_ci_low,
+                self.spearman_rho_ci_high,
+            ),
+        }
+
+    def _ci_note(self) -> str:
+        if self.bootstrap_resamples <= 0:
+            return "confidence intervals omitted because bootstrap_resamples=0"
+        return (
+            f"{self.ci_level:g} bootstrap confidence interval; "
+            f"resamples={self.bootstrap_resamples}; seed={self.bootstrap_seed}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class _BinaryMetricValues:
     auroc: float
     average_precision: float
@@ -303,6 +378,70 @@ def evaluate_score_labels(
     )
 
 
+def evaluate_continuous_score_labels(
+    scores_jsonl: str | Path,
+    labels_jsonl: str | Path,
+    *,
+    score_field: str = DEFAULT_EVAL_SCORE_FIELD,
+    label_field: str = "value",
+    split: str = "eval_continuous",
+    bootstrap_resamples: int = DEFAULT_BOOTSTRAP_RESAMPLES,
+    bootstrap_seed: int = DEFAULT_BOOTSTRAP_SEED,
+    ci_level: float = DEFAULT_CI_LEVEL,
+) -> ContinuousEvalResult:
+    """Evaluate score JSONL against held-out continuous labels using Spearman rho."""
+    if not isinstance(score_field, str) or not score_field:
+        raise InputError("score_field must be a non-empty string")
+    if not isinstance(label_field, str) or not label_field:
+        raise InputError("label_field must be a non-empty string")
+    if not isinstance(split, str) or not split.strip():
+        raise InputError("split must be a non-empty string")
+    resamples = _require_non_negative_int("bootstrap_resamples", bootstrap_resamples)
+    seed = _require_int("bootstrap_seed", bootstrap_seed)
+    level = _require_ci_level(ci_level)
+
+    labels = _load_continuous_label_map(Path(labels_jsonl), label_field=label_field)
+    scores = _load_score_map(Path(scores_jsonl), score_field=score_field)
+    missing = sorted(set(labels) - set(scores))
+    if missing:
+        raise InputError(
+            "scores are missing labelled variants",
+            details={"missing": [key.to_dict() for key in missing[:10]], "count": len(missing)},
+            remediation="score every held-out labelled variant before generating metrics",
+        )
+
+    keys = sorted(labels)
+    y_true = [labels[key] for key in keys]
+    y_score = [scores[key] for key in keys]
+    if len(keys) < 2:
+        raise InputError("continuous evaluation requires at least two matched variants")
+    rho = _spearman_rho(y_true, y_score)
+    intervals = _continuous_bootstrap_intervals(
+        y_true,
+        y_score,
+        resamples=resamples,
+        seed=seed,
+        ci_level=level,
+    )
+    return _with_continuous_evaluated_variant_keys_sha256(
+        ContinuousEvalResult(
+            split=split.strip(),
+            score_field=score_field,
+            label_field=label_field,
+            labelled_variants=len(labels),
+            evaluated_variants=len(keys),
+            extra_score_variants=len(set(scores) - set(labels)),
+            spearman_rho=rho,
+            ci_level=level,
+            bootstrap_resamples=resamples,
+            bootstrap_seed=seed,
+            spearman_rho_ci_low=intervals.get("spearman_rho", (None, None))[0],
+            spearman_rho_ci_high=intervals.get("spearman_rho", (None, None))[1],
+        ),
+        _variant_keys_sha256(keys),
+    )
+
+
 def build_eval_report_payload(
     result: BinaryEvalResult,
     *,
@@ -384,9 +523,86 @@ def build_eval_report_payload(
     }
 
 
+def build_continuous_eval_report_payload(
+    result: ContinuousEvalResult,
+    *,
+    model_id: str,
+    model_release: str,
+    dataset_snapshot: str,
+    commit: str,
+    hardware: str,
+    checkpoint: str | Path,
+    config: str | Path,
+    dataset_manifest: str | Path,
+    eval_config: str | Path,
+    efficiency_report: str | Path,
+    scores: str | Path,
+    labels: str | Path,
+    baseline_result: ContinuousEvalResult | None = None,
+    baseline_name: str | None = None,
+    baseline_scores: str | Path | None = None,
+    generated_at: str | None = None,
+) -> dict[str, object]:
+    """Build measured continuous metrics JSON accepted by ``eval_report``."""
+    _require_baseline_inputs(
+        baseline_result=baseline_result,
+        baseline_name=baseline_name,
+        baseline_scores=baseline_scores,
+    )
+    generated = generated_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return {
+        "schema_version": "1.0.0",
+        "generated_by": "geno-lewm-eval",
+        "generated_at": generated,
+        "model_id": _required_text("model_id", model_id),
+        "model_release": _required_text("model_release", model_release),
+        "dataset_snapshot": _required_text("dataset_snapshot", dataset_snapshot),
+        "commit": _required_text("commit", commit),
+        "hardware": _required_text("hardware", hardware),
+        "metrics": _continuous_report_metrics(
+            result,
+            baseline_result=baseline_result,
+            baseline_name=baseline_name,
+        ),
+        "artifacts": {
+            "checkpoint": str(checkpoint),
+            "config": str(config),
+            "dataset_manifest": str(dataset_manifest),
+            "eval_config": str(eval_config),
+            "efficiency_report": str(efficiency_report),
+            "scores": str(scores),
+            "labels": str(labels),
+            **({} if baseline_scores is None else {"baseline_scores": str(baseline_scores)}),
+        },
+        "limitations": [
+            "Artifact-level continuous-label evaluation only; labels are not clinical outcomes.",
+            (
+                "Confidence intervals use deterministic bootstrap resampling; if "
+                "bootstrap_resamples is zero, metric notes state that intervals were omitted."
+            ),
+            "The metrics do not establish clinical utility or deployment readiness.",
+        ],
+        "negative_findings": [
+            "This report does not measure prospective clinical utility.",
+            "Correlation metrics do not establish calibration or causal edit effects.",
+        ],
+        "conclusions": [
+            (
+                f"The score artifact was evaluated on {result.evaluated_variants} "
+                f"continuous-label variants from {result.split}."
+            ),
+            _continuous_summary_conclusion(
+                result,
+                baseline_result=baseline_result,
+                baseline_name=baseline_name,
+            ),
+        ],
+    }
+
+
 def _require_baseline_inputs(
     *,
-    baseline_result: BinaryEvalResult | None,
+    baseline_result: BinaryEvalResult | ContinuousEvalResult | None,
     baseline_name: str | None,
     baseline_scores: str | Path | None,
 ) -> None:
@@ -441,6 +657,38 @@ def _report_metrics(
     return metrics
 
 
+def _continuous_report_metrics(
+    result: ContinuousEvalResult,
+    *,
+    baseline_result: ContinuousEvalResult | None,
+    baseline_name: str | None,
+) -> list[dict[str, object]]:
+    metrics = result.to_report_metrics()
+    if baseline_result is None:
+        return metrics
+    name = _required_text("baseline_name", baseline_name or "")
+    _require_comparable_continuous_baseline(result, baseline_result)
+    baseline_by_name = {metric["name"]: metric for metric in baseline_result.to_report_metrics()}
+    for metric in metrics:
+        baseline_metric = baseline_by_name.get(metric["name"])
+        if baseline_metric is None:
+            raise InputError(
+                "baseline result is missing a metric",
+                details={"metric": metric["name"]},
+            )
+        value = _require_finite_number("metric.value", metric["value"])
+        baseline_value = _require_finite_number("baseline_metric.value", baseline_metric["value"])
+        metric["baseline"] = name
+        metric["baseline_value"] = baseline_value
+        metric["delta_vs_baseline"] = value - baseline_value
+        if baseline_result.evaluated_variant_keys_sha256:
+            metric["baseline_evaluated_variant_keys_sha256"] = (
+                baseline_result.evaluated_variant_keys_sha256
+            )
+        metric["notes"] = f"{metric['notes']}; baseline {name} uses {baseline_result.score_field}"
+    return metrics
+
+
 def _require_comparable_baseline(
     result: BinaryEvalResult,
     baseline_result: BinaryEvalResult,
@@ -460,6 +708,39 @@ def _require_comparable_baseline(
         "positive_variants": baseline_result.positive_variants,
         "negative_variants": baseline_result.negative_variants,
         "threshold": baseline_result.threshold,
+    }
+    result_hash = result.evaluated_variant_keys_sha256
+    baseline_hash = baseline_result.evaluated_variant_keys_sha256
+    if result_hash or baseline_hash:
+        expected["evaluated_variant_keys_sha256"] = result_hash
+        observed["evaluated_variant_keys_sha256"] = baseline_hash
+    mismatches = {
+        key: {"expected": expected_value, "observed": observed[key]}
+        for key, expected_value in expected.items()
+        if observed[key] != expected_value
+    }
+    if mismatches:
+        raise InputError(
+            "baseline metrics are not comparable to evaluated metrics",
+            details={"mismatches": mismatches},
+        )
+
+
+def _require_comparable_continuous_baseline(
+    result: ContinuousEvalResult,
+    baseline_result: ContinuousEvalResult,
+) -> None:
+    expected = {
+        "split": result.split,
+        "label_field": result.label_field,
+        "labelled_variants": result.labelled_variants,
+        "evaluated_variants": result.evaluated_variants,
+    }
+    observed = {
+        "split": baseline_result.split,
+        "label_field": baseline_result.label_field,
+        "labelled_variants": baseline_result.labelled_variants,
+        "evaluated_variants": baseline_result.evaluated_variants,
     }
     result_hash = result.evaluated_variant_keys_sha256
     baseline_hash = baseline_result.evaluated_variant_keys_sha256
@@ -502,6 +783,22 @@ def _summary_conclusion(
     )
 
 
+def _continuous_summary_conclusion(
+    result: ContinuousEvalResult,
+    *,
+    baseline_result: ContinuousEvalResult | None,
+    baseline_name: str | None,
+) -> str:
+    base = f"spearman_rho={result.spearman_rho:.6g} using label field {result.label_field}."
+    if baseline_result is None:
+        return base
+    name = _required_text("baseline_name", baseline_name or "")
+    return (
+        f"{base} Compared with {name}, spearman_rho delta="
+        f"{result.spearman_rho - baseline_result.spearman_rho:.6g}."
+    )
+
+
 def _variant_keys_sha256(keys: list[VariantKey]) -> str:
     return canonical_json_sha256([key.to_dict() for key in keys])
 
@@ -510,6 +807,14 @@ def _with_evaluated_variant_keys_sha256(
     result: BinaryEvalResult,
     digest: str,
 ) -> BinaryEvalResult:
+    object.__setattr__(result, "_evaluated_variant_keys_sha256", digest)
+    return result
+
+
+def _with_continuous_evaluated_variant_keys_sha256(
+    result: ContinuousEvalResult,
+    digest: str,
+) -> ContinuousEvalResult:
     object.__setattr__(result, "_evaluated_variant_keys_sha256", digest)
     return result
 
@@ -590,6 +895,32 @@ def _bootstrap_intervals(
     return {
         name: _confidence_interval(values, ci_level=ci_level) for name, values in samples.items()
     }
+
+
+def _continuous_bootstrap_intervals(
+    labels: list[float],
+    scores: list[float],
+    *,
+    resamples: int,
+    seed: int,
+    ci_level: float,
+) -> dict[str, tuple[float, float]]:
+    if resamples <= 0:
+        return {}
+    rng = random.Random(seed)
+    values: list[float] = []
+    pairs = list(zip(labels, scores, strict=True))
+    for _ in range(resamples):
+        sample = rng.choices(pairs, k=len(pairs))
+        sampled_labels = [label for label, _score in sample]
+        sampled_scores = [score for _label, score in sample]
+        try:
+            values.append(_spearman_rho(sampled_labels, sampled_scores))
+        except InputError:
+            continue
+    if not values:
+        raise InputError("continuous bootstrap produced no non-degenerate samples")
+    return {"spearman_rho": _confidence_interval(values, ci_level=ci_level)}
 
 
 def _confidence_interval(values: list[float], *, ci_level: float) -> tuple[float, float]:
@@ -673,6 +1004,29 @@ def _load_score_map(
     if not scores:
         raise InputError("score JSONL contains no score records", details={"path": str(path)})
     return scores
+
+
+def _load_continuous_label_map(
+    path: Path,
+    *,
+    label_field: str,
+) -> dict[VariantKey, float]:
+    labels: dict[VariantKey, float] = {}
+    for line_no, record in _iter_jsonl(path):
+        key = _variant_key(record, path=path, line_no=line_no)
+        if key in labels:
+            raise InputError(
+                "label JSONL contains duplicate variant keys",
+                details={"path": str(path), "line": line_no, "variant": key.to_dict()},
+            )
+        labels[key] = _require_finite_number(
+            label_field,
+            record.get(label_field),
+            details={"path": str(path), "line": line_no},
+        )
+    if not labels:
+        raise InputError("label JSONL contains no continuous labels", details={"path": str(path)})
+    return labels
 
 
 def _require_score_jsonl_generated_by(path: str | Path, *, expected: str) -> None:
@@ -852,3 +1206,46 @@ def _average_precision(labels: list[bool], scores: list[float]) -> float:
         seen_positive += 1
         precision_sum += seen_positive / rank
     return precision_sum / positives
+
+
+def _spearman_rho(labels: list[float], scores: list[float]) -> float:
+    if len(labels) != len(scores):
+        raise InputError("spearman inputs must have the same length")
+    if len(labels) < 2:
+        raise InputError("spearman correlation requires at least two values")
+    label_ranks = _average_ranks(labels)
+    score_ranks = _average_ranks(scores)
+    return _pearson(label_ranks, score_ranks)
+
+
+def _average_ranks(values: list[float]) -> list[float]:
+    ranked = sorted(enumerate(values), key=lambda item: item[1])
+    ranks = [0.0] * len(values)
+    rank = 1
+    index = 0
+    while index < len(ranked):
+        end = index + 1
+        while end < len(ranked) and ranked[end][1] == ranked[index][1]:
+            end += 1
+        avg_rank = (rank + rank + (end - index) - 1) / 2.0
+        for original_index, _value in ranked[index:end]:
+            ranks[original_index] = avg_rank
+        rank += end - index
+        index = end
+    return ranks
+
+
+def _pearson(left: list[float], right: list[float]) -> float:
+    left_mean = sum(left) / len(left)
+    right_mean = sum(right) / len(right)
+    left_centered = [value - left_mean for value in left]
+    right_centered = [value - right_mean for value in right]
+    left_ss = sum(value * value for value in left_centered)
+    right_ss = sum(value * value for value in right_centered)
+    if left_ss <= 0.0 or right_ss <= 0.0:
+        raise InputError("spearman correlation requires non-constant labels and scores")
+    covariance = sum(
+        left_value * right_value
+        for left_value, right_value in zip(left_centered, right_centered, strict=True)
+    )
+    return covariance / math.sqrt(left_ss * right_ss)

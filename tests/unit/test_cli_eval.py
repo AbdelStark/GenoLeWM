@@ -209,6 +209,113 @@ def test_eval_writes_release_metrics_json(
     assert artifacts["baseline_scores"] == "baseline_scores.jsonl"
 
 
+def test_eval_writes_continuous_spearman_metrics_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    scores = tmp_path / "scores.jsonl"
+    labels = tmp_path / "labels.jsonl"
+    baseline = tmp_path / "baseline_scores.jsonl"
+    output = tmp_path / "metrics.json"
+    _write_jsonl(
+        scores,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.1},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "sigma_calibrated": 0.2},
+            {"chrom": "1", "pos": 30, "ref": "C", "alt": "G", "sigma_calibrated": 0.3},
+            {"chrom": "1", "pos": 40, "ref": "T", "alt": "C", "sigma_calibrated": 0.4},
+        ],
+    )
+    _write_jsonl(
+        labels,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "functional_score": 0.1},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "functional_score": 0.2},
+            {"chrom": "1", "pos": 30, "ref": "C", "alt": "G", "functional_score": 0.3},
+            {"chrom": "1", "pos": 40, "ref": "T", "alt": "C", "functional_score": 0.4},
+        ],
+    )
+    _write_jsonl(
+        baseline,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.4},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "sigma_calibrated": 0.3},
+            {"chrom": "1", "pos": 30, "ref": "C", "alt": "G", "sigma_calibrated": 0.2},
+            {"chrom": "1", "pos": 40, "ref": "T", "alt": "C", "sigma_calibrated": 0.1},
+        ],
+    )
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--scores-jsonl",
+            str(scores),
+            "--labels-jsonl",
+            str(labels),
+            "--metric-mode",
+            "spearman",
+            "--label-field",
+            "functional_score",
+            "--split",
+            "brca2",
+            "--baseline-scores-jsonl",
+            str(baseline),
+            "--baseline-name",
+            "carbon_zero_shot",
+            "--baseline-score-field",
+            "carbon_zero_shot_score",
+            "--output-metrics",
+            str(output),
+            "--model-id",
+            "sha256:" + "b" * 64,
+            "--model-release",
+            "geno-lewm-v0.2.0-r1",
+            "--dataset-snapshot",
+            "geno-lewm-data-v0.2.0-r1",
+            "--commit",
+            "abcdef1234567890",
+            "--hardware",
+            "local CPU eval fixture",
+            "--checkpoint",
+            str(tmp_path / "model" / "predictor.safetensors"),
+            "--config-artifact",
+            str(tmp_path / "model" / "train_config.yaml"),
+            "--dataset-manifest",
+            str(tmp_path / "dataset" / "dataset_manifest.json"),
+            "--efficiency-report",
+            str(tmp_path / "model" / "efficiency_report.json"),
+            "--bootstrap-resamples",
+            "25",
+            "--bootstrap-seed",
+            "123",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    summary = json.loads(captured.out)
+    assert summary["metrics_json"] == str(output)
+    assert summary["split"] == "brca2"
+    assert summary["label_field"] == "functional_score"
+    assert summary["spearman_rho"] == pytest.approx(1.0)
+    assert summary["baseline_name"] == "carbon_zero_shot"
+    assert summary["baseline_spearman_rho"] == pytest.approx(-1.0)
+    assert summary["spearman_rho_delta_vs_baseline"] == pytest.approx(2.0)
+    assert summary["spearman_rho_ci"] == [1.0, 1.0]
+    report_input = load_report_input(output)
+    assert report_input.generated_by == "geno-lewm-eval"
+    assert report_input.metrics[0].name == "spearman_rho"
+    assert report_input.metrics[0].split == "brca2"
+    assert report_input.metrics[0].baseline == "carbon_zero_shot"
+    assert report_input.metrics[0].baseline_value == pytest.approx(-1.0)
+    assert report_input.metrics[0].delta_vs_baseline == pytest.approx(2.0)
+    assert report_input.metrics[0].evaluated_variant_keys_sha256 == (
+        report_input.metrics[0].baseline_evaluated_variant_keys_sha256
+    )
+
+
 def test_eval_records_paths_relative_to_artifact_root(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

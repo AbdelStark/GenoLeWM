@@ -40,7 +40,7 @@ As of June 6, 2026:
 | Carbon encoder integration | Lazy `CarbonStateEncoder` wrapper and native artifact loading are implemented; the v0.1 terminal demo replayed from public model/data/demo artifacts; broader platform/runtime validation remains v0.2 work |
 | Data/training stream | Carbon window sampler, tuple-builder contract, `GenoLeWMDataset` iterator, source-state cache lookup, local VCF-to-Parquet prep, and the v0.1 public dataset package are in place; larger held-out benchmark coverage and warm-cache throughput validation remain v0.2 work |
 | Predictor/training | Base cross-attention `Predictor`, `ARPredictor` rollout wrapper, losses, collapse checks, torch trainer core, WSD scheduling, optimizer grouping, Carbon preflight/training launch plumbing, packaged run evidence, and one real Carbon-backed SNV run are published; true attention KV-cache speedups remain open |
-| Evaluation | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, and `bench.inference --release-efficiency` cover measured metrics/report contracts; broader coding/non-coding, Carbon-baseline, rollout-fidelity artifact generation, and planning-readiness benchmarks are still v0.2 work |
+| Evaluation | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, `tools.release.v02_benchmark_suite`, and `bench.inference --release-efficiency` cover measured metrics/report contracts plus a checked v0.2 benchmark-suite planning template; broader coding/non-coding, BRCA2/TraitGym Spearman, Carbon-baseline, rollout-fidelity artifact generation, and planning-readiness benchmark results are still v0.2 work |
 | Package/model release | Public model, dataset, demo, paper, and publication-evidence artifacts are published; the first PyPI package tag remains open |
 
 The v0.1 measured evaluation is intentionally narrow: chr21 ClinVar,
@@ -326,26 +326,32 @@ rollout speed artifacts before making broader claims:
 
 ```bash
 python -m tools.release.v02_benchmark_suite \
-  --manifest .../v0.2_benchmark_suite.json \
+  --manifest configs/first_experiment/v0.2_benchmark_suite.template.json \
   --output-report .../v0.2_benchmark_suite_report.json
 ```
 
-The suite runner composes existing commands for GenoLeWM scoring,
-Carbon-baseline scoring, per-benchmark eval, rollout-fidelity metrics,
-aggregate report generation, and the all-up readiness report. Without
-`--execute`, it writes a command plan with `ok=false`; this is not
-measured evidence. With `--execute`, `ok=true` only means every planned
-command completed after the suite cleared that step's declared output
-files, then wrote those output files again. Passed execute-mode steps
-record output identities with package-local paths, SHA-256 values, and
-sizes, but the generated metrics, efficiency, rollout-speed, and
-readiness artifacts must still validate separately. Suite reports bind
-the manifest with a package-local path, SHA-256, and size identity rather
-than a build-machine absolute path. Run the final release-input
-readiness command after an executed suite report exists, passing that
-report with `--suite-report`; the first suite execution cannot consume
-the report it is still writing. A second-pass suite manifest can express
-that final command by setting `readiness.suite_report`.
+The checked manifest is a planning template. Stage a release-local copy,
+replace the identity fields and input artifact paths with measured v0.2
+artifacts, then run from the package root. The suite runner composes
+existing commands for GenoLeWM scoring, Carbon-baseline scoring,
+per-benchmark eval, rollout-fidelity metrics, aggregate report
+generation, and the all-up readiness report. ClinVar coding and
+non-coding rows use binary ClinVar metrics; BRCA2 saturation and
+TraitGym Mendelian rows use `geno-lewm-eval --metric-mode spearman`
+with continuous labels. Without `--execute`, the suite writes a command
+plan with `ok=false`; this is not measured evidence. With `--execute`,
+`ok=true` only means every planned command completed after the suite
+cleared that step's declared output files, then wrote those output files
+again. Passed execute-mode steps record output identities with
+package-local paths, SHA-256 values, and sizes, but the generated
+metrics, efficiency, rollout-speed, and readiness artifacts must still
+validate separately. Suite reports bind the manifest with a package-local
+path, SHA-256, and size identity rather than a build-machine absolute
+path. Run the final release-input readiness command after an executed
+suite report exists, passing that report with `--suite-report`; the first
+suite execution cannot consume the report it is still writing. A
+second-pass suite manifest can express that final command by setting
+`readiness.suite_report`.
 For rollout benchmarks, the manifest can optionally include a
 `state_generation` block. When it names `spec_jsonl`, `cache_dir`, and
 `examples_report_json`, the suite first runs

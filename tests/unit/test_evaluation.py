@@ -13,7 +13,9 @@ from geno_lewm.evaluation import (
     BinaryEvalResult,
     VariantKey,
     _require_score_jsonl_generated_by,
+    build_continuous_eval_report_payload,
     build_eval_report_payload,
+    evaluate_continuous_score_labels,
     evaluate_score_labels,
 )
 from tools.release.eval_report import parse_report_input
@@ -96,6 +98,66 @@ def test_eval_report_payload_matches_release_report_schema(tmp_path: Path) -> No
     assert dict(parsed.artifacts)["baseline_scores"].endswith("baseline_scores.jsonl")
     assert dict(parsed.artifacts)["eval_config"] == "eval_config.effective.yaml"
     assert dict(parsed.artifacts)["efficiency_report"] == "model/efficiency_report.json"
+
+
+def test_continuous_eval_report_payload_matches_release_report_schema(
+    tmp_path: Path,
+) -> None:
+    scores, labels, baseline_scores = _write_continuous_score_label_artifacts(tmp_path)
+    result = evaluate_continuous_score_labels(
+        scores,
+        labels,
+        label_field="functional_score",
+        split="brca2",
+        bootstrap_resamples=25,
+        bootstrap_seed=123,
+    )
+    baseline = evaluate_continuous_score_labels(
+        baseline_scores,
+        labels,
+        label_field="functional_score",
+        split="brca2",
+        bootstrap_resamples=25,
+        bootstrap_seed=123,
+    )
+
+    payload = build_continuous_eval_report_payload(
+        result,
+        model_id="sha256:" + "a" * 64,
+        model_release="geno-lewm-v0.2.0-r1",
+        dataset_snapshot="geno-lewm-data-v0.2.0-r1",
+        commit="abcdef1234567890",
+        hardware="local CPU eval fixture",
+        checkpoint="model/predictor.safetensors",
+        config="model/train_config.yaml",
+        dataset_manifest="dataset/dataset_manifest.json",
+        eval_config="eval_config.effective.yaml",
+        efficiency_report="model/efficiency_report.json",
+        scores=scores,
+        labels=labels,
+        baseline_result=baseline,
+        baseline_name="carbon_zero_shot",
+        baseline_scores=baseline_scores,
+        generated_at="2026-06-01T00:00:00Z",
+    )
+
+    parsed = parse_report_input(payload)
+
+    assert result.spearman_rho == pytest.approx(1.0)
+    assert baseline.spearman_rho == pytest.approx(-1.0)
+    assert result.spearman_rho_ci_low == pytest.approx(1.0)
+    assert result.spearman_rho_ci_high == pytest.approx(1.0)
+    assert parsed.generated_by == "geno-lewm-eval"
+    assert parsed.metrics[0].name == "spearman_rho"
+    assert parsed.metrics[0].split == "brca2"
+    assert parsed.metrics[0].value == pytest.approx(1.0)
+    assert parsed.metrics[0].baseline == "carbon_zero_shot"
+    assert parsed.metrics[0].baseline_value == pytest.approx(-1.0)
+    assert parsed.metrics[0].delta_vs_baseline == pytest.approx(2.0)
+    assert parsed.metrics[0].evaluated_variant_keys_sha256 == (
+        parsed.metrics[0].baseline_evaluated_variant_keys_sha256
+    )
+    assert "spearman_rho=1" in payload["conclusions"][1]
 
 
 def test_eval_report_payload_rejects_baseline_on_different_variant_keys(
@@ -210,6 +272,33 @@ def test_evaluate_score_labels_can_record_ci_omission_reason(tmp_path: Path) -> 
     assert result.auroc_ci_low is None
     assert "ci_low" not in metrics[0]
     assert "bootstrap_resamples=0" in str(metrics[0]["notes"])
+
+
+def test_evaluate_continuous_score_labels_rejects_degenerate_inputs(tmp_path: Path) -> None:
+    scores = tmp_path / "scores.jsonl"
+    labels = tmp_path / "labels.jsonl"
+    _write_jsonl(
+        scores,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.9},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "sigma_calibrated": 0.8},
+        ],
+    )
+    _write_jsonl(
+        labels,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "functional_score": 0.1},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "functional_score": 0.1},
+        ],
+    )
+
+    with pytest.raises(InputError, match="non-constant labels and scores"):
+        evaluate_continuous_score_labels(
+            scores,
+            labels,
+            label_field="functional_score",
+            bootstrap_resamples=0,
+        )
 
 
 def test_evaluate_score_labels_rejects_missing_labelled_scores(tmp_path: Path) -> None:
@@ -439,6 +528,41 @@ def _write_baseline_scores(root: Path) -> Path:
         ],
     )
     return path
+
+
+def _write_continuous_score_label_artifacts(root: Path) -> tuple[Path, Path, Path]:
+    scores = root / "continuous_scores.jsonl"
+    labels = root / "continuous_labels.jsonl"
+    baseline_scores = root / "continuous_baseline_scores.jsonl"
+    _write_jsonl(
+        scores,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.1},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "sigma_calibrated": 0.2},
+            {"chrom": "1", "pos": 30, "ref": "C", "alt": "G", "sigma_calibrated": 0.3},
+            {"chrom": "1", "pos": 40, "ref": "T", "alt": "C", "sigma_calibrated": 0.4},
+            {"chrom": "1", "pos": 50, "ref": "A", "alt": "C", "sigma_calibrated": 0.5},
+        ],
+    )
+    _write_jsonl(
+        labels,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "functional_score": 0.1},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "functional_score": 0.2},
+            {"chrom": "1", "pos": 30, "ref": "C", "alt": "G", "functional_score": 0.3},
+            {"chrom": "1", "pos": 40, "ref": "T", "alt": "C", "functional_score": 0.4},
+        ],
+    )
+    _write_jsonl(
+        baseline_scores,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.4},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "sigma_calibrated": 0.3},
+            {"chrom": "1", "pos": 30, "ref": "C", "alt": "G", "sigma_calibrated": 0.2},
+            {"chrom": "1", "pos": 40, "ref": "T", "alt": "C", "sigma_calibrated": 0.1},
+        ],
+    )
+    return scores, labels, baseline_scores
 
 
 def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:

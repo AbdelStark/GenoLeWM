@@ -381,21 +381,42 @@ def _append_vep_steps(
         "--efficiency-report",
         shared["efficiency_report"],
     ]
+    metric_mode = _optional_text(benchmark, "metric_mode", default="binary")
+    if metric_mode not in {"binary", "spearman"}:
+        raise InputError(
+            "unsupported VEP metric_mode",
+            details={"benchmark": benchmark_id, "metric_mode": metric_mode},
+        )
+    if metric_mode != "binary":
+        eval_command.extend(("--metric-mode", metric_mode))
+    score_field = _optional_text(benchmark, "score_field", default="")
+    if score_field:
+        eval_command.extend(("--score-field", score_field))
+    label_field = _optional_text(benchmark, "label_field", default="")
+    if label_field:
+        eval_command.extend(("--label-field", label_field))
+    baseline_score_field = _optional_text(
+        baseline_cfg or {},
+        "score_field",
+        default="",
+    )
     if baseline_scores is not None:
         eval_command.extend(
             (
                 "--baseline-scores-jsonl",
                 baseline_scores,
                 "--baseline-score-field",
-                _optional_text(
-                    baseline_cfg or {},
-                    "score_field",
-                    default="carbon_zero_shot_score",
-                ),
+                baseline_score_field or "carbon_zero_shot_score",
                 "--baseline-name",
                 "carbon_zero_shot",
             )
         )
+    bootstrap_resamples = _optional_int(benchmark, "bootstrap_resamples", default=0)
+    if bootstrap_resamples:
+        eval_command.extend(("--bootstrap-resamples", str(bootstrap_resamples)))
+    bootstrap_seed = _optional_int(benchmark, "bootstrap_seed", default=0)
+    if bootstrap_seed:
+        eval_command.extend(("--bootstrap-seed", str(bootstrap_seed)))
     steps.append(
         SuiteStep(
             step_id=f"{benchmark_id}.eval",

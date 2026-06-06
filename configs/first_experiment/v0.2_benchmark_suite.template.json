@@ -1,0 +1,164 @@
+{
+  "aggregate": {
+    "metrics_json": "model/eval_metrics.json",
+    "report_md": "model/eval_report.md",
+    "require_v02_rollout_metrics": true,
+    "require_v02_vep_metrics": true
+  },
+  "artifact_root": ".",
+  "artifacts": {
+    "checkpoint": "model/predictor.safetensors",
+    "config": "model/train_config.yaml",
+    "dataset_manifest": "dataset/dataset_manifest.json",
+    "efficiency_report": "model/efficiency_report.json",
+    "model_dir": "model"
+  },
+  "benchmarks": [
+    {
+      "carbon_baseline": {
+        "carbon_model_dir": "carbon/500m",
+        "carbon_revision": "main",
+        "dtype": "bf16",
+        "enabled": true,
+        "logp_cache_jsonl": "cache/carbon_zero_shot_logp.jsonl",
+        "metadata_json": "eval/clinvar_coding.carbon_zero_shot_summary.json",
+        "scores_jsonl": "eval/clinvar_coding.carbon_zero_shot_scores.jsonl"
+      },
+      "fasta": "benchmark_inputs/reference.fa",
+      "id": "clinvar_coding",
+      "kind": "vep",
+      "labels_jsonl": "eval/clinvar_coding.labels.jsonl",
+      "metrics_json": "eval/clinvar_coding.metrics.json",
+      "score": {
+        "backend": "auto",
+        "batch_size": 64,
+        "enabled": true
+      },
+      "scores_jsonl": "eval/clinvar_coding.scores.jsonl",
+      "split": "clinvar_coding",
+      "vcf": "benchmark_inputs/clinvar_coding.vcf"
+    },
+    {
+      "carbon_baseline": {
+        "carbon_model_dir": "carbon/500m",
+        "carbon_revision": "main",
+        "dtype": "bf16",
+        "enabled": true,
+        "logp_cache_jsonl": "cache/carbon_zero_shot_logp.jsonl",
+        "metadata_json": "eval/clinvar_noncoding.carbon_zero_shot_summary.json",
+        "scores_jsonl": "eval/clinvar_noncoding.carbon_zero_shot_scores.jsonl"
+      },
+      "fasta": "benchmark_inputs/reference.fa",
+      "id": "clinvar_noncoding",
+      "kind": "vep",
+      "labels_jsonl": "eval/clinvar_noncoding.labels.jsonl",
+      "metrics_json": "eval/clinvar_noncoding.metrics.json",
+      "score": {
+        "backend": "auto",
+        "batch_size": 64,
+        "enabled": true
+      },
+      "scores_jsonl": "eval/clinvar_noncoding.scores.jsonl",
+      "split": "clinvar_noncoding",
+      "vcf": "benchmark_inputs/clinvar_noncoding.vcf"
+    },
+    {
+      "carbon_baseline": {
+        "carbon_model_dir": "carbon/500m",
+        "carbon_revision": "main",
+        "dtype": "bf16",
+        "enabled": true,
+        "logp_cache_jsonl": "cache/carbon_zero_shot_logp.jsonl",
+        "metadata_json": "eval/brca2_saturation.carbon_zero_shot_summary.json",
+        "scores_jsonl": "eval/brca2_saturation.carbon_zero_shot_scores.jsonl"
+      },
+      "fasta": "benchmark_inputs/reference.fa",
+      "id": "brca2_saturation",
+      "kind": "vep",
+      "label_field": "functional_score",
+      "labels_jsonl": "eval/brca2_saturation.labels.jsonl",
+      "metric_mode": "spearman",
+      "metrics_json": "eval/brca2_saturation.metrics.json",
+      "score": {
+        "backend": "auto",
+        "batch_size": 64,
+        "enabled": true
+      },
+      "scores_jsonl": "eval/brca2_saturation.scores.jsonl",
+      "split": "brca2",
+      "vcf": "benchmark_inputs/brca2_saturation.vcf"
+    },
+    {
+      "carbon_baseline": {
+        "carbon_model_dir": "carbon/500m",
+        "carbon_revision": "main",
+        "dtype": "bf16",
+        "enabled": true,
+        "logp_cache_jsonl": "cache/carbon_zero_shot_logp.jsonl",
+        "metadata_json": "eval/traitgym_mendelian.carbon_zero_shot_summary.json",
+        "scores_jsonl": "eval/traitgym_mendelian.carbon_zero_shot_scores.jsonl"
+      },
+      "fasta": "benchmark_inputs/reference.fa",
+      "id": "traitgym_mendelian",
+      "kind": "vep",
+      "label_field": "functional_score",
+      "labels_jsonl": "eval/traitgym_mendelian.labels.jsonl",
+      "metric_mode": "spearman",
+      "metrics_json": "eval/traitgym_mendelian.metrics.json",
+      "score": {
+        "backend": "auto",
+        "batch_size": 64,
+        "enabled": true
+      },
+      "scores_jsonl": "eval/traitgym_mendelian.scores.jsonl",
+      "split": "traitgym_mendelian",
+      "vcf": "benchmark_inputs/traitgym_mendelian.vcf"
+    },
+    {
+      "id": "rollout_phased_haplotypes",
+      "kind": "rollout",
+      "metrics_json": "eval/rollout_phased_haplotypes.metrics.json",
+      "recall_k": 10,
+      "split": "rollout_phased_haplotypes",
+      "state_generation": {
+        "cache_dir": "cache/window_embeddings",
+        "examples_jsonl": "eval/rollout_phased_haplotypes.examples.jsonl",
+        "examples_report_json": "eval/rollout_phased_haplotypes.state_examples_report.json",
+        "report_json": "eval/rollout_phased_haplotypes.state_rows_report.json",
+        "spec_jsonl": "eval/rollout_phased_haplotypes.example_specs.jsonl"
+      },
+      "states_jsonl": "eval/rollout_phased_haplotypes.states.jsonl"
+    },
+    {
+      "id": "rollout_synthetic_edit_chains",
+      "kind": "rollout",
+      "metrics_json": "eval/rollout_synthetic_edit_chains.metrics.json",
+      "recall_k": 10,
+      "split": "rollout_synthetic_edit_chains",
+      "state_generation": {
+        "cache_dir": "cache/window_embeddings",
+        "examples_jsonl": "eval/rollout_synthetic_edit_chains.examples.jsonl",
+        "examples_report_json": "eval/rollout_synthetic_edit_chains.state_examples_report.json",
+        "report_json": "eval/rollout_synthetic_edit_chains.state_rows_report.json",
+        "spec_jsonl": "eval/rollout_synthetic_edit_chains.example_specs.jsonl"
+      },
+      "states_jsonl": "eval/rollout_synthetic_edit_chains.states.jsonl"
+    }
+  ],
+  "identity": {
+    "commit": "REPLACE_WITH_RELEASE_COMMIT",
+    "dataset_snapshot": "REPLACE_WITH_DATASET_SNAPSHOT",
+    "hardware": "REPLACE_WITH_HARDWARE_NOTES",
+    "model_id": "REPLACE_WITH_MODEL_ID",
+    "model_release": "REPLACE_WITH_MODEL_RELEASE"
+  },
+  "readiness": {
+    "output_json": "model/v0.2_benchmark_readiness_report.json",
+    "require_ok": true,
+    "require_release_inputs": true,
+    "rollout_speed_report": "bench/rollout.ar_speed.json",
+    "rollout_speed_scope_report": "bench/rollout_speed_scope.json",
+    "suite_report": "model/v0.2_benchmark_suite_report.json"
+  },
+  "schema_version": "1.0.0"
+}

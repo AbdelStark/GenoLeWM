@@ -92,9 +92,12 @@ and on documented release hardware.
   hosted gate does not use private data, released checkpoints, rollout
   artifacts, or paper benchmark inputs.
 - **Full eval (release):** the full benchmark suite from
-  [`08-performance-budget.md`](08-performance-budget.md). Run on a
-  documented reference machine. Numbers persisted in
-  `eval_report.md` for the release.
+  [`08-performance-budget.md`](08-performance-budget.md), planned from a
+  release-local copy of
+  `configs/first_experiment/v0.2_benchmark_suite.template.json`. Run on
+  a documented reference machine. Numbers are persisted in
+  `eval_report.md` for the release only after the generated VEP,
+  rollout, efficiency, and readiness artifacts validate separately.
 
 ## Test categories by subsystem
 

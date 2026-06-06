@@ -24,9 +24,21 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
         "clinvar_coding.score",
         "clinvar_coding.carbon_baseline",
         "clinvar_coding.eval",
+        "clinvar_noncoding.score",
+        "clinvar_noncoding.carbon_baseline",
+        "clinvar_noncoding.eval",
+        "brca2_saturation.score",
+        "brca2_saturation.carbon_baseline",
+        "brca2_saturation.eval",
+        "traitgym_mendelian.score",
+        "traitgym_mendelian.carbon_baseline",
+        "traitgym_mendelian.eval",
         "rollout_phased_haplotypes.rollout_examples",
         "rollout_phased_haplotypes.rollout_states",
         "rollout_phased_haplotypes.rollout",
+        "rollout_synthetic_edit_chains.rollout_examples",
+        "rollout_synthetic_edit_chains.rollout_states",
+        "rollout_synthetic_edit_chains.rollout",
         "aggregate.eval_all",
         "readiness.v02",
     ]
@@ -46,10 +58,19 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
     )
     assert "--baseline-name" in commands["clinvar_coding.eval"]
     assert "carbon_zero_shot" in commands["clinvar_coding.eval"]
+    assert "--baseline-score-field" in commands["brca2_saturation.eval"]
+    assert "carbon_zero_shot_score" in commands["brca2_saturation.eval"]
+    assert "--metric-mode" in commands["brca2_saturation.eval"]
+    assert "spearman" in commands["brca2_saturation.eval"]
+    assert "--label-field" in commands["brca2_saturation.eval"]
+    assert "functional_score" in commands["brca2_saturation.eval"]
+    assert "--metric-mode" in commands["traitgym_mendelian.eval"]
+    assert "spearman" in commands["traitgym_mendelian.eval"]
     assert commands["rollout_phased_haplotypes.rollout"][0] == "geno-lewm-rollout"
     assert "--rollout-state-examples-report" in commands["rollout_phased_haplotypes.rollout"]
     assert "--rollout-state-rows-report" in commands["rollout_phased_haplotypes.rollout"]
-    assert commands["aggregate.eval_all"].count("--metrics-json") == 2
+    assert commands["rollout_synthetic_edit_chains.rollout"][0] == "geno-lewm-rollout"
+    assert commands["aggregate.eval_all"].count("--metrics-json") == 6
     assert "--require-v02-vep-metrics" in commands["aggregate.eval_all"]
     assert "--require-v02-rollout-metrics" in commands["aggregate.eval_all"]
     assert commands["rollout_phased_haplotypes.rollout_examples"][:3] == (
@@ -72,6 +93,42 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
     assert "--rollout-speed-scope-report" in commands["readiness.v02"]
     assert "--suite-report" in commands["readiness.v02"]
     assert "--require-ok" in commands["readiness.v02"]
+
+
+def test_checked_template_manifest_plans_required_v02_graph() -> None:
+    steps = v02_benchmark_suite.build_suite_steps(
+        Path("configs/first_experiment/v0.2_benchmark_suite.template.json")
+    )
+
+    assert len(steps) == 20
+    assert {step.step_id for step in steps} == {
+        "clinvar_coding.score",
+        "clinvar_coding.carbon_baseline",
+        "clinvar_coding.eval",
+        "clinvar_noncoding.score",
+        "clinvar_noncoding.carbon_baseline",
+        "clinvar_noncoding.eval",
+        "brca2_saturation.score",
+        "brca2_saturation.carbon_baseline",
+        "brca2_saturation.eval",
+        "traitgym_mendelian.score",
+        "traitgym_mendelian.carbon_baseline",
+        "traitgym_mendelian.eval",
+        "rollout_phased_haplotypes.rollout_examples",
+        "rollout_phased_haplotypes.rollout_states",
+        "rollout_phased_haplotypes.rollout",
+        "rollout_synthetic_edit_chains.rollout_examples",
+        "rollout_synthetic_edit_chains.rollout_states",
+        "rollout_synthetic_edit_chains.rollout",
+        "aggregate.eval_all",
+        "readiness.v02",
+    }
+    commands = {step.step_id: step.command for step in steps}
+    assert commands["brca2_saturation.eval"].count("--metric-mode") == 1
+    assert "spearman" in commands["brca2_saturation.eval"]
+    assert commands["traitgym_mendelian.eval"].count("--metric-mode") == 1
+    assert "spearman" in commands["traitgym_mendelian.eval"]
+    assert commands["aggregate.eval_all"].count("--metrics-json") == 6
 
 
 def test_write_suite_report_plan_only_is_not_evidence(tmp_path: Path) -> None:
@@ -152,7 +209,7 @@ def test_write_suite_report_execute_runs_steps_in_manifest_directory(tmp_path: P
 
     assert report["ok"] is True
     assert report["status"] == "pass"
-    assert len(calls) == 8
+    assert len(calls) == 20
     assert all(cwd == tmp_path for _, cwd in calls)
     assert all(step["status"] == "pass" for step in report["steps"])
     first_step = report["steps"][0]
@@ -200,7 +257,7 @@ def test_write_suite_report_execute_rejects_missing_declared_outputs(tmp_path: P
         "missing declared output eval/clinvar_coding.scores.jsonl",
     ]
     statuses = [step["status"] for step in report["steps"]]
-    assert statuses[1:] == ["not_run"] * 7
+    assert statuses[1:] == ["not_run"] * 19
 
 
 def test_write_suite_report_execute_clears_stale_declared_outputs(tmp_path: Path) -> None:
@@ -296,7 +353,7 @@ def test_write_suite_report_execute_stops_after_first_failure(tmp_path: Path) ->
     assert call_count == 1
     statuses = [step["status"] for step in report["steps"]]
     assert statuses[0] == "failed"
-    assert statuses[1:] == ["not_run"] * 7
+    assert statuses[1:] == ["not_run"] * 19
 
 
 def test_suite_manifest_rejects_nonportable_paths(tmp_path: Path) -> None:
@@ -320,6 +377,20 @@ def test_suite_manifest_rejects_duplicate_outputs(tmp_path: Path) -> None:
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(InputError, match="step outputs must be unique"):
+        v02_benchmark_suite.build_suite_steps(path)
+
+
+def test_suite_manifest_rejects_unknown_vep_metric_mode(tmp_path: Path) -> None:
+    manifest = _manifest_payload()
+    benchmarks = manifest["benchmarks"]
+    assert isinstance(benchmarks, list)
+    first_benchmark = benchmarks[0]
+    assert isinstance(first_benchmark, dict)
+    first_benchmark["metric_mode"] = "pearson"
+    path = tmp_path / "suite.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(InputError, match="unsupported VEP metric_mode"):
         v02_benchmark_suite.build_suite_steps(path)
 
 
@@ -386,6 +457,70 @@ def _manifest_payload() -> dict[str, object]:
                 },
             },
             {
+                "id": "clinvar_noncoding",
+                "kind": "vep",
+                "split": "clinvar_noncoding",
+                "vcf": "benchmarks/clinvar_noncoding.vcf",
+                "fasta": "benchmark_inputs/ref.fa",
+                "labels_jsonl": "eval/clinvar_noncoding.labels.jsonl",
+                "scores_jsonl": "eval/clinvar_noncoding.scores.jsonl",
+                "metrics_json": "eval/clinvar_noncoding.metrics.json",
+                "score": {"enabled": True, "batch_size": 32, "backend": "cpu"},
+                "carbon_baseline": {
+                    "enabled": True,
+                    "carbon_model_dir": "carbon/500m",
+                    "scores_jsonl": "eval/clinvar_noncoding.carbon_zero_shot_scores.jsonl",
+                    "metadata_json": "eval/clinvar_noncoding.carbon_zero_shot_summary.json",
+                    "logp_cache_jsonl": "cache/carbon_zero_shot_logp.jsonl",
+                    "carbon_revision": "main",
+                    "dtype": "bf16",
+                },
+            },
+            {
+                "id": "brca2_saturation",
+                "kind": "vep",
+                "split": "brca2",
+                "metric_mode": "spearman",
+                "label_field": "functional_score",
+                "vcf": "benchmarks/brca2_saturation.vcf",
+                "fasta": "benchmark_inputs/ref.fa",
+                "labels_jsonl": "eval/brca2_saturation.labels.jsonl",
+                "scores_jsonl": "eval/brca2_saturation.scores.jsonl",
+                "metrics_json": "eval/brca2_saturation.metrics.json",
+                "score": {"enabled": True, "batch_size": 32, "backend": "cpu"},
+                "carbon_baseline": {
+                    "enabled": True,
+                    "carbon_model_dir": "carbon/500m",
+                    "scores_jsonl": "eval/brca2_saturation.carbon_zero_shot_scores.jsonl",
+                    "metadata_json": "eval/brca2_saturation.carbon_zero_shot_summary.json",
+                    "logp_cache_jsonl": "cache/carbon_zero_shot_logp.jsonl",
+                    "carbon_revision": "main",
+                    "dtype": "bf16",
+                },
+            },
+            {
+                "id": "traitgym_mendelian",
+                "kind": "vep",
+                "split": "traitgym_mendelian",
+                "metric_mode": "spearman",
+                "label_field": "functional_score",
+                "vcf": "benchmarks/traitgym_mendelian.vcf",
+                "fasta": "benchmark_inputs/ref.fa",
+                "labels_jsonl": "eval/traitgym_mendelian.labels.jsonl",
+                "scores_jsonl": "eval/traitgym_mendelian.scores.jsonl",
+                "metrics_json": "eval/traitgym_mendelian.metrics.json",
+                "score": {"enabled": True, "batch_size": 32, "backend": "cpu"},
+                "carbon_baseline": {
+                    "enabled": True,
+                    "carbon_model_dir": "carbon/500m",
+                    "scores_jsonl": "eval/traitgym_mendelian.carbon_zero_shot_scores.jsonl",
+                    "metadata_json": "eval/traitgym_mendelian.carbon_zero_shot_summary.json",
+                    "logp_cache_jsonl": "cache/carbon_zero_shot_logp.jsonl",
+                    "carbon_revision": "main",
+                    "dtype": "bf16",
+                },
+            },
+            {
                 "id": "rollout_phased_haplotypes",
                 "kind": "rollout",
                 "split": "rollout_phased_haplotypes",
@@ -400,6 +535,23 @@ def _manifest_payload() -> dict[str, object]:
                         "eval/rollout_phased_haplotypes.state_examples_report.json"
                     ),
                     "report_json": "eval/rollout_phased_haplotypes.state_rows_report.json",
+                },
+            },
+            {
+                "id": "rollout_synthetic_edit_chains",
+                "kind": "rollout",
+                "split": "rollout_synthetic_edit_chains",
+                "states_jsonl": "eval/rollout_synthetic_edit_chains.states.jsonl",
+                "metrics_json": "eval/rollout_synthetic_edit_chains.metrics.json",
+                "recall_k": 10,
+                "state_generation": {
+                    "spec_jsonl": "eval/rollout_synthetic_edit_chains.example_specs.jsonl",
+                    "cache_dir": "cache/window_embeddings",
+                    "examples_jsonl": "eval/rollout_synthetic_edit_chains.examples.jsonl",
+                    "examples_report_json": (
+                        "eval/rollout_synthetic_edit_chains.state_examples_report.json"
+                    ),
+                    "report_json": "eval/rollout_synthetic_edit_chains.state_rows_report.json",
                 },
             },
         ],

@@ -228,8 +228,14 @@ The first paper/demo release is not ready until:
   every measured metric name, split, measured value, and baseline delta
   when present from `eval_metrics.json`;
 - `python -m tools.release.v02_benchmark_suite --manifest ... --output-report ...`
-  can plan or execute the v0.2 benchmark commands from a JSON manifest;
-  plan-only reports keep `ok=false`, while execute-mode clears each
+  can plan or execute the v0.2 benchmark commands from a JSON manifest.
+  `configs/first_experiment/v0.2_benchmark_suite.template.json` is a
+  checked planning template for the required coding ClinVar,
+  non-coding ClinVar, BRCA2 saturation, TraitGym Mendelian,
+  phased-haplotype rollout, and synthetic edit-chain rollout rows.
+  ClinVar VEP rows use binary ClinVar metrics; BRCA2 and TraitGym rows
+  use `geno-lewm-eval --metric-mode spearman` over continuous labels.
+  Plan-only reports keep `ok=false`, while execute-mode clears each
   step's declared output files, then requires the command to exit
   successfully and write those outputs again, recording passed-step
   output identities by package-local path plus SHA-256 and size, with
