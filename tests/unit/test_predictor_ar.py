@@ -115,6 +115,45 @@ def test_ar_rollout_reuses_cached_action_projection() -> None:
     )
 
 
+def test_ar_rollout_requests_fp32_output_path_for_real_predictor_long_rollout() -> None:
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import ARPredictor, Predictor
+
+    torch.manual_seed(19)
+    predictor = Predictor(
+        d_state=6,
+        d_action=3,
+        d_hidden=6,
+        n_heads=2,
+        n_cross_layers=2,
+        n_self_layers=1,
+        ffn_dim=12,
+        max_actions=21,
+    )
+    state = torch.nn.functional.normalize(torch.randn(1, 6), dim=-1)
+    actions = torch.randn(1, 21, 3)
+    flags: list[bool] = []
+    original_output_delta = predictor._output_delta
+
+    def counted_output_delta(
+        action_output: torch.Tensor,
+        *,
+        upcast_output_mlp: bool,
+    ) -> torch.Tensor:
+        flags.append(upcast_output_mlp)
+        return original_output_delta(
+            action_output,
+            upcast_output_mlp=upcast_output_mlp,
+        )
+
+    predictor._output_delta = counted_output_delta  # type: ignore[method-assign]
+
+    trajectory = ARPredictor(predictor).rollout(state, actions)
+
+    assert len(trajectory) == 21
+    assert flags == [True] * 21
+
+
 def test_ar_rollout_requests_fp32_output_path_for_long_rollouts() -> None:
     torch = pytest.importorskip("torch")
     from geno_lewm.predictor import ARPredictor
