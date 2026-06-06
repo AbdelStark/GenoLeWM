@@ -323,8 +323,10 @@ def _append_vep_steps(
             "metadata_json",
             field=f"{benchmark_id}.carbon_baseline.metadata_json",
         )
+        baseline_outputs = [baseline_scores]
         if metadata is not None:
             command.extend(("--metadata-output", metadata))
+            baseline_outputs.append(metadata)
         cache = _optional_path_text(
             baseline_cfg,
             "logp_cache_jsonl",
@@ -341,7 +343,7 @@ def _append_vep_steps(
                 step_id=f"{benchmark_id}.carbon_baseline",
                 kind="carbon_baseline",
                 command=tuple(command),
-                outputs=(baseline_scores,),
+                outputs=tuple(baseline_outputs),
                 issue_refs=("#55", "#56", "#197"),
             )
         )

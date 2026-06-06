@@ -31,6 +31,7 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
         "readiness.v02",
     ]
     commands = {step.step_id: step.command for step in steps}
+    outputs = {step.step_id: step.outputs for step in steps}
     assert commands["clinvar_coding.score"][:3] == (
         "geno-lewm-score",
         "--quiet",
@@ -39,6 +40,10 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
     assert "--model-dir" in commands["clinvar_coding.score"]
     assert "model" in commands["clinvar_coding.score"]
     assert commands["clinvar_coding.carbon_baseline"][0] == "geno-lewm-carbon-baseline"
+    assert outputs["clinvar_coding.carbon_baseline"] == (
+        "eval/clinvar_coding.carbon_zero_shot_scores.jsonl",
+        "eval/clinvar_coding.carbon_zero_shot_summary.json",
+    )
     assert "--baseline-name" in commands["clinvar_coding.eval"]
     assert "carbon_zero_shot" in commands["clinvar_coding.eval"]
     assert commands["rollout_phased_haplotypes.rollout"][0] == "geno-lewm-rollout"
