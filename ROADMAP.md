@@ -94,7 +94,8 @@ Not implemented end-to-end yet:
   ClinVar release slice;
 - measured v0.2 GenoLeWM-vs-Carbon baseline deltas over coding and
   non-coding splits with exact evaluated variant identities;
-- rollout-fidelity benchmarks and performance regression gates;
+- rollout-fidelity state-row generation plus performance regression gates
+  beyond the implemented `geno-lewm-rollout` metrics aggregator;
 - planning-ready API/CLI demos backed by measured predictor evidence;
 - first PyPI package tag.
 
@@ -120,7 +121,7 @@ must reuse them with stronger data, evaluation, and rollout evidence.
 | --- | --- | --- |
 | Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked snapshot spec; `--check-inputs` records staged upstream input hashes/sizes; `python -m tools.release.dataset_snapshot` and `python -m tools.release.dataset_package` generate package metadata, data card, manifest, split-integrity, input-check report, snapshot report, and checksums once local upstream files are staged | Completed and published for v0.1 ([#163](https://github.com/AbdelStark/GenoLeWM/issues/163)); v0.2 needs broader benchmark snapshots and refreshed split evidence |
 | Carbon-backed training | `geno-lewm-train --carbon-preflight` and `geno-lewm-train --carbon-train --package-release-run` bind config, dataset, CUDA/VRAM readiness, Carbon model, metrics, logs, checkpoint, and training-run checksums | Completed and published for v0.1 ([#164](https://github.com/AbdelStark/GenoLeWM/issues/164)); v0.2 training should wait for stronger data/eval gates |
-| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all --require-v02-vep-metrics`, and `python -m bench.inference --release-efficiency` generate metrics, report, effective eval config, aggregate VEP metric coverage checks, and efficiency evidence | Completed for the narrow v0.1 release ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)); broader GenoLeWM-vs-Carbon deltas, rollout fidelity, and benchmark gates remain open |
+| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all --require-v02-vep-metrics`, `geno-lewm-rollout`, and `python -m bench.inference --release-efficiency` generate metrics, report, effective eval config, aggregate VEP/rollout metric coverage checks, and efficiency evidence | Completed for the narrow v0.1 release ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)); broader GenoLeWM-vs-Carbon deltas, real rollout state-row artifacts, and benchmark gates remain open |
 | v0.2 benchmark readiness | `python -m tools.release.v02_benchmark_readiness --metrics-json ... --rollout-speed-report ... --efficiency-report ... --output ... --require-ok` reconciles measured eval values/deltas, efficiency, AR rollout speed, confidence-interval coverage, and release-input provenance into `v0.2_benchmark_readiness_report.json` | New v0.2 gate for [#197](https://github.com/AbdelStark/GenoLeWM/issues/197); expected `ok=false` until broader benchmark rows, CI-bearing VEP metrics, non-fixture release inputs, and the [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target pass |
 | Source distribution | `python -m build`, `twine check`, and `python -m tools.release.check_sdist_assets dist/*.tar.gz` verify package metadata and the release-critical repo assets needed by the dataset, model, eval, efficiency, terminal-demo, clean-replay, and publication-evidence gates | No tagged package release has been built by the protected release workflow yet |
 | Terminal demo | `python tools/demo/terminal_inference.py` emits transcript, score/receipt JSONL, runtime preflight, batch receipt report, and terminal demo manifest | Completed for v0.1 ([#166](https://github.com/AbdelStark/GenoLeWM/issues/166)); v0.2 should demonstrate benchmark/planning behavior without clinical claims |
@@ -348,7 +349,7 @@ baseline, not a reason to publish stronger model-quality claims.
 
 - ClinVar coding and non-coding metrics;
 - Carbon zero-shot baseline;
-- rollout cosine-similarity metric;
+- rollout cosine-similarity/L2/Recall@k metrics from measured state rows;
 - throughput and memory measurements;
 - confidence intervals where sample size permits;
 - ablations for action encoding and predictor loss where feasible.
@@ -422,7 +423,8 @@ baseline, not a reason to publish stronger model-quality claims.
 - conclusions list what worked, what failed, and what experiment comes next.
 
 **Status:** completed for the narrow v0.1 release; v0.2 needs broader
-ClinVar/Carbon baseline, rollout-fidelity, and performance benchmarks.
+ClinVar/Carbon baseline, real rollout-fidelity state-row generation, and
+performance benchmarks.
 
 ---
 

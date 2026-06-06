@@ -477,18 +477,23 @@ def _metric_release_input_findings(
     findings.extend(_artifact_findings(artifacts, prefix=f"{prefix}.artifacts"))
     artifact_keys = set(artifacts)
     has_raw_score_inputs = {"scores", "labels"} <= artifact_keys
+    has_rollout_state_inputs = "rollout_states" in artifact_keys
     has_aggregate_inputs = any(key.startswith("metrics_input_") for key in artifact_keys)
-    if not has_raw_score_inputs and not has_aggregate_inputs:
+    if not has_raw_score_inputs and not has_rollout_state_inputs and not has_aggregate_inputs:
         findings.append(
-            f"{prefix}.artifacts must include scores+labels or metrics_input_* provenance"
+            f"{prefix}.artifacts must include scores+labels, rollout_states, or metrics_input_* provenance"
         )
     has_baseline_metrics = any(metric.baseline is not None for metric in report.metrics)
-    has_baseline_artifact = any(
-        key == "baseline_scores" or key.endswith(".baseline_scores") for key in artifact_keys
-    )
+    has_baseline_artifact = any(_is_baseline_artifact_key(key) for key in artifact_keys)
     if has_baseline_metrics and not has_baseline_artifact:
-        findings.append(f"{prefix}.artifacts must include baseline score provenance")
+        findings.append(f"{prefix}.artifacts must include baseline artifact provenance")
     return findings
+
+
+def _is_baseline_artifact_key(key: str) -> bool:
+    return key in {"baseline_scores", "baseline_rollout_states"} or key.endswith(
+        (".baseline_scores", ".baseline_rollout_states")
+    )
 
 
 def _efficiency_release_input_findings(report: EfficiencyReport) -> list[str]:

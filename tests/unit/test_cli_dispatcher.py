@@ -66,6 +66,7 @@ TYPER_STUB_SCRIPTS: tuple[tuple[str, str], ...] = tuple(
         "geno_lewm.cli.eval",
         "geno_lewm.cli.eval_all",
         "geno_lewm.cli.carbon_baseline",
+        "geno_lewm.cli.rollout",
         "geno_lewm.cli.score",
         "geno_lewm.cli.train",
         "geno_lewm.cli.update",
@@ -80,8 +81,8 @@ def test_cli_package_docstring_tracks_mixed_alpha_surface() -> None:
     assert "ships only the verify CLI" not in doc
     assert "score" in doc
     assert "evaluation" in doc
+    assert "rollout-fidelity" in doc
     assert "entry-point scaffolds" in doc
-    assert "rollout" in doc
 
 
 def test_stub_helpers_stay_private_to_factory_module() -> None:

@@ -415,13 +415,17 @@ def _require_baseline_artifacts(
     if not baseline_names:
         return
     artifact_keys = {key for key, _value in artifacts}
-    if not any(
-        key == "baseline_scores" or key.endswith(".baseline_scores") for key in artifact_keys
-    ):
+    if not any(_is_baseline_artifact_key(key) for key in artifact_keys):
         raise InputError(
-            "baseline metrics require a baseline score artifact",
+            "baseline metrics require a baseline artifact",
             details={"baselines": baseline_names, "artifact_keys": sorted(artifact_keys)},
         )
+
+
+def _is_baseline_artifact_key(key: str) -> bool:
+    return key in {"baseline_scores", "baseline_rollout_states"} or key.endswith(
+        (".baseline_scores", ".baseline_rollout_states")
+    )
 
 
 def _require_metric_conclusions(

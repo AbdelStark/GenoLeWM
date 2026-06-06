@@ -71,7 +71,8 @@ implemented surface now includes:
 The v0.1 paper/demo release is complete. Remaining high-priority work is
 post-release evidence: broader held-out benchmarks, GenoLeWM-vs-Carbon
 baseline deltas, RFC-0004 attention KV-cache speedups, rollout-fidelity
-gates, planning-ready APIs/CLI, and the first PyPI package tag.
+state-row generation beyond the implemented metrics aggregator,
+planning-ready APIs/CLI, and the first PyPI package tag.
 
 ## Active Milestones
 
@@ -96,7 +97,7 @@ re-run. Do not use local fixture/tooling evidence alone for v0.2 claims.
 | --- | --- | --- |
 | #163 dataset snapshot | `python -m tools.release.dataset_snapshot`; `python -m tools.release.dataset_package` | Completed for v0.1; v0.2 needs broader benchmark snapshots and refreshed split evidence |
 | #164 first Carbon-backed run | `geno-lewm-train --carbon-preflight`; `geno-lewm-train --carbon-train --package-release-run` | Completed for v0.1; v0.2 training should wait for stronger data/eval gates |
-| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all --require-v02-vep-metrics`; `python -m bench.inference --release-efficiency` | Completed for the narrow v0.1 release; broader benchmark and rollout metrics remain open |
+| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all --require-v02-vep-metrics`; `geno-lewm-rollout`; `python -m bench.inference --release-efficiency` | Completed for the narrow v0.1 release; broader benchmark and real rollout state-row metrics remain open |
 | #197 v0.2 benchmark readiness | `python -m tools.release.v02_benchmark_readiness --metrics-json ... --rollout-speed-report ... --efficiency-report ... --output ... --require-ok` | New coverage/provenance contract; `--require-ok` records measured values/deltas and also requires CI-bearing VEP metrics plus non-fixture, package-relative release inputs; expected `ok=false` until broader benchmark rows and #42 rollout speed pass from measured artifacts |
 | #20 release packaging | `python -m build`; `twine check`; `python -m tools.release.check_sdist_assets dist/*.tar.gz` over the full first-publication toolchain | Tagged package release built by the protected workflow from the checked tree |
 | #166 terminal showcase | `python tools/demo/terminal_inference.py`; `python -m tools.release.clean_machine_demo` | Completed for v0.1; future demos should demonstrate stronger benchmark/planning behavior without clinical claims |
@@ -109,7 +110,7 @@ re-run. Do not use local fixture/tooling evidence alone for v0.2 claims.
 | Carbon encoder and cache scale | #32, #36 | v0.1 proved the released artifact path; v0.2 still needs broader Carbon validation and cache-build throughput evidence |
 | Trainer reproducibility and regression gates | #44, #47 | v0.1 run evidence exists; v0.2 needs deterministic repeatability and benchmark gates beyond the first run |
 | Dataset builders and split enforcement | #49, #50, #51, #52 | v0.1 dataset publication exists; audit remaining issue deltas against the actual pipeline, then narrow v0.2 work around larger shards, holdouts, and warm-cache throughput |
-| ClinVar and baseline evaluation | #53, #55, #56 | v0.1 measured release evidence exists; v0.2 needs broader coding/non-coding benchmarks, Carbon baseline deltas, rollout-fidelity coverage, and exact evaluated variant identities |
+| ClinVar, baseline, and rollout evaluation | #53, #55, #56, #57 | v0.1 measured release evidence exists; v0.2 needs broader coding/non-coding benchmarks, Carbon baseline deltas, real rollout state-row artifacts, and exact evaluated variant identities |
 | Score CLI and terminal demo | #62, #65 | v0.1 clean-machine scoring transcript exists; close or re-scope remaining work to reusable examples, quickstart polish, and future benchmark/planning demos |
 | Model checkpoint Hub release | #101 | v0.1 model release is complete; future work is PyPI/source-package publication and v0.2 model package evidence |
 | Hosted ML smoke gate | #89 | Dedicated `tests/ml` fixture smoke coverage and CI `ml-smoke` job exist; this remains separate from #54's hosted eval smoke-regression gate |
@@ -217,10 +218,11 @@ The first paper/demo release is not ready until:
   with `geno-lewm-eval-all --require-v02-vep-metrics`, which refreshes
   and records `eval_config.effective.yaml` plus metrics inputs as
   package-relative artifact paths under the aggregate metrics directory
-  and fails incomplete v0.2 VEP coverage; the eval-report parser rejects
-  metrics payloads missing the required `eval_config` artifact; baseline
-  comparisons must supply `baseline`,
-  `baseline_value`, and `delta_vs_baseline` together; conclusions must
+  and fails incomplete v0.2 VEP coverage; `geno-lewm-rollout` can add
+  rollout-fidelity metric rows from measured latent-state JSONL with
+  per-K stratification; the eval-report parser rejects metrics payloads
+  missing the required `eval_config` artifact; baseline comparisons must
+  supply `baseline`, `baseline_value`, and `delta_vs_baseline` together; conclusions must
   explicitly reference every measured metric name, split, measured value,
   and baseline delta when present from `eval_metrics.json`;
   `negative_findings` must be non-empty and render as

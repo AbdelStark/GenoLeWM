@@ -167,7 +167,7 @@ def test_parse_report_input_requires_baseline_score_artifact() -> None:
     payload = _payload()
     payload["artifacts"].pop("baseline_scores")
 
-    with pytest.raises(InputError, match="baseline metrics require a baseline score artifact"):
+    with pytest.raises(InputError, match="baseline metrics require a baseline artifact"):
         parse_report_input(payload)
 
 
@@ -193,6 +193,14 @@ def test_parse_report_input_accepts_aggregated_baseline_score_artifact_key() -> 
     payload = _payload()
     baseline_scores = payload["artifacts"].pop("baseline_scores")
     payload["artifacts"]["input_1.baseline_scores"] = baseline_scores
+
+    assert parse_report_input(payload).metrics[0].baseline == "carbon_zero_shot"
+
+
+def test_parse_report_input_accepts_rollout_baseline_artifact_key() -> None:
+    payload = _payload()
+    payload["artifacts"].pop("baseline_scores")
+    payload["artifacts"]["baseline_rollout_states"] = "eval/rollout_states.jsonl"
 
     assert parse_report_input(payload).metrics[0].baseline == "carbon_zero_shot"
 

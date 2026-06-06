@@ -35,12 +35,12 @@ As of June 6, 2026:
 | Edit/action representation | Implemented: `EditSpec`, `RelEdit`, edit application, synthetic edit samplers, and optional-runtime `ActionEncoder` |
 | Privacy-safe infrastructure | Implemented: typed errors, structured logging, redaction, metrics |
 | Artifact provenance | Implemented: content-addressed manifests, input/output commitments, checksum receipt verification |
-| CLI surface | Implemented scaffolds plus working `geno-lewm-verify`, `geno-lewm-update`, data prep, score, and fixture train paths |
+| CLI surface | Implemented scaffolds plus working `geno-lewm-verify`, `geno-lewm-update`, data prep, score, eval, rollout-metrics, and train paths |
 | Desktop/runtime scaffolds | Present but not a complete product |
 | Carbon encoder integration | Lazy `CarbonStateEncoder` wrapper and native artifact loading are implemented; the v0.1 terminal demo replayed from public model/data/demo artifacts; broader platform/runtime validation remains v0.2 work |
 | Data/training stream | Carbon window sampler, tuple-builder contract, `GenoLeWMDataset` iterator, source-state cache lookup, local VCF-to-Parquet prep, and the v0.1 public dataset package are in place; larger held-out benchmark coverage and warm-cache throughput validation remain v0.2 work |
 | Predictor/training | Base cross-attention `Predictor`, `ARPredictor` rollout wrapper, losses, collapse checks, torch trainer core, WSD scheduling, optimizer grouping, Carbon preflight/training launch plumbing, packaged run evidence, and one real Carbon-backed SNV run are published; true attention KV-cache speedups remain open |
-| Evaluation | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, and `bench.inference --release-efficiency` generated the v0.1 measured release artifacts; broader coding/non-coding, Carbon-baseline, rollout-fidelity, and planning-readiness benchmarks are still v0.2 work |
+| Evaluation | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, and `bench.inference --release-efficiency` cover measured metrics/report contracts; broader coding/non-coding, Carbon-baseline, rollout-fidelity artifact generation, and planning-readiness benchmarks are still v0.2 work |
 | Package/model release | Public model, dataset, demo, paper, and publication-evidence artifacts are published; the first PyPI package tag remains open |
 
 The v0.1 measured evaluation is intentionally narrow: chr21 ClinVar,
@@ -312,7 +312,7 @@ public v0.1 evidence. Green local tooling is necessary, but it is not a substitu
 | --- | --- | --- |
 | Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked rebuild spec; `--check-inputs` hashes staged upstream files; the same spec with `--dataset-dir ... --overwrite` writes `dataset_input_check_report.json`, `dataset_snapshot_report.json`, `dataset_package.json`, `dataset_manifest.json`, `data_card.md`, `split_integrity.json`, and `SHA256SUMS` | Completed for v0.1 and published with [#163](https://github.com/AbdelStark/GenoLeWM/issues/163); repeat for larger v0.2 benchmark snapshots |
 | Training run | `geno-lewm-train --carbon-preflight ...` and `geno-lewm-train --carbon-train --package-release-run ...` bind config, dataset, CUDA/VRAM readiness, Carbon model, checkpoint, logs, metrics, and `training_run_SHA256SUMS` | Completed for v0.1 with [#164](https://github.com/AbdelStark/GenoLeWM/issues/164); v0.2 needs stronger runs only after data/eval gates improve |
-| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, and `python -m bench.inference --release-efficiency` generate `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`, and `efficiency_report.json` | Completed for the narrow v0.1 release with [#165](https://github.com/AbdelStark/GenoLeWM/issues/165); broader measured benchmark and rollout evidence remain open |
+| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, and `python -m bench.inference --release-efficiency` generate `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`, rollout-fidelity metric rows from measured state JSONL, and `efficiency_report.json` | Completed for the narrow v0.1 release with [#165](https://github.com/AbdelStark/GenoLeWM/issues/165); broader measured benchmark and rollout evidence remain open, including real rollout state-row evidence |
 | Terminal demo | `python tools/demo/terminal_inference.py ...` records `terminal-demo-transcript.md`, `terminal_demo_manifest.json`, `runtime_preflight_report.json`, `scores.jsonl`, `receipts.jsonl`, and `batch_receipt_report.json` | Completed for v0.1 with [#166](https://github.com/AbdelStark/GenoLeWM/issues/166); v0.2 should demonstrate benchmark/planning behavior without clinical claims |
 | Paper and publication evidence | `python -m tools.release.paper_draft`, `python -m tools.release.paper_package`, `python -m tools.release.release_candidate`, `python -m tools.release.clean_machine_demo`, and `python -m tools.release.publication_report` bind the paper, Hub plan, public links, replay, and final evidence report | Completed for v0.1 through [#167](https://github.com/AbdelStark/GenoLeWM/issues/167) and [#101](https://github.com/AbdelStark/GenoLeWM/issues/101); final binder is public and has `ok=true` |
 
@@ -348,6 +348,13 @@ TraitGym Mendelian VEP rows are missing required Carbon-baseline deltas,
 confidence intervals, or evaluated variant-key identities. This is only
 an aggregate coverage gate; efficiency, rollout speed, and release-input
 provenance still belong to `tools.release.v02_benchmark_readiness`.
+
+For rollout-fidelity evidence, `geno-lewm-rollout --states-jsonl ... --output-metrics ...`
+now aggregates measured latent-state rows into eval-compatible
+`cosine_similarity_mean`, `l2_distance_mean`, and `recall_at_k` metrics
+with source-state baseline deltas and per-K stratification. It does not
+generate held-out haplotypes or run Carbon encoding; those measured
+state-row artifacts are still v0.2 benchmark inputs.
 
 - audit data issues #49, #50, #51, and #52 against the actual v0.1
   pipeline and turn remaining deltas into narrower v0.2 work;
