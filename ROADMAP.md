@@ -401,8 +401,10 @@ baseline, not a reason to publish stronger model-quality claims.
   targets, valid GitHub issue refs including #42 and #197, UTC generated
   and accepted timestamps, HTTP(S) decision URL, rationale, replacement
   target, and public-safe scope plus nested rollout command path
-  identities, and it preserves negative findings plus a claim boundary
-  that keep the failed target out of passing speed evidence; readiness
+  identities, while the scope generator requires the source
+  `bench.rollout` report to preserve its claim boundary, and the scope
+  report preserves negative findings plus a claim boundary that keeps the
+  failed target out of passing speed evidence; readiness
   still records the AR-speed row as `rescoped` rather than passing speed
   evidence while copying the accepted report identity, accepter,
   rationale, replacement target, timestamps, decision URL, and issue refs

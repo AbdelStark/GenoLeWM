@@ -10,6 +10,11 @@ import pytest
 from geno_lewm.errors import InputError
 from tools.release import rollout_speed_scope
 
+ROLLOUT_CLAIM_BOUNDARY = (
+    "This benchmark measures local predictor rollout speed only; it is not "
+    "model-quality, clinical, privacy, or release-readiness evidence."
+)
+
 
 def test_scope_report_binds_failed_rollout_speed_report(tmp_path: Path) -> None:
     rollout = tmp_path / "rollout.ar_speed.json"
@@ -151,6 +156,23 @@ def test_scope_report_requires_k5_and_k20_measurements(tmp_path: Path) -> None:
         )
 
 
+def test_scope_report_rejects_weakened_rollout_claim_boundary(tmp_path: Path) -> None:
+    rollout = tmp_path / "rollout.ar_speed.json"
+    payload = _failing_rollout_payload()
+    payload["claim_boundary"] = "This report records rollout speed."
+    rollout.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputError, match="claim_boundary must preserve"):
+        rollout_speed_scope.build_scope_report(
+            rollout_speed_report=rollout,
+            accepted_by="maintainer",
+            accepted_at="2026-06-06T12:00:00Z",
+            decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+            rationale="The current recurrent predictor path reports measured speed below target.",
+            replacement_target="Report measured rollout speed until #42 accepts a new target.",
+        )
+
+
 def test_scope_main_writes_report(tmp_path: Path) -> None:
     rollout = tmp_path / "rollout.ar_speed.json"
     output = tmp_path / "rollout_speed_scope.json"
@@ -187,6 +209,7 @@ def _failing_rollout_payload() -> dict[str, object]:
         "ok": False,
         "commit": "abcdef1234567890",
         "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
+        "claim_boundary": ROLLOUT_CLAIM_BOUNDARY,
         "rows": [
             {
                 "horizon": 5,

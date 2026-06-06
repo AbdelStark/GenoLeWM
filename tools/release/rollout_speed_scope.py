@@ -172,6 +172,7 @@ def _rollout_summary(payload: dict[str, object]) -> dict[str, object]:
     command = _required_text_list(payload.get("command"), "rollout speed command")
     commit = _required_text(payload, "commit")
     report_ok = _required_bool(payload, "ok")
+    _require_rollout_claim_boundary(payload.get("claim_boundary"))
     rows = _require_list(payload.get("rows"), "rollout speed rows")
     observed_values: dict[str, float] = {}
     failed_targets: list[dict[str, object]] = []
@@ -296,6 +297,21 @@ def _require_url(value: object, field: str) -> str:
     if not text.startswith(("https://", "http://")):
         raise InputError(f"{field} must be an HTTP(S) URL")
     return text
+
+
+def _require_rollout_claim_boundary(raw: object) -> None:
+    text = _require_text_value(raw, "claim_boundary")
+    normalized = text.lower()
+    required_terms = (
+        "rollout speed",
+        "not",
+        "model-quality",
+        "clinical",
+        "privacy",
+        "release-readiness",
+    )
+    if any(term not in normalized for term in required_terms):
+        raise InputError("rollout speed report claim_boundary must preserve benchmark limits")
 
 
 def _required_text_list(raw: object, label: str) -> list[str]:

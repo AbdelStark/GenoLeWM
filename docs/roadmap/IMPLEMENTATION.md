@@ -258,7 +258,9 @@ The first paper/demo release is not ready until:
   and accepted timestamps, HTTP(S) decision URL, and public-safe scope
   plus nested rollout command path identities. Scope negative findings
   and claim boundaries must preserve that the failed target is not
-  passing rollout-speed evidence. The readiness row remains `rescoped`
+  passing rollout-speed evidence, and scope generation requires the
+  source `bench.rollout` report's own claim boundary first. The
+  readiness row remains `rescoped`
   rather than passing speed evidence, and `scope_decisions` preserves the
   accepted report identity, accepter, rationale, replacement target,
   timestamps, decision URL, and issue refs. Metric conclusions must also

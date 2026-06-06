@@ -337,8 +337,10 @@ trusted only after their hashes match the fetched manifest.
     URL, rationale, replacement target, and GitHub issue refs including
     #42 and #197. The generated scope report MUST record the failing
     `bench.rollout` input identity plus scope and nested rollout command
-    path arguments with public-safe path text, and MUST preserve negative
-    findings plus a claim boundary stating that the failed target remains
+    path arguments with public-safe path text, MUST reject source
+    `bench.rollout` reports missing or weakening the direct
+    rollout-speed claim boundary, and MUST preserve negative findings
+    plus a claim boundary stating that the failed target remains
     not passing rollout-speed evidence. The readiness report's
     `scope_decisions` summary MUST preserve the accepted scope report
     identity, accepter, rationale, replacement target, generated/accepted
