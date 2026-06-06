@@ -370,12 +370,13 @@ values plus efficiency command provenance, and non-fixture release
 identity text. The readiness report records input artifact identities
 and readiness, efficiency, accepted scope, or nested rollout-speed
 command path arguments with public-safe paths plus SHA-256 and size
-where applicable, so absolute CLI paths do not enter the report. Metric
-conclusions include measured values, baseline deltas, split/track
-context, confidence intervals, and evaluated variant-key identities where
-available; non-passing conclusions include missing metrics, missing
-confidence intervals, baseline gaps, failed targets, or release-input
-findings where applicable. The
+where applicable, and its `release_inputs` row records checked metrics
+artifact paths plus efficiency input identities. Absolute CLI paths do
+not enter the report. Metric conclusions include measured values,
+baseline deltas, split/track context, confidence intervals, and evaluated
+variant-key identities where available; non-passing conclusions include
+missing metrics, missing confidence intervals, baseline gaps, failed
+targets, or release-input findings where applicable. The
 report is expected to remain `ok=false` until the broader benchmark suite
 passes from measured artifacts and the
 [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target

@@ -695,9 +695,57 @@ def _release_inputs_row(
             "non_fixture_release_identity",
             "efficiency_input_identities",
         ],
+        "checked_artifacts": _checked_release_input_artifacts(
+            metric_reports=metric_reports,
+            rollout_speed_report=rollout_speed_report,
+            efficiency=efficiency,
+        ),
         "findings": findings,
         "issue_refs": ["#56", "#197"],
     }
+
+
+def _checked_release_input_artifacts(
+    *,
+    metric_reports: tuple[EvalReportInput, ...],
+    rollout_speed_report: Path | None,
+    efficiency: EfficiencyReport | None,
+) -> dict[str, object]:
+    checked: dict[str, object] = {
+        "metrics_json": [
+            {
+                "input_index": index,
+                "generated_by": report.generated_by,
+                "artifacts": {
+                    key: _public_safe_checked_artifact_path(value)
+                    for key, value in sorted(report.artifacts)
+                },
+            }
+            for index, report in enumerate(metric_reports, start=1)
+        ]
+    }
+    if rollout_speed_report is not None:
+        checked["rollout_speed_report"] = _file_identity(rollout_speed_report)
+    if efficiency is not None:
+        checked["efficiency_report"] = {
+            "inputs": {
+                key: identity.to_dict()
+                for key, identity in sorted(efficiency.inputs, key=lambda item: item[0])
+            }
+        }
+    return checked
+
+
+def _public_safe_checked_artifact_path(value: str) -> str:
+    if not _path_findings(value, field="artifact", allow_inline=False):
+        return value
+    if "://" in value:
+        return "<non-package-relative-url>"
+    redacted = _public_safe_path_text(value)
+    if redacted != value:
+        return redacted
+    path = PureWindowsPath(value) if "\\" in value else PurePosixPath(value)
+    return path.name or "<non-package-relative-path>"
 
 
 def _metric_release_input_findings(

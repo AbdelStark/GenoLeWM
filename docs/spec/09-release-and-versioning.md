@@ -295,9 +295,11 @@ trusted only after their hashes match the fetched manifest.
     Readiness input artifact identities plus readiness, efficiency, and
     nested rollout-speed command path arguments must use public-safe paths
     plus SHA-256 and size where applicable so caller-supplied absolute CLI
-    paths do not enter release reports. The readiness report MUST carry
-    measured efficiency latency, throughput, peak memory, runtime/sample
-    context, limitations, and sanitized efficiency command provenance.
+    paths do not enter release reports. The `release_inputs` row MUST
+    record checked metrics artifact paths and efficiency input identities
+    from the validated payloads. The readiness report MUST carry measured
+    efficiency latency, throughput, peak memory, runtime/sample context,
+    limitations, and sanitized efficiency command provenance.
     Metric conclusions MUST include split/track context, measured values,
     baseline deltas, confidence intervals, and evaluated variant-key
     identities when those fields are available. Non-passing metric

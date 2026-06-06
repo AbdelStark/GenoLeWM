@@ -768,6 +768,30 @@ def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) 
     rows = _rows_by_id(report)
     assert rows["release_inputs"]["status"] == "pass"
     assert rows["release_inputs"]["findings"] == []
+    checked = rows["release_inputs"]["checked_artifacts"]
+    assert isinstance(checked, dict)
+    metrics_json = checked["metrics_json"]
+    assert isinstance(metrics_json, list)
+    metrics_input = metrics_json[0]
+    assert isinstance(metrics_input, dict)
+    artifacts = metrics_input["artifacts"]
+    assert isinstance(artifacts, dict)
+    assert artifacts["scores"] == "eval/scores.jsonl"
+    assert artifacts["labels"] == "eval/labels.jsonl"
+    assert artifacts["rollout_state_examples_report"] == "eval/rollout_state_examples_report.json"
+    rollout_identity = checked["rollout_speed_report"]
+    assert isinstance(rollout_identity, dict)
+    assert rollout_identity["path"] == "rollout.ar_speed.json"
+    assert str(tmp_path) not in json.dumps(rollout_identity, sort_keys=True)
+    efficiency_inputs = checked["efficiency_report"]
+    assert isinstance(efficiency_inputs, dict)
+    efficiency_input_identities = efficiency_inputs["inputs"]
+    assert isinstance(efficiency_input_identities, dict)
+    model_manifest = efficiency_input_identities["model_manifest"]
+    assert isinstance(model_manifest, dict)
+    assert model_manifest["path"] == "model/manifest.json"
+    assert model_manifest["sha256"] == sha256_bytes(b"manifest")
+    assert model_manifest["size_bytes"] == 10
 
 
 def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
@@ -819,6 +843,43 @@ def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
     )
 
 
+def test_release_inputs_row_redacts_invalid_checked_artifact_paths(tmp_path: Path) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    payload = _metrics_payload(
+        [
+            *_binary_metrics("clinvar_coding", baseline=True),
+        ],
+        release_ready=True,
+    )
+    artifacts = payload["artifacts"]
+    assert isinstance(artifacts, dict)
+    artifacts["scores"] = str(tmp_path / "private" / "scores.jsonl")
+    metrics.write_text(json.dumps(payload), encoding="utf-8")
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(
+        json.dumps(_efficiency_payload(release_ready=True)),
+        encoding="utf-8",
+    )
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    assert rows["release_inputs"]["status"] == "failed"
+    findings = "\n".join(rows["release_inputs"]["findings"])
+    assert "metrics_json[1].artifacts.scores must be package-relative" in findings
+    checked = rows["release_inputs"]["checked_artifacts"]
+    checked_json = json.dumps(checked, sort_keys=True)
+    assert str(tmp_path) not in checked_json
+    assert "scores.jsonl" in checked_json
+
+
 def test_release_inputs_row_accepts_aggregate_metrics_input_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -852,6 +913,17 @@ def test_release_inputs_row_accepts_aggregate_metrics_input_artifacts(
 
     rows = _rows_by_id(report)
     assert rows["release_inputs"]["status"] == "pass"
+    checked = rows["release_inputs"]["checked_artifacts"]
+    assert isinstance(checked, dict)
+    metrics_json = checked["metrics_json"]
+    assert isinstance(metrics_json, list)
+    metrics_input = metrics_json[0]
+    assert isinstance(metrics_input, dict)
+    artifacts = metrics_input["artifacts"]
+    assert isinstance(artifacts, dict)
+    assert artifacts["metrics_input_1"] == "eval/clinvar_coding.metrics.json"
+    assert artifacts["input_1.scores"] == "eval/scores.jsonl"
+    assert artifacts["input_1.labels"] == "eval/labels.jsonl"
 
 
 def test_release_inputs_row_accepts_rollout_state_artifacts(tmp_path: Path) -> None:
@@ -883,6 +955,18 @@ def test_release_inputs_row_accepts_rollout_state_artifacts(tmp_path: Path) -> N
     assert not any("scores+labels" in str(finding) for finding in findings)
     assert not any("baseline artifact" in str(finding) for finding in findings)
     assert not any("rollout generation provenance" in str(finding) for finding in findings)
+    checked = rows["release_inputs"]["checked_artifacts"]
+    assert isinstance(checked, dict)
+    metrics_json = checked["metrics_json"]
+    assert isinstance(metrics_json, list)
+    metrics_input = metrics_json[0]
+    assert isinstance(metrics_input, dict)
+    artifacts = metrics_input["artifacts"]
+    assert isinstance(artifacts, dict)
+    assert artifacts["rollout_states"] == "eval/rollout_states.jsonl"
+    assert artifacts["baseline_rollout_states"] == "eval/rollout_states.jsonl"
+    assert artifacts["rollout_state_examples_report"] == "eval/rollout_state_examples_report.json"
+    assert artifacts["rollout_state_rows_report"] == "eval/rollout_state_rows_report.json"
 
 
 def test_release_inputs_row_rejects_rollout_state_artifacts_without_generation_reports(
