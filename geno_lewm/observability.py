@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import importlib
 import io
 import json
 import math
@@ -391,7 +392,7 @@ def _ensure_wandb_sink(*, run_id: str, project: str) -> _WandbSink:
             return existing
 
         try:
-            import wandb  # type: ignore[import-not-found]
+            wandb = importlib.import_module("wandb")
         except ImportError as exc:  # pragma: no cover - exercised by optional-package users.
             from geno_lewm.errors import RuntimeSetupError
 

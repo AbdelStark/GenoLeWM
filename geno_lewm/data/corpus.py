@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import math
 import random
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -332,7 +333,7 @@ def load_hf_carbon_records(
     if config is None:
         config = CarbonCorpusConfig()
     try:
-        from datasets import load_dataset  # type: ignore[import-not-found]
+        datasets = importlib.import_module("datasets")
     except ImportError as exc:
         raise RuntimeSetupError(
             "Carbon corpus loading requires Hugging Face datasets",
@@ -344,7 +345,7 @@ def load_hf_carbon_records(
         args = (config.dataset_id,)
     else:
         args = (config.dataset_id, config.dataset_config)
-    dataset = load_dataset(
+    dataset = datasets.load_dataset(
         *args,
         split=config.split,
         streaming=config.streaming,

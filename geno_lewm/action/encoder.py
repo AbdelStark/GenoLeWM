@@ -10,20 +10,25 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from geno_lewm.action.spec import V1_MAX_LEN, EditType, RelEdit
 from geno_lewm.errors import InputError, RuntimeSetupError, UnsupportedEditError
 
 __all__ = ["ActionEncoder"]
 
-try:  # pragma: no cover - exercised by optional-runtime tests with torch installed.
-    import torch  # type: ignore[import-not-found]
-    from torch import Tensor, nn
-except ImportError:  # pragma: no cover - covered through the lightweight fallback class.
-    torch = None
+if TYPE_CHECKING:
+    torch: Any = None
     Tensor = Any
-    nn = None
+    nn: Any = None
+else:
+    try:  # pragma: no cover - exercised by optional-runtime tests with torch installed.
+        import torch
+        from torch import Tensor, nn
+    except ImportError:  # pragma: no cover - covered through the lightweight fallback class.
+        torch = None
+        Tensor = Any
+        nn = None
 
 
 if nn is None:

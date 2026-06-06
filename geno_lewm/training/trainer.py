@@ -9,12 +9,13 @@ or train steps requires a ``geno-lewm[train]`` environment.
 
 from __future__ import annotations
 
+import importlib
 import os
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from geno_lewm.action import RelEdit
 from geno_lewm.config import GenoLeWMConfig
@@ -40,12 +41,16 @@ __all__ = [
     "wsd_lr_multiplier",
 ]
 
-try:  # pragma: no cover - optional runtime exercised only when torch is installed.
-    import torch  # type: ignore[import-not-found]
-    from torch import Tensor
-except ImportError:  # pragma: no cover - covered by missing-runtime tests.
-    torch = None
+if TYPE_CHECKING:
+    torch: Any = None
     Tensor = Any
+else:
+    try:  # pragma: no cover - optional runtime exercised only when torch is installed.
+        import torch
+        from torch import Tensor
+    except ImportError:  # pragma: no cover - covered by missing-runtime tests.
+        torch = None
+        Tensor = Any
 
 ScheduleName = Literal["wsd", "constant", "cosine"]
 _SOURCE_STATE_MEMORY_CACHE_ATTR = "_geno_lewm_source_state_cache"
@@ -672,7 +677,7 @@ def _masked_training_rows(value: Tensor, mask: Tensor) -> Tensor:
 
 def _seed_numpy(seed: int) -> None:
     try:
-        import numpy as np  # type: ignore[import-not-found]
+        np = importlib.import_module("numpy")
     except ImportError:
         return
     np.random.seed(seed)

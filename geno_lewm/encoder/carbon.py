@@ -267,7 +267,7 @@ def _resolve_device(device: str | None) -> str:
     if device is not None and device != "auto":
         return device
     try:
-        import torch  # type: ignore[import-not-found]
+        torch = importlib.import_module("torch")
 
         if bool(torch.cuda.is_available()):
             return "cuda"

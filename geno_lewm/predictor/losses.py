@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from geno_lewm.errors import InputError, RuntimeSetupError
 
@@ -16,14 +16,19 @@ __all__ = [
     "predictor_loss",
 ]
 
-try:  # pragma: no cover - exercised by optional-runtime tests with torch installed.
-    import torch  # type: ignore[import-not-found]
-    from torch import Tensor
-    from torch.nn import functional  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - covered by missing-runtime tests.
-    torch = None
-    functional = None
+if TYPE_CHECKING:
+    torch: Any = None
     Tensor = Any
+    functional: Any = None
+else:
+    try:  # pragma: no cover - exercised by optional-runtime tests with torch installed.
+        import torch
+        from torch import Tensor
+        from torch.nn import functional
+    except ImportError:  # pragma: no cover - covered by missing-runtime tests.
+        torch = None
+        functional = None
+        Tensor = Any
 
 
 @dataclass(frozen=True, slots=True)

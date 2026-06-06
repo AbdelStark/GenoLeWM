@@ -9,21 +9,27 @@ environment with PyTorch installed.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from geno_lewm.errors import InputError, RuntimeSetupError
 
 __all__ = ["Predictor"]
 
-try:  # pragma: no cover - exercised by optional-runtime tests with torch installed.
-    import torch  # type: ignore[import-not-found]
-    from torch import Tensor, nn
-    from torch.nn import functional  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - covered through the lightweight fallback class.
-    torch = None
-    functional = None
+if TYPE_CHECKING:
+    torch: Any = None
     Tensor = Any
-    nn = None
+    nn: Any = None
+    functional: Any = None
+else:
+    try:  # pragma: no cover - exercised by optional-runtime tests with torch installed.
+        import torch
+        from torch import Tensor, nn
+        from torch.nn import functional
+    except ImportError:  # pragma: no cover - covered through the lightweight fallback class.
+        torch = None
+        functional = None
+        Tensor = Any
+        nn = None
 
 
 if nn is None:

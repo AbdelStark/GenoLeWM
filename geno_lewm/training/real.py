@@ -9,6 +9,7 @@ environment with local Carbon model files and a packaged dataset.
 
 from __future__ import annotations
 
+import importlib
 import json
 import math
 import platform
@@ -694,7 +695,7 @@ def _write_checkpoint(
     seeds: TrainerSeeds,
 ) -> None:
     try:
-        import torch  # type: ignore[import-not-found]
+        torch = importlib.import_module("torch")
     except ImportError as exc:  # pragma: no cover - guarded by trainer runtime.
         raise RuntimeSetupError("Carbon training checkpointing requires PyTorch") from exc
     torch.save(
@@ -724,7 +725,7 @@ def _load_torch_checkpoint(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise InputError("resume checkpoint is missing", details={"path": str(path)})
     try:
-        import torch
+        torch = importlib.import_module("torch")
     except ImportError as exc:  # pragma: no cover - guarded by trainer runtime.
         raise RuntimeSetupError("Carbon training resume requires PyTorch") from exc
     try:

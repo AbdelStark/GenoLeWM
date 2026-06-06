@@ -9,6 +9,7 @@ that are easy to unit-test with fixtures and later wire to real shards.
 
 from __future__ import annotations
 
+import importlib
 import random
 from bisect import bisect_right
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -265,10 +266,10 @@ class _DatasetWorkerInfo:
 
 def _load_iterable_dataset_base() -> type[Any]:
     try:  # pragma: no cover - optional runtime branch.
-        from torch.utils.data import IterableDataset  # type: ignore[import-not-found]
+        torch_data = importlib.import_module("torch.utils.data")
     except ImportError:  # pragma: no cover - covered by torch-absent imports.
         return object
-    return cast(type[Any], IterableDataset)
+    return cast(type[Any], torch_data.__dict__["IterableDataset"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,10 +453,10 @@ def _edit_pos(value: EditSpec) -> int:
 
 def _torch_worker_info() -> _DatasetWorkerInfo:
     try:  # pragma: no cover - optional runtime branch.
-        from torch.utils.data import get_worker_info
+        torch_data = importlib.import_module("torch.utils.data")
     except ImportError:  # pragma: no cover - covered by torch-absent imports.
         return _DatasetWorkerInfo(id=0, num_workers=1)
-    worker = get_worker_info()
+    worker = torch_data.__dict__["get_worker_info"]()
     if worker is None:
         return _DatasetWorkerInfo(id=0, num_workers=1)
     return _DatasetWorkerInfo(id=int(worker.id), num_workers=int(worker.num_workers))

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from geno_lewm.errors import InputError, RuntimeSetupError
 
@@ -12,13 +12,18 @@ __all__ = ["ARPredictor"]
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
-try:  # pragma: no cover - exercised by optional-runtime tests with torch installed.
-    import torch  # type: ignore[import-not-found]
-    from torch import Tensor, nn
-except ImportError:  # pragma: no cover - covered through the lightweight fallback class.
-    torch = None
+if TYPE_CHECKING:
+    torch: Any = None
     Tensor = Any
-    nn = None
+    nn: Any = None
+else:
+    try:  # pragma: no cover - exercised by optional-runtime tests with torch installed.
+        import torch
+        from torch import Tensor, nn
+    except ImportError:  # pragma: no cover - covered through the lightweight fallback class.
+        torch = None
+        Tensor = Any
+        nn = None
 
 
 if nn is None:
