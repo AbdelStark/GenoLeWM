@@ -117,6 +117,45 @@ def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
     assert str(tmp_path) not in json.dumps(report, sort_keys=True)
 
 
+def test_readiness_report_sanitizes_nested_rollout_speed_command_paths(
+    tmp_path: Path,
+) -> None:
+    rollout = tmp_path / "rollout.ar_speed.json"
+    payload = _passing_rollout_payload()
+    payload["command"] = [
+        "python",
+        "-m",
+        "bench.rollout",
+        "--output-json",
+        str(rollout.resolve()),
+        "--out-dir",
+        str((tmp_path / "bench-results").resolve()),
+        str((tmp_path / "extra.json").resolve()),
+        "--k",
+        "5",
+    ]
+    rollout.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        rollout_speed_report=rollout.resolve(),
+    )
+
+    command = _rows_by_id(report)["ar_rollout_speed"]["command"]
+    assert command == [
+        "python",
+        "-m",
+        "bench.rollout",
+        "--output-json",
+        "rollout.ar_speed.json",
+        "--out-dir",
+        "bench-results",
+        "extra.json",
+        "--k",
+        "5",
+    ]
+    assert str(tmp_path) not in json.dumps(command, sort_keys=True)
+
+
 def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -> None:
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"

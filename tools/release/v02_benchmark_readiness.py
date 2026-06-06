@@ -49,6 +49,8 @@ COMMAND_PATH_FLAGS: Final = frozenset(
         "--rollout-speed-report",
         "--rollout-speed-scope-report",
         "--efficiency-report",
+        "--output-json",
+        "--out-dir",
         "--output",
     }
 )
@@ -512,7 +514,7 @@ def _rollout_speed_row(
         "missing_metrics": missing_metrics,
         "failed_targets": failed,
         "commit": commit,
-        "command": command,
+        "command": _public_safe_command(tuple(command)),
         "issue_refs": ["#42", "#197"],
     }
     if scope_decision is not None:
@@ -906,9 +908,19 @@ def _file_identity(path: Path) -> dict[str, object]:
 
 
 def _public_safe_identity_path(path: Path) -> str:
-    if path.is_absolute():
-        return path.name
-    return path.as_posix()
+    return _public_safe_path_text(str(path))
+
+
+def _public_safe_path_text(value: str) -> str:
+    if "://" in value:
+        return value
+    posix_path = PurePosixPath(value)
+    if posix_path.is_absolute():
+        return posix_path.name
+    windows_path = PureWindowsPath(value)
+    if windows_path.is_absolute():
+        return windows_path.name
+    return value
 
 
 def _public_safe_command(command: tuple[str, ...]) -> list[str]:
@@ -916,10 +928,10 @@ def _public_safe_command(command: tuple[str, ...]) -> list[str]:
     sanitize_next = False
     for token in command:
         if sanitize_next:
-            result.append(_public_safe_identity_path(Path(token)))
+            result.append(_public_safe_path_text(token))
             sanitize_next = False
             continue
-        result.append(token)
+        result.append(_public_safe_path_text(token))
         sanitize_next = token in COMMAND_PATH_FLAGS
     return result
 
