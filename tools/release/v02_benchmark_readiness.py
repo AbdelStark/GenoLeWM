@@ -632,6 +632,7 @@ def _load_rollout_speed_scope_decision(
         "report": _file_identity(path),
         "decision": decision,
         "status": status,
+        "generated_at": _require_utc_timestamp(payload.get("generated_at"), "generated_at"),
         "accepted_by": _required_text(payload, "accepted_by"),
         "accepted_at": _require_utc_timestamp(payload.get("accepted_at"), "accepted_at"),
         "decision_url": _require_url(payload.get("decision_url"), "decision_url"),

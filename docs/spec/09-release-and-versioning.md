@@ -299,13 +299,13 @@ trusted only after their hashes match the fetched manifest.
     If the RFC-0004 AR rollout speed target is not met and the project
     explicitly accepts a re-scope in #42/#197, generate
     `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
-    with a UTC accepted timestamp, HTTP(S) accepted decision URL,
-    rationale, replacement target, and GitHub issue refs including #42
-    and #197. The generated scope report MUST record the failing
+    with UTC generated and accepted timestamps, HTTP(S) accepted decision
+    URL, rationale, replacement target, and GitHub issue refs including
+    #42 and #197. The generated scope report MUST record the failing
     `bench.rollout` input identity plus scope and nested rollout command
-    path arguments with public-safe path text, and MUST preserve
-    negative findings plus a claim boundary stating that the failed
-    target remains not passing rollout-speed evidence.
+    path arguments with public-safe path text, and MUST preserve negative
+    findings plus a claim boundary stating that the failed target remains
+    not passing rollout-speed evidence.
     `tools.release.v02_benchmark_readiness` may then consume
     `--rollout-speed-scope-report ...`, but only when that report binds
     the exact failing `bench.rollout` path/SHA-256/size identity and
