@@ -574,7 +574,8 @@ data, evaluation, and rollout evidence before making broader claims:
   and each baseline row carries
   `generated_by=geno-lewm-carbon-baseline`; optional sequence
   log-likelihood cache rows are scoped to the Carbon model and revision
-  before reuse. Baseline scores are attached with
+  before reuse and must have unique sequence SHA-256 keys within that
+  scope. Baseline scores are attached with
   `--baseline-scores-jsonl ... --baseline-score-field carbon_zero_shot_score --baseline-name carbon_zero_shot`;
   generated reports that include baseline comparisons are rejected unless
   `baseline`, `baseline_value`, and `delta_vs_baseline` are supplied

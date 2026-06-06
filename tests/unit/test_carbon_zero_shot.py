@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from geno_lewm._artifact_sources import (
     CARBON_ZERO_SHOT_GENERATED_BY,
     CARBON_ZERO_SHOT_SCHEMA_VERSION,
@@ -13,6 +15,7 @@ from geno_lewm.carbon_zero_shot import (
     CARBON_ZERO_SHOT_SCORE_FIELD,
     write_carbon_zero_shot_scores,
 )
+from geno_lewm.errors import InputError
 
 
 def test_write_carbon_zero_shot_scores_records_ref_minus_alt_logp(
@@ -147,6 +150,56 @@ def test_write_carbon_zero_shot_scores_ignores_cache_from_other_carbon_model(
     assert {row["carbon_model"] for row in cache_rows} == {"Carbon-B"}
 
 
+def test_write_carbon_zero_shot_scores_rejects_invalid_logp_cache_json(
+    tmp_path: Path,
+) -> None:
+    vcf, fasta = _write_variant_inputs(tmp_path)
+    output = tmp_path / "scores.jsonl"
+    cache = tmp_path / "cache.jsonl"
+    cache.write_text("{not-json\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="logp cache row JSON is invalid"):
+        write_carbon_zero_shot_scores(
+            vcf_path=vcf,
+            fasta_path=fasta,
+            output_scores=output,
+            scorer=_count_a_logp,
+            carbon_model="Carbon",
+            carbon_revision="main",
+            window_bp=4096,
+            logp_cache_jsonl=cache,
+        )
+
+
+def test_write_carbon_zero_shot_scores_rejects_duplicate_compatible_cache_keys(
+    tmp_path: Path,
+) -> None:
+    vcf, fasta = _write_variant_inputs(tmp_path)
+    output = tmp_path / "scores.jsonl"
+    cache = tmp_path / "cache.jsonl"
+    key = "a" * 64
+    rows = [
+        _cache_row(sequence_sha256=key, log_likelihood=1.0),
+        _cache_row(sequence_sha256=key, log_likelihood=2.0),
+    ]
+    cache.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InputError, match="sequence_sha256 values must be unique"):
+        write_carbon_zero_shot_scores(
+            vcf_path=vcf,
+            fasta_path=fasta,
+            output_scores=output,
+            scorer=_count_a_logp,
+            carbon_model="Carbon",
+            carbon_revision="main",
+            window_bp=4096,
+            logp_cache_jsonl=cache,
+        )
+
+
 def _write_variant_inputs(tmp_path: Path, *, duplicate: bool = False) -> tuple[Path, Path]:
     fasta = tmp_path / "ref.fa"
     fasta.write_text(">1\nACGTACGT\n", encoding="utf-8")
@@ -164,3 +217,14 @@ def _write_variant_inputs(tmp_path: Path, *, duplicate: bool = False) -> tuple[P
 
 def _count_a_logp(sequence: str) -> float:
     return float(sequence.count("A"))
+
+
+def _cache_row(*, sequence_sha256: str, log_likelihood: float) -> dict[str, object]:
+    return {
+        "schema_version": CARBON_ZERO_SHOT_SCHEMA_VERSION,
+        "generated_by": CARBON_ZERO_SHOT_GENERATED_BY,
+        "carbon_model": "Carbon",
+        "carbon_revision": "main",
+        "sequence_sha256": sequence_sha256,
+        "log_likelihood": log_likelihood,
+    }

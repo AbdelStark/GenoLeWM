@@ -211,7 +211,7 @@ The first paper/demo release is not ready until:
   and consumed by `geno-lewm-eval` with
   `--baseline-score-field carbon_zero_shot_score`; optional
   log-likelihood cache rows are scoped to the Carbon model and revision
-  before reuse;
+  before reuse, with unique sequence SHA-256 keys within that scope;
   `geno-lewm-eval` requires primary score rows from `geno-lewm-score`
   and Carbon baseline rows from `geno-lewm-carbon-baseline`;
 - evaluation report is generated from packaged measured metrics JSON

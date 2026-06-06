@@ -365,7 +365,10 @@ def _load_logp_cache(
     for line_no, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not raw.strip():
             continue
-        payload = json.loads(raw)
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise InputError("logp cache row JSON is invalid", details={"line": line_no}) from exc
         if not isinstance(payload, dict):
             raise InputError("logp cache rows must be JSON objects", details={"line": line_no})
         key = _required_text("sequence_sha256", payload.get("sequence_sha256"))
@@ -377,6 +380,11 @@ def _load_logp_cache(
             carbon_revision=carbon_revision,
         ):
             continue
+        if key in cache:
+            raise InputError(
+                "logp cache sequence_sha256 values must be unique per Carbon model/revision",
+                details={"line": line_no, "sequence_sha256": key},
+            )
         cache[key] = _require_finite_float("log_likelihood", payload.get("log_likelihood"))
     return cache
 

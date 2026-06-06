@@ -426,7 +426,8 @@ baseline, not a reason to publish stronger model-quality claims.
   writes `carbon_zero_shot_scores.jsonl` with
   `carbon_zero_shot_score = -(logLik_alt - logLik_ref)` and optional
   sequence log-likelihood cache rows scoped to the Carbon model and
-  revision before reuse; Carbon baseline rows are rejected
+  revision before reuse, with unique sequence SHA-256 keys within that
+  scope; Carbon baseline rows are rejected
   unless `generated_by=geno-lewm-carbon-baseline`;
 - baseline comparison rows in `eval_report.md` are accepted only when
   `baseline`, `baseline_value`, and `delta_vs_baseline` are supplied

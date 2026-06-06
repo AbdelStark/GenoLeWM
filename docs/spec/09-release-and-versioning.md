@@ -226,7 +226,8 @@ trusted only after their hashes match the fetched manifest.
     `geno-lewm-carbon-baseline --vcf ... --fasta ... --carbon-model-dir ... --output-scores ... --logp-cache-jsonl ...`,
     whose rows carry `generated_by=geno-lewm-carbon-baseline`.
     Optional sequence log-likelihood cache rows must be scoped to the
-    Carbon model and revision before reuse.
+    Carbon model and revision before reuse, with unique sequence
+    SHA-256 keys within that scope.
     Pass the generated score artifact to `geno-lewm-eval` with
     `--baseline-scores-jsonl ... --baseline-score-field carbon_zero_shot_score --baseline-name carbon_zero_shot`.
     Primary model score rows passed to `geno-lewm-eval` must carry
