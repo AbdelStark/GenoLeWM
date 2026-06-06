@@ -376,7 +376,8 @@ baseline, not a reason to publish stronger model-quality claims.
   the report keeps `ok=false`, and with `--execute` it clears each
   step's declared output files, then requires the command to exit
   successfully and write those outputs again, but does not replace the
-  downstream metrics/readiness validators;
+  downstream metrics/readiness validators; the suite report records the
+  manifest by package-local path plus SHA-256 and size identity;
 - `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
   resolves explicit cache keys for measured source, target, and
   candidate latent states into the examples JSONL consumed by

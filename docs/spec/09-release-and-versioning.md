@@ -273,7 +273,9 @@ trusted only after their hashes match the fetched manifest.
     clear each step's declared output files, then require each command
     to exit successfully and write those output files again, but do not
     replace the generated metric, efficiency, rollout-speed, package, or
-    readiness validators.
+    readiness validators. The suite report records the manifest by
+    package-local path plus SHA-256 and size identity, not by
+    build-machine absolute path.
     Rollout benchmark entries may include a state-generation step that
     first runs `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
     when the manifest supplies cache-keyed example specs, then runs

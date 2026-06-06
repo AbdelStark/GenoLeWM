@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Final, Protocol
 
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
+from geno_lewm.provenance import sha256_file
 
 SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.v02_benchmark_suite"
@@ -204,7 +205,8 @@ def write_suite_report(
         "generated_at": _utc_now(),
         "ok": execute and not failed,
         "status": status,
-        "manifest_path": str(manifest_path),
+        "manifest_path": manifest_path.name,
+        "manifest": _manifest_identity(manifest_path),
         "execute": execute,
         "steps": step_reports,
         "negative_findings": _negative_findings(execute=execute, failed=failed),
@@ -724,6 +726,16 @@ def _tail_text(value: str | None) -> str:
     if not value:
         return ""
     return value[-MAX_CAPTURE_CHARS:]
+
+
+def _manifest_identity(path: Path) -> dict[str, object]:
+    if not path.is_file():
+        raise InputError("benchmark suite manifest does not exist", details={"path": str(path)})
+    return {
+        "path": path.name,
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
 
 
 def _clear_declared_outputs(step: SuiteStep, *, root: Path) -> list[str]:

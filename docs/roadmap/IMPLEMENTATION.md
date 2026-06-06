@@ -232,7 +232,8 @@ The first paper/demo release is not ready until:
   plan-only reports keep `ok=false`, while execute-mode clears each
   step's declared output files, then requires the command to exit
   successfully and write those outputs again, with measured claims still
-  deferred to generated artifact validators;
+  deferred to generated artifact validators; the suite report records
+  the manifest by package-local path plus SHA-256 and size identity;
 - `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
   resolves explicit cache keys for measured source, target, and
   candidate latent states into examples JSONL;

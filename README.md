@@ -338,7 +338,8 @@ measured evidence. With `--execute`, `ok=true` only means every planned
 command completed after the suite cleared that step's declared output
 files, then wrote those output files again; the generated metrics,
 efficiency, rollout-speed, and readiness artifacts must still validate
-separately.
+separately. Suite reports bind the manifest with a package-local path,
+SHA-256, and size identity rather than a build-machine absolute path.
 For rollout benchmarks, the manifest can optionally include a
 `state_generation` block. When it names `spec_jsonl`, `cache_dir`, and
 `examples_report_json`, the suite first runs

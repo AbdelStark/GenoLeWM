@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.errors import InputError
-from geno_lewm.provenance import sha256_bytes
+from geno_lewm.provenance import sha256_bytes, sha256_file
 from tools.release import v02_benchmark_suite
 
 
@@ -84,7 +84,33 @@ def test_write_suite_report_plan_only_is_not_evidence(tmp_path: Path) -> None:
     ]
     written = json.loads(output.read_text(encoding="utf-8"))
     assert written["generated_by"] == "tools.release.v02_benchmark_suite"
+    assert written["manifest_path"] == "suite.json"
+    assert written["manifest"] == {
+        "path": "suite.json",
+        "sha256": sha256_file(manifest),
+        "size_bytes": manifest.stat().st_size,
+    }
     assert all(step["status"] == "planned" for step in written["steps"])
+
+
+def test_write_suite_report_manifest_identity_is_public_safe_for_absolute_path(
+    tmp_path: Path,
+) -> None:
+    manifest = _write_manifest(tmp_path).resolve()
+    output = tmp_path / "suite_report.json"
+
+    report = v02_benchmark_suite.write_suite_report(
+        manifest_path=manifest,
+        output_report=output,
+    )
+
+    assert report["manifest_path"] == "suite.json"
+    assert report["manifest"] == {
+        "path": "suite.json",
+        "sha256": sha256_file(manifest),
+        "size_bytes": manifest.stat().st_size,
+    }
+    assert str(tmp_path) not in json.dumps(report, sort_keys=True)
 
 
 def test_write_suite_report_execute_runs_steps_in_manifest_directory(tmp_path: Path) -> None:
