@@ -114,8 +114,9 @@ length 12,288 bp (2,048 Carbon 6-mer tokens).
 ## Operations
 
 **Calibration table.** Per-context empirical CDFs of `σ_raw` over gnomAD
-common variants, intended to ship with a released GenoLeWM checkpoint.
-No public calibration artifact is released yet. See RFC-0009 §3.4.
+common variants. The v0.1 model package ships `calibration.parquet`, but
+population-stratified calibration validity is not established by the
+first release. See RFC-0009 §3.4.
 
 **Cache (window cache).** On-disk Parquet store of pre-computed
 reference-window embeddings. Content-addressed by
@@ -154,12 +155,13 @@ location.
 inference's inputs.
 
 **`model_id`.** SHA-256 of a GenoLeWM checkpoint's manifest. Globally
-identifies a specific release once public checkpoint artifacts exist.
+identifies a specific released checkpoint artifact set.
 
 ## Project & process
 
-Current public status: alpha implementation in Phase 1. Phase names below
-describe the roadmap, not completed release evidence.
+Current public status: alpha implementation with a completed v0.1
+paper/demo release. Phase names below describe the roadmap, not broader
+model-quality evidence.
 
 **Phase 0 (Design, complete).** Spec and RFC bootstrap.
 

@@ -45,8 +45,8 @@ RELEASE_GATE_ISSUES = {
 }
 
 
-def test_readme_and_roadmap_publish_live_release_blocker_map() -> None:
-    """Top-level public docs should expose the live paper/demo gate issues."""
+def test_readme_and_roadmap_publish_completed_v0_1_release_map() -> None:
+    """Top-level public docs should expose completed v0.1 release evidence."""
     assert tuple(RELEASE_GATE_ISSUES) == (
         DATASET_ISSUE,
         TRAINING_ISSUE,
@@ -57,13 +57,14 @@ def test_readme_and_roadmap_publish_live_release_blocker_map() -> None:
     )
     for path in (README, ROADMAP):
         text = path.read_text(encoding="utf-8")
-        assert "Live Release Blockers" in text
+        assert "Completed v0.1" in text
         for number, gate in RELEASE_GATE_ISSUES.items():
             assert gate in text
             assert _issue_link(number) in text
             assert _issue_url(number) in text
-        assert "real artifacts" in text
-        assert "not fixtures" in text
+        assert "v0.1" in text
+        assert "public" in text
+        assert "v0.2" in text
 
 
 def test_agent_context_and_tracker_name_the_same_release_gate_issues() -> None:
@@ -73,18 +74,18 @@ def test_agent_context_and_tracker_name_the_same_release_gate_issues() -> None:
 
     for number in RELEASE_GATE_ISSUES:
         assert f"#{number}" in agent_context
-    assert "#163 through #167 track the paper/demo chain" in tracker
-    assert "#101 tracks model Hub release" in tracker
+    assert "#163 through #167 tracked the v0.1 paper/demo chain" in tracker
+    assert "#101 tracked the v0.1 model Hub release" in tracker
 
 
 def test_agent_context_defines_release_evidence_rules() -> None:
-    """Agents should not confuse local contracts with real release evidence."""
+    """Agents should not confuse local contracts with future release evidence."""
     text = AGENT_CONTEXT.read_text(encoding="utf-8")
     required_fragments = (
         "## Release Evidence Rules",
         "local release tooling as contracts",
-        "not as paper-ready evidence",
-        "| Evidence gate | Local contract that exists | Do not claim complete until |",
+        "v0.1 exercised these gates",
+        "| Evidence gate | Local contract that exists | v0.1 status and future boundary |",
         "python -m tools.release.dataset_snapshot",
         "--check-inputs",
         "dataset_input_check_report.json",
@@ -101,9 +102,9 @@ def test_agent_context_defines_release_evidence_rules() -> None:
         "python tools/demo/terminal_inference.py",
         "python -m tools.release.paper_draft",
         "publication_report",
-        "actual pinned Carbon, gnomAD, and ClinVar inputs",
-        "clean machine from public model, dataset, and demo artifacts",
-        "protected publish workflow evidence",
+        "Completed and published for v0.1",
+        "Completed for the narrow v0.1 release",
+        "v0.2",
     )
 
     for fragment in required_fragments:
@@ -113,14 +114,14 @@ def test_agent_context_defines_release_evidence_rules() -> None:
 
 
 def test_readme_publish_release_evidence_matrix() -> None:
-    """README should distinguish local contracts from paper-ready evidence."""
+    """README should distinguish local contracts from v0.1/v0.2 evidence."""
     text = README.read_text(encoding="utf-8")
     required_fragments = (
         "### Release Evidence Matrix",
         "| Evidence artifact | Local contract | Paper-release status |",
         "Green local tooling is necessary",
         "not a substitute",
-        "for real artifacts",
+        "future releases",
         "python -m tools.release.dataset_snapshot",
         "--check-inputs",
         "dataset_input_check_report.json",
@@ -136,6 +137,8 @@ def test_readme_publish_release_evidence_matrix() -> None:
         "replayed `terminal_demo_manifest.json`",
         "replay artifact hash/size drift",
         "python -m tools.release.publication_report",
+        "Completed for v0.1",
+        "broader measured benchmark and rollout evidence remain open",
     )
 
     for fragment in required_fragments:
@@ -151,11 +154,12 @@ def test_readme_exposes_reader_map_and_local_contract_commands() -> None:
         "## Reader Map",
         "| If you want to... | Start here |",
         "[What You Can Run Today](#what-you-can-run-today)",
-        "[First Experiment Target](#first-experiment-target)",
-        "[Paper-Ready Checklist](#paper-ready-checklist)",
+        "[First Experiment Evidence](#first-experiment-evidence)",
+        "[v0.2 Readiness Work](#v02-readiness-work)",
         "## What You Can Run Today",
         "These commands exercise local contracts",
-        "they do not prove model quality",
+        "they do not replace the public v0.1 artifact",
+        "terminal-demo-transcript.md",
         "geno-lewm-verify examples/data/verify_receipt/receipt.json",
         "geno-lewm-train --fixture-smoke --run-dir /tmp/geno-lewm-smoke --steps 50",
         "python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec",
@@ -175,14 +179,14 @@ def test_readme_exposes_reader_map_and_local_contract_commands() -> None:
 
 
 def test_roadmap_defines_release_evidence_gates() -> None:
-    """Roadmap should map local release contracts to missing real evidence."""
+    """Roadmap should map local release contracts to completed/future evidence."""
     text = ROADMAP.read_text(encoding="utf-8")
     normalized = " ".join(text.split())
     required_fragments = (
         "## Release Evidence Gates",
-        "Local tools define the contract",
-        "paper-ready line",
-        "| Gate | Local contract | Missing release evidence |",
+        "Local tools define the reusable contract",
+        "v0.1 release crossed the first-publication line",
+        "| Gate | Local contract | v0.1 status and v0.2 boundary |",
         "python -m tools.release.dataset_snapshot",
         "--check-inputs",
         "dataset_input_check_report.json",
@@ -198,9 +202,9 @@ def test_roadmap_defines_release_evidence_gates() -> None:
         "python -m tools.release.clean_machine_demo",
         "replay artifact hash/size drift",
         "python -m tools.release.publication_report",
-        "Actual pinned Carbon, gnomAD, and ClinVar inputs",
-        "clean-machine replay from public model, dataset, and demo artifacts",
-        "protected publish evidence",
+        "Completed and published for v0.1",
+        "Completed for the narrow v0.1 release",
+        "final binder has `ok=true`",
     )
 
     for fragment in required_fragments:
@@ -210,13 +214,13 @@ def test_roadmap_defines_release_evidence_gates() -> None:
 
 
 def test_implementation_tracker_defines_release_evidence_ledger() -> None:
-    """Implementation tracker should keep local contracts separate from release evidence."""
+    """Implementation tracker should keep local contracts separate from future evidence."""
     text = IMPLEMENTATION_TRACKER.read_text(encoding="utf-8")
     normalized = " ".join(text.split())
     required_fragments = (
         "## Release Evidence Ledger",
-        "fixture/tooling evidence alone",
-        "| Issue | Local contract | Remaining release evidence |",
+        "Do not use local fixture/tooling evidence alone for v0.2 claims",
+        "| Issue | Local contract | v0.1 status and future boundary |",
         "#163 dataset snapshot",
         "#164 first Carbon-backed run",
         "#165 results report",
@@ -242,9 +246,9 @@ def test_implementation_tracker_defines_release_evidence_ledger() -> None:
         "python -m tools.release.hub_release",
         "python -m tools.release.hub_publish",
         "python -m tools.release.publication_report",
-        "Actual pinned Carbon, gnomAD, and ClinVar inputs",
-        "Clean-machine replay from public model, dataset, and demo artifacts",
-        "protected publish workflow evidence",
+        "Completed for v0.1",
+        "v0.2",
+        "public model, dataset, demo, paper, and final binder links",
     )
 
     for fragment in required_fragments:
@@ -396,14 +400,15 @@ def test_faq_keeps_target_numbers_behind_release_evidence() -> None:
     text = DOCS_FAQ.read_text(encoding="utf-8")
     normalized = " ".join(text.split())
     required_fragments = (
-        "Those are release gates, not published GenoLeWM results yet",
+        "The v0.1 release reports a narrow chr21 ClinVar slice",
+        "Direct side-by-side GenoLeWM-vs-Carbon claims require the v0.2 measured benchmark run",
         "not a measured GenoLeWM dataset result",
-        "No public calibration artifact is released yet",
-        "No released GenoLeWM checkpoint or non-coding benchmark result is published yet",
-        "not a published benchmark result yet",
-        "release gate must publish measured latency, throughput, memory, and hardware/runtime evidence",
-        "not a completed claim",
-        "terminal demo and model package still need to prove",
+        "The v0.1 model package includes a public `calibration.parquet`",
+        "The v0.1 release does not establish separate non-coding performance",
+        "The v0.1 release includes an `efficiency_report.json`",
+        "Apple Silicon and quantized local runtime targets still need dedicated measurement",
+        "The public v0.1 checkpoint has a manifest identity",
+        "not every personal-genome import workflow",
     )
     forbidden_fragments = (
         "We report on the same metrics",
@@ -434,12 +439,13 @@ def test_public_spec_docs_keep_targets_behind_release_evidence() -> None:
     )
     normalized = " ".join(spec_text.split())
     required_fragments = (
-        "These are v0.1 release targets, not current measured results",
+        "The v0.1 paper/demo release is published",
+        "v0.1 establishes a narrow first baseline, not broad model quality",
         "measured release gates of single-variant scoring < 200 ms",
-        "v0.1 release gates, not current measured results",
-        "public docs and papers must describe these numbers as budgets or targets only",
-        "release requirements, not evidence from a published checkpoint or terminal demo",
-        "must prove local-only scoring, redaction, and checksum receipt behavior",
+        "budgets and targets unless explicitly reported from a measured release artifact",
+        "v0.2 measurement before docs can describe them as achieved",
+        "v0.1 model package and terminal demo are published",
+        "does not establish a general privacy assurance",
         "Release-dependent invariants describe required behavior for published inference paths",
         "Published inference paths perform no network call after first-run setup",
         "The released runtime must make no network call after first-run setup",
@@ -461,18 +467,19 @@ def test_public_spec_docs_keep_targets_behind_release_evidence() -> None:
 
 
 def test_glossaries_keep_alpha_release_status_clear() -> None:
-    """Glossaries should not describe unreleased artifacts as already shipped."""
+    """Glossaries should describe released artifacts without overclaiming validity."""
     combined = "\n".join(
         path.read_text(encoding="utf-8") for path in (DOCS_GLOSSARY, SPEC_GLOSSARY)
     )
     normalized = " ".join(combined.split())
     required_fragments = (
-        "No public calibration artifact is released yet",
+        "The v0.1 model package ships `calibration.parquet`",
+        "population-stratified calibration validity is not established",
         "release scoring paths can emit",
         "output commitment",
-        "once public checkpoint artifacts exist",
-        "Current public status: alpha implementation in Phase 1",
-        "not completed release evidence",
+        "specific released checkpoint artifact set",
+        "completed v0.1 paper/demo release",
+        "not broader model-quality evidence",
     )
     forbidden_fragments = (
         "distributed with the GenoLeWM checkpoint",

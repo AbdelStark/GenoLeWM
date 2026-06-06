@@ -1,6 +1,7 @@
 # Quickstart
 
-A 5-minute tour of the modules that ship today.
+A 5-minute tour of the modules that ship today, plus the public v0.1
+release artifacts.
 
 ## Install
 
@@ -26,7 +27,30 @@ small and includes the CLI scaffolding dependencies.
     uv venv && source .venv/bin/activate
     uv pip install -e ".[dev,docs]"
     pytest
-    ```
+	```
+
+## Public v0.1 demo evidence
+
+The first public paper/demo release is available as
+`geno-lewm-v0.1.0-r1`:
+
+- Model: <https://huggingface.co/abdelstark/geno-lewm>
+- Dataset: <https://huggingface.co/datasets/abdelstark/geno-lewm-data>
+- Demo assets:
+  <https://github.com/AbdelStark/GenoLeWM/releases/tag/geno-lewm-v0.1.0-r1>
+- Terminal transcript:
+  <https://github.com/AbdelStark/GenoLeWM/releases/download/geno-lewm-v0.1.0-r1/terminal-demo-transcript.md>
+
+The released transcript records the artifact-backed command:
+
+```console
+$ geno-lewm-score --quiet --no-banner --model-dir model --backend auto --vcf demo/demo.vcf --fasta demo/chr21.fa.gz --output demo/scores.jsonl --receipt demo/receipts.jsonl --batch-size 64 --no-progress
+{"output_path": "/tmp/geno-publish/demo/scores.jsonl", "receipt_path": "/tmp/geno-publish/demo/receipts.jsonl"}
+```
+
+It scored 32 VCF records and recorded matching score/receipt JSONL
+hashes. This is release replay evidence, not a clinical or broad
+model-quality claim.
 
 ## 1. Edit specs
 

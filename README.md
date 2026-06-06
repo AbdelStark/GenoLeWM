@@ -6,7 +6,7 @@ of Carbon.**
 [![CI](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/AbdelStark/GenoLeWM/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/codeql.yml)
 [![Docs](https://github.com/AbdelStark/GenoLeWM/actions/workflows/docs.yml/badge.svg?branch=main)](https://abdelstark.github.io/GenoLeWM/)
-[![Status](https://img.shields.io/badge/status-alpha%20pre--release-orange.svg)](ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-alpha%20v0.1%20published-blue.svg)](ROADMAP.md)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Typed: mypy --strict](https://img.shields.io/badge/typed-mypy--strict-blue.svg)](https://mypy.readthedocs.io/)
@@ -22,12 +22,13 @@ of Carbon.**
 
 ## Status
 
-GenoLeWM is an alpha research codebase. The core infrastructure is in
-place and tested; the first real training run, published checkpoint,
-public dataset snapshot, and terminal inference demo are the next
-project milestones.
+GenoLeWM is an alpha research codebase. The first public paper/demo
+release is published as `geno-lewm-v0.1.0-r1`: it includes a real
+Carbon-backed SNV training run, public model and dataset artifacts,
+measured first-release evaluation, an artifact-backed terminal demo, and
+final publication evidence with `ok=true`.
 
-As of June 2, 2026:
+As of June 6, 2026:
 
 | Area | Current state |
 | --- | --- |
@@ -36,14 +37,28 @@ As of June 2, 2026:
 | Artifact provenance | Implemented: content-addressed manifests, input/output commitments, checksum receipt verification |
 | CLI surface | Implemented scaffolds plus working `geno-lewm-verify`, `geno-lewm-update`, data prep, score, and fixture train paths |
 | Desktop/runtime scaffolds | Present but not a complete product |
-| Carbon encoder integration | Lazy `CarbonStateEncoder` wrapper is implemented; clean-machine checkpoint-backed inference remains a gap |
-| Data/training stream | Carbon window sampler, tuple-builder contract, `GenoLeWMDataset` iterator, source-state cache lookup in the trainer batch encoder, and local gnomAD/ClinVar VCF-to-Parquet prep commands exist; real shard publication and warm-cache throughput validation remain gaps |
-| Predictor/training | Base cross-attention `Predictor`, `ARPredictor` rollout wrapper, losses, collapse checks, deterministic fixture smoke training, torch trainer core, WSD scheduling, optimizer grouping, CUDA/VRAM-aware `geno-lewm-train --carbon-preflight`, and preflight-gated `geno-lewm-train --carbon-train` launch plumbing exist; true attention KV-cache speedups and the first Carbon-backed experiment remain open |
-| Evaluation | `geno-lewm-carbon-baseline` writes Carbon zero-shot score JSONL from a local Carbon LM and held-out VCF/FASTA; `geno-lewm-eval` computes measured ClinVar-style binary metrics, deterministic bootstrap CIs, optional measured-baseline deltas from matched score/label JSONL artifacts with identical evaluated variant-key hashes, and an effective eval config artifact; `geno-lewm-eval-all` aggregates validated metric JSON into source `eval_metrics.json` plus generated `eval_report.md`; `bench.inference --release-efficiency` writes validated latency, throughput, memory, hardware/runtime, and input identity evidence; first full benchmark table is not published |
-| Package/model release | PyPI release workflow and package metadata exist; first PyPI tag and model checkpoint release to the Hub remain open |
+| Carbon encoder integration | Lazy `CarbonStateEncoder` wrapper and native artifact loading are implemented; the v0.1 terminal demo replayed from public model/data/demo artifacts; broader platform/runtime validation remains v0.2 work |
+| Data/training stream | Carbon window sampler, tuple-builder contract, `GenoLeWMDataset` iterator, source-state cache lookup, local VCF-to-Parquet prep, and the v0.1 public dataset package are in place; larger held-out benchmark coverage and warm-cache throughput validation remain v0.2 work |
+| Predictor/training | Base cross-attention `Predictor`, `ARPredictor` rollout wrapper, losses, collapse checks, torch trainer core, WSD scheduling, optimizer grouping, Carbon preflight/training launch plumbing, packaged run evidence, and one real Carbon-backed SNV run are published; true attention KV-cache speedups remain open |
+| Evaluation | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, and `bench.inference --release-efficiency` generated the v0.1 measured release artifacts; broader coding/non-coding, Carbon-baseline, rollout-fidelity, and planning-readiness benchmarks are still v0.2 work |
+| Package/model release | Public model, dataset, demo, paper, and publication-evidence artifacts are published; the first PyPI package tag remains open |
 
-No GenoLeWM model checkpoint is released yet. Results in this repository
-are fixtures or design targets unless explicitly marked as measured.
+The v0.1 measured evaluation is intentionally narrow: chr21 ClinVar,
+3,000 variants, AUROC `0.5191596847727398`, AP
+`0.1651739690365932`, and balanced accuracy `0.5`. Treat those as
+first-release evidence and negative findings, not as clinical utility,
+deployment readiness, privacy assurance, or broad model-quality claims.
+
+Public v0.1 artifacts:
+
+- Model: <https://huggingface.co/abdelstark/geno-lewm>
+- Dataset: <https://huggingface.co/datasets/abdelstark/geno-lewm-data>
+- Demo release assets:
+  <https://github.com/AbdelStark/GenoLeWM/releases/tag/geno-lewm-v0.1.0-r1>
+- Paper artifact:
+  <https://github.com/AbdelStark/GenoLeWM/releases/download/geno-lewm-v0.1.0-r1/paper.md>
+- Final publication binder:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-coherent-cd2bfcc/publication/publication_evidence_report.json>
 
 ---
 
@@ -53,7 +68,7 @@ are fixtures or design targets unless explicitly marked as measured.
 | --- | --- |
 | Understand what is implemented today | [Status](#status) and [What You Can Run Today](#what-you-can-run-today) |
 | Try the stable Python surface | [Install](#install) and [Quickstart](#quickstart) |
-| Audit the first-paper plan | [First Experiment Target](#first-experiment-target) and [Paper-Ready Checklist](#paper-ready-checklist) |
+| Audit the first release and next work | [First Experiment Evidence](#first-experiment-evidence), [v0.2 Readiness Work](#v02-readiness-work), and [Release Evidence Matrix](#release-evidence-matrix) |
 | Contribute code | [Repository Layout](#repository-layout), [Development](#development), and [Contributing](#contributing) |
 | Check safety and data-handling boundaries | [Safety](#safety), [PRIVACY.md](PRIVACY.md), and [SECURITY.md](SECURITY.md) |
 
@@ -160,13 +175,13 @@ Optional extras:
 ## What You Can Run Today
 
 These commands exercise local contracts. They are useful for development
-and release hardening, but they do not prove model quality because the
-public dataset snapshot, checkpoint, measured evaluation, and terminal
-demo release are still open.
+and release hardening, but they do not replace the public v0.1 artifact
+set or prove broader model quality.
 
 | Task | Command | What it proves |
 | --- | --- | --- |
 | Verify a checksum receipt fixture | `geno-lewm-verify examples/data/verify_receipt/receipt.json --manifest examples/data/verify_receipt/manifest.json` | Receipt schema, manifest identity, and output commitment plumbing work locally |
+| Inspect the released terminal demo | [`terminal-demo-transcript.md`](https://github.com/AbdelStark/GenoLeWM/releases/download/geno-lewm-v0.1.0-r1/terminal-demo-transcript.md) | The v0.1 release replayed `geno-lewm-score` from public model/data/demo artifacts and recorded score/receipt hashes |
 | Run fixture training smoke | `geno-lewm-train --fixture-smoke --run-dir /tmp/geno-lewm-smoke --steps 50` | Trainer packaging path can emit deterministic fixture artifacts without optional Carbon weights |
 | Validate the first-experiment dataset spec | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` | Dataset rebuild metadata, source layout, split coverage, and staged paths are internally consistent without local upstream files |
 | Check public API drift | `uv run python tools/api/snapshot.py check` | The exported Python surface matches `tests/api/public_surface.json` |
@@ -251,15 +266,16 @@ one canonical receipt. `geno-lewm-score --vcf ... --receipt
 path/to/receipts.jsonl` writes one canonical receipt per scored ALT as a
 JSONL sidecar. Both paths require manifest-verified local scorer
 components. The runtime can now attempt local native component loading
-when `torch`, `transformers`, and `safetensors` are installed; a
-clean-machine demo still needs published model artifacts and an actual
-Carbon checkpoint validation run.
+when `torch`, `transformers`, and `safetensors` are installed. The v0.1
+clean-machine demo replayed the VCF scoring path from the published
+model, dataset, and demo artifacts; broader platform coverage still
+needs v0.2 validation.
 
 ---
 
-## First Experiment Target
+## First Experiment Evidence
 
-The first paper-ready experiment should be intentionally narrow:
+The first paper/demo experiment was intentionally narrow:
 
 | Component | Target |
 | --- | --- |
@@ -270,41 +286,60 @@ The first paper-ready experiment should be intentionally narrow:
 | Metrics | rollout cosine similarity, residual distribution, AUROC/AUPRC against ClinVar labels, throughput |
 | Release artifacts | dataset package metadata, dataset input check report, dataset card, model package metadata, model card, checkpoint, manifest, source metrics JSON, effective eval config, eval report, efficiency report, terminal demo transcript, terminal demo manifest, runtime preflight report, batch receipt report |
 
-The first conclusions should be honest even if the result is negative:
-whether latent action prediction learns anything beyond Carbon
-zero-shot scoring, where it fails, what error modes dominate, and which
-next experiment is justified.
+The first conclusions are deliberately conservative: the release proves
+the artifact chain and records near-chance held-out chr21 ClinVar
+metrics. It does not establish broad variant-effect quality, speed at
+the RFC-0004 autoregressive rollout target, clinical utility, privacy
+assurance, or planning usefulness.
 
-**Live Release Blockers**
+**Completed v0.1 release gates**
 
-| Gate | Issue | Current blocker |
+| Gate | Issue | v0.1 evidence |
 | --- | --- | --- |
-| Dataset snapshot and data card | [#163](https://github.com/AbdelStark/GenoLeWM/issues/163) | Real upstream Carbon, gnomAD, and ClinVar release inputs must be processed, packaged, and published |
-| First Carbon-backed run | [#164](https://github.com/AbdelStark/GenoLeWM/issues/164) | Clean-machine training must emit real checkpoints, metrics, logs, and training-run metadata |
-| Paper-ready results report | [#165](https://github.com/AbdelStark/GenoLeWM/issues/165) | Measured ClinVar metrics, Carbon baseline deltas, efficiency evidence, conclusions, and negative findings must be generated from real artifacts |
-| Terminal real-inference showcase | [#166](https://github.com/AbdelStark/GenoLeWM/issues/166) | The demo must replay from released public model, dataset, and demo artifacts, not fixtures |
-| First experiment paper package | [#167](https://github.com/AbdelStark/GenoLeWM/issues/167) | Draft must bind the public dataset, checkpoint, eval, efficiency, terminal demo, artifact availability, conclusions, and negative findings |
-| Model checkpoint Hub release | [#101](https://github.com/AbdelStark/GenoLeWM/issues/101) | Hub model card, checkpoint files, manifest, checksums, eval report, and demo links must be published |
+| Dataset snapshot and data card | [#163](https://github.com/AbdelStark/GenoLeWM/issues/163) | Public dataset package and data card are published at <https://huggingface.co/datasets/abdelstark/geno-lewm-data> |
+| First Carbon-backed run | [#164](https://github.com/AbdelStark/GenoLeWM/issues/164) | `geno-lewm-coherent-cd2bfcc` trained for 20,000 steps / 160,000 samples and published run evidence |
+| Paper-ready results report | [#165](https://github.com/AbdelStark/GenoLeWM/issues/165) | Published `eval_metrics.json`, `eval_report.md`, and `efficiency_report.json` record the first-release measured results and negative findings |
+| Terminal real-inference showcase | [#166](https://github.com/AbdelStark/GenoLeWM/issues/166) | Public terminal transcript replayed `geno-lewm-score` over 32 VCF records with score and receipt JSONL hashes |
+| First experiment paper package | [#167](https://github.com/AbdelStark/GenoLeWM/issues/167) | Public `paper.md` binds the dataset, checkpoint, eval, efficiency, terminal demo, conclusions, and negative findings |
+| Model checkpoint Hub release | [#101](https://github.com/AbdelStark/GenoLeWM/issues/101) | Public model package, model card, checkpoint files, manifest, checksums, eval report, and demo links are published at <https://huggingface.co/abdelstark/geno-lewm> |
 
 ### Release Evidence Matrix
 
-Use this table to separate local release contracts from paper-ready
-evidence. Green local tooling is necessary, but it is not a substitute
-for real artifacts from the first experiment.
+Use this table to separate reusable local release contracts from the
+public v0.1 evidence. Green local tooling is necessary, but it is not a substitute for real artifacts in future releases.
 
 | Evidence artifact | Local contract | Paper-release status |
 | --- | --- | --- |
-| Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked rebuild spec; `--check-inputs` hashes staged upstream files; the same spec with `--dataset-dir ... --overwrite` writes `dataset_input_check_report.json`, `dataset_snapshot_report.json`, `dataset_package.json`, `dataset_manifest.json`, `data_card.md`, `split_integrity.json`, and `SHA256SUMS` | Blocked on running the command against the actual pinned Carbon, gnomAD, and ClinVar inputs, then publishing the resulting files ([#163](https://github.com/AbdelStark/GenoLeWM/issues/163)) |
-| Training run | `geno-lewm-train --carbon-preflight ...` and `geno-lewm-train --carbon-train --package-release-run ...` bind config, dataset, CUDA/VRAM readiness, Carbon model, checkpoint, logs, metrics, and `training_run_SHA256SUMS` | Blocked on a completed clean-machine Carbon-backed run over the published dataset snapshot ([#164](https://github.com/AbdelStark/GenoLeWM/issues/164)) |
-| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, and `python -m bench.inference --release-efficiency` generate `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`, and `efficiency_report.json` | Blocked on real GenoLeWM scores, Carbon zero-shot baseline scores, labels, and benchmark outputs from the released checkpoint/dataset pair ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)) |
-| Terminal demo | `python tools/demo/terminal_inference.py ...` records `terminal-demo-transcript.md`, `terminal_demo_manifest.json`, `runtime_preflight_report.json`, `scores.jsonl`, `receipts.jsonl`, and `batch_receipt_report.json` | Blocked on public model, dataset, and demo artifacts plus a clean-machine replay from those artifacts ([#166](https://github.com/AbdelStark/GenoLeWM/issues/166)) |
-| Paper and publication evidence | `python -m tools.release.paper_draft`, `python -m tools.release.paper_package`, `python -m tools.release.release_candidate`, `python -m tools.release.clean_machine_demo`, and `python -m tools.release.publication_report` bind the paper, Hub plan, public links, replay, and final evidence report | Blocked on the real artifact set and a protected publish workflow run with reachable public links ([#167](https://github.com/AbdelStark/GenoLeWM/issues/167), [#101](https://github.com/AbdelStark/GenoLeWM/issues/101)) |
+| Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked rebuild spec; `--check-inputs` hashes staged upstream files; the same spec with `--dataset-dir ... --overwrite` writes `dataset_input_check_report.json`, `dataset_snapshot_report.json`, `dataset_package.json`, `dataset_manifest.json`, `data_card.md`, `split_integrity.json`, and `SHA256SUMS` | Completed for v0.1 and published with [#163](https://github.com/AbdelStark/GenoLeWM/issues/163); repeat for larger v0.2 benchmark snapshots |
+| Training run | `geno-lewm-train --carbon-preflight ...` and `geno-lewm-train --carbon-train --package-release-run ...` bind config, dataset, CUDA/VRAM readiness, Carbon model, checkpoint, logs, metrics, and `training_run_SHA256SUMS` | Completed for v0.1 with [#164](https://github.com/AbdelStark/GenoLeWM/issues/164); v0.2 needs stronger runs only after data/eval gates improve |
+| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, and `python -m bench.inference --release-efficiency` generate `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`, and `efficiency_report.json` | Completed for the narrow v0.1 release with [#165](https://github.com/AbdelStark/GenoLeWM/issues/165); broader measured benchmark and rollout evidence remain open |
+| Terminal demo | `python tools/demo/terminal_inference.py ...` records `terminal-demo-transcript.md`, `terminal_demo_manifest.json`, `runtime_preflight_report.json`, `scores.jsonl`, `receipts.jsonl`, and `batch_receipt_report.json` | Completed for v0.1 with [#166](https://github.com/AbdelStark/GenoLeWM/issues/166); v0.2 should demonstrate benchmark/planning behavior without clinical claims |
+| Paper and publication evidence | `python -m tools.release.paper_draft`, `python -m tools.release.paper_package`, `python -m tools.release.release_candidate`, `python -m tools.release.clean_machine_demo`, and `python -m tools.release.publication_report` bind the paper, Hub plan, public links, replay, and final evidence report | Completed for v0.1 through [#167](https://github.com/AbdelStark/GenoLeWM/issues/167) and [#101](https://github.com/AbdelStark/GenoLeWM/issues/101); final binder is public and has `ok=true` |
+
+## v0.2 Readiness Work
+
+The next work should improve the evidence substrate before expanding
+demos. Track it in [#197](https://github.com/AbdelStark/GenoLeWM/issues/197):
+
+- audit data issues #49, #50, #51, and #52 against the actual v0.1
+  pipeline and turn remaining deltas into narrower v0.2 work;
+- run broader coding/non-coding held-out benchmarks with measured
+  GenoLeWM-vs-Carbon deltas, exact variant identities, and negative
+  findings;
+- implement or explicitly re-scope the RFC-0004 AR rollout KV-cache
+  speed target;
+- add regression/benchmark gates for finite loss, collapse health,
+  eval-artifact integrity, and rollout performance;
+- unblock planning API/CLI work only after the predictor/eval substrate
+  supports honest claims.
 
 ---
 
 ## Paper-Ready Checklist
 
-The project is not paper-ready until all of these are true:
+The v0.1 release satisfied this checklist for its narrow first-publication
+scope. Future releases should satisfy the same contract with stronger
+data, evaluation, and rollout evidence before making broader claims:
 
 - Dataset snapshot is reproducible from scripts and pinned revisions,
   starting from a checked snapshot spec and explicit local upstream
@@ -752,14 +787,16 @@ update the snapshot in the same PR and explain the compatibility impact.
 ## Contributing
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md). The most useful
-contributions now are implementation work that moves the project toward
-the first real experiment:
+contributions now are implementation work that moves the project from the
+v0.1 proof release toward v0.2 benchmark and rollout readiness:
 
-- Carbon encoder integration that works on a clean machine.
-- Dataset builders with pinned revisions, tuple-builder wiring, holdout
-  enforcement, and small deterministic smoke fixtures.
-- Trainer/evaluator paths that produce publishable artifacts.
-- A terminal demo that runs a released checkpoint on a real variant.
+- broader held-out data and benchmark builders with pinned revisions,
+  tuple-builder wiring, holdout enforcement, and small deterministic
+  smoke fixtures;
+- trainer/evaluator paths that produce better publishable artifacts
+  without weakening the v0.1 evidence contract;
+- AR rollout speed work and benchmark gates for the RFC-0004 target;
+- planning API/CLI work backed by measured predictor and eval evidence;
 - Documentation that keeps claims aligned with measured behavior.
 
 Personal-genome reproducers are not accepted. Use synthetic data or

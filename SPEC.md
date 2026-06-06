@@ -1,10 +1,12 @@
 # GenoLeWM — Specification (top-level index)
 
-- **Version:** 0.1.0-draft
-- **Date:** 2026-06-01
-- **Status:** Alpha implementation. Infrastructure is implemented; the
-  first real training run, model release, evaluation report, and
-  terminal inference demo remain open.
+- **Version:** 0.1.0
+- **Date:** 2026-06-06
+- **Status:** Alpha implementation with v0.1 public publication evidence.
+  The first real training run, model release, evaluation report, terminal
+  inference demo, paper artifact, and final publication binder are
+  published for `geno-lewm-v0.1.0-r1`; broader v0.2 benchmark and rollout
+  evidence remains open.
 
 This file is the entry point into the GenoLeWM specification corpus. The
 detailed content lives in two trees:

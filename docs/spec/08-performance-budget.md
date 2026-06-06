@@ -6,12 +6,11 @@
   [RFC-0016](../rfcs/0016-performance-budget.md)
 
 Performance is part of the public release contract. Numbers here are
-v0.1 release gates, not current measured results: a release that misses
-any target is not shippable as v0.1 unless the regression is documented
-and accepted via an explicit RFC amendment. Until
-`efficiency_report.json` is generated from the first public checkpoint,
-dataset, and demo artifact set, public docs and papers must describe
-these numbers as budgets or targets only.
+budgets and targets unless explicitly reported from a measured release
+artifact. The v0.1 release includes a public `efficiency_report.json` for
+the first checkpoint, dataset, and demo artifact set; the broader
+Apple-Silicon, quantized-runtime, and rollout-speed budgets still need
+v0.2 measurement before docs can describe them as achieved.
 
 ## Reference machines
 

@@ -1,6 +1,6 @@
 # Implementation Tracker
 
-Last updated: 2026-06-02
+Last updated: 2026-06-06
 
 This file is a human-maintained snapshot of the current execution plan.
 GitHub issues remain the source of truth for issue state.
@@ -68,49 +68,49 @@ implemented surface now includes:
 - release tooling, API-snapshot tooling, duplicate-free `__all__`
   checks, and current public module-map docs.
 
-Remaining blockers are concentrated in the ML path: validating the
-native runtime loader against actual Carbon/predictor artifacts, proving
-RFC-0004 attention KV-cache speedups, dataset snapshots, Carbon-backed
-trainer/evaluator integration, model release, and a real terminal
-inference demo.
+The v0.1 paper/demo release is complete. Remaining high-priority work is
+post-release evidence: broader held-out benchmarks, GenoLeWM-vs-Carbon
+baseline deltas, RFC-0004 attention KV-cache speedups, rollout-fidelity
+gates, planning-ready APIs/CLI, and the first PyPI package tag.
 
 ## Active Milestones
 
 | Milestone | Purpose | Exit Signal |
 | --- | --- | --- |
-| Direction cleanup | remove stale claims and align issues/docs | README, roadmap, context, and issues match current scope |
-| Real inference slice | terminal command runs one true score path | demo transcript generated from real command output |
-| Dataset snapshot | reproducible first experiment data | dataset card, manifest, split checks, rebuild command |
-| First training run | SNV predictor checkpoint | checkpoint, config, logs, model package metadata, model card, manifest |
-| Evaluation report | first paper-grade results | generated report with baselines and conclusions |
-| Paper/demo release | public showcase | release links dataset, model, report, demo transcript |
+| Direction cleanup | remove stale claims and align issues/docs | completed for v0.1; ongoing for v0.2 |
+| Real inference slice | terminal command runs one true score path | completed by the v0.1 public terminal transcript |
+| Dataset snapshot | reproducible first experiment data | completed by the v0.1 public dataset package |
+| First training run | SNV predictor checkpoint | completed by the published `geno-lewm-coherent-cd2bfcc` run |
+| Evaluation report | first paper-grade results | completed for the narrow v0.1 chr21 ClinVar slice |
+| Paper/demo release | public showcase | completed by public model, dataset, demo, paper, and final binder |
+| v0.2 benchmark readiness | stronger held-out science evidence | measured benchmark report with exact variants and negative findings |
+| v0.2 rollout/planning readiness | scalable rollout and planning substrate | AR rollout speed gate plus planning demo backed by measured evidence |
 
 ## Release Evidence Ledger
 
 Use this ledger as the implementation tracker's source of truth for what
-is locally contracted versus still missing for the first paper/demo
-release. Do not close #163 through #167 or #101 from local
-fixture/tooling evidence alone.
+the local release contracts proved in v0.1 and what future releases must
+re-run. Do not use local fixture/tooling evidence alone for v0.2 claims.
 
-| Issue | Local contract | Remaining release evidence |
+| Issue | Local contract | v0.1 status and future boundary |
 | --- | --- | --- |
-| #163 dataset snapshot | `python -m tools.release.dataset_snapshot`; `python -m tools.release.dataset_package` | Actual pinned Carbon, gnomAD, and ClinVar inputs, public snapshot package, and data-card links |
-| #164 first Carbon-backed run | `geno-lewm-train --carbon-preflight`; `geno-lewm-train --carbon-train --package-release-run` | Clean supported-environment run on public dataset artifacts with logs, metrics, and checkpoint metadata |
-| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all`; `python -m bench.inference --release-efficiency` | Real score, label, baseline, benchmark, and conclusion artifacts from the first experiment |
+| #163 dataset snapshot | `python -m tools.release.dataset_snapshot`; `python -m tools.release.dataset_package` | Completed for v0.1; v0.2 needs broader benchmark snapshots and refreshed split evidence |
+| #164 first Carbon-backed run | `geno-lewm-train --carbon-preflight`; `geno-lewm-train --carbon-train --package-release-run` | Completed for v0.1; v0.2 training should wait for stronger data/eval gates |
+| #165 results report | `geno-lewm-eval`; `geno-lewm-carbon-baseline`; `geno-lewm-eval-all`; `python -m bench.inference --release-efficiency` | Completed for the narrow v0.1 release; broader benchmark and rollout metrics remain open |
 | #20 release packaging | `python -m build`; `twine check`; `python -m tools.release.check_sdist_assets dist/*.tar.gz` over the full first-publication toolchain | Tagged package release built by the protected workflow from the checked tree |
-| #166 terminal showcase | `python tools/demo/terminal_inference.py`; `python -m tools.release.clean_machine_demo` | Clean-machine replay from public model, dataset, and demo artifacts with transcript and manifest hashes |
-| #167/#101 paper and publication | `python -m tools.release.paper_draft`; `python -m tools.release.paper_package`; `python -m tools.release.hub_release`; `python -m tools.release.hub_publish`; `python -m tools.release.publication_report` | Public model, dataset, demo, paper, Hub, and protected publish workflow evidence links |
+| #166 terminal showcase | `python tools/demo/terminal_inference.py`; `python -m tools.release.clean_machine_demo` | Completed for v0.1; future demos should demonstrate stronger benchmark/planning behavior without clinical claims |
+| #167/#101 paper and publication | `python -m tools.release.paper_draft`; `python -m tools.release.paper_package`; `python -m tools.release.hub_release`; `python -m tools.release.hub_publish`; `python -m tools.release.publication_report` | Completed for v0.1 with public model, dataset, demo, paper, and final binder links |
 
 ## Remaining High-Priority Gaps
 
 | Gap | Existing Issue(s) | Notes |
 | --- | --- | --- |
-| Carbon encoder on a clean machine | #32, #36 | Needed before real inference or training can be credible |
-| Trainer scaffold and deterministic run config | #44, #47 | Fixture smoke trainer emits reproducible logs/checkpoints; Carbon-backed launcher and resume validation exist; clean supported-runtime Carbon run and bit-exact deterministic evidence remain |
-| Dataset builders and split enforcement | #49, #50, #51, #52 | Local VCF-to-Parquet prep, tuple-builder contracts, source-state cache lookup, and split-integrity evidence exist; real upstream release runs, published shards, holdout data, and warm-cache throughput validation remain |
-| ClinVar and baseline evaluation | #53, #55, #56 | Artifact-level ClinVar-style score/label metrics with deterministic bootstrap CIs and matched measured-baseline deltas exist via `geno-lewm-eval`; `geno-lewm-carbon-baseline` writes Carbon zero-shot baseline score JSONL for `--baseline-score-field carbon_zero_shot_score`; `geno-lewm-eval-all` aggregates validated metric artifacts into `eval_report.md`; `bench.inference --release-efficiency` generates the validated latency/throughput/memory artifact; hosted generated-fixture eval smoke regression is enforced by `tools.ci.eval_smoke_gate`; full benchmark runner and real Carbon baseline run remain |
-| Score CLI and terminal demo | #62, #65 | Local scorer/CLI path can auto-load native artifacts, emit per-row VCF receipt JSONL, and generate runtime preflight evidence; still needs real artifacts and Carbon validation |
-| Model checkpoint Hub release | #101 | Requires model package metadata, model card, eval report, manifest, training config, checksum files, and demo links |
+| Carbon encoder and cache scale | #32, #36 | v0.1 proved the released artifact path; v0.2 still needs broader Carbon validation and cache-build throughput evidence |
+| Trainer reproducibility and regression gates | #44, #47 | v0.1 run evidence exists; v0.2 needs deterministic repeatability and benchmark gates beyond the first run |
+| Dataset builders and split enforcement | #49, #50, #51, #52 | v0.1 dataset publication exists; audit remaining issue deltas against the actual pipeline, then narrow v0.2 work around larger shards, holdouts, and warm-cache throughput |
+| ClinVar and baseline evaluation | #53, #55, #56 | v0.1 measured release evidence exists; v0.2 needs broader coding/non-coding benchmarks, Carbon baseline deltas, rollout-fidelity coverage, and exact evaluated variant identities |
+| Score CLI and terminal demo | #62, #65 | v0.1 clean-machine scoring transcript exists; close or re-scope remaining work to reusable examples, quickstart polish, and future benchmark/planning demos |
+| Model checkpoint Hub release | #101 | v0.1 model release is complete; future work is PyPI/source-package publication and v0.2 model package evidence |
 | Hosted ML smoke gate | #89 | Dedicated `tests/ml` fixture smoke coverage and CI `ml-smoke` job exist; this remains separate from #54's hosted eval smoke-regression gate |
 | Hosted eval smoke gate | #54 | Dedicated `tools.ci.eval_smoke_gate`, `tests/eval`, and CI `eval-smoke` job exist; this remains separate from real ClinVar/rollout benchmark execution |
 | Paper-grade docs and tutorials | #94, #95, #96, #97, #98 | Should wait for real artifacts where possible |
@@ -396,52 +396,45 @@ The first paper/demo release is not ready until:
 
 - #15 now tracks artifact provenance and checksum receipts, not external
   runtime assurance mechanisms beyond checksum provenance.
-- #62 and #65 have local implementation coverage for surprise scoring,
-  FASTA-backed VCF scoring, native component loading, and receipt
-  emission. They should remain open until clean-machine artifact-backed
-  integration proves the public command path.
-- #101 tracks model Hub release with `model_card.md`,
+- #62 and #65 have local implementation coverage plus v0.1
+  clean-machine artifact-backed scoring evidence. Their stale
+  `status:blocked` labels should be removed; close them if no
+  non-v0.1 acceptance remains, or re-scope any quickstart/tutorial
+  follow-up under #197.
+- #101 tracked the v0.1 model Hub release with `model_card.md`,
   `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`,
   `efficiency_report.json`,
   `manifest.json`, training config, checksum files, and links to the
-  dataset snapshot and terminal demo transcript. The final package should pass
-  `python -m tools.release.paper_package`. #101 now has a local
-  model-package generator contract, Hub dry-run planner, and credentialed
-  Hub publish workflow; the actual trained checkpoint and first
-  credentialed upload run remain open.
+  dataset snapshot and terminal demo transcript. That release is now
+  public and closed through PR #196; future model packages should preserve
+  the same `python -m tools.release.paper_package` contract.
 - #162 now has a local `geno_lewm.provenance` public namespace. The
   legacy import package has been removed from the active public surface,
   and receipt JSON now serializes the field as `provenance`.
 - #49 and #50 now have local release-file prep commands for gnomAD and
-  ClinVar; they remain open until real upstream release files are
-  processed, sized, and published with the dataset snapshot.
+  ClinVar, and the v0.1 dataset publication used public dataset
+  artifacts. Audit the remaining issue bodies against that pipeline and
+  keep only narrower v0.2 shard/data-quality deltas.
 - #51 now has a local tuple-builder contract plus
   `geno_lewm.data.GenoLeWMDataset`, which deterministically streams
   source windows and training tuples without importing torch in core
   environments. `geno_lewm.training.encode_training_batch` now looks up
   untargeted source `s_t` states in the documented cache index when
-  present and falls back to live encoding on misses. It remains open
-  until prepared real shards, holdout membership inputs, and measured
-  warm-cache throughput validation land.
+  present and falls back to live encoding on misses. Remaining work
+  should focus on v0.2 prepared-shard scale, holdout membership deltas,
+  and measured warm-cache throughput validation.
 - #44 and #47 now have deterministic fixture smoke coverage through
   `geno-lewm-train --fixture-smoke` plus a torch trainer core for
   Carbon-encoded minibatches, AdamW groups, WSD scheduling, gradient
   clipping, distinct seed records, and a preflight-gated
-  `geno-lewm-train --carbon-train` launcher. They remain open until a
-  clean-machine Carbon-backed run emits real checkpoints/logs/metrics,
-  deterministic torch runs are confirmed on a supported backend, and
-  benchmark gates land.
-- #163 through #167 track the paper/demo chain: dataset snapshot, first
-  training run, generated evaluation report, terminal showcase, and
-  paper package. #163 now has a local dataset-package generator contract;
-  #51 has a local tuple-builder contract; #166 now has a generated
-  terminal demo manifest contract with package-local demo input checks,
-  runtime-preflight command parity, and canonical command/artifact path
-  checks plus a clean-machine replay helper for published
-  model/dataset/demo artifacts; the actual
-  upstream snapshot, real split inputs, released checkpoint,
-  clean-machine transcript from public bytes, and published edit shards
-  remain open.
+  `geno-lewm-train --carbon-train` launcher. v0.1 supplied a real
+  Carbon-backed run; remaining work is deterministic repeatability on
+  supported backends and benchmark gates beyond the first run.
+- #163 through #167 tracked the v0.1 paper/demo chain: dataset snapshot,
+  first training run, generated evaluation report, terminal showcase, and
+  paper package. They are closed with public evidence through PR #196.
+  Remaining data/eval/demo work should be routed through #197 or narrower
+  v0.2 issues, not reopened as missing v0.1 publication evidence.
 
 ## Validation Expectations
 

@@ -2,7 +2,7 @@
 
 - Status: Authoritative for v0.1
 - Companion RFC: [RFC-0001](../rfcs/0001-project-scope-and-goals.md)
-- Last reviewed: 2026-05-20
+- Last reviewed: 2026-06-06
 
 ## Thesis
 
@@ -23,11 +23,11 @@ Every other system commitment is downstream of that single equation.
 
 ## Goals (v1)
 
-These are v0.1 release targets, not current measured results. The
-repository currently contains contracts, release tooling, and fixtures;
-the public checkpoint, dataset snapshot, measured evaluation table, and
-clean-machine real-inference demo still have to be published before any
-metric below is an achieved result.
+The v0.1 paper/demo release is published, with public checkpoint,
+dataset snapshot, measured chr21 ClinVar evaluation, clean-machine
+real-inference demo, and final publication evidence. The goals below are
+roadmap targets unless explicitly tied to a measured release artifact;
+v0.1 establishes a narrow first baseline, not broad model quality.
 
 1. **Per-edit latent prediction** at < 10% of Carbon's per-variant inference
    cost after caching reference embeddings.
@@ -61,7 +61,7 @@ metric below is an achieved result.
 
 ## Success criteria
 
-A v1 release is shippable when, jointly:
+A release is shippable when, jointly:
 
 - The reference checkpoint clears all eval gates in
   [`docs/spec/07-testing-strategy.md`](07-testing-strategy.md) and the
@@ -115,6 +115,8 @@ otherwise file a reconciliation PR.
 ## Out-of-scope reminders
 
 - No fabricated benchmarks. Numbers ship only after the full eval suite runs.
+- Existing v0.1 numbers are first-release measured results and negative
+  findings; v0.2 claims need their own measured evidence.
 - No `TBD` shipped: every uncertainty is either decided or promoted to
   `OPEN QUESTION` with an owner.
 - No clinical claims. Every UI surface and every CLI banner carries the

@@ -1,20 +1,21 @@
 # Contributing to GenoLeWM
 
-GenoLeWM is an alpha Python ML research project. The infrastructure is
-partly implemented, but the first real training run, released model, and
-terminal inference demo are still open work.
+GenoLeWM is an alpha Python ML research project. The v0.1 paper/demo
+publication is complete with public model, dataset, demo, paper, and
+final publication evidence artifacts.
 
 The most valuable contributions now are narrow, tested changes that move
-the repository toward a paper-ready first experiment.
+the repository toward v0.2 benchmark and rollout readiness.
 
 ## High-Value Work
 
-- Carbon encoder integration that runs on a clean machine.
-- Dataset builders with pinned upstream revisions and deterministic
-  smoke fixtures.
-- Trainer and evaluation paths that emit publishable artifacts.
-- Model and dataset release automation.
-- Terminal demos that run real inference rather than fixtures.
+- Broader held-out benchmark builders with pinned upstream revisions and
+  deterministic smoke fixtures.
+- Trainer and evaluation paths that emit stronger publishable artifacts
+  without weakening the v0.1 release evidence contract.
+- AR rollout speed work and benchmark gates for the RFC-0004 target.
+- Planning API/CLI work backed by measured predictor and eval evidence.
+- Release automation for future evidence packages and the first PyPI tag.
 - Documentation that keeps public claims aligned with measured behavior.
 
 ## Code of Conduct

@@ -3,7 +3,7 @@
 > **Action-conditioned JEPA world model for DNA, built on top of Carbon.**
 
 [![CI](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml/badge.svg)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml)
-[![Status](https://img.shields.io/badge/status-alpha%20pre--release-orange.svg)](roadmap/IMPLEMENTATION.md)
+[![Status](https://img.shields.io/badge/status-alpha%20v0.1%20published-blue.svg)](roadmap/IMPLEMENTATION.md)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/AbdelStark/GenoLeWM/blob/main/pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/AbdelStark/GenoLeWM/blob/main/LICENSE)
 [![Typed](https://img.shields.io/badge/typed-mypy--strict-blue.svg)](https://mypy.readthedocs.io/)
@@ -24,8 +24,8 @@ The research hypothesis is that this can support:
 - **Multi-edit haplotype rollout** in latent space.
 - **Planning** over edit sequences via latent MPC.
 - **Surprise-based pathogenicity scoring** — predictor error as a signal.
-- **Local-first inference** over user-provided variant files once public
-  checkpoints and runtime artifacts exist.
+- **Local-first inference** over user-provided variant files using
+  released or locally staged model artifacts.
 
 ## Where to start
 
@@ -38,9 +38,10 @@ The research hypothesis is that this can support:
 
 ## What ships today
 
-The repository currently ships local contracts and release tooling, not
-paper results. Install from source through the [Quickstart](quickstart.md)
-until the first PyPI tag is cut.
+The repository currently ships alpha code plus the public
+`geno-lewm-v0.1.0-r1` paper/demo artifact set. Install the Python package
+from source through the [Quickstart](quickstart.md) until the first PyPI
+tag is cut.
 
 - **Core Python surface:** typed errors, privacy-aware structured logs,
   metrics, canonical edit specs, pure-Python edit application,
@@ -60,17 +61,23 @@ until the first PyPI tag is cut.
   `__all__` checks, source-language linting for de-scoped trust claims,
   release-blocker issue references, and strict docs rendering.
 
-What is *not* paper-ready yet: no GenoLeWM checkpoint or dataset snapshot
-has been published, no Carbon-backed training run has completed, no
-paper-grade measured evaluation exists, and no clean-machine terminal
-demo has replayed from released public artifacts. See the
-[roadmap](roadmap/IMPLEMENTATION.md) and live release blockers
-[#101](https://github.com/AbdelStark/GenoLeWM/issues/101),
-[#163](https://github.com/AbdelStark/GenoLeWM/issues/163),
-[#164](https://github.com/AbdelStark/GenoLeWM/issues/164),
-[#165](https://github.com/AbdelStark/GenoLeWM/issues/165),
-[#166](https://github.com/AbdelStark/GenoLeWM/issues/166), and
-[#167](https://github.com/AbdelStark/GenoLeWM/issues/167).
+The v0.1 publication evidence is public:
+
+- Model: <https://huggingface.co/abdelstark/geno-lewm>
+- Dataset: <https://huggingface.co/datasets/abdelstark/geno-lewm-data>
+- Demo assets:
+  <https://github.com/AbdelStark/GenoLeWM/releases/tag/geno-lewm-v0.1.0-r1>
+- Paper:
+  <https://github.com/AbdelStark/GenoLeWM/releases/download/geno-lewm-v0.1.0-r1/paper.md>
+- Final binder:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-coherent-cd2bfcc/publication/publication_evidence_report.json>
+
+What is *not* established yet: broad model quality beyond the narrow
+chr21 ClinVar v0.1 slice, RFC-0004 rollout-speed closure, useful
+multi-edit planning behavior, clinical utility, privacy assurance, or
+runtime assurance beyond checksum provenance. See the
+[roadmap](roadmap/IMPLEMENTATION.md) and v0.2 epic
+[#197](https://github.com/AbdelStark/GenoLeWM/issues/197).
 
 ## Acknowledgments
 

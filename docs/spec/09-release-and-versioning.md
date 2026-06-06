@@ -498,8 +498,8 @@ Revocation-list mechanism is an [open question](#open-questions).
 | Channel | Status | Use |
 |---------|--------|-----|
 | PyPI | Planned first tag | package wheels and sdists after trusted publishing is configured |
-| HuggingFace Hub | Planned first release | model checkpoints and dataset artifacts |
-| GitHub releases | Planned first release | terminal-demo and publication-evidence assets |
+| HuggingFace Hub | v0.1 published | model checkpoints and dataset artifacts |
+| GitHub releases | v0.1 published | terminal-demo, paper, and publication-evidence assets |
 | Homebrew | Planned | post v1 |
 | conda-forge | Future | post v1 |
 

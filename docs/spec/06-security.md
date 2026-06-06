@@ -10,11 +10,11 @@ is: personal genome data. The security model is therefore conservative,
 local-first, and built around explicit trust boundaries. Threats are
 enumerated, not implied. Defenses are mechanical, not policy.
 
-Current public release status: these are release requirements, not
-evidence from a published checkpoint or terminal demo. The first public
-model package and real-inference demo must prove local-only scoring,
-redaction, and checksum receipt behavior before public docs can call
-those behaviors achieved.
+Current public release status: the v0.1 model package and terminal demo
+are published and record runtime-preflight, network-guard, redaction, and
+checksum receipt evidence for the released demo path. That evidence does
+not establish a general privacy assurance, clinical safety claim, or
+runtime assurance mode beyond checksum provenance.
 
 ## Threat model
 
