@@ -299,7 +299,8 @@ trusted only after their hashes match the fetched manifest.
     record checked metrics artifact paths and efficiency input identities
     from the validated payloads. The readiness report MUST carry measured
     efficiency latency, throughput, peak memory, runtime/sample context,
-    limitations, and sanitized efficiency command provenance.
+    limitations, sanitized efficiency command provenance, and row-derived
+    `readiness` plus `blockers` entries with issue refs.
     Metric conclusions MUST include split/track context, measured values,
     baseline deltas, confidence intervals, and evaluated variant-key
     identities when those fields are available. Non-passing metric

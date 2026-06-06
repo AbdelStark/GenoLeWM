@@ -173,6 +173,8 @@ def build_readiness_report(
         for row in rows
         if str(row.get("status")) not in {"pass", "rescoped"}
     ]
+    readiness = _readiness_items(rows)
+    blockers = _readiness_blockers(rows)
     scope_decisions = _scope_decisions(rows)
     ok = not missing_or_failed
     artifact_inputs = _artifact_inputs(
@@ -195,6 +197,8 @@ def build_readiness_report(
         "release_inputs_required": require_release_inputs,
         "inputs": artifact_inputs,
         "benchmark_rows": rows,
+        "readiness": readiness,
+        "blockers": blockers,
         "scope_decisions": scope_decisions,
         "missing_or_failed_benchmarks": missing_or_failed,
         "metric_conclusions": _metric_conclusions(rows),
@@ -1122,6 +1126,127 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
             conclusion += f"; route remaining work through {issue_refs}."
             conclusions.append(conclusion)
     return conclusions
+
+
+def _readiness_items(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for row in rows:
+        benchmark = str(row["benchmark_id"])
+        status = str(row["status"])
+        blockers = _row_blocker_codes(row)
+        evidence = _row_evidence(row)
+        message = f"{benchmark} is {status}"
+        details = _format_nonpassing_details(row)
+        if details:
+            message += f": {details}"
+        items.append(
+            {
+                "code": benchmark,
+                "ok": status in {"pass", "rescoped"},
+                "status": status,
+                "message": message,
+                "evidence": evidence,
+                "blockers": blockers,
+                "issue_refs": _row_issue_refs(row),
+            }
+        )
+    return items
+
+
+def _readiness_blockers(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    blockers: list[dict[str, object]] = []
+    for row in rows:
+        for code in _row_blocker_codes(row):
+            details = _format_nonpassing_details(row)
+            blockers.append(
+                {
+                    "code": code,
+                    "benchmark_id": row["benchmark_id"],
+                    "status": row["status"],
+                    "message": details or f"{row['benchmark_id']} is {row['status']}",
+                    "issue_refs": _row_issue_refs(row),
+                }
+            )
+    return blockers
+
+
+def _row_blocker_codes(row: dict[str, object]) -> list[str]:
+    status = str(row["status"])
+    if status in {"pass", "rescoped"}:
+        return []
+    return [f"benchmark.{row['benchmark_id']}.{status}"]
+
+
+def _row_issue_refs(row: dict[str, object]) -> list[str]:
+    raw = row.get("issue_refs")
+    if not isinstance(raw, list):
+        return []
+    return [ref for ref in raw if isinstance(ref, str) and ref]
+
+
+def _row_evidence(row: dict[str, object]) -> list[str]:
+    evidence: list[str] = []
+    values = _format_metric_values(row.get("observed_values"))
+    if values:
+        evidence.append(f"observed_values={values}")
+    deltas = _format_metric_values(row.get("delta_vs_baseline"))
+    if deltas:
+        evidence.append(f"delta_vs_baseline={deltas}")
+    intervals = _format_confidence_intervals(row.get("confidence_intervals"))
+    if intervals:
+        evidence.append(f"confidence_intervals={intervals}")
+    variant_identities = _format_text_values(row.get("evaluated_variant_key_identities"))
+    if variant_identities:
+        evidence.append(f"evaluated_variant_key_identities={variant_identities}")
+    command = _format_command(row.get("command"))
+    if command:
+        evidence.append(f"command={command}")
+    scope_decision = _format_scope_decision(row.get("scope_decision"))
+    if scope_decision:
+        evidence.append(f"scope_decision={scope_decision}")
+    checked_artifacts = _format_checked_artifacts(row.get("checked_artifacts"))
+    if checked_artifacts:
+        evidence.append(f"checked_artifacts={checked_artifacts}")
+    return evidence
+
+
+def _format_command(raw: object) -> str:
+    if not isinstance(raw, list) or not raw:
+        return ""
+    tokens = [token for token in raw if isinstance(token, str) and token]
+    return " ".join(tokens)
+
+
+def _format_checked_artifacts(raw: object) -> str:
+    if not isinstance(raw, dict) or not raw:
+        return ""
+    parts: list[str] = []
+    metrics = raw.get("metrics_json")
+    if isinstance(metrics, list):
+        metric_parts: list[str] = []
+        for item in metrics:
+            if not isinstance(item, dict):
+                continue
+            index = item.get("input_index")
+            artifacts = item.get("artifacts")
+            if not isinstance(index, int) or not isinstance(artifacts, dict):
+                continue
+            keys = sorted(key for key in artifacts if isinstance(key, str))
+            if keys:
+                metric_parts.append(f"metrics_json[{index}]={','.join(keys)}")
+        if metric_parts:
+            parts.append("; ".join(metric_parts))
+    rollout = raw.get("rollout_speed_report")
+    if isinstance(rollout, dict) and isinstance(rollout.get("path"), str):
+        parts.append(f"rollout_speed_report={rollout['path']}")
+    efficiency = raw.get("efficiency_report")
+    if isinstance(efficiency, dict):
+        inputs = efficiency.get("inputs")
+        if isinstance(inputs, dict):
+            keys = sorted(key for key in inputs if isinstance(key, str))
+            if keys:
+                parts.append(f"efficiency_inputs={','.join(keys)}")
+    return "; ".join(parts)
 
 
 def _scope_decisions(rows: list[dict[str, object]]) -> list[dict[str, object]]:

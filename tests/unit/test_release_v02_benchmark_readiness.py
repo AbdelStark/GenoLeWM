@@ -63,6 +63,19 @@ def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
     assert "ar_rollout_speed" in report["missing_or_failed_benchmarks"]
     assert report["negative_findings"]
     assert report["inputs"]["metrics_json"][0]["sha256"].startswith("sha256:")
+    readiness = _readiness_by_code(report)
+    assert readiness["clinvar_noncoding"]["ok"] is False
+    assert readiness["clinvar_noncoding"]["blockers"] == ["benchmark.clinvar_noncoding.missing"]
+    assert readiness["clinvar_noncoding"]["issue_refs"] == ["#53", "#55", "#56", "#197"]
+    blockers = _blockers_by_code(report)
+    assert blockers["benchmark.clinvar_noncoding.missing"]["benchmark_id"] == "clinvar_noncoding"
+    assert blockers["benchmark.clinvar_noncoding.missing"]["issue_refs"] == [
+        "#53",
+        "#55",
+        "#56",
+        "#197",
+    ]
+    assert blockers["benchmark.ar_rollout_speed.failed"]["issue_refs"] == ["#42", "#197"]
     conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
     assert "clinvar_noncoding is missing" in conclusions
     assert "track=variant_effect_prediction, split=clinvar_noncoding" in conclusions
@@ -255,6 +268,13 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
 
     assert report["ok"] is True
     assert report["missing_or_failed_benchmarks"] == []
+    assert report["blockers"] == []
+    readiness = _readiness_by_code(report)
+    assert all(item["ok"] is True for item in readiness.values())
+    assert any(
+        "command=geno-lewm-score --variant 1:10:A:T" in evidence
+        for evidence in readiness["inference_efficiency"]["evidence"]
+    )
     rows = _rows_by_id(report)
     assert all(row["status"] == "pass" for row in rows.values())
     assert rows["clinvar_coding"]["observed_values"]["auroc"] == 0.73
@@ -339,6 +359,14 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
 
     assert report["ok"] is True
     assert report["missing_or_failed_benchmarks"] == []
+    assert report["blockers"] == []
+    readiness = _readiness_by_code(report)
+    assert readiness["ar_rollout_speed"]["ok"] is True
+    assert readiness["ar_rollout_speed"]["status"] == "rescoped"
+    assert any(
+        evidence.startswith("scope_decision=")
+        for evidence in readiness["ar_rollout_speed"]["evidence"]
+    )
     rows = _rows_by_id(report)
     assert rows["ar_rollout_speed"]["status"] == "rescoped"
     assert rows["ar_rollout_speed"]["failed_targets"]
@@ -768,6 +796,12 @@ def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) 
     rows = _rows_by_id(report)
     assert rows["release_inputs"]["status"] == "pass"
     assert rows["release_inputs"]["findings"] == []
+    readiness = _readiness_by_code(report)
+    assert readiness["release_inputs"]["ok"] is True
+    assert any(
+        evidence.startswith("checked_artifacts=")
+        for evidence in readiness["release_inputs"]["evidence"]
+    )
     checked = rows["release_inputs"]["checked_artifacts"]
     assert isinstance(checked, dict)
     metrics_json = checked["metrics_json"]
@@ -1109,6 +1143,18 @@ def _rows_by_id(report: dict[str, object]) -> dict[str, dict[str, object]]:
     rows = report["benchmark_rows"]
     assert isinstance(rows, list)
     return {str(row["benchmark_id"]): row for row in rows if isinstance(row, dict)}
+
+
+def _readiness_by_code(report: dict[str, object]) -> dict[str, dict[str, object]]:
+    rows = report["readiness"]
+    assert isinstance(rows, list)
+    return {str(row["code"]): row for row in rows if isinstance(row, dict)}
+
+
+def _blockers_by_code(report: dict[str, object]) -> dict[str, dict[str, object]]:
+    rows = report["blockers"]
+    assert isinstance(rows, list)
+    return {str(row["code"]): row for row in rows if isinstance(row, dict)}
 
 
 def _metrics_payload(
