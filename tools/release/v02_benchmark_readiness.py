@@ -947,6 +947,7 @@ def _suite_release_input_findings(
         findings.append("suite_report.ok must be true")
     if payload.get("status") != "pass":
         findings.append("suite_report.status must be pass")
+    findings.extend(_suite_boundary_findings(payload))
     manifest = payload.get("manifest")
     if not isinstance(manifest, dict):
         findings.append("suite_report.manifest must be an artifact identity object")
@@ -998,6 +999,33 @@ def _suite_release_input_findings(
                 "suite_report.output_identities must include metrics_json inputs: "
                 + ", ".join(missing_metrics)
             )
+    return findings
+
+
+def _suite_boundary_findings(payload: dict[str, object]) -> list[str]:
+    findings: list[str] = []
+    negative_findings = payload.get("negative_findings")
+    if not isinstance(negative_findings, list) or not any(
+        isinstance(item, str) and item.strip() for item in negative_findings
+    ):
+        findings.append("suite_report.negative_findings must be a non-empty text list")
+    else:
+        boundary_text = "\n".join(
+            item.lower() for item in negative_findings if isinstance(item, str)
+        )
+        if "measured" not in boundary_text or (
+            "validator" not in boundary_text and "validate" not in boundary_text
+        ):
+            findings.append(
+                "suite_report.negative_findings must preserve measured-claim validator limits"
+            )
+    claim_boundary = payload.get("claim_boundary")
+    if not isinstance(claim_boundary, str) or not claim_boundary.strip():
+        findings.append("suite_report.claim_boundary must be non-empty text")
+    else:
+        claim_text = claim_boundary.lower()
+        if "model-quality" not in claim_text or "validate separately" not in claim_text:
+            findings.append("suite_report.claim_boundary must preserve measured-claim limits")
     return findings
 
 

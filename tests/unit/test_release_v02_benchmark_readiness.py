@@ -1208,6 +1208,49 @@ def test_release_inputs_row_rejects_metrics_not_generated_by_suite(
     )
 
 
+def test_release_inputs_row_rejects_weakened_suite_boundaries(tmp_path: Path) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                ],
+                release_ready=True,
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(
+        json.dumps(_efficiency_payload(release_ready=True)),
+        encoding="utf-8",
+    )
+    suite_payload = _suite_report_payload()
+    suite_payload["negative_findings"] = ["No suite failures were observed."]
+    suite_payload["claim_boundary"] = "This suite report is release evidence."
+    suite.write_text(json.dumps(suite_payload), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        suite_report=suite,
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    assert rows["release_inputs"]["status"] == "failed"
+    findings = "\n".join(rows["release_inputs"]["findings"])
+    assert (
+        "suite_report.negative_findings must preserve measured-claim validator limits" in findings
+    )
+    assert "suite_report.claim_boundary must preserve measured-claim limits" in findings
+
+
 def test_readiness_rejects_invalid_suite_report_source(tmp_path: Path) -> None:
     suite = tmp_path / "v0.2_benchmark_suite_report.json"
     payload = _suite_report_payload()
@@ -1510,7 +1553,7 @@ def _suite_report_payload(
             ),
         ],
         "negative_findings": [
-            "This suite report is orchestration evidence; metrics still validate separately."
+            "No suite-runner failures were observed; measured claims still depend on downstream artifact validators."
         ],
         "claim_boundary": (
             "This report is benchmark-suite orchestration evidence only; measured "
