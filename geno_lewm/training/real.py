@@ -37,6 +37,7 @@ from geno_lewm.data import (
 )
 from geno_lewm.encoder import CarbonStateEncoder
 from geno_lewm.errors import InputError, RuntimeSetupError
+from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
 from geno_lewm.provenance import sha256_file
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
@@ -238,6 +239,7 @@ def run_carbon_training(
     collapse_alert_count = 0
     sample_count = resumed_from_step * config.data.batch_size
     log_mode = "a" if resumed_from_step else "w"
+    progress_logger = get_logger("training", run_id=config.run_id, log_dir=run_dir)
     with log_path.open(log_mode, encoding="utf-8") as log:
         if resumed_from_step:
             log.write(
@@ -273,20 +275,29 @@ def run_carbon_training(
             sample_count += len(current_batch.window_ids)
             log.write(json.dumps({"event": "train.step", **result.to_dict()}) + "\n")
             if step in (first_step, steps) or step % progress_every == 0:
-                print(
-                    json.dumps(
-                        {
-                            "event": "train.progress",
-                            "run_id": config.run_id,
-                            "step": step,
-                            "total_steps": steps,
-                            "sample_count": sample_count,
-                            "loss": result.loss,
-                            "pred_var_per_dim": result.pred_var_per_dim,
-                        },
-                        sort_keys=True,
-                    ),
-                    flush=True,
+                progress_logger.info(
+                    "training.metric",
+                    step=step,
+                    name="sample_count",
+                    value=sample_count,
+                    unit="samples",
+                    kind="counter",
+                )
+                progress_logger.info(
+                    "training.metric",
+                    step=step,
+                    name="loss",
+                    value=result.loss,
+                    unit="unitless",
+                    kind="gauge",
+                )
+                progress_logger.info(
+                    "training.metric",
+                    step=step,
+                    name="pred_var_per_dim",
+                    value=result.pred_var_per_dim,
+                    unit="unitless",
+                    kind="gauge",
                 )
             for alert in collapse_alerts:
                 log.write(
