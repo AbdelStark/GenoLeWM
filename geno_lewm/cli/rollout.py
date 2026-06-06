@@ -139,6 +139,20 @@ def main(
         Path | None,
         typer.Option("--efficiency-report", help="Release efficiency report artifact path."),
     ] = None,
+    rollout_state_examples_report: Annotated[
+        Path | None,
+        typer.Option(
+            "--rollout-state-examples-report",
+            help="Rollout-state examples provenance report artifact path.",
+        ),
+    ] = None,
+    rollout_state_rows_report: Annotated[
+        Path | None,
+        typer.Option(
+            "--rollout-state-rows-report",
+            help="Rollout-state row generation report artifact path.",
+        ),
+    ] = None,
     config: Annotated[str | None, _S["config"]] = None,
     set_overrides: Annotated[list[str] | None, _S["set_overrides"]] = None,
     seed: Annotated[int | None, _S["seed"]] = None,
@@ -190,6 +204,8 @@ def main(
         eval_config=effective_config_path,
         efficiency_report=_required_path("efficiency-report", efficiency_report),
         rollout_states=states_path,
+        rollout_state_examples_report=rollout_state_examples_report,
+        rollout_state_rows_report=rollout_state_rows_report,
     )
     rows = load_rollout_state_rows(states_path)
     payload = build_rollout_metrics_payload(
@@ -477,6 +493,8 @@ def _report_artifact_paths(
     eval_config: Path,
     efficiency_report: Path,
     rollout_states: Path,
+    rollout_state_examples_report: Path | None,
+    rollout_state_rows_report: Path | None,
 ) -> dict[str, str]:
     artifacts = {
         "checkpoint": checkpoint,
@@ -487,6 +505,10 @@ def _report_artifact_paths(
         "rollout_states": rollout_states,
         "baseline_rollout_states": rollout_states,
     }
+    if rollout_state_examples_report is not None:
+        artifacts["rollout_state_examples_report"] = rollout_state_examples_report
+    if rollout_state_rows_report is not None:
+        artifacts["rollout_state_rows_report"] = rollout_state_rows_report
     return {
         label: package_relative_artifact_path(
             path,

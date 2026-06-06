@@ -495,6 +495,26 @@ def _append_rollout_steps(
         "--efficiency-report",
         shared["efficiency_report"],
     ]
+    if state_generation is not None:
+        command.extend(
+            (
+                "--rollout-state-rows-report",
+                _path_text(
+                    state_generation.get("report_json"),
+                    field=f"{benchmark_id}.state_generation.report_json",
+                ),
+            )
+        )
+        if state_generation.get("examples_report_json") is not None:
+            command.extend(
+                (
+                    "--rollout-state-examples-report",
+                    _path_text(
+                        state_generation.get("examples_report_json"),
+                        field=f"{benchmark_id}.state_generation.examples_report_json",
+                    ),
+                )
+            )
     steps.append(
         SuiteStep(
             step_id=f"{benchmark_id}.rollout",

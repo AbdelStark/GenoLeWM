@@ -42,6 +42,8 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
     assert "--baseline-name" in commands["clinvar_coding.eval"]
     assert "carbon_zero_shot" in commands["clinvar_coding.eval"]
     assert commands["rollout_phased_haplotypes.rollout"][0] == "geno-lewm-rollout"
+    assert "--rollout-state-examples-report" in commands["rollout_phased_haplotypes.rollout"]
+    assert "--rollout-state-rows-report" in commands["rollout_phased_haplotypes.rollout"]
     assert commands["aggregate.eval_all"].count("--metrics-json") == 2
     assert "--require-v02-vep-metrics" in commands["aggregate.eval_all"]
     assert "--require-v02-rollout-metrics" in commands["aggregate.eval_all"]

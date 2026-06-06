@@ -114,6 +114,12 @@ ROLLOUT_FIDELITY_REQUIREMENTS: Final = (
     ),
 )
 BENCHMARK_REQUIREMENTS: Final = VEP_REQUIREMENTS + ROLLOUT_FIDELITY_REQUIREMENTS
+ROLLOUT_SPLITS: Final = frozenset(
+    requirement.split for requirement in ROLLOUT_FIDELITY_REQUIREMENTS if requirement.split
+)
+VEP_SPLITS: Final = frozenset(
+    requirement.split for requirement in VEP_REQUIREMENTS if requirement.split
+)
 
 
 def build_readiness_report(
@@ -676,18 +682,50 @@ def _metric_release_input_findings(
     artifacts = dict(report.artifacts)
     findings.extend(_artifact_findings(artifacts, prefix=f"{prefix}.artifacts"))
     artifact_keys = set(artifacts)
-    has_raw_score_inputs = {"scores", "labels"} <= artifact_keys
-    has_rollout_state_inputs = "rollout_states" in artifact_keys
+    has_raw_score_inputs = _has_artifact_key(artifact_keys, "scores") and _has_artifact_key(
+        artifact_keys, "labels"
+    )
+    has_rollout_state_inputs = _has_artifact_key(artifact_keys, "rollout_states")
     has_aggregate_inputs = any(key.startswith("metrics_input_") for key in artifact_keys)
     if not has_raw_score_inputs and not has_rollout_state_inputs and not has_aggregate_inputs:
         findings.append(
             f"{prefix}.artifacts must include scores+labels, rollout_states, or metrics_input_* provenance"
         )
+    if _report_has_vep_metrics(report) and not has_raw_score_inputs:
+        findings.append(
+            f"{prefix}.artifacts must include score and label provenance for VEP metrics"
+        )
+    if _report_has_rollout_metrics(report):
+        required_rollout_artifacts = (
+            "rollout_states",
+            "baseline_rollout_states",
+            "rollout_state_examples_report",
+            "rollout_state_rows_report",
+        )
+        missing = [
+            key for key in required_rollout_artifacts if not _has_artifact_key(artifact_keys, key)
+        ]
+        if missing:
+            findings.append(
+                f"{prefix}.artifacts must include rollout generation provenance: {', '.join(missing)}"
+            )
     has_baseline_metrics = any(metric.baseline is not None for metric in report.metrics)
     has_baseline_artifact = any(_is_baseline_artifact_key(key) for key in artifact_keys)
     if has_baseline_metrics and not has_baseline_artifact:
         findings.append(f"{prefix}.artifacts must include baseline artifact provenance")
     return findings
+
+
+def _report_has_rollout_metrics(report: EvalReportInput) -> bool:
+    return any(metric.split in ROLLOUT_SPLITS for metric in report.metrics)
+
+
+def _report_has_vep_metrics(report: EvalReportInput) -> bool:
+    return any(metric.split in VEP_SPLITS for metric in report.metrics)
+
+
+def _has_artifact_key(keys: set[str], name: str) -> bool:
+    return name in keys or any(key.endswith(f".{name}") for key in keys)
 
 
 def _is_baseline_artifact_key(key: str) -> bool:

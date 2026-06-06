@@ -284,7 +284,10 @@ trusted only after their hashes match the fetched manifest.
     `geno-lewm-rollout-states` JSONL, and record package-relative
     provenance. These helpers do not run Carbon encoding or construct
     held-out haplotypes, so those cache-backed specs remain required
-    benchmark inputs.
+    benchmark inputs. When rollout metrics are used for release-input
+    readiness, `geno-lewm-rollout` must record package-relative
+    `rollout_state_examples_report` and `rollout_state_rows_report`
+    artifacts.
     If the RFC-0004 AR rollout speed target is not met and the project
     explicitly accepts a re-scope in #42/#197, generate
     `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`

@@ -362,7 +362,6 @@ def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
     assert "release_inputs" in report["missing_or_failed_benchmarks"]
     findings = "\n".join(rows["release_inputs"]["findings"])
     assert "readiness evidence" in findings
-    assert "scores+labels, rollout_states, or metrics_input_*" in findings
 
 
 def test_release_inputs_row_accepts_aggregate_metrics_input_artifacts(
@@ -413,6 +412,8 @@ def test_release_inputs_row_accepts_rollout_state_artifacts(tmp_path: Path) -> N
     artifacts.pop("labels")
     artifacts["rollout_states"] = "eval/rollout_states.jsonl"
     artifacts["baseline_rollout_states"] = "eval/rollout_states.jsonl"
+    artifacts["rollout_state_examples_report"] = "eval/rollout_state_examples_report.json"
+    artifacts["rollout_state_rows_report"] = "eval/rollout_state_rows_report.json"
     metrics.write_text(json.dumps(payload), encoding="utf-8")
 
     report = v02_benchmark_readiness.build_readiness_report(
@@ -426,6 +427,38 @@ def test_release_inputs_row_accepts_rollout_state_artifacts(tmp_path: Path) -> N
     assert "an efficiency_report.json artifact is required" in findings
     assert not any("scores+labels" in str(finding) for finding in findings)
     assert not any("baseline artifact" in str(finding) for finding in findings)
+    assert not any("rollout generation provenance" in str(finding) for finding in findings)
+
+
+def test_release_inputs_row_rejects_rollout_state_artifacts_without_generation_reports(
+    tmp_path: Path,
+) -> None:
+    metrics = tmp_path / "rollout_metrics.json"
+    payload = _metrics_payload(
+        [_metric("rollout_phased_haplotypes", "cosine_similarity_mean", 0.91, baseline=True)],
+        release_ready=True,
+    )
+    artifacts = payload["artifacts"]
+    assert isinstance(artifacts, dict)
+    artifacts.pop("baseline_scores")
+    artifacts.pop("scores")
+    artifacts.pop("labels")
+    artifacts["rollout_states"] = "eval/rollout_states.jsonl"
+    artifacts["baseline_rollout_states"] = "eval/rollout_states.jsonl"
+    artifacts.pop("rollout_state_examples_report")
+    artifacts.pop("rollout_state_rows_report")
+    metrics.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    findings = "\n".join(rows["release_inputs"]["findings"])
+    assert "rollout generation provenance" in findings
+    assert "rollout_state_examples_report" in findings
+    assert "rollout_state_rows_report" in findings
 
 
 def test_rollout_speed_requires_declared_horizons(tmp_path: Path) -> None:
@@ -567,6 +600,14 @@ def _metrics_payload(
         }
     if release_ready and not aggregate_inputs:
         artifacts["labels"] = "eval/labels.jsonl"
+    if any(
+        str(metric.get("split")) in {"rollout_phased_haplotypes", "rollout_synthetic_edit_chains"}
+        for metric in metrics
+    ):
+        artifacts["rollout_states"] = "eval/rollout_states.jsonl"
+        artifacts["baseline_rollout_states"] = "eval/rollout_states.jsonl"
+        artifacts["rollout_state_examples_report"] = "eval/rollout_state_examples_report.json"
+        artifacts["rollout_state_rows_report"] = "eval/rollout_state_rows_report.json"
     return {
         "schema_version": "1.0.0",
         "generated_by": "geno-lewm-eval-all",

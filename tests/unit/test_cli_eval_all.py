@@ -263,6 +263,10 @@ def test_eval_all_require_v02_rollout_metrics_accepts_required_metric_rows(
     assert len(aggregate.metrics) == 6
     artifacts = dict(aggregate.artifacts)
     assert artifacts["input_1.rollout_states"] == "eval/rollout_states.jsonl"
+    assert artifacts["input_1.rollout_state_examples_report"] == (
+        "eval/rollout_state_examples_report.json"
+    )
+    assert artifacts["input_1.rollout_state_rows_report"] == "eval/rollout_state_rows_report.json"
     report = output_report.read_text(encoding="utf-8")
     assert "rollout_phased_haplotypes" in report
     assert "rollout_synthetic_edit_chains" in report
@@ -452,6 +456,8 @@ def _v02_rollout_payload() -> dict[str, object]:
     artifacts.pop("labels")
     artifacts["rollout_states"] = "eval/rollout_states.jsonl"
     artifacts["baseline_rollout_states"] = "eval/rollout_states.jsonl"
+    artifacts["rollout_state_examples_report"] = "eval/rollout_state_examples_report.json"
+    artifacts["rollout_state_rows_report"] = "eval/rollout_state_rows_report.json"
     payload["conclusions"] = [
         (
             f"The {metric['name']} metric value {metric['value']:.6g} on "

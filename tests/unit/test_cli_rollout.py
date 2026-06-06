@@ -63,6 +63,10 @@ def test_rollout_aggregates_measured_state_rows(
             str(tmp_path / "dataset" / "dataset_manifest.json"),
             "--efficiency-report",
             str(tmp_path / "model" / "efficiency_report.json"),
+            "--rollout-state-examples-report",
+            str(tmp_path / "eval" / "rollout_state_examples_report.json"),
+            "--rollout-state-rows-report",
+            str(tmp_path / "eval" / "rollout_state_rows_report.json"),
         ],
     )
     captured = capsys.readouterr()
@@ -89,6 +93,8 @@ def test_rollout_aggregates_measured_state_rows(
     artifacts = dict(report.artifacts)
     assert artifacts["rollout_states"] == "eval/rollout_states.jsonl"
     assert artifacts["baseline_rollout_states"] == "eval/rollout_states.jsonl"
+    assert artifacts["rollout_state_examples_report"] == "eval/rollout_state_examples_report.json"
+    assert artifacts["rollout_state_rows_report"] == "eval/rollout_state_rows_report.json"
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["rollout_stratification"][0]["k"] == 5
     readiness = build_readiness_report(metrics_json=(output,))

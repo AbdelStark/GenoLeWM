@@ -360,8 +360,9 @@ python -m tools.release.v02_benchmark_readiness \
 
 With `--require-ok`, the gate also requires release-shaped input
 provenance: package-relative score/label or aggregate metrics inputs,
-efficiency input identities, measured VEP values with baseline deltas
-and confidence intervals, and non-fixture release identity text. The
+efficiency input identities, rollout-state generation report artifacts
+for rollout metrics, measured VEP values with baseline deltas and
+confidence intervals, and non-fixture release identity text. The
 report is expected to remain `ok=false` until the broader benchmark suite
 passes from measured artifacts and the
 [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target
@@ -393,6 +394,9 @@ cache-key specs into measured latent examples, and
 `tools.release.rollout_state_rows` bridges those examples to
 rollout-state JSONL. Neither helper runs Carbon encoding, constructs
 held-out haplotypes, or turns fixture states into benchmark evidence.
+In release-input mode, `geno-lewm-rollout` should record
+`--rollout-state-examples-report` and `--rollout-state-rows-report` so
+the readiness report can bind both generation stages.
 
 - audit data issues #49, #50, #51, and #52 against the actual v0.1
   pipeline and turn remaining deltas into narrower v0.2 work;
