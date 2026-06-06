@@ -49,6 +49,7 @@ class BenchmarkRequirement:
     required_metrics: tuple[str, ...]
     issue_refs: tuple[int, ...]
     required_baseline: str | None = None
+    require_confidence_intervals: bool = False
 
 
 REQUIRED_METRICS: Final = ("auroc", "average_precision", "balanced_accuracy", "accuracy")
@@ -60,6 +61,7 @@ VEP_REQUIREMENTS: Final = (
         REQUIRED_METRICS,
         (53, 55, 56, 197),
         required_baseline="carbon_zero_shot",
+        require_confidence_intervals=True,
     ),
     BenchmarkRequirement(
         "clinvar_noncoding",
@@ -68,6 +70,7 @@ VEP_REQUIREMENTS: Final = (
         REQUIRED_METRICS,
         (53, 55, 56, 197),
         required_baseline="carbon_zero_shot",
+        require_confidence_intervals=True,
     ),
     BenchmarkRequirement(
         "brca2_saturation",
@@ -76,6 +79,7 @@ VEP_REQUIREMENTS: Final = (
         ("spearman_rho",),
         (56, 197),
         required_baseline="carbon_zero_shot",
+        require_confidence_intervals=True,
     ),
     BenchmarkRequirement(
         "traitgym_mendelian",
@@ -84,6 +88,7 @@ VEP_REQUIREMENTS: Final = (
         ("spearman_rho",),
         (56, 197),
         required_baseline="carbon_zero_shot",
+        require_confidence_intervals=True,
     ),
 )
 ROLLOUT_FIDELITY_REQUIREMENTS: Final = (
@@ -217,20 +222,29 @@ def _benchmark_row(
     split_metrics = tuple(metric for metric in metrics if metric.split == requirement.split)
     observed_names = sorted({_normalized_metric_name(metric) for metric in split_metrics})
     missing_metrics = [name for name in requirement.required_metrics if name not in observed_names]
+    required_metric_rows = tuple(
+        metric
+        for metric in split_metrics
+        if _normalized_metric_name(metric) in requirement.required_metrics
+    )
+    missing_confidence_intervals: list[str] = []
+    if requirement.require_confidence_intervals:
+        missing_confidence_intervals = sorted(
+            {
+                _normalized_metric_name(metric)
+                for metric in required_metric_rows
+                if not _metric_has_confidence_interval(metric)
+            }
+        )
     baseline_missing = False
     if requirement.required_baseline is not None:
-        required_metric_rows = tuple(
-            metric
-            for metric in split_metrics
-            if _normalized_metric_name(metric) in requirement.required_metrics
-        )
         baseline_missing = not required_metric_rows or not all(
             _metric_has_baseline(metric, requirement.required_baseline)
             for metric in required_metric_rows
         )
     if not split_metrics:
         status = "missing"
-    elif missing_metrics or baseline_missing:
+    elif missing_metrics or baseline_missing or missing_confidence_intervals:
         status = "incomplete"
     else:
         status = "pass"
@@ -242,6 +256,8 @@ def _benchmark_row(
         "required_metrics": list(requirement.required_metrics),
         "observed_metrics": observed_names,
         "missing_metrics": missing_metrics,
+        "confidence_intervals_required": requirement.require_confidence_intervals,
+        "missing_confidence_intervals": missing_confidence_intervals,
         "required_baseline": requirement.required_baseline,
         "baseline_observed": (
             None if requirement.required_baseline is None else not baseline_missing
@@ -604,6 +620,10 @@ def _metric_has_baseline(metric: MetricResult, required_baseline: str) -> bool:
         and metric.evaluated_variant_keys_sha256 is not None
         and metric.baseline_evaluated_variant_keys_sha256 == metric.evaluated_variant_keys_sha256
     )
+
+
+def _metric_has_confidence_interval(metric: MetricResult) -> bool:
+    return metric.ci_low is not None and metric.ci_high is not None
 
 
 def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:

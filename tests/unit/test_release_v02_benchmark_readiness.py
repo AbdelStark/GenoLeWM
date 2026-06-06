@@ -133,6 +133,52 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
     ]
 
 
+def test_vep_rows_require_confidence_intervals(tmp_path: Path) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    point_estimate = _metric("clinvar_coding", "auroc", 0.73, baseline=True)
+    point_estimate.pop("ci_low")
+    point_estimate.pop("ci_high")
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    point_estimate,
+                    _metric("clinvar_coding", "average_precision", 0.71, baseline=True),
+                    _metric("clinvar_coding", "balanced_accuracy", 0.69, baseline=True),
+                    _metric("clinvar_coding", "accuracy", 0.68, baseline=True),
+                    *_binary_metrics("clinvar_noncoding", baseline=True),
+                    _metric("brca2", "spearman_rho", 0.61, baseline=True),
+                    _metric("traitgym_mendelian", "spearman_rho", 0.44, baseline=True),
+                    _metric("rollout_phased_haplotypes", "cosine_similarity_mean", 0.91),
+                    _metric("rollout_phased_haplotypes", "l2_distance_mean", 0.12),
+                    _metric("rollout_phased_haplotypes", "recall_at_k", 0.66),
+                    _metric("rollout_synthetic_edit_chains", "cosine_similarity_mean", 0.89),
+                    _metric("rollout_synthetic_edit_chains", "l2_distance_mean", 0.15),
+                    _metric("rollout_synthetic_edit_chains", "recall_at_k", 0.63),
+                ]
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(json.dumps(_efficiency_payload()), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+    )
+
+    assert report["ok"] is False
+    rows = _rows_by_id(report)
+    assert rows["clinvar_coding"]["status"] == "incomplete"
+    assert rows["clinvar_coding"]["confidence_intervals_required"] is True
+    assert rows["clinvar_coding"]["missing_confidence_intervals"] == ["auroc"]
+    assert "clinvar_coding" in report["missing_or_failed_benchmarks"]
+
+
 def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) -> None:
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"

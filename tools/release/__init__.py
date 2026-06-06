@@ -24,8 +24,8 @@ Two mechanical helpers used by the release checklist in
 * :mod:`tools.release.v02_benchmark_readiness` reconciles measured eval,
   efficiency, and AR rollout speed artifacts into
   ``v0.2_benchmark_readiness_report.json``; release mode also checks
-  package-relative, non-fixture input provenance and keeps missing or
-  failed #197 benchmark rows explicit.
+  CI-bearing VEP metrics plus package-relative, non-fixture input
+  provenance and keeps missing or failed #197 benchmark rows explicit.
 * :mod:`tools.release.dataset_snapshot` stages explicit local Carbon,
   gnomAD, and ClinVar inputs, writes ``dataset_snapshot_report.json``,
   then builds the first-experiment dataset package.
