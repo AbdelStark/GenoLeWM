@@ -207,11 +207,13 @@ The first paper/demo release is not ready until:
   directory, writes `eval_config.effective.yaml` beside `eval_metrics.json`,
   and rejects absolute paths outside that root;
 - Carbon zero-shot baseline scores are generated with
-  `geno-lewm-carbon-baseline --vcf ... --fasta ... --carbon-model-dir ... --output-scores ...`
+  `geno-lewm-carbon-baseline --artifact-root ... --vcf ... --fasta ... --carbon-model-dir ... --output-scores ...`
   and consumed by `geno-lewm-eval` with
   `--baseline-score-field carbon_zero_shot_score`; optional
   log-likelihood cache rows are scoped to the Carbon model and revision
   before reuse, with unique sequence SHA-256 keys within that scope;
+  generated baseline summary metadata records package-relative model,
+  input, output, and cache paths under `--artifact-root`;
   `geno-lewm-eval` requires primary score rows from `geno-lewm-score`
   and Carbon baseline rows from `geno-lewm-carbon-baseline`;
 - evaluation report is generated from packaged measured metrics JSON

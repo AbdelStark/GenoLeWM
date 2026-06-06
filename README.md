@@ -593,12 +593,13 @@ data, evaluation, and rollout evidence before making broader claims:
   or `generated_by=geno-lewm-eval-all`, so paper reports cannot be
   rendered from hand-labelled metrics JSON;
   Carbon zero-shot baseline scores are generated separately with
-  `geno-lewm-carbon-baseline --vcf ... --fasta ... --carbon-model-dir ... --output-scores ... --logp-cache-jsonl ...`
+  `geno-lewm-carbon-baseline --artifact-root ... --vcf ... --fasta ... --carbon-model-dir ... --output-scores ... --logp-cache-jsonl ...`
   and each baseline row carries
   `generated_by=geno-lewm-carbon-baseline`; optional sequence
   log-likelihood cache rows are scoped to the Carbon model and revision
   before reuse and must have unique sequence SHA-256 keys within that
-  scope. Baseline scores are attached with
+  scope, while `--artifact-root` keeps model, input, output, and cache
+  paths in the generated summary metadata package-relative. Baseline scores are attached with
   `--baseline-scores-jsonl ... --baseline-score-field carbon_zero_shot_score --baseline-name carbon_zero_shot`;
   generated reports that include baseline comparisons are rejected unless
   `baseline`, `baseline_value`, and `delta_vs_baseline` are supplied

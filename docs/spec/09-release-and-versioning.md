@@ -223,11 +223,13 @@ trusted only after their hashes match the fetched manifest.
     that no longer matches `training_run_manifest.json`.
 13. For model/demo releases: generate the matched Carbon zero-shot
     baseline score artifact with
-    `geno-lewm-carbon-baseline --vcf ... --fasta ... --carbon-model-dir ... --output-scores ... --logp-cache-jsonl ...`,
+    `geno-lewm-carbon-baseline --artifact-root ... --vcf ... --fasta ... --carbon-model-dir ... --output-scores ... --logp-cache-jsonl ...`,
     whose rows carry `generated_by=geno-lewm-carbon-baseline`.
     Optional sequence log-likelihood cache rows must be scoped to the
     Carbon model and revision before reuse, with unique sequence
-    SHA-256 keys within that scope.
+    SHA-256 keys within that scope. Generated Carbon baseline summary
+    metadata MUST record Carbon model, VCF, FASTA, score-output, and
+    cache paths as package-relative paths under `--artifact-root`.
     Pass the generated score artifact to `geno-lewm-eval` with
     `--baseline-scores-jsonl ... --baseline-score-field carbon_zero_shot_score --baseline-name carbon_zero_shot`.
     Primary model score rows passed to `geno-lewm-eval` must carry

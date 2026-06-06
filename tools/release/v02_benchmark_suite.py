@@ -297,6 +297,8 @@ def _append_vep_steps(
             "geno-lewm-carbon-baseline",
             "--quiet",
             "--no-banner",
+            "--artifact-root",
+            shared["artifact_root"],
             "--vcf",
             vcf,
             "--fasta",

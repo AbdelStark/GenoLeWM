@@ -13,6 +13,7 @@ from geno_lewm.carbon_zero_shot import (
     load_carbon_logp_scorer,
     write_carbon_zero_shot_scores,
 )
+from geno_lewm.cli._artifact_paths import package_relative_artifact_path
 from geno_lewm.cli._dispatch import SharedOptions, finalize_shared, run_app, shared_option_decls
 from geno_lewm.encoder.windowing import DEFAULT_WINDOW_BP
 from geno_lewm.errors import InputError
@@ -60,6 +61,16 @@ def main(
         typer.Option(
             "--metadata-output",
             help="Optional JSON summary for the generated baseline artifact.",
+        ),
+    ] = None,
+    artifact_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--artifact-root",
+            help=(
+                "Release package root used to record metadata paths; when supplied, "
+                "Carbon model, VCF, FASTA, output, cache, and metadata paths must stay inside it."
+            ),
         ),
     ] = None,
     logp_cache_jsonl: Annotated[
@@ -140,6 +151,15 @@ def main(
     fasta_path = _required_path("fasta", fasta)
     model_dir = _required_path("carbon-model-dir", carbon_model_dir)
     output_path = _required_path("output-scores", output_scores)
+    _require_artifact_root_paths(
+        artifact_root=artifact_root,
+        vcf=vcf_path,
+        fasta=fasta_path,
+        carbon_model=model_dir,
+        output_scores=output_path,
+        logp_cache=logp_cache_jsonl,
+        metadata_output=metadata_output,
+    )
     scorer = load_carbon_logp_scorer(
         model_dir,
         revision=carbon_revision,
@@ -157,16 +177,95 @@ def main(
         carbon_revision=carbon_revision,
         window_bp=window_bp,
         logp_cache_jsonl=logp_cache_jsonl,
-        metadata_output=metadata_output,
+        metadata_output=None,
         local_files_only=not allow_network_download,
     )
-    typer.echo(json.dumps(summary.to_json_dict(), sort_keys=True))
+    payload = _summary_payload(
+        summary.to_json_dict(),
+        artifact_root=artifact_root,
+        metadata_output=metadata_output,
+    )
+    if metadata_output is not None:
+        metadata_output.parent.mkdir(parents=True, exist_ok=True)
+        metadata_output.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    typer.echo(json.dumps(payload, sort_keys=True))
 
 
 def _required_path(name: str, value: Path | None) -> Path:
     if value is None:
         raise InputError(f"geno-lewm-carbon-baseline requires --{name}")
     return value
+
+
+def _require_artifact_root_paths(
+    *,
+    artifact_root: Path | None,
+    vcf: Path,
+    fasta: Path,
+    carbon_model: Path,
+    output_scores: Path,
+    logp_cache: Path | None,
+    metadata_output: Path | None,
+) -> None:
+    if artifact_root is None:
+        return
+    paths = {
+        "vcf": vcf,
+        "fasta": fasta,
+        "carbon_model": carbon_model,
+        "output_scores": output_scores,
+    }
+    if logp_cache is not None:
+        paths["logp_cache"] = logp_cache
+    if metadata_output is not None:
+        paths["metadata_output"] = metadata_output
+    for label, path in paths.items():
+        _release_artifact_path(path, artifact_root=artifact_root, label=label)
+
+
+def _summary_payload(
+    payload: dict[str, str | int | bool | None],
+    *,
+    artifact_root: Path | None,
+    metadata_output: Path | None,
+) -> dict[str, str | int | bool | None]:
+    if artifact_root is None:
+        return payload
+    normalized = dict(payload)
+    for key in ("carbon_model", "vcf", "fasta", "output_scores", "logp_cache"):
+        value = normalized.get(key)
+        if isinstance(value, str) and value:
+            normalized[key] = _release_artifact_path(
+                Path(value),
+                artifact_root=artifact_root,
+                label=key,
+            )
+    if metadata_output is not None:
+        _release_artifact_path(
+            metadata_output,
+            artifact_root=artifact_root,
+            label="metadata_output",
+        )
+    return normalized
+
+
+def _release_artifact_path(path: Path, *, artifact_root: Path, label: str) -> str:
+    return package_relative_artifact_path(
+        path,
+        root_dir=artifact_root,
+        label=label,
+        outside_message=(
+            "geno-lewm-carbon-baseline metadata paths must stay inside --artifact-root"
+        ),
+        root_detail="artifact_root",
+        remediation=(
+            "stage Carbon baseline inputs and outputs under one release package root "
+            "or omit --artifact-root for a non-release local run"
+        ),
+    )
 
 
 def cli_main() -> int:

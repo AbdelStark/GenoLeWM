@@ -76,6 +76,8 @@ def test_carbon_baseline_writes_score_artifact(
             str(output),
             "--metadata-output",
             str(metadata),
+            "--artifact-root",
+            str(tmp_path),
             "--logp-cache-jsonl",
             str(cache),
         ],
@@ -86,8 +88,11 @@ def test_carbon_baseline_writes_score_artifact(
     summary = json.loads(captured.out)
     assert summary["records"] == 1
     assert summary["score_field"] == "carbon_zero_shot_score"
-    assert summary["output_scores"] == str(output)
-    assert summary["logp_cache"] == str(cache)
+    assert summary["carbon_model"] == "carbon"
+    assert summary["vcf"] == "variants.vcf"
+    assert summary["fasta"] == "ref.fa"
+    assert summary["output_scores"] == "carbon_zero_shot_scores.jsonl"
+    assert summary["logp_cache"] == "carbon_zero_shot_logp_cache.jsonl"
     assert calls == {
         "model_path": model_dir,
         "revision": "main@abc123",
@@ -99,7 +104,62 @@ def test_carbon_baseline_writes_score_artifact(
     row = json.loads(output.read_text(encoding="utf-8"))
     assert row["generated_by"] == CARBON_ZERO_SHOT_GENERATED_BY
     assert row["carbon_zero_shot_score"] == 1.0
-    assert json.loads(metadata.read_text(encoding="utf-8"))["records"] == 1
+    metadata_payload = json.loads(metadata.read_text(encoding="utf-8"))
+    assert metadata_payload["records"] == 1
+    assert metadata_payload["carbon_model"] == "carbon"
+    assert metadata_payload["output_scores"] == "carbon_zero_shot_scores.jsonl"
+
+
+def test_carbon_baseline_rejects_release_metadata_paths_outside_artifact_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    release_root = tmp_path / "release"
+    outside = tmp_path / "outside"
+    release_root.mkdir()
+    outside.mkdir()
+    vcf, fasta = _write_variant_inputs(release_root)
+    model_dir = release_root / "carbon"
+    model_dir.mkdir()
+    output = outside / "carbon_zero_shot_scores.jsonl"
+
+    def fake_loader(
+        model_path: Path,
+        *,
+        revision: str,
+        dtype: str,
+        device: str | None,
+        trust_remote_code: bool,
+        local_files_only: bool,
+    ) -> object:
+        del model_path, revision, dtype, device, trust_remote_code, local_files_only
+        return lambda sequence: float(sequence.count("A"))
+
+    monkeypatch.setattr(cli, "load_carbon_logp_scorer", fake_loader)
+
+    rc = _dispatch.run_app(
+        cli.app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--vcf",
+            str(vcf),
+            "--fasta",
+            str(fasta),
+            "--carbon-model-dir",
+            str(model_dir),
+            "--output-scores",
+            str(output),
+            "--artifact-root",
+            str(release_root),
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert "metadata paths must stay inside --artifact-root" in captured.err
+    assert not output.exists()
 
 
 def _write_variant_inputs(tmp_path: Path) -> tuple[Path, Path]:

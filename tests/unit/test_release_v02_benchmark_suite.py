@@ -52,6 +52,8 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
     assert "--model-dir" in commands["clinvar_coding.score"]
     assert "model" in commands["clinvar_coding.score"]
     assert commands["clinvar_coding.carbon_baseline"][0] == "geno-lewm-carbon-baseline"
+    artifact_root_index = commands["clinvar_coding.carbon_baseline"].index("--artifact-root")
+    assert commands["clinvar_coding.carbon_baseline"][artifact_root_index + 1] == "."
     assert outputs["clinvar_coding.carbon_baseline"] == (
         "eval/clinvar_coding.carbon_zero_shot_scores.jsonl",
         "eval/clinvar_coding.carbon_zero_shot_summary.json",
