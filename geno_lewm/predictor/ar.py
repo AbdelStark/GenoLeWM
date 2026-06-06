@@ -65,18 +65,29 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             action_mask: Tensor | None = None,
         ) -> tuple[Tensor, ...]:
             """Return one predicted state per autoregressive action step."""
+            return tuple(self.rollout_tensor(state, action_sequence, action_mask).unbind(dim=1))
+
+        @_INFERENCE_MODE
+        def rollout_tensor(
+            self,
+            state: Tensor,
+            action_sequence: Tensor | Sequence[Tensor],
+            action_mask: Tensor | None = None,
+        ) -> Tensor:
+            """Return autoregressive rollout as ``(batch, steps, d_state)``."""
             actions = self._normalize_actions(action_sequence)
             self._validate_state(state, actions)
 
             current = state
-            outputs: list[Tensor] = []
             call_mask = torch.ones((actions.shape[0], 1), dtype=torch.bool, device=actions.device)
             action_tokens = self._cached_action_tokens(actions)
             action_cache = (
                 self._cached_rollout_action_cache(action_tokens) if action_mask is None else None
             )
+            state_token_bias = self._cached_state_token_bias(state)
             upcast_output_mlp = actions.shape[1] > 20
             if action_mask is None:
+                outputs: list[Tensor] = []
                 if action_tokens is None:
                     for step in range(actions.shape[1]):
                         prediction = self.predictor(
@@ -86,7 +97,13 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                         )
                         current = prediction[:, 0, :]
                         outputs.append(current)
-                    return tuple(outputs)
+                    return torch.stack(outputs, dim=1)
+
+                one_step_state = getattr(
+                    self.predictor,
+                    "_forward_one_step_unmasked_state_from_action_token",
+                    None,
+                )
 
                 one_step_unmasked = getattr(
                     self.predictor,
@@ -98,6 +115,23 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                     "_slice_rollout_action_cache",
                     None,
                 )
+                if callable(one_step_state):
+                    for step in range(actions.shape[1]):
+                        step_cache = (
+                            select_action_cache(action_cache, step)
+                            if action_cache is not None and callable(select_action_cache)
+                            else None
+                        )
+                        current = one_step_state(
+                            current,
+                            action_tokens[:, step, :],
+                            step_cache,
+                            state_token_bias=state_token_bias,
+                            upcast_output_mlp=upcast_output_mlp,
+                        )
+                        outputs.append(current)
+                    return torch.stack(outputs, dim=1)
+
                 if callable(one_step_unmasked):
                     for step in range(actions.shape[1]):
                         step_cache = (
@@ -113,7 +147,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                         )
                         current = prediction[:, 0, :]
                         outputs.append(current)
-                    return tuple(outputs)
+                    return torch.stack(outputs, dim=1)
 
                 for step in range(actions.shape[1]):
                     prediction = self.predictor._forward_one_step_from_action_token(
@@ -124,9 +158,10 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                     )
                     current = prediction[:, 0, :]
                     outputs.append(current)
-                return tuple(outputs)
+                return torch.stack(outputs, dim=1)
 
             mask = self._normalize_mask(actions, action_mask)
+            outputs = []
             for step in range(actions.shape[1]):
                 active = mask[:, step].unsqueeze(-1)
                 if action_tokens is None:
@@ -145,17 +180,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                 next_state = prediction[:, 0, :]
                 current = torch.where(active, next_state, current)
                 outputs.append(torch.where(active, next_state, torch.zeros_like(next_state)))
-            return tuple(outputs)
-
-        @_INFERENCE_MODE
-        def rollout_tensor(
-            self,
-            state: Tensor,
-            action_sequence: Tensor | Sequence[Tensor],
-            action_mask: Tensor | None = None,
-        ) -> Tensor:
-            """Return autoregressive rollout as ``(batch, steps, d_state)``."""
-            return torch.stack(self.rollout(state, action_sequence, action_mask), dim=1)
+            return torch.stack(outputs, dim=1)
 
         @_INFERENCE_MODE
         def predict_single(self, state: Tensor, action: Tensor) -> Tensor:
@@ -188,11 +213,10 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             """Return the final predicted state after all valid actions."""
             actions = self._normalize_actions(action_sequence)
             mask = self._normalize_mask(actions, action_mask)
-            trajectory = self.rollout(state, actions, mask)
+            trajectory = self.rollout_tensor(state, actions, mask)
             indices = mask.sum(dim=1) - 1
             rows = torch.arange(actions.shape[0], device=actions.device)
-            stacked = torch.stack(trajectory, dim=1)
-            return stacked[rows, indices]
+            return trajectory[rows, indices]
 
         def _normalize_actions(self, action_sequence: Tensor | Sequence[Tensor]) -> Tensor:
             if isinstance(action_sequence, torch.Tensor):
@@ -298,6 +322,12 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             if not callable(encode):
                 return None
             return encode(action_tokens)
+
+        def _cached_state_token_bias(self, state: Tensor) -> Tensor | None:
+            encode = getattr(self.predictor, "_rollout_state_token_bias", None)
+            if not callable(encode):
+                return None
+            return encode(state)
 
 
 def _required_positive_int(obj: object, name: str) -> int:

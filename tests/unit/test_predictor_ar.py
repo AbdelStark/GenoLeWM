@@ -97,8 +97,12 @@ def test_ar_rollout_reuses_cached_action_projection() -> None:
 
     calls = 0
     cache_calls = 0
+    state_bias_calls = 0
+    state_step_calls = 0
     original_forward = predictor.action_projection.forward
     original_cache = predictor._precompute_rollout_action_cache
+    original_state_bias = predictor._rollout_state_token_bias
+    original_state_step = predictor._forward_one_step_unmasked_state_from_action_token
 
     def counted_forward(input_tensor: torch.Tensor) -> torch.Tensor:
         nonlocal calls
@@ -110,12 +114,40 @@ def test_ar_rollout_reuses_cached_action_projection() -> None:
         cache_calls += 1
         return original_cache(action_tokens)
 
+    def counted_state_bias(state_tensor: torch.Tensor) -> torch.Tensor:
+        nonlocal state_bias_calls
+        state_bias_calls += 1
+        return original_state_bias(state_tensor)
+
+    def counted_state_step(
+        state_tensor: torch.Tensor,
+        action_token: torch.Tensor,
+        action_cache: object | None = None,
+        *,
+        state_token_bias: torch.Tensor | None = None,
+        upcast_output_mlp: bool = False,
+    ) -> torch.Tensor:
+        nonlocal state_step_calls
+        state_step_calls += 1
+        assert state_token_bias is not None
+        return original_state_step(
+            state_tensor,
+            action_token,
+            action_cache,
+            state_token_bias=state_token_bias,
+            upcast_output_mlp=upcast_output_mlp,
+        )
+
     predictor.action_projection.forward = counted_forward  # type: ignore[method-assign]
     predictor._precompute_rollout_action_cache = counted_cache  # type: ignore[method-assign]
+    predictor._rollout_state_token_bias = counted_state_bias  # type: ignore[method-assign]
+    predictor._forward_one_step_unmasked_state_from_action_token = counted_state_step  # type: ignore[method-assign]
     observed = ARPredictor(predictor).rollout_tensor(state, actions)
 
     assert calls == 1
     assert cache_calls == 1
+    assert state_bias_calls == 1
+    assert state_step_calls == actions.shape[1]
     torch.testing.assert_close(
         observed,
         torch.stack(expected, dim=1),

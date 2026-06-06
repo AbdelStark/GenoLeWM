@@ -174,15 +174,24 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                 upcast_output_mlp=actions.shape[1] > 20,
             )
 
-        def _encode_state_token(self, state: Tensor) -> Tensor:
+        def _encode_state_token(
+            self,
+            state: Tensor,
+            state_token_bias: Tensor | None = None,
+        ) -> Tensor:
+            if state_token_bias is None:
+                state_token_bias = self._rollout_state_token_bias(state)
+            state_token = self.state_projection(state).unsqueeze(1)
+            return state_token + state_token_bias
+
+        def _rollout_state_token_bias(self, state: Tensor) -> Tensor:
             batch_size = state.shape[0]
             device = state.device
             state_type = torch.zeros((batch_size, 1), dtype=torch.long, device=device)
             state_position = torch.zeros((batch_size, 1), dtype=torch.long, device=device)
-            state_token = self.state_projection(state).unsqueeze(1)
-            state_token = state_token + self.token_type_embedding(state_type)
-            state_token = state_token + self.step_position_embedding(state_position)
-            return state_token
+            return self.token_type_embedding(state_type) + self.step_position_embedding(
+                state_position
+            )
 
         def _encode_forward_actions(self, actions: Tensor) -> Tensor:
             batch_size, steps, _d_action = actions.shape
@@ -287,12 +296,28 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             *,
             upcast_output_mlp: bool = False,
         ) -> Tensor:
+            return self._forward_one_step_unmasked_state_from_action_token(
+                state,
+                action_token,
+                action_cache,
+                upcast_output_mlp=upcast_output_mlp,
+            ).unsqueeze(1)
+
+        def _forward_one_step_unmasked_state_from_action_token(
+            self,
+            state: Tensor,
+            action_token: Tensor,
+            action_cache: tuple[Tensor | None, tuple[Tensor, Tensor, Tensor] | None] | None = None,
+            *,
+            state_token_bias: Tensor | None = None,
+            upcast_output_mlp: bool = False,
+        ) -> Tensor:
             first_state_attention = None
             first_action_attention = None
             if action_cache is not None:
                 first_state_attention, first_action_attention = action_cache
             action_tokens = action_token.unsqueeze(1)
-            state_token = self._encode_state_token(state)
+            state_token = self._encode_state_token(state, state_token_bias)
             for block_index, block in enumerate(self.cross_blocks):
                 if block_index == 0 and first_state_attention is not None:
                     state_token, action_tokens = block.forward_one_step_from_state_attention(
@@ -317,22 +342,23 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             else:
                 action_output = action_tokens
 
-            delta = self._output_delta(action_output, upcast_output_mlp=upcast_output_mlp)
+            delta = self._output_delta(
+                action_output[:, 0, :],
+                upcast_output_mlp=upcast_output_mlp,
+            )
             if upcast_output_mlp:
-                prediction = functional.normalize(
-                    state.unsqueeze(1).float() + delta,
+                return functional.normalize(
+                    state.float() + delta,
                     p=2.0,
                     dim=-1,
                     eps=1.0e-12,
                 )
-            else:
-                prediction = functional.normalize(
-                    state.unsqueeze(1) + delta,
-                    p=2.0,
-                    dim=-1,
-                    eps=1.0e-12,
-                )
-            return prediction
+            return functional.normalize(
+                state + delta,
+                p=2.0,
+                dim=-1,
+                eps=1.0e-12,
+            )
 
         def _predict_from_tokens(
             self,
