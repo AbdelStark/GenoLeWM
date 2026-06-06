@@ -285,14 +285,20 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
     assert rows["ar_rollout_speed"]["scope_decision"]["decision"] == (
         "rescope_rfc0004_speed_target"
     )
-    assert rows["ar_rollout_speed"]["scope_decision"]["generated_at"].endswith("Z")
+    scope_decision = rows["ar_rollout_speed"]["scope_decision"]
+    assert scope_decision["generated_at"].endswith("Z")
     assert report["scope_decisions"] == [
         {
             "benchmark_id": "ar_rollout_speed",
+            "report": scope_decision["report"],
             "decision": "rescope_rfc0004_speed_target",
-            "generated_at": rows["ar_rollout_speed"]["scope_decision"]["generated_at"],
+            "status": "accepted",
+            "generated_at": scope_decision["generated_at"],
+            "accepted_by": "maintainer",
             "accepted_at": "2026-06-06T12:00:00Z",
             "decision_url": "https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+            "rationale": "The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+            "replacement_target": "Report measured rollout speed until #42 accepts a new target.",
             "issue_refs": ["#42", "#197"],
         }
     ]

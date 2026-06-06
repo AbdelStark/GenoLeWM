@@ -399,7 +399,9 @@ baseline, not a reason to publish stronger model-quality claims.
   identities, and it preserves negative findings plus a claim boundary
   that keep the failed target out of passing speed evidence; readiness
   still records the AR-speed row as `rescoped` rather than passing speed
-  evidence;
+  evidence while copying the accepted report identity, accepter,
+  rationale, replacement target, timestamps, decision URL, and issue refs
+  into `scope_decisions`;
 - `efficiency_report.json` is generated with
   `python -m bench.inference --release-efficiency ... --output-json ...`
   and records measured single-variant latency, batched throughput, peak

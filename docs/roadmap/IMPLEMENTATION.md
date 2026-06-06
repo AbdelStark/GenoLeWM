@@ -253,7 +253,9 @@ The first paper/demo release is not ready until:
   plus nested rollout command path identities. Scope negative findings
   and claim boundaries must preserve that the failed target is not
   passing rollout-speed evidence. The readiness row remains `rescoped`
-  rather than passing speed evidence;
+  rather than passing speed evidence, and `scope_decisions` preserves the
+  accepted report identity, accepter, rationale, replacement target,
+  timestamps, decision URL, and issue refs;
 - eval-report `negative_findings` must be non-empty and render as
   `## Negative Findings`;
   baseline delta rows must carry matching evaluated variant-key hashes;

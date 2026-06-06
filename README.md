@@ -381,7 +381,9 @@ identity, and public-safe scope and nested rollout command paths. It
 must also preserve negative findings and a claim boundary stating that
 the failed target remains not passing rollout-speed evidence; readiness
 verifies those scope-report identities before recording the AR-speed row
-as `rescoped` while preserving the failed measured speedups.
+as `rescoped` while preserving the failed measured speedups, report
+identity, accepter, rationale, replacement target, timestamps, decision
+URL, and issue refs in `scope_decisions`.
 
 Before building the all-up readiness report, use
 `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`

@@ -305,7 +305,10 @@ trusted only after their hashes match the fetched manifest.
     `bench.rollout` input identity plus scope and nested rollout command
     path arguments with public-safe path text, and MUST preserve negative
     findings plus a claim boundary stating that the failed target remains
-    not passing rollout-speed evidence.
+    not passing rollout-speed evidence. The readiness report's
+    `scope_decisions` summary MUST preserve the accepted scope report
+    identity, accepter, rationale, replacement target, generated/accepted
+    timestamps, decision URL, and issue refs.
     `tools.release.v02_benchmark_readiness` may then consume
     `--rollout-speed-scope-report ...`, but only when that report binds
     the exact failing `bench.rollout` path/SHA-256/size identity and

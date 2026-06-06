@@ -1054,10 +1054,15 @@ def _scope_decisions(rows: list[dict[str, object]]) -> list[dict[str, object]]:
             decisions.append(
                 {
                     "benchmark_id": row.get("benchmark_id"),
+                    "report": raw.get("report"),
                     "decision": raw.get("decision"),
+                    "status": raw.get("status"),
                     "generated_at": raw.get("generated_at"),
+                    "accepted_by": raw.get("accepted_by"),
                     "accepted_at": raw.get("accepted_at"),
                     "decision_url": raw.get("decision_url"),
+                    "rationale": raw.get("rationale"),
+                    "replacement_target": raw.get("replacement_target"),
                     "issue_refs": raw.get("issue_refs"),
                 }
             )
