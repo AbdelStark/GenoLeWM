@@ -53,12 +53,20 @@ class RolloutBenchmarkConfig:
 
 def build_rollout_speed_report(config: RolloutBenchmarkConfig) -> dict[str, object]:
     """Run the rollout benchmark and return a machine-readable report."""
+    return _build_rollout_speed_report(config, command=())
+
+
+def _build_rollout_speed_report(
+    config: RolloutBenchmarkConfig,
+    *,
+    command: Sequence[str],
+) -> dict[str, object]:
     _validate_config(config)
     torch = _load_torch()
     from geno_lewm.predictor import ARPredictor, Predictor
 
     torch.manual_seed(config.seed)
-    predictor = Predictor(
+    predictor: Any = Predictor(
         d_state=config.d_state,
         d_action=config.d_action,
         d_hidden=config.d_hidden,
@@ -67,7 +75,8 @@ def build_rollout_speed_report(config: RolloutBenchmarkConfig) -> dict[str, obje
         n_self_layers=config.n_self_layers,
         ffn_dim=config.ffn_dim,
         max_actions=max(config.horizons),
-    ).to(config.device)
+    )
+    predictor = predictor.to(config.device)
     predictor.eval()
     rollout = ARPredictor(predictor)
 
@@ -134,6 +143,7 @@ def build_rollout_speed_report(config: RolloutBenchmarkConfig) -> dict[str, obje
         "generated_at": _utc_now(),
         "commit": current_commit(),
         "machine": machine_id(),
+        "command": list(command),
         "config": asdict(config),
         "rows": rows,
         "ok": all(bool(row["target_met"]) for row in rows),
@@ -310,7 +320,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         device=args.device,
         dtype=args.dtype,
     )
-    payload = build_rollout_speed_report(config)
+    payload = _build_rollout_speed_report(config, command=_command_from_args(args))
     print(json.dumps(payload, indent=2, sort_keys=True))
     if args.output_json is not None:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
@@ -325,6 +335,51 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.require_targets and not bool(payload["ok"]):
         return 1
     return 0
+
+
+def _command_from_args(args: argparse.Namespace) -> tuple[str, ...]:
+    command = ["python", "-m", "bench.rollout"]
+    for horizon in args.horizons or DEFAULT_HORIZONS:
+        command.extend(("--k", str(horizon)))
+    command.extend(
+        (
+            "--batch-size",
+            str(args.batch_size),
+            "--d-state",
+            str(args.d_state),
+            "--d-action",
+            str(args.d_action),
+            "--d-hidden",
+            str(args.d_hidden),
+            "--n-heads",
+            str(args.n_heads),
+            "--n-cross-layers",
+            str(args.n_cross_layers),
+            "--n-self-layers",
+            str(args.n_self_layers),
+            "--ffn-dim",
+            str(args.ffn_dim),
+            "--iters",
+            str(args.iters),
+            "--warmup",
+            str(args.warmup),
+            "--seed",
+            str(args.seed),
+            "--device",
+            str(args.device),
+            "--dtype",
+            str(args.dtype),
+        )
+    )
+    if args.output_json is not None:
+        command.extend(("--output-json", str(args.output_json)))
+    elif args.no_write:
+        command.append("--no-write")
+    else:
+        command.extend(("--out-dir", str(args.out_dir)))
+    if args.require_targets:
+        command.append("--require-targets")
+    return tuple(command)
 
 
 if __name__ == "__main__":  # pragma: no cover

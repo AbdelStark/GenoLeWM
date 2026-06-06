@@ -25,6 +25,7 @@ from tools.release.eval_report import EvalReportInput, MetricResult, load_report
 SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.v02_benchmark_readiness"
 ROLLOUT_GENERATED_BY: Final = "bench.rollout"
+ROLLOUT_SCHEMA_VERSION: Final = "1.0.0"
 ROLLOUT_SPEED_REQUIRED_METRICS: Final = ("k5_speedup", "k20_speedup")
 
 
@@ -108,10 +109,11 @@ def build_readiness_report(
     )
     _require_shared_identity(metric_reports)
     _require_efficiency_identity(metric_reports, efficiency)
+    identity = _identity(metric_reports)
     metric_rows = tuple(metric for report in metric_reports for metric in report.metrics)
     rows = [_benchmark_row(requirement, metric_rows) for requirement in BENCHMARK_REQUIREMENTS]
     rows.append(_efficiency_row(efficiency))
-    rows.append(_rollout_speed_row(rollout_speed_report))
+    rows.append(_rollout_speed_row(rollout_speed_report, expected_commit=identity.get("commit")))
     missing_or_failed = [
         str(row["benchmark_id"]) for row in rows if str(row.get("status")) != "pass"
     ]
@@ -121,7 +123,6 @@ def build_readiness_report(
         rollout_speed_report=rollout_speed_report,
         efficiency_report=efficiency_report,
     )
-    identity = _identity(metric_reports)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_by": GENERATED_BY,
@@ -256,7 +257,7 @@ def _efficiency_row(report: EfficiencyReport | None) -> dict[str, object]:
     }
 
 
-def _rollout_speed_row(path: Path | None) -> dict[str, object]:
+def _rollout_speed_row(path: Path | None, *, expected_commit: str | None) -> dict[str, object]:
     if path is None:
         return {
             "benchmark_id": "ar_rollout_speed",
@@ -267,12 +268,26 @@ def _rollout_speed_row(path: Path | None) -> dict[str, object]:
             "issue_refs": ["#42", "#197"],
         }
     payload = _load_json(path, label="rollout speed report")
+    schema_version = payload.get("schema_version")
+    if schema_version != ROLLOUT_SCHEMA_VERSION:
+        raise InputError(
+            "rollout speed report schema_version is invalid",
+            details={"expected": ROLLOUT_SCHEMA_VERSION, "observed": schema_version},
+        )
     generated_by = payload.get("generated_by")
     if generated_by != ROLLOUT_GENERATED_BY:
         raise InputError(
             "rollout speed report generated_by is invalid",
             details={"expected": ROLLOUT_GENERATED_BY, "observed": generated_by},
         )
+    commit = _required_text(payload, "commit")
+    if expected_commit is not None and commit != expected_commit:
+        raise InputError(
+            "rollout speed report commit does not match metrics release identity",
+            details={"metrics_commit": expected_commit, "rollout_commit": commit},
+        )
+    command = _required_text_list(payload.get("command"), "rollout speed command")
+    report_ok = _required_bool(payload, "ok")
     rows = _require_list(payload.get("rows"), "rollout speed rows")
     observed: dict[str, float] = {}
     failed: list[str] = []
@@ -283,12 +298,12 @@ def _rollout_speed_row(path: Path | None) -> dict[str, object]:
         speedup = _required_number(row, "measured_speedup")
         target = _required_number(row, "target_speedup")
         observed[f"k{horizon}_speedup"] = speedup
-        if not bool(row.get("target_met")):
+        if not _required_bool(row, "target_met"):
             failed.append(f"K={horizon}: {speedup:.6g}x < {target:.6g}x")
     missing_metrics = [
         metric for metric in ROLLOUT_SPEED_REQUIRED_METRICS if metric not in observed
     ]
-    if not bool(payload.get("ok")):
+    if not report_ok:
         failed.append("report ok=false")
     if failed:
         status = "failed"
@@ -305,7 +320,8 @@ def _rollout_speed_row(path: Path | None) -> dict[str, object]:
         "observed_values": observed,
         "missing_metrics": missing_metrics,
         "failed_targets": failed,
-        "commit": payload.get("commit"),
+        "commit": commit,
+        "command": command,
         "issue_refs": ["#42", "#197"],
     }
 
@@ -493,6 +509,28 @@ def _required_number(raw: dict[str, object], field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise InputError(f"{field} must be a number")
     return float(value)
+
+
+def _required_text(raw: dict[str, object], field: str) -> str:
+    value = raw.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise InputError(f"{field} must be a non-empty string")
+    return value.strip()
+
+
+def _required_text_list(raw: object, label: str) -> list[str]:
+    if not isinstance(raw, list) or not raw:
+        raise InputError(f"{label} must be a non-empty JSON list")
+    if not all(isinstance(item, str) and item.strip() for item in raw):
+        raise InputError(f"{label} entries must be non-empty strings")
+    return [item.strip() for item in raw]
+
+
+def _required_bool(raw: dict[str, object], field: str) -> bool:
+    value = raw.get(field)
+    if not isinstance(value, bool):
+        raise InputError(f"{field} must be a boolean")
+    return value
 
 
 def _utc_now() -> str:

@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_bytes
 from tools.release import v02_benchmark_readiness
 
@@ -25,9 +28,11 @@ def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
     rollout.write_text(
         json.dumps(
             {
+                "schema_version": "1.0.0",
                 "generated_by": "bench.rollout",
                 "ok": False,
-                "commit": "abcdef1",
+                "commit": "abcdef1234567890",
+                "command": ["python", "-m", "bench.rollout", "--k", "5"],
                 "rows": [
                     {
                         "horizon": 5,
@@ -53,6 +58,7 @@ def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
     assert rows["clinvar_noncoding"]["status"] == "missing"
     assert rows["clinvar_noncoding"]["baseline_observed"] is False
     assert rows["ar_rollout_speed"]["status"] == "failed"
+    assert rows["ar_rollout_speed"]["command"] == ["python", "-m", "bench.rollout", "--k", "5"]
     assert "clinvar_noncoding" in report["missing_or_failed_benchmarks"]
     assert "ar_rollout_speed" in report["missing_or_failed_benchmarks"]
     assert report["negative_findings"]
@@ -85,9 +91,11 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
     rollout.write_text(
         json.dumps(
             {
+                "schema_version": "1.0.0",
                 "generated_by": "bench.rollout",
                 "ok": True,
-                "commit": "abcdef1",
+                "commit": "abcdef1234567890",
+                "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
                 "rows": [
                     {
                         "horizon": 5,
@@ -130,9 +138,11 @@ def test_rollout_speed_requires_declared_horizons(tmp_path: Path) -> None:
     rollout.write_text(
         json.dumps(
             {
+                "schema_version": "1.0.0",
                 "generated_by": "bench.rollout",
                 "ok": True,
                 "commit": "abcdef1",
+                "command": ["python", "-m", "bench.rollout", "--k", "5"],
                 "rows": [
                     {
                         "horizon": 5,
@@ -151,6 +161,66 @@ def test_rollout_speed_requires_declared_horizons(tmp_path: Path) -> None:
     rows = _rows_by_id(report)
     assert rows["ar_rollout_speed"]["status"] == "incomplete"
     assert rows["ar_rollout_speed"]["missing_metrics"] == ["k20_speedup"]
+
+
+def test_readiness_rejects_rollout_commit_drift(tmp_path: Path) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    metrics.write_text(
+        json.dumps(_metrics_payload([*_binary_metrics("clinvar_coding", baseline=True)])),
+        encoding="utf-8",
+    )
+    rollout.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "generated_by": "bench.rollout",
+                "ok": True,
+                "commit": "fffffff",
+                "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
+                "rows": [
+                    {
+                        "horizon": 5,
+                        "measured_speedup": 2.5,
+                        "target_speedup": 2.0,
+                        "target_met": True,
+                    },
+                    {
+                        "horizon": 20,
+                        "measured_speedup": 5.5,
+                        "target_speedup": 5.0,
+                        "target_met": True,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InputError, match="commit does not match"):
+        v02_benchmark_readiness.build_readiness_report(
+            metrics_json=(metrics,),
+            rollout_speed_report=rollout,
+        )
+
+
+def test_readiness_rejects_rollout_without_command(tmp_path: Path) -> None:
+    rollout = tmp_path / "rollout.ar_speed.json"
+    rollout.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "generated_by": "bench.rollout",
+                "ok": True,
+                "commit": "abcdef1",
+                "rows": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InputError, match="command"):
+        v02_benchmark_readiness.build_readiness_report(rollout_speed_report=rollout)
 
 
 def test_main_writes_report_and_require_ok_returns_nonzero(tmp_path: Path) -> None:

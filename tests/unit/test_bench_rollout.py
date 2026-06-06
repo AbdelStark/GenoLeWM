@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from bench._harness import BenchMetadata, BenchResult
 from bench.rollout import (
     RolloutBenchmarkConfig,
+    _command_from_args,
     summarize_speed_row,
     target_speedup_for_horizon,
     write_rollout_speed_report,
@@ -71,6 +73,36 @@ def test_rollout_benchmark_config_is_constructible() -> None:
     config = RolloutBenchmarkConfig(horizons=(5, 20), batch_size=2)
     assert config.horizons == (5, 20)
     assert config.batch_size == 2
+
+
+def test_rollout_command_records_explicit_invocation() -> None:
+    args = SimpleNamespace(
+        horizons=[5, 20],
+        batch_size=2,
+        d_state=16,
+        d_action=8,
+        d_hidden=16,
+        n_heads=4,
+        n_cross_layers=2,
+        n_self_layers=1,
+        ffn_dim=32,
+        iters=30,
+        warmup=5,
+        seed=20260606,
+        device="cpu",
+        dtype="fp32",
+        output_json=Path("rollout.ar_speed.json"),
+        no_write=False,
+        out_dir=Path("bench/results"),
+        require_targets=True,
+    )
+
+    command = _command_from_args(args)
+
+    assert command[:3] == ("python", "-m", "bench.rollout")
+    assert command.count("--k") == 2
+    assert "--output-json" in command
+    assert "--require-targets" in command
 
 
 def _bench_result(name: str, median_ns: int) -> BenchResult:
