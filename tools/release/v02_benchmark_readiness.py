@@ -28,6 +28,10 @@ from tools.release.rollout_speed_scope import (
     SCHEMA_VERSION as ROLLOUT_SPEED_SCOPE_SCHEMA_VERSION,
     STATUS as ROLLOUT_SPEED_SCOPE_STATUS,
 )
+from tools.release.v02_benchmark_suite import (
+    GENERATED_BY as BENCHMARK_SUITE_GENERATED_BY,
+    SCHEMA_VERSION as BENCHMARK_SUITE_SCHEMA_VERSION,
+)
 
 SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.v02_benchmark_readiness"
@@ -49,6 +53,7 @@ COMMAND_PATH_FLAGS: Final = frozenset(
         "--rollout-speed-report",
         "--rollout-speed-scope-report",
         "--efficiency-report",
+        "--suite-report",
         "--output-json",
         "--out-dir",
         "--output",
@@ -139,6 +144,7 @@ def build_readiness_report(
     rollout_speed_report: Path | None = None,
     rollout_speed_scope_report: Path | None = None,
     efficiency_report: Path | None = None,
+    suite_report: Path | None = None,
     command: tuple[str, ...] = (),
     require_release_inputs: bool = False,
 ) -> dict[str, object]:
@@ -147,6 +153,7 @@ def build_readiness_report(
     efficiency = (
         load_efficiency_report(efficiency_report) if efficiency_report is not None else None
     )
+    suite_payload = _load_suite_report(suite_report) if suite_report is not None else None
     _require_shared_identity(metric_reports)
     _require_efficiency_identity(metric_reports, efficiency)
     identity = _identity(metric_reports)
@@ -166,6 +173,8 @@ def build_readiness_report(
                 metric_reports=metric_reports,
                 rollout_speed_report=rollout_speed_report,
                 efficiency=efficiency,
+                suite_report=suite_report,
+                suite_payload=suite_payload,
             )
         )
     missing_or_failed = [
@@ -182,6 +191,7 @@ def build_readiness_report(
         rollout_speed_report=rollout_speed_report,
         rollout_speed_scope_report=rollout_speed_scope_report,
         efficiency_report=efficiency_report,
+        suite_report=suite_report,
     )
     return {
         "schema_version": SCHEMA_VERSION,
@@ -220,6 +230,7 @@ def write_readiness_report(
     rollout_speed_report: Path | None = None,
     rollout_speed_scope_report: Path | None = None,
     efficiency_report: Path | None = None,
+    suite_report: Path | None = None,
     command: tuple[str, ...] = (),
     require_release_inputs: bool = False,
 ) -> dict[str, object]:
@@ -229,6 +240,7 @@ def write_readiness_report(
         rollout_speed_report=rollout_speed_report,
         rollout_speed_scope_report=rollout_speed_scope_report,
         efficiency_report=efficiency_report,
+        suite_report=suite_report,
         command=command,
         require_release_inputs=require_release_inputs,
     )
@@ -324,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
             rollout_speed_report=args.rollout_speed_report,
             rollout_speed_scope_report=args.rollout_speed_scope_report,
             efficiency_report=args.efficiency_report,
+            suite_report=args.suite_report,
             command=command,
             require_release_inputs=args.require_release_inputs or args.require_ok,
         )
@@ -661,6 +674,8 @@ def _release_inputs_row(
     metric_reports: tuple[EvalReportInput, ...],
     rollout_speed_report: Path | None,
     efficiency: EfficiencyReport | None,
+    suite_report: Path | None,
+    suite_payload: dict[str, object] | None,
 ) -> dict[str, object]:
     findings: list[str] = []
     if not metric_reports:
@@ -669,14 +684,21 @@ def _release_inputs_row(
         findings.append("a bench.rollout speed report is required")
     if efficiency is None:
         findings.append("an efficiency_report.json artifact is required")
+    if suite_report is None:
+        findings.append("a v0.2 benchmark suite report is required")
     for index, report in enumerate(metric_reports, start=1):
         findings.extend(_metric_release_input_findings(report, input_index=index))
     if efficiency is not None:
         findings.extend(_efficiency_release_input_findings(efficiency))
+    if suite_payload is not None:
+        findings.extend(_suite_release_input_findings(suite_payload))
     if findings:
         status = (
             "missing"
-            if not metric_reports or rollout_speed_report is None or efficiency is None
+            if not metric_reports
+            or rollout_speed_report is None
+            or efficiency is None
+            or suite_report is None
             else "failed"
         )
     else:
@@ -690,6 +712,7 @@ def _release_inputs_row(
             "score_or_metrics_input_provenance",
             "non_fixture_release_identity",
             "efficiency_input_identities",
+            "suite_output_identities",
         ],
         "observed_metrics": []
         if findings
@@ -698,11 +721,14 @@ def _release_inputs_row(
             "score_or_metrics_input_provenance",
             "non_fixture_release_identity",
             "efficiency_input_identities",
+            "suite_output_identities",
         ],
         "checked_artifacts": _checked_release_input_artifacts(
             metric_reports=metric_reports,
             rollout_speed_report=rollout_speed_report,
             efficiency=efficiency,
+            suite_report=suite_report,
+            suite_payload=suite_payload,
         ),
         "findings": findings,
         "issue_refs": ["#56", "#197"],
@@ -714,6 +740,8 @@ def _checked_release_input_artifacts(
     metric_reports: tuple[EvalReportInput, ...],
     rollout_speed_report: Path | None,
     efficiency: EfficiencyReport | None,
+    suite_report: Path | None,
+    suite_payload: dict[str, object] | None,
 ) -> dict[str, object]:
     checked: dict[str, object] = {
         "metrics_json": [
@@ -737,7 +765,53 @@ def _checked_release_input_artifacts(
                 for key, identity in sorted(efficiency.inputs, key=lambda item: item[0])
             }
         }
+    if suite_report is not None:
+        suite_checked: dict[str, object] = {"report": _file_identity(suite_report)}
+        if suite_payload is not None:
+            manifest = suite_payload.get("manifest")
+            if isinstance(manifest, dict):
+                suite_checked["manifest"] = _public_safe_identity_mapping(manifest)
+            passed_step_outputs = _suite_passed_step_outputs(suite_payload)
+            if passed_step_outputs:
+                suite_checked["passed_step_outputs"] = passed_step_outputs
+        checked["suite_report"] = suite_checked
     return checked
+
+
+def _public_safe_identity_mapping(raw: dict[str, object]) -> dict[str, object]:
+    identity: dict[str, object] = {}
+    path = raw.get("path")
+    if isinstance(path, str):
+        identity["path"] = _public_safe_checked_artifact_path(path)
+    sha256 = raw.get("sha256")
+    if isinstance(sha256, str):
+        identity["sha256"] = sha256
+    size_bytes = raw.get("size_bytes")
+    if isinstance(size_bytes, int) and not isinstance(size_bytes, bool):
+        identity["size_bytes"] = size_bytes
+    return identity
+
+
+def _suite_passed_step_outputs(payload: dict[str, object]) -> list[dict[str, object]]:
+    raw_steps = payload.get("steps")
+    if not isinstance(raw_steps, list):
+        return []
+    step_outputs: list[dict[str, object]] = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict):
+            continue
+        step_id = raw_step.get("id")
+        raw_outputs = raw_step.get("output_identities")
+        if not isinstance(step_id, str) or not isinstance(raw_outputs, list):
+            continue
+        outputs = [
+            _public_safe_identity_mapping(raw_identity)
+            for raw_identity in raw_outputs
+            if isinstance(raw_identity, dict)
+        ]
+        if outputs:
+            step_outputs.append({"step_id": step_id, "outputs": outputs})
+    return step_outputs
 
 
 def _public_safe_checked_artifact_path(value: str) -> str:
@@ -852,13 +926,105 @@ def _efficiency_release_input_findings(report: EfficiencyReport) -> list[str]:
     return findings
 
 
+def _suite_release_input_findings(payload: dict[str, object]) -> list[str]:
+    findings: list[str] = []
+    if payload.get("execute") is not True:
+        findings.append("suite_report.execute must be true")
+    if payload.get("ok") is not True:
+        findings.append("suite_report.ok must be true")
+    if payload.get("status") != "pass":
+        findings.append("suite_report.status must be pass")
+    manifest = payload.get("manifest")
+    if not isinstance(manifest, dict):
+        findings.append("suite_report.manifest must be an artifact identity object")
+    else:
+        findings.extend(_artifact_identity_findings(manifest, field="suite_report.manifest"))
+    steps = payload.get("steps")
+    if not isinstance(steps, list) or not steps:
+        findings.append("suite_report.steps must list executed benchmark steps")
+        return findings
+    output_identity_count = 0
+    for index, raw_step in enumerate(steps, start=1):
+        prefix = f"suite_report.steps[{index}]"
+        if not isinstance(raw_step, dict):
+            findings.append(f"{prefix} must be an object")
+            continue
+        if raw_step.get("status") != "pass":
+            findings.append(f"{prefix}.status must be pass")
+        declared_outputs = _suite_declared_outputs(raw_step, prefix=prefix, findings=findings)
+        raw_identities = raw_step.get("output_identities")
+        if not isinstance(raw_identities, list) or not raw_identities:
+            findings.append(
+                f"{prefix}.output_identities must list generated output file identities"
+            )
+            continue
+        identity_paths: list[str] = []
+        for output_index, raw_identity in enumerate(raw_identities, start=1):
+            identity_field = f"{prefix}.output_identities[{output_index}]"
+            if isinstance(raw_identity, dict):
+                path = raw_identity.get("path")
+                if isinstance(path, str):
+                    identity_paths.append(path)
+                findings.extend(_artifact_identity_findings(raw_identity, field=identity_field))
+            else:
+                findings.append(f"{identity_field} must be an artifact identity object")
+        output_identity_count += len(raw_identities)
+        if declared_outputs and sorted(identity_paths) != sorted(declared_outputs):
+            findings.append(f"{prefix}.output_identities must match declared outputs")
+    if output_identity_count == 0:
+        findings.append("suite_report must record at least one output identity")
+    return findings
+
+
+def _suite_declared_outputs(
+    raw_step: dict[str, object],
+    *,
+    prefix: str,
+    findings: list[str],
+) -> list[str]:
+    raw_outputs = raw_step.get("outputs")
+    if not isinstance(raw_outputs, list) or not raw_outputs:
+        findings.append(f"{prefix}.outputs must list declared output paths")
+        return []
+    outputs: list[str] = []
+    for output_index, raw_output in enumerate(raw_outputs, start=1):
+        field = f"{prefix}.outputs[{output_index}]"
+        if not isinstance(raw_output, str) or not raw_output:
+            findings.append(f"{field} must be a package-relative path")
+            continue
+        findings.extend(_artifact_path_release_findings(raw_output, field=field))
+        outputs.append(raw_output)
+    return outputs
+
+
+def _artifact_identity_findings(raw: dict[str, object], *, field: str) -> list[str]:
+    findings: list[str] = []
+    path = raw.get("path")
+    if not isinstance(path, str) or not path:
+        findings.append(f"{field}.path must be a package-relative path")
+    else:
+        findings.extend(_artifact_path_release_findings(path, field=f"{field}.path"))
+    sha256 = raw.get("sha256")
+    if not isinstance(sha256, str) or not sha256.startswith("sha256:"):
+        findings.append(f"{field}.sha256 must be a sha256:<hex> identity")
+    size_bytes = raw.get("size_bytes")
+    if isinstance(size_bytes, bool) or not isinstance(size_bytes, int) or size_bytes <= 0:
+        findings.append(f"{field}.size_bytes must be a positive integer")
+    return findings
+
+
+def _artifact_path_release_findings(path: str, *, field: str) -> list[str]:
+    findings = _path_findings(path, field=field, allow_inline=False)
+    if RELEASE_ARTIFACT_PLACEHOLDER_RE.search(path):
+        findings.append(f"{field} must not reference fixture/test artifacts")
+    return findings
+
+
 def _artifact_findings(artifacts: dict[str, str], *, prefix: str) -> list[str]:
     findings: list[str] = []
     for key, value in sorted(artifacts.items()):
         field = f"{prefix}.{key}"
-        findings.extend(_path_findings(value, field=field, allow_inline=False))
-        if RELEASE_ARTIFACT_PLACEHOLDER_RE.search(value):
-            findings.append(f"{field} must not reference fixture/test artifacts")
+        findings.extend(_artifact_path_release_findings(value, field=field))
     return findings
 
 
@@ -961,6 +1127,7 @@ def _artifact_inputs(
     rollout_speed_report: Path | None,
     rollout_speed_scope_report: Path | None,
     efficiency_report: Path | None,
+    suite_report: Path | None,
 ) -> dict[str, object]:
     inputs: dict[str, object] = {
         "metrics_json": [_file_identity(path) for path in metrics_json],
@@ -971,6 +1138,8 @@ def _artifact_inputs(
         inputs["rollout_speed_scope_report"] = _file_identity(rollout_speed_scope_report)
     if efficiency_report is not None:
         inputs["efficiency_report"] = _file_identity(efficiency_report)
+    if suite_report is not None:
+        inputs["suite_report"] = _file_identity(suite_report)
     return inputs
 
 
@@ -1246,6 +1415,22 @@ def _format_checked_artifacts(raw: object) -> str:
             keys = sorted(key for key in inputs if isinstance(key, str))
             if keys:
                 parts.append(f"efficiency_inputs={','.join(keys)}")
+    suite = raw.get("suite_report")
+    if isinstance(suite, dict):
+        report = suite.get("report")
+        if isinstance(report, dict) and isinstance(report.get("path"), str):
+            parts.append(f"suite_report={report['path']}")
+        outputs = suite.get("passed_step_outputs")
+        if isinstance(outputs, list):
+            count = 0
+            for step in outputs:
+                if not isinstance(step, dict):
+                    continue
+                raw_step_outputs = step.get("outputs")
+                if isinstance(raw_step_outputs, list):
+                    count += len(raw_step_outputs)
+            if count:
+                parts.append(f"suite_outputs={count}")
     return "; ".join(parts)
 
 
@@ -1435,6 +1620,21 @@ def _load_json(path: Path, *, label: str) -> dict[str, object]:
     return raw
 
 
+def _load_suite_report(path: Path) -> dict[str, object]:
+    payload = _load_json(path, label="v0.2 benchmark suite report")
+    if payload.get("schema_version") != BENCHMARK_SUITE_SCHEMA_VERSION:
+        raise InputError(
+            "v0.2 benchmark suite report schema_version is unsupported",
+            details={"observed": payload.get("schema_version")},
+        )
+    if payload.get("generated_by") != BENCHMARK_SUITE_GENERATED_BY:
+        raise InputError(
+            "v0.2 benchmark suite report generated_by is unsupported",
+            details={"observed": payload.get("generated_by")},
+        )
+    return payload
+
+
 def _require_list(raw: object, label: str) -> list[object]:
     if not isinstance(raw, list):
         raise InputError(f"{label} must be a JSON list")
@@ -1562,6 +1762,11 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional validated efficiency_report.json for RFC-0007 efficiency coverage.",
     )
+    parser.add_argument(
+        "--suite-report",
+        type=Path,
+        help="Optional tools.release.v02_benchmark_suite report for suite output provenance.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--require-ok",
@@ -1593,6 +1798,8 @@ def _command_from_args(args: argparse.Namespace) -> tuple[str, ...]:
         )
     if args.efficiency_report is not None:
         command.extend(("--efficiency-report", _public_safe_identity_path(args.efficiency_report)))
+    if args.suite_report is not None:
+        command.extend(("--suite-report", _public_safe_identity_path(args.suite_report)))
     command.extend(("--output", _public_safe_identity_path(args.output)))
     if args.require_ok:
         command.append("--require-ok")

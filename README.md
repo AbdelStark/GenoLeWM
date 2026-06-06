@@ -341,7 +341,10 @@ record output identities with package-local paths, SHA-256 values, and
 sizes, but the generated metrics, efficiency, rollout-speed, and
 readiness artifacts must still validate separately. Suite reports bind
 the manifest with a package-local path, SHA-256, and size identity rather
-than a build-machine absolute path.
+than a build-machine absolute path. Run the final release-input
+readiness command after an executed suite report exists, passing that
+report with `--suite-report`; the first suite execution cannot consume
+the report it is still writing.
 For rollout benchmarks, the manifest can optionally include a
 `state_generation` block. When it names `spec_jsonl`, `cache_dir`, and
 `examples_report_json`, the suite first runs
@@ -359,6 +362,7 @@ python -m tools.release.v02_benchmark_readiness \
   --rollout-speed-report .../rollout.ar_speed.json \
   --rollout-speed-scope-report .../rollout_speed_scope.json \
   --efficiency-report .../efficiency_report.json \
+  --suite-report .../v0.2_benchmark_suite_report.json \
   --output .../v0.2_benchmark_readiness_report.json \
   --require-ok
 ```
@@ -368,13 +372,14 @@ provenance: package-relative score/label or aggregate metrics inputs,
 efficiency input identities, rollout-state generation report artifacts
 for rollout metrics, measured VEP values with baseline deltas and
 confidence intervals, measured efficiency latency/throughput/memory
-values plus efficiency command provenance, and non-fixture release
+values plus efficiency command provenance, an executed passing suite
+report with passed-step output identities, and non-fixture release
 identity text. The readiness report records input artifact identities
 and readiness, efficiency, accepted scope, or nested rollout-speed
 command path arguments with public-safe paths plus SHA-256 and size
 where applicable, and its `release_inputs` row records checked metrics
-artifact paths plus efficiency input identities. Absolute CLI paths do
-not enter the report. It also derives a `readiness` checklist and
+artifact paths, efficiency input identities, and suite output identities.
+Absolute CLI paths do not enter the report. It also derives a `readiness` checklist and
 `blockers` list with issue refs from the same benchmark rows. Metric
 conclusions include measured values, baseline deltas, split/track
 context, confidence intervals, and evaluated variant-key identities where

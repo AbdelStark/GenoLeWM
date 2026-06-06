@@ -9,7 +9,7 @@ import pytest
 
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_bytes
-from tools.release import rollout_speed_scope, v02_benchmark_readiness
+from tools.release import rollout_speed_scope, v02_benchmark_readiness, v02_benchmark_suite
 
 
 def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
@@ -93,6 +93,7 @@ def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
     efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
     output = tmp_path / "v0.2_benchmark_readiness_report.json"
     metrics.write_text(
         json.dumps(_metrics_payload([*_binary_metrics("clinvar_coding", baseline=True)])),
@@ -100,11 +101,13 @@ def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
     )
     rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
     efficiency.write_text(json.dumps(_efficiency_payload()), encoding="utf-8")
+    suite.write_text(json.dumps(_suite_report_payload()), encoding="utf-8")
 
     report = v02_benchmark_readiness.build_readiness_report(
         metrics_json=(metrics.resolve(),),
         rollout_speed_report=rollout.resolve(),
         efficiency_report=efficiency.resolve(),
+        suite_report=suite.resolve(),
         command=(
             "python",
             "-m",
@@ -115,6 +118,8 @@ def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
             str(rollout.resolve()),
             "--efficiency-report",
             str(efficiency.resolve()),
+            "--suite-report",
+            str(suite.resolve()),
             "--output",
             str(output.resolve()),
         ),
@@ -123,6 +128,7 @@ def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
     assert report["inputs"]["metrics_json"][0]["path"] == "eval_metrics.json"
     assert report["inputs"]["rollout_speed_report"]["path"] == "rollout.ar_speed.json"
     assert report["inputs"]["efficiency_report"]["path"] == "efficiency_report.json"
+    assert report["inputs"]["suite_report"]["path"] == "v0.2_benchmark_suite_report.json"
     assert report["command"] == [
         "python",
         "-m",
@@ -133,6 +139,8 @@ def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
         "rollout.ar_speed.json",
         "--efficiency-report",
         "efficiency_report.json",
+        "--suite-report",
+        "v0.2_benchmark_suite_report.json",
         "--output",
         "v0.2_benchmark_readiness_report.json",
     ]
@@ -758,6 +766,7 @@ def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) 
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
     efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
     metrics.write_text(
         json.dumps(
             _metrics_payload(
@@ -783,11 +792,13 @@ def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) 
         json.dumps(_efficiency_payload(release_ready=True)),
         encoding="utf-8",
     )
+    suite.write_text(json.dumps(_suite_report_payload()), encoding="utf-8")
 
     report = v02_benchmark_readiness.build_readiness_report(
         metrics_json=(metrics,),
         rollout_speed_report=rollout,
         efficiency_report=efficiency,
+        suite_report=suite,
         require_release_inputs=True,
     )
 
@@ -826,6 +837,23 @@ def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) 
     assert model_manifest["path"] == "model/manifest.json"
     assert model_manifest["sha256"] == sha256_bytes(b"manifest")
     assert model_manifest["size_bytes"] == 10
+    suite_checked = checked["suite_report"]
+    assert isinstance(suite_checked, dict)
+    suite_report_identity = suite_checked["report"]
+    assert isinstance(suite_report_identity, dict)
+    assert suite_report_identity["path"] == "v0.2_benchmark_suite_report.json"
+    suite_manifest = suite_checked["manifest"]
+    assert isinstance(suite_manifest, dict)
+    assert suite_manifest["path"] == "benchmarks/v02_suite_manifest.json"
+    step_outputs = suite_checked["passed_step_outputs"]
+    assert isinstance(step_outputs, list)
+    assert step_outputs
+    first_step = step_outputs[0]
+    assert isinstance(first_step, dict)
+    assert first_step["step_id"] == "clinvar_coding.eval"
+    first_outputs = first_step["outputs"]
+    assert isinstance(first_outputs, list)
+    assert first_outputs[0]["path"] == "eval/clinvar_coding.metrics.json"
 
 
 def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
@@ -834,6 +862,7 @@ def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
     efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
     metrics.write_text(
         json.dumps(
             _metrics_payload(
@@ -855,11 +884,13 @@ def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
     )
     rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
     efficiency.write_text(json.dumps(_efficiency_payload()), encoding="utf-8")
+    suite.write_text(json.dumps(_suite_report_payload()), encoding="utf-8")
 
     report = v02_benchmark_readiness.build_readiness_report(
         metrics_json=(metrics,),
         rollout_speed_report=rollout,
         efficiency_report=efficiency,
+        suite_report=suite,
         require_release_inputs=True,
     )
 
@@ -881,6 +912,7 @@ def test_release_inputs_row_redacts_invalid_checked_artifact_paths(tmp_path: Pat
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
     efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
     payload = _metrics_payload(
         [
             *_binary_metrics("clinvar_coding", baseline=True),
@@ -896,11 +928,13 @@ def test_release_inputs_row_redacts_invalid_checked_artifact_paths(tmp_path: Pat
         json.dumps(_efficiency_payload(release_ready=True)),
         encoding="utf-8",
     )
+    suite.write_text(json.dumps(_suite_report_payload()), encoding="utf-8")
 
     report = v02_benchmark_readiness.build_readiness_report(
         metrics_json=(metrics,),
         rollout_speed_report=rollout,
         efficiency_report=efficiency,
+        suite_report=suite,
         require_release_inputs=True,
     )
 
@@ -920,6 +954,7 @@ def test_release_inputs_row_accepts_aggregate_metrics_input_artifacts(
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
     efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
     metrics.write_text(
         json.dumps(
             _metrics_payload(
@@ -937,11 +972,13 @@ def test_release_inputs_row_accepts_aggregate_metrics_input_artifacts(
         json.dumps(_efficiency_payload(release_ready=True)),
         encoding="utf-8",
     )
+    suite.write_text(json.dumps(_suite_report_payload()), encoding="utf-8")
 
     report = v02_benchmark_readiness.build_readiness_report(
         metrics_json=(metrics,),
         rollout_speed_report=rollout,
         efficiency_report=efficiency,
+        suite_report=suite,
         require_release_inputs=True,
     )
 
@@ -986,6 +1023,7 @@ def test_release_inputs_row_accepts_rollout_state_artifacts(tmp_path: Path) -> N
     findings = rows["release_inputs"]["findings"]
     assert "a bench.rollout speed report is required" in findings
     assert "an efficiency_report.json artifact is required" in findings
+    assert "a v0.2 benchmark suite report is required" in findings
     assert not any("scores+labels" in str(finding) for finding in findings)
     assert not any("baseline artifact" in str(finding) for finding in findings)
     assert not any("rollout generation provenance" in str(finding) for finding in findings)
@@ -1032,6 +1070,107 @@ def test_release_inputs_row_rejects_rollout_state_artifacts_without_generation_r
     assert "rollout generation provenance" in findings
     assert "rollout_state_examples_report" in findings
     assert "rollout_state_rows_report" in findings
+
+
+def test_release_inputs_row_rejects_suite_report_without_output_identities(
+    tmp_path: Path,
+) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                ],
+                release_ready=True,
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(
+        json.dumps(_efficiency_payload(release_ready=True)),
+        encoding="utf-8",
+    )
+    suite_payload = _suite_report_payload()
+    steps = suite_payload["steps"]
+    assert isinstance(steps, list)
+    first_step = steps[0]
+    assert isinstance(first_step, dict)
+    first_step.pop("output_identities")
+    suite.write_text(json.dumps(suite_payload), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        suite_report=suite,
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    assert rows["release_inputs"]["status"] == "failed"
+    findings = "\n".join(rows["release_inputs"]["findings"])
+    assert "suite_report.steps[1].output_identities" in findings
+    checked = rows["release_inputs"]["checked_artifacts"]
+    assert isinstance(checked, dict)
+    assert "suite_report" in checked
+
+
+def test_release_inputs_row_rejects_plan_only_suite_report(tmp_path: Path) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                ],
+                release_ready=True,
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(
+        json.dumps(_efficiency_payload(release_ready=True)),
+        encoding="utf-8",
+    )
+    suite_payload = _suite_report_payload()
+    suite_payload["execute"] = False
+    suite_payload["ok"] = False
+    suite_payload["status"] = "planned"
+    suite.write_text(json.dumps(suite_payload), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        suite_report=suite,
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    assert rows["release_inputs"]["status"] == "failed"
+    findings = "\n".join(rows["release_inputs"]["findings"])
+    assert "suite_report.execute must be true" in findings
+    assert "suite_report.ok must be true" in findings
+    assert "suite_report.status must be pass" in findings
+
+
+def test_readiness_rejects_invalid_suite_report_source(tmp_path: Path) -> None:
+    suite = tmp_path / "v0.2_benchmark_suite_report.json"
+    payload = _suite_report_payload()
+    payload["generated_by"] = "other.tool"
+    suite.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputError, match="generated_by"):
+        v02_benchmark_readiness.build_readiness_report(suite_report=suite)
 
 
 def test_rollout_speed_requires_declared_horizons(tmp_path: Path) -> None:
@@ -1290,6 +1429,75 @@ def _passing_rollout_payload() -> dict[str, object]:
                 "target_met": True,
             },
         ],
+    }
+
+
+def _suite_report_payload() -> dict[str, object]:
+    return {
+        "schema_version": v02_benchmark_suite.SCHEMA_VERSION,
+        "generated_by": v02_benchmark_suite.GENERATED_BY,
+        "generated_at": "2026-06-06T00:00:00Z",
+        "ok": True,
+        "status": "pass",
+        "manifest_path": "v02_suite_manifest.json",
+        "manifest": _identity_payload("benchmarks/v02_suite_manifest.json"),
+        "execute": True,
+        "steps": [
+            _suite_step_payload(
+                step_id="clinvar_coding.eval",
+                kind="vep_eval",
+                outputs=("eval/clinvar_coding.metrics.json",),
+                issue_refs=("#53", "#55", "#56", "#197"),
+            ),
+            _suite_step_payload(
+                step_id="aggregate.eval_all",
+                kind="aggregate_eval",
+                outputs=("eval/eval_metrics.json", "eval/eval_report.md"),
+                issue_refs=("#56", "#197"),
+            ),
+            _suite_step_payload(
+                step_id="readiness.v02",
+                kind="readiness",
+                outputs=("eval/v0.2_benchmark_readiness_report.json",),
+                issue_refs=("#56", "#197"),
+            ),
+        ],
+        "negative_findings": [
+            "This suite report is orchestration evidence; metrics still validate separately."
+        ],
+        "claim_boundary": (
+            "This report is benchmark-suite orchestration evidence only; measured "
+            "model-quality claims require generated artifacts to validate separately."
+        ),
+    }
+
+
+def _suite_step_payload(
+    *,
+    step_id: str,
+    kind: str,
+    outputs: tuple[str, ...],
+    issue_refs: tuple[str, ...],
+) -> dict[str, object]:
+    return {
+        "id": step_id,
+        "kind": kind,
+        "command": ["python", "-m", "tools.release.v02_benchmark_suite"],
+        "outputs": list(outputs),
+        "issue_refs": list(issue_refs),
+        "status": "pass",
+        "exit_code": 0,
+        "stdout_tail": "",
+        "stderr_tail": "",
+        "output_identities": [_identity_payload(path) for path in outputs],
+    }
+
+
+def _identity_payload(path: str) -> dict[str, object]:
+    return {
+        "path": path,
+        "sha256": sha256_bytes(path.encode()),
+        "size_bytes": len(path.encode()),
     }
 
 
