@@ -250,8 +250,10 @@ The first paper/demo release is not ready until:
   exact failing `bench.rollout` path/SHA-256/size identity, failed K
   targets, valid GitHub issue refs including #42 and #197, UTC accepted
   timestamp, HTTP(S) decision URL, and public-safe scope plus nested
-  rollout command path identities. The readiness row remains `rescoped`
-  rather than passing speed evidence;
+  rollout command path identities. Scope negative findings and claim
+  boundaries must preserve that the failed target is not passing
+  rollout-speed evidence. The readiness row remains `rescoped` rather
+  than passing speed evidence;
 - eval-report `negative_findings` must be non-empty and render as
   `## Negative Findings`;
   baseline delta rows must carry matching evaluated variant-key hashes;

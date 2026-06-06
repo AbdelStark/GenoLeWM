@@ -303,13 +303,16 @@ trusted only after their hashes match the fetched manifest.
     rationale, replacement target, and GitHub issue refs including #42
     and #197. The generated scope report MUST record the failing
     `bench.rollout` input identity plus scope and nested rollout command
-    path arguments with public-safe path text.
+    path arguments with public-safe path text, and MUST preserve
+    negative findings plus a claim boundary stating that the failed
+    target remains not passing rollout-speed evidence.
     `tools.release.v02_benchmark_readiness` may then consume
     `--rollout-speed-scope-report ...`, but only when that report binds
     the exact failing `bench.rollout` path/SHA-256/size identity and
     failed K targets, has valid GitHub issue refs including #42 and
-    #197, and when the scope command plus copied `bench.rollout` summary
-    command are public-safe and current.
+    #197, when the scope command plus copied `bench.rollout` summary
+    command are public-safe and current, and when the scope negative
+    findings plus claim boundary preserve those limits.
     The readiness row is recorded as `rescoped`, not as passing
     rollout-speed evidence.
 15. For model/demo releases: normalize measured efficiency evidence as

@@ -396,8 +396,9 @@ baseline, not a reason to publish stronger model-quality claims.
   targets, valid GitHub issue refs including #42 and #197, UTC accepted
   timestamp, HTTP(S) decision URL, rationale, replacement target, and
   public-safe scope plus nested rollout command path identities, and it
-  still records the AR-speed row as `rescoped` rather than passing speed
-  evidence;
+  preserves negative findings plus a claim boundary that keep the failed
+  target out of passing speed evidence; readiness still records the
+  AR-speed row as `rescoped` rather than passing speed evidence;
 - `efficiency_report.json` is generated with
   `python -m bench.inference --release-efficiency ... --output-json ...`
   and records measured single-variant latency, batched throughput, peak

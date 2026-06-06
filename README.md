@@ -377,7 +377,9 @@ either passes or is explicitly re-scoped through
 the failing `bench.rollout` report, GitHub issue refs including #42 and
 #197, UTC accepted timestamp, HTTP(S) decision URL, rationale,
 replacement target, public-safe input path/SHA-256/size identity, and
-public-safe scope and nested rollout command paths; readiness verifies
+public-safe scope and nested rollout command paths. It must also
+preserve negative findings and a claim boundary stating that the failed
+target remains not passing rollout-speed evidence; readiness verifies
 those scope-report identities before recording the AR-speed row as
 `rescoped` while preserving the failed measured speedups.
 

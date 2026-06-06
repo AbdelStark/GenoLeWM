@@ -626,6 +626,8 @@ def _load_rollout_speed_scope_decision(
             "rollout speed scope report summary is stale",
             details={"mismatches": summary_mismatches},
         )
+    _require_scope_negative_findings(payload.get("negative_findings"))
+    _require_scope_claim_boundary(payload.get("claim_boundary"))
     return {
         "report": _file_identity(path),
         "decision": decision,
@@ -1176,6 +1178,25 @@ def _required_issue_refs(raw: object) -> list[str]:
     if "#42" not in refs or "#197" not in refs:
         raise InputError("rollout speed scope report issue_refs must include #42 and #197")
     return refs
+
+
+def _require_scope_negative_findings(raw: object) -> None:
+    findings = _required_text_list(raw, "rollout speed scope report negative_findings")
+    text = " ".join(findings).lower()
+    if "not met" not in text or "not rollout-speed evidence" not in text:
+        raise InputError(
+            "rollout speed scope report negative_findings must preserve failed-target boundaries"
+        )
+
+
+def _require_scope_claim_boundary(raw: object) -> None:
+    text = _require_text_value(raw, "claim_boundary")
+    normalized = text.lower()
+    if (
+        "does not establish" not in normalized
+        or "original rollout-speed targets were met" not in normalized
+    ):
+        raise InputError("rollout speed scope report claim_boundary must preserve scope limits")
 
 
 def _required_text_list(raw: object, label: str) -> list[str]:
