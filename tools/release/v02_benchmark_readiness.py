@@ -577,7 +577,7 @@ def _load_rollout_speed_scope_decision(
     expected_identity = _file_identity(rollout_speed_report)
     identity_mismatches = {
         key: {"expected": expected_identity[key], "observed": raw_identity.get(key)}
-        for key in ("sha256", "size_bytes")
+        for key in ("path", "sha256", "size_bytes")
         if raw_identity.get(key) != expected_identity[key]
     }
     if identity_mismatches:

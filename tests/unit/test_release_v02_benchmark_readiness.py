@@ -320,6 +320,32 @@ def test_readiness_rejects_stale_rollout_speed_rescope(tmp_path: Path) -> None:
         )
 
 
+def test_readiness_rejects_scope_report_with_stale_rollout_speed_path(
+    tmp_path: Path,
+) -> None:
+    rollout = tmp_path / "rollout.ar_speed.json"
+    scope = tmp_path / "rollout_speed_scope.json"
+    rollout.write_text(json.dumps(_failing_rollout_payload()), encoding="utf-8")
+    rollout_speed_scope.write_scope_report(
+        rollout_speed_report=rollout,
+        output=scope,
+        accepted_by="maintainer",
+        accepted_at="2026-06-06T12:00:00Z",
+        decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        replacement_target="Report measured rollout speed until #42 accepts a new target.",
+    )
+    scope_payload = json.loads(scope.read_text(encoding="utf-8"))
+    scope_payload["rollout_speed_report"]["path"] = "stale-rollout.ar_speed.json"
+    scope.write_text(json.dumps(scope_payload), encoding="utf-8")
+
+    with pytest.raises(InputError, match="does not match rollout speed report"):
+        v02_benchmark_readiness.build_readiness_report(
+            rollout_speed_report=rollout,
+            rollout_speed_scope_report=scope,
+        )
+
+
 def test_vep_rows_require_confidence_intervals(tmp_path: Path) -> None:
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"

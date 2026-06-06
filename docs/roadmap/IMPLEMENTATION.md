@@ -247,9 +247,10 @@ The first paper/demo release is not ready until:
 - `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
   records an accepted #42/#197 re-scope for failed RFC-0004 AR rollout
   speed targets. Readiness consumes it only when the report binds the
-  exact failing `bench.rollout` artifact, failed K targets, and
-  public-safe scope plus nested rollout command path identities, and the
-  readiness row remains `rescoped` rather than passing speed evidence;
+  exact failing `bench.rollout` path/SHA-256/size identity, failed K
+  targets, and public-safe scope plus nested rollout command path
+  identities, and the readiness row remains `rescoped` rather than
+  passing speed evidence;
 - eval-report `negative_findings` must be non-empty and render as
   `## Negative Findings`;
   baseline delta rows must carry matching evaluated variant-key hashes;
