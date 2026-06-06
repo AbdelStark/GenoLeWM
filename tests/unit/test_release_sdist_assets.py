@@ -58,6 +58,8 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/release/release_candidate.py",
         "tools/release/runtime_preflight.py",
         "tools/release/training_run.py",
+        "tools/release/v02_benchmark_readiness.py",
+        "tools/release/v02_benchmark_suite.py",
     }
 
     assert expected <= assets

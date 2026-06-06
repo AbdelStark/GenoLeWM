@@ -264,6 +264,14 @@ trusted only after their hashes match the fetched manifest.
     overrides without private absolute paths. The lower-level
     `python -m tools.release.eval_report --metrics-json ... --output ...`
     renderer remains available for already-aggregated metrics payloads.
+    A v0.2 candidate may use
+    `python -m tools.release.v02_benchmark_suite --manifest ... --output-report ...`
+    to plan or execute the benchmark command graph for scoring,
+    Carbon-baseline scoring, per-benchmark eval, rollout metrics,
+    aggregate report generation, and readiness validation. Plan-only
+    suite reports must keep `ok=false`; execute-mode suite reports
+    record command status but do not replace the generated metric,
+    efficiency, rollout-speed, package, or readiness validators.
 15. For model/demo releases: normalize measured efficiency evidence as
     `<model-dir>/efficiency_report.json` with
     `python -m bench.inference --release-efficiency --model-dir ... --vcf ... --fasta ... --variant ... --window ... --output-json ...`;

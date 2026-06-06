@@ -325,6 +325,20 @@ Use the v0.2 readiness report to bind measured eval, efficiency, and AR
 rollout speed artifacts before making broader claims:
 
 ```bash
+python -m tools.release.v02_benchmark_suite \
+  --manifest .../v0.2_benchmark_suite.json \
+  --output-report .../v0.2_benchmark_suite_report.json
+```
+
+The suite runner composes existing commands for GenoLeWM scoring,
+Carbon-baseline scoring, per-benchmark eval, rollout-fidelity metrics,
+aggregate report generation, and the all-up readiness report. Without
+`--execute`, it writes a command plan with `ok=false`; this is not
+measured evidence. With `--execute`, `ok=true` only means every planned
+command completed, and the generated metrics, efficiency, rollout-speed,
+and readiness artifacts must still validate separately.
+
+```bash
 python -m tools.release.v02_benchmark_readiness \
   --metrics-json .../eval_metrics.json \
   --rollout-speed-report .../rollout.ar_speed.json \

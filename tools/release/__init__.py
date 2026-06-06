@@ -25,6 +25,10 @@ Two mechanical helpers used by the release checklist in
 * :mod:`tools.release.efficiency_report` validates measured single-variant
   latency, batched throughput, peak memory, hardware/runtime notes, and
   input identities as ``efficiency_report.json``.
+* :mod:`tools.release.v02_benchmark_suite` plans or executes the v0.2
+  benchmark command graph from a JSON manifest, composing score,
+  Carbon-baseline, eval, rollout, aggregate, and readiness commands while
+  keeping plan-only reports explicitly non-evidence.
 * :mod:`tools.release.v02_benchmark_readiness` reconciles measured eval,
   efficiency, and AR rollout speed artifacts into
   ``v0.2_benchmark_readiness_report.json``; release mode records measured
