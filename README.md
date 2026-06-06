@@ -375,8 +375,9 @@ passes from measured artifacts and the
 either passes or is explicitly re-scoped through
 `python -m tools.release.rollout_speed_scope`. A scope report must bind
 the failing `bench.rollout` report, issue refs, accepted decision URL,
-rationale, and replacement target; readiness then records the AR-speed
-row as `rescoped` while preserving the failed measured speedups.
+rationale, replacement target, public-safe input identity, and public-safe
+scope and nested rollout command paths; readiness then records the
+AR-speed row as `rescoped` while preserving the failed measured speedups.
 
 Before building the all-up readiness report, use
 `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`

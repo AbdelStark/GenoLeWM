@@ -13,7 +13,7 @@ import argparse
 import json
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Final
 
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
@@ -27,6 +27,14 @@ ROLLOUT_GENERATED_BY: Final = "bench.rollout"
 ROLLOUT_SCHEMA_VERSION: Final = "1.0.0"
 REQUIRED_ISSUE_REFS: Final = ("#42", "#197")
 REQUIRED_HORIZONS: Final = (5, 20)
+COMMAND_PATH_FLAGS: Final = frozenset(
+    {
+        "--rollout-speed-report",
+        "--output-json",
+        "--out-dir",
+        "--output",
+    }
+)
 
 
 def build_scope_report(
@@ -59,7 +67,7 @@ def build_scope_report(
         "issue_refs": list(issue_refs),
         "rationale": _require_text_value(rationale, "rationale"),
         "replacement_target": _require_text_value(replacement_target, "replacement_target"),
-        "command": list(command),
+        "command": _public_safe_command(command),
         "rollout_speed_report": _file_identity(rollout_speed_report),
         "rollout_speed_summary": summary,
         "negative_findings": [
@@ -195,7 +203,7 @@ def _rollout_summary(payload: dict[str, object]) -> dict[str, object]:
         )
     return {
         "commit": commit,
-        "command": command,
+        "command": _public_safe_command(tuple(command)),
         "report_ok": report_ok,
         "observed_values": observed_values,
         "failed_targets": failed_targets,
@@ -206,10 +214,39 @@ def _file_identity(path: Path) -> dict[str, object]:
     if not path.is_file():
         raise InputError("rollout speed report does not exist", details={"path": str(path)})
     return {
-        "path": str(path),
+        "path": _public_safe_identity_path(path),
         "sha256": sha256_file(path),
         "size_bytes": path.stat().st_size,
     }
+
+
+def _public_safe_identity_path(path: Path) -> str:
+    return _public_safe_path_text(str(path))
+
+
+def _public_safe_path_text(value: str) -> str:
+    if "://" in value:
+        return value
+    posix_path = PurePosixPath(value)
+    if posix_path.is_absolute():
+        return posix_path.name
+    windows_path = PureWindowsPath(value)
+    if windows_path.is_absolute():
+        return windows_path.name
+    return value
+
+
+def _public_safe_command(command: tuple[str, ...]) -> list[str]:
+    result: list[str] = []
+    sanitize_next = False
+    for token in command:
+        if sanitize_next:
+            result.append(_public_safe_path_text(token))
+            sanitize_next = False
+            continue
+        result.append(_public_safe_path_text(token))
+        sanitize_next = token in COMMAND_PATH_FLAGS
+    return result
 
 
 def _require_issue_refs(issue_refs: tuple[str, ...]) -> None:
@@ -316,9 +353,9 @@ def _command_from_args(args: argparse.Namespace) -> tuple[str, ...]:
         "-m",
         "tools.release.rollout_speed_scope",
         "--rollout-speed-report",
-        str(args.rollout_speed_report),
+        _public_safe_identity_path(args.rollout_speed_report),
         "--output",
-        str(args.output),
+        _public_safe_identity_path(args.output),
         "--accepted-by",
         args.accepted_by,
         "--accepted-at",

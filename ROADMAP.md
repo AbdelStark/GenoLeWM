@@ -393,9 +393,9 @@ baseline, not a reason to publish stronger model-quality claims.
   records an accepted #42/#197 decision to re-scope a failed RFC-0004
   speed target; readiness accepts this only when the scope report binds
   the exact failing `bench.rollout` hash/size, failed K targets,
-  accepted decision URL, rationale, and replacement target, and it still
-  records the AR-speed row as `rescoped` rather than passing speed
-  evidence;
+  accepted decision URL, rationale, replacement target, and public-safe
+  input and command path identities, and it still records the AR-speed
+  row as `rescoped` rather than passing speed evidence;
 - `efficiency_report.json` is generated with
   `python -m bench.inference --release-efficiency ... --output-json ...`
   and records measured single-variant latency, batched throughput, peak

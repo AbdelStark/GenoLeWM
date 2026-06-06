@@ -47,6 +47,73 @@ def test_scope_report_binds_failed_rollout_speed_report(tmp_path: Path) -> None:
     ]
 
 
+def test_scope_report_uses_public_safe_paths(tmp_path: Path) -> None:
+    rollout = tmp_path / "reports" / "rollout.ar_speed.json"
+    rollout.parent.mkdir()
+    output = tmp_path / "scope" / "rollout_speed_scope.json"
+    payload = _failing_rollout_payload()
+    payload["command"] = [
+        "python",
+        "-m",
+        "bench.rollout",
+        "--k",
+        "5",
+        "--k",
+        "20",
+        "--output-json",
+        str(rollout),
+        "--out-dir",
+        str(tmp_path / "bench"),
+        str(tmp_path / "scratch" / "unused.json"),
+    ]
+    rollout.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = rollout_speed_scope.write_scope_report(
+        rollout_speed_report=rollout,
+        output=output,
+        accepted_by="maintainer",
+        accepted_at="2026-06-06T12:00:00Z",
+        decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+        rationale="The current recurrent predictor path reports measured speed below target.",
+        replacement_target="Report measured rollout speed while a new target is accepted in #42.",
+        command=(
+            "python",
+            "-m",
+            "tools.release.rollout_speed_scope",
+            "--rollout-speed-report",
+            str(rollout),
+            "--output",
+            str(output),
+        ),
+    )
+
+    assert report["rollout_speed_report"]["path"] == "rollout.ar_speed.json"
+    assert report["command"] == [
+        "python",
+        "-m",
+        "tools.release.rollout_speed_scope",
+        "--rollout-speed-report",
+        "rollout.ar_speed.json",
+        "--output",
+        "rollout_speed_scope.json",
+    ]
+    assert report["rollout_speed_summary"]["command"] == [
+        "python",
+        "-m",
+        "bench.rollout",
+        "--k",
+        "5",
+        "--k",
+        "20",
+        "--output-json",
+        "rollout.ar_speed.json",
+        "--out-dir",
+        "bench",
+        "unused.json",
+    ]
+    assert str(tmp_path) not in json.dumps(report, sort_keys=True)
+
+
 def test_scope_report_rejects_passing_rollout_speed_report(tmp_path: Path) -> None:
     rollout = tmp_path / "rollout.ar_speed.json"
     payload = _failing_rollout_payload()
