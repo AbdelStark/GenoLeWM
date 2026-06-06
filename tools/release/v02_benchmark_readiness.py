@@ -43,6 +43,15 @@ RELEASE_ARTIFACT_PLACEHOLDER_RE: Final = re.compile(
     re.IGNORECASE,
 )
 COMMIT_RE: Final = re.compile(r"^[0-9a-fA-F]{7,40}$")
+COMMAND_PATH_FLAGS: Final = frozenset(
+    {
+        "--metrics-json",
+        "--rollout-speed-report",
+        "--rollout-speed-scope-report",
+        "--efficiency-report",
+        "--output",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +189,7 @@ def build_readiness_report(
         "dataset_snapshot": identity.get("dataset_snapshot"),
         "commit": identity.get("commit"),
         "hardware": identity.get("hardware"),
-        "command": list(command),
+        "command": _public_safe_command(command),
         "release_inputs_required": require_release_inputs,
         "inputs": artifact_inputs,
         "benchmark_rows": rows,
@@ -902,6 +911,19 @@ def _public_safe_identity_path(path: Path) -> str:
     return path.as_posix()
 
 
+def _public_safe_command(command: tuple[str, ...]) -> list[str]:
+    result: list[str] = []
+    sanitize_next = False
+    for token in command:
+        if sanitize_next:
+            result.append(_public_safe_identity_path(Path(token)))
+            sanitize_next = False
+            continue
+        result.append(token)
+        sanitize_next = token in COMMAND_PATH_FLAGS
+    return result
+
+
 def _normalized_metric_name(metric: MetricResult) -> str:
     prefix = f"{metric.split}_"
     if metric.name.startswith(prefix):
@@ -1156,14 +1178,21 @@ def _parser() -> argparse.ArgumentParser:
 def _command_from_args(args: argparse.Namespace) -> tuple[str, ...]:
     command = ["python", "-m", "tools.release.v02_benchmark_readiness"]
     for path in args.metrics_json or ():
-        command.extend(("--metrics-json", str(path)))
+        command.extend(("--metrics-json", _public_safe_identity_path(path)))
     if args.rollout_speed_report is not None:
-        command.extend(("--rollout-speed-report", str(args.rollout_speed_report)))
+        command.extend(
+            ("--rollout-speed-report", _public_safe_identity_path(args.rollout_speed_report))
+        )
     if args.rollout_speed_scope_report is not None:
-        command.extend(("--rollout-speed-scope-report", str(args.rollout_speed_scope_report)))
+        command.extend(
+            (
+                "--rollout-speed-scope-report",
+                _public_safe_identity_path(args.rollout_speed_scope_report),
+            )
+        )
     if args.efficiency_report is not None:
-        command.extend(("--efficiency-report", str(args.efficiency_report)))
-    command.extend(("--output", str(args.output)))
+        command.extend(("--efficiency-report", _public_safe_identity_path(args.efficiency_report)))
+    command.extend(("--output", _public_safe_identity_path(args.output)))
     if args.require_ok:
         command.append("--require-ok")
     if args.require_release_inputs:

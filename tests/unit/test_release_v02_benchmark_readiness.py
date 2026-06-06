@@ -71,6 +71,7 @@ def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
     efficiency = tmp_path / "efficiency_report.json"
+    output = tmp_path / "v0.2_benchmark_readiness_report.json"
     metrics.write_text(
         json.dumps(_metrics_payload([*_binary_metrics("clinvar_coding", baseline=True)])),
         encoding="utf-8",
@@ -82,11 +83,37 @@ def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
         metrics_json=(metrics.resolve(),),
         rollout_speed_report=rollout.resolve(),
         efficiency_report=efficiency.resolve(),
+        command=(
+            "python",
+            "-m",
+            "tools.release.v02_benchmark_readiness",
+            "--metrics-json",
+            str(metrics.resolve()),
+            "--rollout-speed-report",
+            str(rollout.resolve()),
+            "--efficiency-report",
+            str(efficiency.resolve()),
+            "--output",
+            str(output.resolve()),
+        ),
     )
 
     assert report["inputs"]["metrics_json"][0]["path"] == "eval_metrics.json"
     assert report["inputs"]["rollout_speed_report"]["path"] == "rollout.ar_speed.json"
     assert report["inputs"]["efficiency_report"]["path"] == "efficiency_report.json"
+    assert report["command"] == [
+        "python",
+        "-m",
+        "tools.release.v02_benchmark_readiness",
+        "--metrics-json",
+        "eval_metrics.json",
+        "--rollout-speed-report",
+        "rollout.ar_speed.json",
+        "--efficiency-report",
+        "efficiency_report.json",
+        "--output",
+        "v0.2_benchmark_readiness_report.json",
+    ]
     assert str(tmp_path) not in json.dumps(report, sort_keys=True)
 
 
@@ -587,6 +614,7 @@ def test_main_writes_report_and_require_ok_returns_nonzero(tmp_path: Path) -> No
     assert payload["ok"] is False
     assert payload["release_inputs_required"] is True
     assert payload["command"][-1] == "--require-ok"
+    assert str(tmp_path) not in json.dumps(payload["command"], sort_keys=True)
     assert "release_inputs" in payload["missing_or_failed_benchmarks"]
 
 
