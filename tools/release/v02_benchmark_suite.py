@@ -568,9 +568,16 @@ def _readiness_step(
         ),
         "--efficiency-report",
         efficiency_report,
-        "--output",
-        output,
     ]
+    suite_report = readiness.get("suite_report")
+    if suite_report is not None:
+        command.extend(
+            (
+                "--suite-report",
+                _path_text(suite_report, field="readiness.suite_report"),
+            )
+        )
+    command.extend(("--output", output))
     rollout_speed_scope_report = readiness.get("rollout_speed_scope_report")
     if rollout_speed_scope_report is not None:
         command.extend(

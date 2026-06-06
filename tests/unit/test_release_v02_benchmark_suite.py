@@ -70,6 +70,7 @@ def test_build_suite_steps_plans_score_baseline_eval_rollout_and_readiness(
         "tools.release.v02_benchmark_readiness",
     )
     assert "--rollout-speed-scope-report" in commands["readiness.v02"]
+    assert "--suite-report" in commands["readiness.v02"]
     assert "--require-ok" in commands["readiness.v02"]
 
 
@@ -412,6 +413,7 @@ def _manifest_payload() -> dict[str, object]:
             "output_json": "model/v0.2_benchmark_readiness_report.json",
             "rollout_speed_report": "bench/rollout.ar_speed.json",
             "rollout_speed_scope_report": "bench/rollout_speed_scope.json",
+            "suite_report": "model/v0.2_benchmark_suite_report.json",
             "require_ok": True,
             "require_release_inputs": True,
         },

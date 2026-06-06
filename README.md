@@ -344,7 +344,8 @@ the manifest with a package-local path, SHA-256, and size identity rather
 than a build-machine absolute path. Run the final release-input
 readiness command after an executed suite report exists, passing that
 report with `--suite-report`; the first suite execution cannot consume
-the report it is still writing.
+the report it is still writing. A second-pass suite manifest can express
+that final command by setting `readiness.suite_report`.
 For rollout benchmarks, the manifest can optionally include a
 `state_generation` block. When it names `spec_jsonl`, `cache_dir`, and
 `examples_report_json`, the suite first runs

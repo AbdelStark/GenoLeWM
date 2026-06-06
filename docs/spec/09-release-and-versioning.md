@@ -281,7 +281,8 @@ trusted only after their hashes match the fetched manifest.
     release-input readiness command that consumes `--suite-report` MUST
     run after the executed suite report exists; a first suite execution
     MUST NOT treat the suite report it is still writing as validated
-    input evidence.
+    input evidence. A second-pass suite manifest MAY express this final
+    readiness command with `readiness.suite_report`.
     Rollout benchmark entries may include a state-generation step that
     first runs `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
     when the manifest supplies cache-keyed example specs, then runs

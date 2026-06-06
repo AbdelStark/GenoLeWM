@@ -380,7 +380,8 @@ baseline, not a reason to publish stronger model-quality claims.
   replacing the downstream metrics/readiness validators; the suite report
   records the manifest by package-local path plus SHA-256 and size
   identity; final release-input readiness must run after the executed
-  suite report exists and pass it with `--suite-report`;
+  suite report exists and pass it with `--suite-report`; a second-pass
+  suite manifest can express that command with `readiness.suite_report`;
 - `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
   resolves explicit cache keys for measured source, target, and
   candidate latent states into the examples JSONL consumed by
