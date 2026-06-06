@@ -229,9 +229,9 @@ The first paper/demo release is not ready until:
   when present from `eval_metrics.json`;
 - `python -m tools.release.v02_benchmark_suite --manifest ... --output-report ...`
   can plan or execute the v0.2 benchmark commands from a JSON manifest;
-  plan-only reports keep `ok=false`, while execute-mode reports command
-  status and still defer measured claims to generated artifact
-  validators;
+  plan-only reports keep `ok=false`, while execute-mode requires each
+  command to exit successfully and write its declared output files, with
+  measured claims still deferred to generated artifact validators;
 - `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
   resolves explicit cache keys for measured source, target, and
   candidate latent states into examples JSONL;

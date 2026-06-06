@@ -335,8 +335,9 @@ Carbon-baseline scoring, per-benchmark eval, rollout-fidelity metrics,
 aggregate report generation, and the all-up readiness report. Without
 `--execute`, it writes a command plan with `ok=false`; this is not
 measured evidence. With `--execute`, `ok=true` only means every planned
-command completed, and the generated metrics, efficiency, rollout-speed,
-and readiness artifacts must still validate separately.
+command completed and wrote its declared output files; the generated
+metrics, efficiency, rollout-speed, and readiness artifacts must still
+validate separately.
 For rollout benchmarks, the manifest can optionally include a
 `state_generation` block. When it names `spec_jsonl`, `cache_dir`, and
 `examples_report_json`, the suite first runs

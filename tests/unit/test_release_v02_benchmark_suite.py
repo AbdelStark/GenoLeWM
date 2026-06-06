@@ -91,6 +91,9 @@ def test_write_suite_report_execute_runs_steps_in_manifest_directory(tmp_path: P
     manifest = _write_manifest(tmp_path)
     output = tmp_path / "suite_report.json"
     calls: list[tuple[list[str], Path]] = []
+    outputs_by_command = {
+        step.command: step.outputs for step in v02_benchmark_suite.build_suite_steps(manifest)
+    }
 
     def fake_runner(
         args: list[str],
@@ -101,6 +104,10 @@ def test_write_suite_report_execute_runs_steps_in_manifest_directory(tmp_path: P
         check: bool,
     ) -> subprocess.CompletedProcess[str]:
         calls.append((args, cwd))
+        for output_path in outputs_by_command[tuple(args)]:
+            path = cwd / output_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}", encoding="utf-8")
         return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
 
     report = v02_benchmark_suite.write_suite_report(
@@ -115,6 +122,42 @@ def test_write_suite_report_execute_runs_steps_in_manifest_directory(tmp_path: P
     assert len(calls) == 8
     assert all(cwd == tmp_path for _, cwd in calls)
     assert all(step["status"] == "pass" for step in report["steps"])
+
+
+def test_write_suite_report_execute_rejects_missing_declared_outputs(tmp_path: Path) -> None:
+    manifest = _write_manifest(tmp_path)
+    output = tmp_path / "suite_report.json"
+    call_count = 0
+
+    def fake_runner(
+        args: list[str],
+        *,
+        cwd: Path,
+        text: bool,
+        capture_output: bool,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal call_count
+        call_count += 1
+        return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
+
+    report = v02_benchmark_suite.write_suite_report(
+        manifest_path=manifest,
+        output_report=output,
+        execute=True,
+        runner=fake_runner,
+    )
+
+    assert report["ok"] is False
+    assert report["status"] == "failed"
+    assert call_count == 1
+    first_step = report["steps"][0]
+    assert first_step["status"] == "failed"
+    assert first_step["output_findings"] == [
+        "missing declared output eval/clinvar_coding.scores.jsonl",
+    ]
+    statuses = [step["status"] for step in report["steps"]]
+    assert statuses[1:] == ["not_run"] * 7
 
 
 def test_write_suite_report_execute_stops_after_first_failure(tmp_path: Path) -> None:

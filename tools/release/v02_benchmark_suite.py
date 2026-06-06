@@ -4,7 +4,7 @@
 This runner composes existing benchmark-producing commands. It does not
 generate private-data fixtures and a plan-only report is not benchmark
 evidence; ``ok`` is true only after ``--execute`` runs every planned step
-successfully.
+successfully and each step's declared output files exist.
 """
 
 from __future__ import annotations
@@ -177,7 +177,13 @@ def write_suite_report(
             report["stdout_tail"] = _tail_text(completed.stdout)
             report["stderr_tail"] = _tail_text(completed.stderr)
             if completed.returncode == 0:
-                report["status"] = "pass"
+                output_findings = _missing_output_findings(step, root=manifest_path.parent)
+                if output_findings:
+                    report["status"] = "failed"
+                    report["output_findings"] = output_findings
+                    failed = True
+                else:
+                    report["status"] = "pass"
             else:
                 report["status"] = "failed"
                 failed = True
@@ -695,13 +701,23 @@ def _tail_text(value: str | None) -> str:
     return value[-MAX_CAPTURE_CHARS:]
 
 
+def _missing_output_findings(step: SuiteStep, *, root: Path) -> list[str]:
+    return [
+        f"missing declared output {output}"
+        for output in step.outputs
+        if not (root / output).is_file()
+    ]
+
+
 def _negative_findings(*, execute: bool, failed: bool) -> list[str]:
     if not execute:
         return [
             "The benchmark suite was planned but not executed; this is not measured evidence.",
         ]
     if failed:
-        return ["At least one benchmark-suite command failed before the suite completed."]
+        return [
+            "At least one benchmark-suite command failed or omitted a declared output before the suite completed."
+        ]
     return [
         "No suite-runner failures were observed; measured claims still depend on downstream artifact validators.",
     ]

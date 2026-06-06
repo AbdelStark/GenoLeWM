@@ -373,9 +373,9 @@ baseline, not a reason to publish stronger model-quality claims.
 - `python -m tools.release.v02_benchmark_suite --manifest ... --output-report ...`
   writes a package-relative command plan for scoring, Carbon-baseline,
   eval, rollout, aggregate, and readiness commands; without `--execute`
-  the report keeps `ok=false`, and with `--execute` it records command
-  exit status but does not replace the downstream metrics/readiness
-  validators;
+  the report keeps `ok=false`, and with `--execute` it requires each
+  command to exit successfully and write its declared output files but
+  does not replace the downstream metrics/readiness validators;
 - `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
   resolves explicit cache keys for measured source, target, and
   candidate latent states into the examples JSONL consumed by

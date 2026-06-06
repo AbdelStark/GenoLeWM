@@ -270,8 +270,9 @@ trusted only after their hashes match the fetched manifest.
     Carbon-baseline scoring, per-benchmark eval, rollout metrics,
     aggregate report generation, and readiness validation. Plan-only
     suite reports must keep `ok=false`; execute-mode suite reports
-    record command status but do not replace the generated metric,
-    efficiency, rollout-speed, package, or readiness validators.
+    require each command to exit successfully and write its declared
+    output files but do not replace the generated metric, efficiency,
+    rollout-speed, package, or readiness validators.
     Rollout benchmark entries may include a state-generation step that
     first runs `python -m tools.release.rollout_state_examples --spec-jsonl ... --cache-dir ...`
     when the manifest supplies cache-keyed example specs, then runs
