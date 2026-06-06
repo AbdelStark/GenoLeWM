@@ -35,7 +35,7 @@ if nn is None:
 
 
 else:  # pragma: no cover - optional torch runtime is validated outside base CI.
-    _NO_GRAD = cast(Callable[[_F], _F], torch.no_grad())
+    _INFERENCE_MODE = cast(Callable[[_F], _F], torch.inference_mode())
 
     class ARPredictor(nn.Module):  # type: ignore[no-redef,misc]
         """Inference-time autoregressive rollout over a base ``Predictor``.
@@ -57,7 +57,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             self.d_action = _required_positive_int(predictor, "d_action")
             self.max_actions = _required_positive_int(predictor, "max_actions")
 
-        @_NO_GRAD
+        @_INFERENCE_MODE
         def rollout(
             self,
             state: Tensor,
@@ -66,18 +66,75 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
         ) -> tuple[Tensor, ...]:
             """Return one predicted state per autoregressive action step."""
             actions = self._normalize_actions(action_sequence)
-            mask = self._normalize_mask(actions, action_mask)
             self._validate_state(state, actions)
 
             current = state
             outputs: list[Tensor] = []
             call_mask = torch.ones((actions.shape[0], 1), dtype=torch.bool, device=actions.device)
             action_tokens = self._cached_action_tokens(actions)
+            action_cache = (
+                self._cached_rollout_action_cache(action_tokens) if action_mask is None else None
+            )
             upcast_output_mlp = actions.shape[1] > 20
+            if action_mask is None:
+                if action_tokens is None:
+                    for step in range(actions.shape[1]):
+                        prediction = self.predictor(
+                            current,
+                            actions[:, step : step + 1, :],
+                            call_mask,
+                        )
+                        current = prediction[:, 0, :]
+                        outputs.append(current)
+                    return tuple(outputs)
+
+                one_step_unmasked = getattr(
+                    self.predictor,
+                    "_forward_one_step_unmasked_from_action_token",
+                    None,
+                )
+                select_action_cache = getattr(
+                    self.predictor,
+                    "_slice_rollout_action_cache",
+                    None,
+                )
+                if callable(one_step_unmasked):
+                    for step in range(actions.shape[1]):
+                        step_cache = (
+                            select_action_cache(action_cache, step)
+                            if action_cache is not None and callable(select_action_cache)
+                            else None
+                        )
+                        prediction = one_step_unmasked(
+                            current,
+                            action_tokens[:, step, :],
+                            step_cache,
+                            upcast_output_mlp=upcast_output_mlp,
+                        )
+                        current = prediction[:, 0, :]
+                        outputs.append(current)
+                    return tuple(outputs)
+
+                for step in range(actions.shape[1]):
+                    prediction = self.predictor._forward_one_step_from_action_token(
+                        current,
+                        action_tokens[:, step, :],
+                        call_mask,
+                        upcast_output_mlp=upcast_output_mlp,
+                    )
+                    current = prediction[:, 0, :]
+                    outputs.append(current)
+                return tuple(outputs)
+
+            mask = self._normalize_mask(actions, action_mask)
             for step in range(actions.shape[1]):
                 active = mask[:, step].unsqueeze(-1)
                 if action_tokens is None:
-                    prediction = self.predictor(current, actions[:, step : step + 1, :], call_mask)
+                    prediction = self.predictor(
+                        current,
+                        actions[:, step : step + 1, :],
+                        call_mask,
+                    )
                 else:
                     prediction = self.predictor._forward_one_step_from_action_token(
                         current,
@@ -90,7 +147,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                 outputs.append(torch.where(active, next_state, torch.zeros_like(next_state)))
             return tuple(outputs)
 
-        @_NO_GRAD
+        @_INFERENCE_MODE
         def rollout_tensor(
             self,
             state: Tensor,
@@ -100,7 +157,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             """Return autoregressive rollout as ``(batch, steps, d_state)``."""
             return torch.stack(self.rollout(state, action_sequence, action_mask), dim=1)
 
-        @_NO_GRAD
+        @_INFERENCE_MODE
         def predict_single(self, state: Tensor, action: Tensor) -> Tensor:
             """Return the one-step predicted state for ``action``."""
             actions = self._normalize_actions(action.unsqueeze(1) if action.ndim == 2 else action)
@@ -111,7 +168,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                 )
             return self.rollout(state, actions)[0]
 
-        @_NO_GRAD
+        @_INFERENCE_MODE
         def predict_trajectory(
             self,
             state: Tensor,
@@ -121,7 +178,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             """Alias for :meth:`rollout` matching RFC-0004 terminology."""
             return self.rollout(state, action_sequence, action_mask)
 
-        @_NO_GRAD
+        @_INFERENCE_MODE
         def predict_haplotype(
             self,
             state: Tensor,
@@ -233,6 +290,14 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             if not callable(encode) or not callable(step):
                 return None
             return encode(actions)
+
+        def _cached_rollout_action_cache(self, action_tokens: Tensor | None) -> Any:
+            if action_tokens is None:
+                return None
+            encode = getattr(self.predictor, "_precompute_rollout_action_cache", None)
+            if not callable(encode):
+                return None
+            return encode(action_tokens)
 
 
 def _required_positive_int(obj: object, name: str) -> int:

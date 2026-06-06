@@ -214,6 +214,49 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             action_tokens = action_tokens + self.step_position_embedding(action_positions)
             return action_tokens
 
+        def _precompute_rollout_action_cache(
+            self,
+            action_tokens: Tensor,
+        ) -> tuple[Tensor | None, tuple[Tensor, Tensor, Tensor] | None] | None:
+            first_state_attention = None
+            first_action_attention = None
+            if self.cross_blocks:
+                precompute_state = getattr(
+                    self.cross_blocks[0],
+                    "precompute_one_step_state_attention",
+                    None,
+                )
+                if callable(precompute_state):
+                    first_state_attention = precompute_state(action_tokens)
+            if len(self.cross_blocks) > 1:
+                precompute_action = getattr(
+                    self.cross_blocks[1],
+                    "precompute_one_step_action_attention",
+                    None,
+                )
+                if callable(precompute_action):
+                    first_action_attention = precompute_action(action_tokens)
+            if first_state_attention is None and first_action_attention is None:
+                return None
+            return first_state_attention, first_action_attention
+
+        def _slice_rollout_action_cache(
+            self,
+            action_cache: tuple[Tensor | None, tuple[Tensor, Tensor, Tensor] | None],
+            step: int,
+        ) -> tuple[Tensor | None, tuple[Tensor, Tensor, Tensor] | None]:
+            first_state_attention, first_action_attention = action_cache
+            return (
+                None if first_state_attention is None else first_state_attention[:, step, :],
+                None
+                if first_action_attention is None
+                else (
+                    first_action_attention[0][:, step : step + 1, :],
+                    first_action_attention[1][:, step : step + 1, :],
+                    first_action_attention[2][:, step : step + 1, :],
+                ),
+            )
+
         def _forward_one_step_from_action_token(
             self,
             state: Tensor,
@@ -222,14 +265,74 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             *,
             upcast_output_mlp: bool = False,
         ) -> Tensor:
-            action_tokens = action_token.unsqueeze(1)
-            return self._predict_from_tokens(
+            if not torch.all(action_mask):
+                return self._predict_from_tokens(
+                    state,
+                    self._encode_state_token(state),
+                    action_token.unsqueeze(1),
+                    action_mask,
+                    upcast_output_mlp=upcast_output_mlp,
+                )
+            return self._forward_one_step_unmasked_from_action_token(
                 state,
-                self._encode_state_token(state),
-                action_tokens,
-                action_mask,
+                action_token,
                 upcast_output_mlp=upcast_output_mlp,
             )
+
+        def _forward_one_step_unmasked_from_action_token(
+            self,
+            state: Tensor,
+            action_token: Tensor,
+            action_cache: tuple[Tensor | None, tuple[Tensor, Tensor, Tensor] | None] | None = None,
+            *,
+            upcast_output_mlp: bool = False,
+        ) -> Tensor:
+            first_state_attention = None
+            first_action_attention = None
+            if action_cache is not None:
+                first_state_attention, first_action_attention = action_cache
+            action_tokens = action_token.unsqueeze(1)
+            state_token = self._encode_state_token(state)
+            for block_index, block in enumerate(self.cross_blocks):
+                if block_index == 0 and first_state_attention is not None:
+                    state_token, action_tokens = block.forward_one_step_from_state_attention(
+                        state_token,
+                        action_tokens,
+                        first_state_attention.unsqueeze(1),
+                    )
+                elif block_index == 1 and first_action_attention is not None:
+                    state_token, action_tokens = block.forward_one_step_from_action_attention(
+                        state_token,
+                        action_tokens,
+                        first_action_attention,
+                    )
+                else:
+                    state_token, action_tokens = block.forward_one_step(state_token, action_tokens)
+
+            tokens = torch.cat((state_token, action_tokens), dim=1)
+            for block in self.self_blocks[:-1]:
+                tokens = block.forward_one_step(tokens)
+            if self.self_blocks:
+                action_output = self.self_blocks[-1].forward_one_step_action_only(tokens)
+            else:
+                action_output = action_tokens
+
+            delta = self._output_delta(action_output, upcast_output_mlp=upcast_output_mlp)
+            if upcast_output_mlp:
+                prediction = functional.normalize(
+                    state.unsqueeze(1).float() + delta,
+                    p=2.0,
+                    dim=-1,
+                    eps=1.0e-12,
+                )
+            else:
+                prediction = functional.normalize(
+                    state.unsqueeze(1) + delta,
+                    p=2.0,
+                    dim=-1,
+                    eps=1.0e-12,
+                )
+            return prediction
 
         def _predict_from_tokens(
             self,
@@ -397,6 +500,35 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             state_token = state_token + self.ffn(self.ffn_norm(state_token))
             return state_token, action_tokens
 
+        def forward_one_step(
+            self,
+            state_token: Tensor,
+            action_tokens: Tensor,
+        ) -> tuple[Tensor, Tensor]:
+            attended = _mha_single_key_value_only(
+                self.attn,
+                self.attn_norm(action_tokens),
+            )
+            state_token = state_token + attended
+            state_token = state_token + self.ffn(self.ffn_norm(state_token))
+            return state_token, action_tokens
+
+        def precompute_one_step_state_attention(self, action_tokens: Tensor) -> Tensor:
+            return _mha_single_key_value_only(
+                self.attn,
+                self.attn_norm(action_tokens),
+            )
+
+        def forward_one_step_from_state_attention(
+            self,
+            state_token: Tensor,
+            action_tokens: Tensor,
+            attended: Tensor,
+        ) -> tuple[Tensor, Tensor]:
+            state_token = state_token + attended
+            state_token = state_token + self.ffn(self.ffn_norm(state_token))
+            return state_token, action_tokens
+
     class _ActionToStateCrossBlock(nn.Module):  # type: ignore[misc]
         def __init__(self, *, d_hidden: int, n_heads: int, ffn_dim: int) -> None:
             super().__init__()
@@ -441,6 +573,50 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             action_tokens = torch.where(action_mask.unsqueeze(-1), updated, action_tokens)
             return state_token, action_tokens
 
+        def forward_one_step(
+            self,
+            state_token: Tensor,
+            action_tokens: Tensor,
+        ) -> tuple[Tensor, Tensor]:
+            memory = torch.cat((state_token, action_tokens), dim=1)
+            attended = _mha_no_mask(
+                self.attn,
+                self.query_norm(action_tokens),
+                self.memory_norm(memory),
+            )
+            action_tokens = action_tokens + attended
+            action_tokens = action_tokens + self.ffn(self.ffn_norm(action_tokens))
+            return state_token, action_tokens
+
+        def precompute_one_step_action_attention(
+            self,
+            action_tokens: Tensor,
+        ) -> tuple[Tensor, Tensor, Tensor]:
+            query = self.query_norm(action_tokens)
+            memory = self.memory_norm(action_tokens)
+            return _mha_project_qkv(self.attn, query, memory)
+
+        def forward_one_step_from_action_attention(
+            self,
+            state_token: Tensor,
+            action_tokens: Tensor,
+            action_attention: tuple[Tensor, Tensor, Tensor],
+        ) -> tuple[Tensor, Tensor]:
+            key_state_proj, value_state_proj = _mha_project_kv(
+                self.attn,
+                self.memory_norm(state_token),
+            )
+            query_proj, key_action_proj, value_action_proj = action_attention
+            attended = _mha_no_mask_from_projected(
+                self.attn,
+                query_proj,
+                torch.cat((key_state_proj, key_action_proj), dim=1),
+                torch.cat((value_state_proj, value_action_proj), dim=1),
+            )
+            action_tokens = action_tokens + attended
+            action_tokens = action_tokens + self.ffn(self.ffn_norm(action_tokens))
+            return state_token, action_tokens
+
     class _SelfAttentionBlock(nn.Module):  # type: ignore[misc]
         def __init__(self, *, d_hidden: int, n_heads: int, ffn_dim: int) -> None:
             super().__init__()
@@ -466,6 +642,28 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             tokens = tokens + self.ffn(self.ffn_norm(tokens))
             return tokens
 
+        def forward_one_step(self, tokens: Tensor) -> Tensor:
+            attended = _mha_no_mask(
+                self.attn,
+                self.attn_norm(tokens),
+                self.attn_norm(tokens),
+            )
+            tokens = tokens + attended
+            tokens = tokens + self.ffn(self.ffn_norm(tokens))
+            return tokens
+
+        def forward_one_step_action_only(self, tokens: Tensor) -> Tensor:
+            normalized = self.attn_norm(tokens)
+            action_tokens = tokens[:, 1:, :]
+            attended = _mha_no_mask(
+                self.attn,
+                normalized[:, 1:, :],
+                normalized,
+            )
+            action_tokens = action_tokens + attended
+            action_tokens = action_tokens + self.ffn(self.ffn_norm(action_tokens))
+            return action_tokens
+
     class _FeedForward(nn.Module):  # type: ignore[misc]
         def __init__(self, *, d_hidden: int, ffn_dim: int) -> None:
             super().__init__()
@@ -484,6 +682,105 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
         for step in range(steps):
             mask[step, 1 : step + 2] = False
         return mask
+
+    def _mha_single_key_value_only(attn: nn.MultiheadAttention, key_value: Tensor) -> Tensor:
+        embed_dim = key_value.shape[-1]
+        value_weight = attn.in_proj_weight[2 * embed_dim :, :]
+        value_bias = None if attn.in_proj_bias is None else attn.in_proj_bias[2 * embed_dim :]
+        value = functional.linear(key_value, value_weight, value_bias)
+        return attn.out_proj(value)
+
+    def _mha_no_mask(
+        attn: nn.MultiheadAttention,
+        query: Tensor,
+        key_value: Tensor,
+    ) -> Tensor:
+        query_proj, key_proj, value_proj = _mha_project_qkv(attn, query, key_value)
+        return _mha_no_mask_from_projected(attn, query_proj, key_proj, value_proj)
+
+    def _mha_project_qkv(
+        attn: nn.MultiheadAttention,
+        query: Tensor,
+        key_value: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        embed_dim = query.shape[-1]
+        in_bias = attn.in_proj_bias
+        query_proj = functional.linear(
+            query,
+            attn.in_proj_weight[:embed_dim, :],
+            None if in_bias is None else in_bias[:embed_dim],
+        )
+        key_proj = functional.linear(
+            key_value,
+            attn.in_proj_weight[embed_dim : 2 * embed_dim, :],
+            None if in_bias is None else in_bias[embed_dim : 2 * embed_dim],
+        )
+        value_proj = functional.linear(
+            key_value,
+            attn.in_proj_weight[2 * embed_dim :, :],
+            None if in_bias is None else in_bias[2 * embed_dim :],
+        )
+        return query_proj, key_proj, value_proj
+
+    def _mha_project_kv(
+        attn: nn.MultiheadAttention,
+        key_value: Tensor,
+    ) -> tuple[Tensor, Tensor]:
+        embed_dim = key_value.shape[-1]
+        in_bias = attn.in_proj_bias
+        key_proj = functional.linear(
+            key_value,
+            attn.in_proj_weight[embed_dim : 2 * embed_dim, :],
+            None if in_bias is None else in_bias[embed_dim : 2 * embed_dim],
+        )
+        value_proj = functional.linear(
+            key_value,
+            attn.in_proj_weight[2 * embed_dim :, :],
+            None if in_bias is None else in_bias[2 * embed_dim :],
+        )
+        return key_proj, value_proj
+
+    def _mha_no_mask_from_projected(
+        attn: nn.MultiheadAttention,
+        query_proj: Tensor,
+        key_proj: Tensor,
+        value_proj: Tensor,
+    ) -> Tensor:
+        embed_dim = query_proj.shape[-1]
+        head_count = attn.num_heads
+        head_dim = embed_dim // head_count
+        batch_size = query_proj.shape[0]
+        query_heads = query_proj.view(
+            batch_size,
+            query_proj.shape[1],
+            head_count,
+            head_dim,
+        ).transpose(1, 2)
+        key_heads = key_proj.view(batch_size, key_proj.shape[1], head_count, head_dim).transpose(
+            1, 2
+        )
+        value_heads = value_proj.view(
+            batch_size,
+            value_proj.shape[1],
+            head_count,
+            head_dim,
+        ).transpose(1, 2)
+        attended = functional.scaled_dot_product_attention(
+            query_heads,
+            key_heads,
+            value_heads,
+            dropout_p=0.0,
+        )
+        attended = (
+            attended.transpose(1, 2)
+            .contiguous()
+            .view(
+                batch_size,
+                query_proj.shape[1],
+                embed_dim,
+            )
+        )
+        return attn.out_proj(attended)
 
     def _require_positive(name: str, value: int) -> None:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:

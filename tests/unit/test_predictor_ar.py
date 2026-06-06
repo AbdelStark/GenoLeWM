@@ -96,17 +96,26 @@ def test_ar_rollout_reuses_cached_action_projection() -> None:
         current = pred
 
     calls = 0
+    cache_calls = 0
     original_forward = predictor.action_projection.forward
+    original_cache = predictor._precompute_rollout_action_cache
 
     def counted_forward(input_tensor: torch.Tensor) -> torch.Tensor:
         nonlocal calls
         calls += 1
         return original_forward(input_tensor)
 
+    def counted_cache(action_tokens: torch.Tensor) -> object:
+        nonlocal cache_calls
+        cache_calls += 1
+        return original_cache(action_tokens)
+
     predictor.action_projection.forward = counted_forward  # type: ignore[method-assign]
+    predictor._precompute_rollout_action_cache = counted_cache  # type: ignore[method-assign]
     observed = ARPredictor(predictor).rollout_tensor(state, actions)
 
     assert calls == 1
+    assert cache_calls == 1
     torch.testing.assert_close(
         observed,
         torch.stack(expected, dim=1),
