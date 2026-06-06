@@ -239,6 +239,12 @@ trusted only after their hashes match the fetched manifest.
 14. For model/demo releases: stage the aggregate measured metrics as
     `<model-dir>/eval_metrics.json` and generate `eval_report.md` with
     `geno-lewm-eval-all --metrics-json ... --output-metrics ... --output-report ...`.
+    For v0.2 benchmark-readiness candidates, pass
+    `--require-v02-vep-metrics` so aggregation fails before writing
+    `eval_metrics.json` or `eval_report.md` when coding/non-coding
+    ClinVar, BRCA2 saturation, or TraitGym Mendelian VEP rows are
+    missing required Carbon-baseline deltas, confidence intervals, or
+    evaluated variant-key identities.
     The metrics payload must carry `generated_by=geno-lewm-eval` or
     `generated_by=geno-lewm-eval-all`; the report renderer must reject
     other generator labels and conclusions that do not explicitly

@@ -193,6 +193,46 @@ def write_readiness_report(
     return report
 
 
+def v02_vep_benchmark_metric_findings(
+    reports: tuple[EvalReportInput, ...],
+) -> list[dict[str, object]]:
+    """Return missing/incomplete v0.2 VEP metric rows for measured eval reports."""
+    metric_rows = tuple(metric for report in reports for metric in report.metrics)
+    findings: list[dict[str, object]] = []
+    for requirement in VEP_REQUIREMENTS:
+        row = _benchmark_row(requirement, metric_rows)
+        if row["status"] == "pass":
+            continue
+        findings.append(
+            {
+                "benchmark_id": row["benchmark_id"],
+                "split": row["split"],
+                "status": row["status"],
+                "missing_metrics": row["missing_metrics"],
+                "missing_confidence_intervals": row["missing_confidence_intervals"],
+                "required_baseline": row["required_baseline"],
+                "baseline_observed": row["baseline_observed"],
+                "issue_refs": row["issue_refs"],
+            }
+        )
+    return findings
+
+
+def require_v02_vep_benchmark_metrics(reports: tuple[EvalReportInput, ...]) -> None:
+    """Require the measured VEP metric rows needed before a v0.2 readiness report."""
+    findings = v02_vep_benchmark_metric_findings(reports)
+    if findings:
+        raise InputError(
+            "v0.2 VEP benchmark metric coverage is incomplete",
+            details={"findings": findings},
+            remediation=(
+                "aggregate measured coding/non-coding ClinVar, BRCA2 saturation, "
+                "and TraitGym Mendelian metrics with Carbon baseline deltas, confidence "
+                "intervals, and evaluated variant-key identities"
+            ),
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)

@@ -24,6 +24,7 @@ from tools.release.eval_report import (
     parse_report_input,
     render_report,
 )
+from tools.release.v02_benchmark_readiness import require_v02_vep_benchmark_metrics
 
 __all__ = ["app", "cli_main"]
 
@@ -62,6 +63,13 @@ def main(
             help="Destination for the rendered eval_report.md.",
         ),
     ] = None,
+    require_v02_vep_metrics: Annotated[
+        bool,
+        typer.Option(
+            "--require-v02-vep-metrics",
+            help=("Fail unless the aggregate contains the v0.2 VEP metric rows required by #197."),
+        ),
+    ] = False,
     config: Annotated[str | None, _S["config"]] = None,
     set_overrides: Annotated[list[str] | None, _S["set_overrides"]] = None,
     seed: Annotated[int | None, _S["seed"]] = None,
@@ -112,6 +120,8 @@ def main(
         artifact_base_dir=metrics_output.parent,
     )
     aggregate_input = parse_report_input(aggregate_payload)
+    if require_v02_vep_metrics:
+        require_v02_vep_benchmark_metrics((aggregate_input,))
     rendered = render_report(aggregate_input)
     metrics_output.parent.mkdir(parents=True, exist_ok=True)
     report_output.parent.mkdir(parents=True, exist_ok=True)

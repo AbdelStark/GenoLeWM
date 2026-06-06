@@ -129,6 +129,74 @@ def test_eval_all_records_effective_config_overrides(
     assert "smoke_variants: 123" in text
 
 
+def test_eval_all_require_v02_vep_metrics_rejects_incomplete_aggregate(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    metrics = tmp_path / "metrics.json"
+    output_metrics = tmp_path / "aggregate.metrics.json"
+    output_report = tmp_path / "eval_report.md"
+    metrics.write_text(json.dumps(_payload("clinvar_coding", "auroc", 0.73)), encoding="utf-8")
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--metrics-json",
+            str(metrics),
+            "--output-metrics",
+            str(output_metrics),
+            "--output-report",
+            str(output_report),
+            "--require-v02-vep-metrics",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert "v0.2 VEP benchmark metric coverage is incomplete" in captured.err
+    assert not output_metrics.exists()
+    assert not output_report.exists()
+
+
+def test_eval_all_require_v02_vep_metrics_accepts_required_metric_rows(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    metrics = tmp_path / "metrics.json"
+    output_metrics = tmp_path / "aggregate.metrics.json"
+    output_report = tmp_path / "eval_report.md"
+    metrics.write_text(json.dumps(_v02_vep_payload()), encoding="utf-8")
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--metrics-json",
+            str(metrics),
+            "--output-metrics",
+            str(output_metrics),
+            "--output-report",
+            str(output_report),
+            "--require-v02-vep-metrics",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    summary = json.loads(captured.out)
+    assert summary["metrics"] == 10
+    aggregate = load_report_input(output_metrics)
+    assert len(aggregate.metrics) == 10
+    artifacts = dict(aggregate.artifacts)
+    assert artifacts["input_1.baseline_scores"] == "eval/carbon_zero_shot_scores.jsonl"
+    report = output_report.read_text(encoding="utf-8")
+    assert "brca2" in report
+    assert "traitgym_mendelian" in report
+
+
 def test_eval_all_rejects_mismatched_release_identity(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -269,3 +337,57 @@ def _payload(split: str, metric_name: str, value: float) -> dict[str, object]:
             ),
         ],
     }
+
+
+def _v02_vep_payload() -> dict[str, object]:
+    payload = _payload("clinvar_coding", "auroc", 0.73)
+    metrics = [
+        *_binary_metrics("clinvar_coding"),
+        *_binary_metrics("clinvar_noncoding"),
+        _baseline_metric("brca2", "spearman_rho", 0.61),
+        _baseline_metric("traitgym_mendelian", "spearman_rho", 0.44),
+    ]
+    payload["metrics"] = metrics
+    payload["generated_at"] = "2026-06-01T00:02:00Z"
+    artifacts = payload["artifacts"]
+    assert isinstance(artifacts, dict)
+    artifacts["baseline_scores"] = "eval/carbon_zero_shot_scores.jsonl"
+    payload["conclusions"] = [
+        (
+            f"The {metric['name']} metric value {metric['value']:.6g} on "
+            f"{metric['split']} was evaluated from measured score artifacts "
+            f"with delta {metric['delta_vs_baseline']:.6g} versus carbon_zero_shot."
+        )
+        for metric in metrics
+    ]
+    return payload
+
+
+def _binary_metrics(split: str) -> list[dict[str, object]]:
+    return [
+        _baseline_metric(split, "auroc", 0.73),
+        _baseline_metric(split, "average_precision", 0.71),
+        _baseline_metric(split, "balanced_accuracy", 0.69),
+        _baseline_metric(split, "accuracy", 0.68),
+    ]
+
+
+def _baseline_metric(split: str, metric_name: str, value: float) -> dict[str, object]:
+    variant_hash = sha256_bytes(f"{split}-{metric_name}-variant-keys".encode())
+    metric = {
+        "name": metric_name,
+        "value": value,
+        "split": split,
+        "unit": "score",
+        "higher_is_better": True,
+        "baseline": "carbon_zero_shot",
+        "baseline_value": value - 0.01,
+        "delta_vs_baseline": 0.01,
+        "ci_low": max(0.0, value - 0.05),
+        "ci_high": min(1.0, value + 0.05),
+        "n": 1200,
+        "notes": f"held-out {split} variants",
+        "evaluated_variant_keys_sha256": variant_hash,
+        "baseline_evaluated_variant_keys_sha256": variant_hash,
+    }
+    return metric

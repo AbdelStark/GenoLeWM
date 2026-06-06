@@ -341,6 +341,14 @@ report is expected to remain `ok=false` until the broader benchmark suite and
 [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target
 pass from measured artifacts.
 
+Before building the all-up readiness report, use
+`geno-lewm-eval-all --require-v02-vep-metrics` to fail the aggregate
+metrics refresh when coding/non-coding ClinVar, BRCA2 saturation, or
+TraitGym Mendelian VEP rows are missing required Carbon-baseline deltas,
+confidence intervals, or evaluated variant-key identities. This is only
+an aggregate coverage gate; efficiency, rollout speed, and release-input
+provenance still belong to `tools.release.v02_benchmark_readiness`.
+
 - audit data issues #49, #50, #51, and #52 against the actual v0.1
   pipeline and turn remaining deltas into narrower v0.2 work;
 - run broader coding/non-coding held-out benchmarks with measured
