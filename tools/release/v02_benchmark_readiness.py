@@ -637,8 +637,8 @@ def _load_rollout_speed_scope_decision(
         "decision": decision,
         "status": status,
         "accepted_by": _required_text(payload, "accepted_by"),
-        "accepted_at": _required_text(payload, "accepted_at"),
-        "decision_url": _required_text(payload, "decision_url"),
+        "accepted_at": _require_utc_timestamp(payload.get("accepted_at"), "accepted_at"),
+        "decision_url": _require_url(payload.get("decision_url"), "decision_url"),
         "rationale": _required_text(payload, "rationale"),
         "replacement_target": _required_text(payload, "replacement_target"),
         "issue_refs": raw_issue_refs,
@@ -1145,6 +1145,30 @@ def _required_text(raw: dict[str, object], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise InputError(f"{field} must be a non-empty string")
     return value.strip()
+
+
+def _require_text_value(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise InputError(f"{field} must be a non-empty string")
+    return value.strip()
+
+
+def _require_url(value: object, field: str) -> str:
+    text = _require_text_value(value, field)
+    if not text.startswith(("https://", "http://")):
+        raise InputError(f"{field} must be an HTTP(S) URL")
+    return text
+
+
+def _require_utc_timestamp(value: object, field: str) -> str:
+    text = _require_text_value(value, field)
+    if not text.endswith("Z"):
+        raise InputError(f"{field} must be a UTC timestamp ending in Z")
+    try:
+        datetime.fromisoformat(text.removesuffix("Z") + "+00:00")
+    except ValueError as exc:
+        raise InputError(f"{field} must be an ISO-8601 UTC timestamp") from exc
+    return text
 
 
 def _required_text_list(raw: object, label: str) -> list[str]:
