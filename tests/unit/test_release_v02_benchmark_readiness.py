@@ -65,6 +65,31 @@ def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
     assert report["inputs"]["metrics_json"][0]["sha256"].startswith("sha256:")
 
 
+def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
+    tmp_path: Path,
+) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    metrics.write_text(
+        json.dumps(_metrics_payload([*_binary_metrics("clinvar_coding", baseline=True)])),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(json.dumps(_efficiency_payload()), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics.resolve(),),
+        rollout_speed_report=rollout.resolve(),
+        efficiency_report=efficiency.resolve(),
+    )
+
+    assert report["inputs"]["metrics_json"][0]["path"] == "eval_metrics.json"
+    assert report["inputs"]["rollout_speed_report"]["path"] == "rollout.ar_speed.json"
+    assert report["inputs"]["efficiency_report"]["path"] == "efficiency_report.json"
+    assert str(tmp_path) not in json.dumps(report, sort_keys=True)
+
+
 def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -> None:
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"

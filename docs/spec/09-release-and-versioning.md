@@ -292,6 +292,9 @@ trusted only after their hashes match the fetched manifest.
     readiness, `geno-lewm-rollout` must record package-relative
     `rollout_state_examples_report` and `rollout_state_rows_report`
     artifacts.
+    Readiness input artifact identities must use public-safe paths plus
+    SHA-256 and size so caller-supplied absolute CLI paths do not enter
+    release reports.
     If the RFC-0004 AR rollout speed target is not met and the project
     explicitly accepts a re-scope in #42/#197, generate
     `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`

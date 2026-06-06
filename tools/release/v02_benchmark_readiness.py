@@ -890,10 +890,16 @@ def _file_identity(path: Path) -> dict[str, object]:
     if not path.is_file():
         raise InputError("readiness input artifact does not exist", details={"path": str(path)})
     return {
-        "path": str(path),
+        "path": _public_safe_identity_path(path),
         "sha256": sha256_file(path),
         "size_bytes": path.stat().st_size,
     }
+
+
+def _public_safe_identity_path(path: Path) -> str:
+    if path.is_absolute():
+        return path.name
+    return path.as_posix()
 
 
 def _normalized_metric_name(metric: MetricResult) -> str:
