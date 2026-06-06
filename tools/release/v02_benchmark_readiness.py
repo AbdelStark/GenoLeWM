@@ -1057,6 +1057,8 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
                 conclusion += f" Accepted re-scope: {scope_decision}."
             conclusions.append(conclusion)
         else:
+            context = _format_row_context(row)
+            details = _format_nonpassing_details(row)
             raw_issue_refs = row.get("issue_refs")
             issue_refs = (
                 ", ".join(raw_issue_refs)
@@ -1064,9 +1066,13 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
                 and all(isinstance(ref, str) for ref in raw_issue_refs)
                 else ""
             )
-            conclusions.append(
-                f"{benchmark} is {status}; route remaining work through {issue_refs}."
-            )
+            conclusion = f"{benchmark} is {status}"
+            if context:
+                conclusion += f" ({context})"
+            if details:
+                conclusion += f": {details}"
+            conclusion += f"; route remaining work through {issue_refs}."
+            conclusions.append(conclusion)
     return conclusions
 
 
@@ -1155,6 +1161,40 @@ def _format_text_list(raw: object) -> str:
         return ""
     values = [value for value in raw if isinstance(value, str) and value]
     return "; ".join(values)
+
+
+def _format_comma_text_list(raw: object) -> str:
+    if not isinstance(raw, list) or not raw:
+        return ""
+    values = [value for value in raw if isinstance(value, str) and value]
+    return ", ".join(values)
+
+
+def _format_nonpassing_details(row: dict[str, object]) -> str:
+    parts: list[str] = []
+    values = _format_metric_values(row.get("observed_values"))
+    if values:
+        parts.append(f"observed_values={values}")
+    missing_metrics = _format_comma_text_list(row.get("missing_metrics"))
+    if missing_metrics:
+        parts.append(f"missing_metrics={missing_metrics}")
+    missing_intervals = _format_comma_text_list(row.get("missing_confidence_intervals"))
+    if missing_intervals:
+        parts.append(f"missing_confidence_intervals={missing_intervals}")
+    required_baseline = row.get("required_baseline")
+    if (
+        isinstance(required_baseline, str)
+        and required_baseline
+        and row.get("baseline_observed") is False
+    ):
+        parts.append(f"required_baseline={required_baseline} missing")
+    failed_targets = _format_text_list(row.get("failed_targets"))
+    if failed_targets:
+        parts.append(f"failed_targets={failed_targets}")
+    findings = _format_text_list(row.get("findings"))
+    if findings:
+        parts.append(f"findings={findings}")
+    return "; ".join(parts)
 
 
 def _format_scope_decision(raw: object) -> str:

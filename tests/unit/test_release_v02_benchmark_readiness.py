@@ -63,6 +63,15 @@ def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
     assert "ar_rollout_speed" in report["missing_or_failed_benchmarks"]
     assert report["negative_findings"]
     assert report["inputs"]["metrics_json"][0]["sha256"].startswith("sha256:")
+    conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
+    assert "clinvar_noncoding is missing" in conclusions
+    assert "track=variant_effect_prediction, split=clinvar_noncoding" in conclusions
+    assert "missing_metrics=auroc, average_precision, balanced_accuracy, accuracy" in conclusions
+    assert "required_baseline=carbon_zero_shot missing" in conclusions
+    assert "ar_rollout_speed is failed" in conclusions
+    assert "observed_values=k5_speedup=1.5" in conclusions
+    assert "missing_metrics=k20_speedup" in conclusions
+    assert "failed_targets=K=5: 1.5x < 2x; report ok=false" in conclusions
 
 
 def test_readiness_report_input_identities_are_public_safe_for_absolute_paths(
@@ -712,6 +721,9 @@ def test_vep_rows_require_confidence_intervals(tmp_path: Path) -> None:
     assert rows["clinvar_coding"]["missing_confidence_intervals"] == ["auroc"]
     assert "auroc" not in rows["clinvar_coding"]["confidence_intervals"]
     assert "clinvar_coding" in report["missing_or_failed_benchmarks"]
+    conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
+    assert "clinvar_coding is incomplete" in conclusions
+    assert "missing_confidence_intervals=auroc" in conclusions
 
 
 def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) -> None:
@@ -799,6 +811,12 @@ def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
     assert "release_inputs" in report["missing_or_failed_benchmarks"]
     findings = "\n".join(rows["release_inputs"]["findings"])
     assert "readiness evidence" in findings
+    conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
+    assert "release_inputs is failed" in conclusions
+    assert (
+        "findings=metrics_json[1].dataset_snapshot must not look like fixture/test/readiness evidence"
+        in conclusions
+    )
 
 
 def test_release_inputs_row_accepts_aggregate_metrics_input_artifacts(

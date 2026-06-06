@@ -300,7 +300,10 @@ trusted only after their hashes match the fetched manifest.
     context, limitations, and sanitized efficiency command provenance.
     Metric conclusions MUST include split/track context, measured values,
     baseline deltas, confidence intervals, and evaluated variant-key
-    identities when those fields are available.
+    identities when those fields are available. Non-passing metric
+    conclusions MUST include missing metrics, missing confidence
+    intervals, baseline gaps, failed targets, or release-input findings
+    when those fields are present.
     If the RFC-0004 AR rollout speed target is not met and the project
     explicitly accepts a re-scope in #42/#197, generate
     `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
