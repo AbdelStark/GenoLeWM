@@ -86,8 +86,12 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             )
             state_token_bias = self._cached_state_token_bias(state)
             upcast_output_mlp = actions.shape[1] > 20
+            output_dtype = torch.float32 if upcast_output_mlp else state.dtype
+            outputs = state.new_empty(
+                (actions.shape[0], actions.shape[1], self.d_state),
+                dtype=output_dtype,
+            )
             if action_mask is None:
-                outputs: list[Tensor] = []
                 if action_tokens is None:
                     for step in range(actions.shape[1]):
                         prediction = self.predictor(
@@ -96,8 +100,8 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                             call_mask,
                         )
                         current = prediction[:, 0, :]
-                        outputs.append(current)
-                    return torch.stack(outputs, dim=1)
+                        outputs[:, step, :] = current
+                    return outputs
 
                 one_step_state = getattr(
                     self.predictor,
@@ -129,8 +133,8 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                             state_token_bias=state_token_bias,
                             upcast_output_mlp=upcast_output_mlp,
                         )
-                        outputs.append(current)
-                    return torch.stack(outputs, dim=1)
+                        outputs[:, step, :] = current
+                    return outputs
 
                 if callable(one_step_unmasked):
                     for step in range(actions.shape[1]):
@@ -146,8 +150,8 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                             upcast_output_mlp=upcast_output_mlp,
                         )
                         current = prediction[:, 0, :]
-                        outputs.append(current)
-                    return torch.stack(outputs, dim=1)
+                        outputs[:, step, :] = current
+                    return outputs
 
                 for step in range(actions.shape[1]):
                     prediction = self.predictor._forward_one_step_from_action_token(
@@ -157,11 +161,10 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                         upcast_output_mlp=upcast_output_mlp,
                     )
                     current = prediction[:, 0, :]
-                    outputs.append(current)
-                return torch.stack(outputs, dim=1)
+                    outputs[:, step, :] = current
+                return outputs
 
             mask = self._normalize_mask(actions, action_mask)
-            outputs = []
             for step in range(actions.shape[1]):
                 active = mask[:, step].unsqueeze(-1)
                 if action_tokens is None:
@@ -179,8 +182,12 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
                     )
                 next_state = prediction[:, 0, :]
                 current = torch.where(active, next_state, current)
-                outputs.append(torch.where(active, next_state, torch.zeros_like(next_state)))
-            return torch.stack(outputs, dim=1)
+                outputs[:, step, :] = torch.where(
+                    active,
+                    next_state,
+                    torch.zeros_like(next_state),
+                )
+            return outputs
 
         @_INFERENCE_MODE
         def predict_single(self, state: Tensor, action: Tensor) -> Tensor:
