@@ -1055,6 +1055,7 @@ def _scope_decisions(rows: list[dict[str, object]]) -> list[dict[str, object]]:
                 {
                     "benchmark_id": row.get("benchmark_id"),
                     "decision": raw.get("decision"),
+                    "generated_at": raw.get("generated_at"),
                     "accepted_at": raw.get("accepted_at"),
                     "decision_url": raw.get("decision_url"),
                     "issue_refs": raw.get("issue_refs"),

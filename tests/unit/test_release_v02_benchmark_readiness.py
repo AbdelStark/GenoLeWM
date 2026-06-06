@@ -285,10 +285,12 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
     assert rows["ar_rollout_speed"]["scope_decision"]["decision"] == (
         "rescope_rfc0004_speed_target"
     )
+    assert rows["ar_rollout_speed"]["scope_decision"]["generated_at"].endswith("Z")
     assert report["scope_decisions"] == [
         {
             "benchmark_id": "ar_rollout_speed",
             "decision": "rescope_rfc0004_speed_target",
+            "generated_at": rows["ar_rollout_speed"]["scope_decision"]["generated_at"],
             "accepted_at": "2026-06-06T12:00:00Z",
             "decision_url": "https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
             "issue_refs": ["#42", "#197"],
