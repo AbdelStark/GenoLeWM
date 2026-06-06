@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 from pathlib import Path
@@ -145,10 +146,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     except GenoLeWMError as exc:
         sys.stderr.write(f"error: {exc}\n")
+        sys.stderr.flush()
         return exit_code_for(exc)
     sys.stdout.write(json.dumps(summary, sort_keys=True) + "\n")
+    sys.stdout.flush()
     return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    os._exit(main())

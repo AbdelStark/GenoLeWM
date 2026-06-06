@@ -46,7 +46,7 @@ def test_authors_preliminary_manifest_with_placeholder_evidence(tmp_path: Path) 
     manifest = load_manifest(model_dir / "manifest.json")
     assert manifest.release_id == "geno-lewm-v0.1.0-r1"
     assert manifest.model_name == "geno-lewm"
-    assert manifest.encoder.id == "HuggingFaceBio/Carbon-500M"
+    assert manifest.encoder.id == "/carbon"
     assert manifest.encoder.revision == "5d31d59b3c845b288a13aedb1358934196852eec"
     assert manifest.encoder.hash == sha256_file(encoder_dir / "model.safetensors")
     assert manifest.predictor.hash == sha256_file(model_dir / "predictor.safetensors")

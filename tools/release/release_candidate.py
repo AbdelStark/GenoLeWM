@@ -1231,7 +1231,7 @@ def _check_public_artifacts(
     timeout_seconds: float,
     probe: Callable[[str, str, tuple[UploadFile, ...], float], PublicArtifactCheck],
 ) -> tuple[PublicArtifactCheck, ...]:
-    expected = _expected_public_artifacts(hub_plan)
+    expected = _expected_public_artifacts(hub_plan, urls=urls)
     checks: list[PublicArtifactCheck] = []
     for name, expected_files in expected.items():
         url = urls.get(name)
@@ -1241,7 +1241,11 @@ def _check_public_artifacts(
     return tuple(checks)
 
 
-def _expected_public_artifacts(hub_plan: HubReleasePlan) -> dict[str, tuple[UploadFile, ...]]:
+def _expected_public_artifacts(
+    hub_plan: HubReleasePlan,
+    *,
+    urls: dict[str, str | None] | None = None,
+) -> dict[str, tuple[UploadFile, ...]]:
     expected = {
         "model": hub_plan.files,
         "dataset": hub_plan.dataset_files,
@@ -1249,7 +1253,35 @@ def _expected_public_artifacts(hub_plan: HubReleasePlan) -> dict[str, tuple[Uplo
     }
     if hub_plan.paper_file is not None:
         expected["paper"] = (hub_plan.paper_file,)
+        if urls is not None and _paper_asset_is_on_demo_release(
+            demo_url=urls.get("demo"),
+            paper_url=urls.get("paper"),
+        ):
+            expected["demo"] = _unique_demo_assets((*expected["demo"], hub_plan.paper_file))
     return expected
+
+
+def _paper_asset_is_on_demo_release(
+    *,
+    demo_url: str | None,
+    paper_url: str | None,
+) -> bool:
+    if not demo_url or not paper_url:
+        return False
+    demo = urlparse(demo_url)
+    paper = urlparse(paper_url)
+    demo_parts = tuple(part for part in demo.path.strip("/").split("/") if part)
+    paper_parts = tuple(part for part in paper.path.strip("/").split("/") if part)
+    return (
+        demo.netloc == "github.com"
+        and paper.netloc == "github.com"
+        and len(demo_parts) >= 5
+        and len(paper_parts) >= 6
+        and demo_parts[2:4] == ("releases", "tag")
+        and paper_parts[2:4] == ("releases", "download")
+        and demo_parts[:2] == paper_parts[:2]
+        and demo_parts[4] == paper_parts[4]
+    )
 
 
 def _probe_public_url(name: str, url: str, timeout_seconds: float) -> PublicLinkCheck:
@@ -1332,7 +1364,10 @@ def _probe_public_artifacts(
             error=str(exc),
         )
     expected_files = _expected_public_file_map(expected)
-    observed = _observed_public_artifacts(name, payload)
+    observed = _filter_observed_public_artifacts(
+        name,
+        _observed_public_artifacts(name, payload),
+    )
     missing = tuple(sorted(set(expected_files) - set(observed)))
     unexpected = tuple(sorted(set(observed) - set(expected_files)))
     hash_mismatches: list[str] = []
@@ -1446,6 +1481,16 @@ def _expected_public_file_map(expected: tuple[UploadFile, ...]) -> dict[str, Upl
     for file in expected:
         files[file.destination] = file
     return files
+
+
+def _filter_observed_public_artifacts(
+    name: str,
+    observed: dict[str, str | None],
+) -> dict[str, str | None]:
+    ignored = {".gitattributes"} if name in {"model", "dataset"} else set()
+    if not ignored:
+        return observed
+    return {path: url for path, url in observed.items() if path not in ignored}
 
 
 def _artifact_listing_api_url(name: str, url: str) -> str | None:

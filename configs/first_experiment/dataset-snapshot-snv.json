@@ -37,8 +37,20 @@
   "preprocessing": [
     "Stage Carbon source-mix windows from the pinned Hugging Face corpus revision.",
     "Filter local gnomAD VCF rows to PASS SNVs above the configured global allele-frequency threshold.",
+    "Generate placed training windows from the gnomAD shard and a pinned GRCh38 chr22 reference FASTA so common-variant edits are sampled on real coordinates.",
     "Normalize local ClinVar VCF rows and preserve labelled and unlabelled SNV classes for evaluation."
   ],
+  "placed_windows": {
+    "description": "Reference-placed chr22 windows generated from the gnomAD common-variant shard for first-experiment training",
+    "input_fasta": "inputs/reference/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz",
+    "max_windows": 20000,
+    "min_variants_per_window": 3,
+    "path": "placed/gnomad-common-windows.jsonl",
+    "source": "gnomad_common",
+    "split": "train_placed_gnomad_common",
+    "variant_source": "gnomad",
+    "window_bp": 4096
+  },
   "schema_version": "1.0.0",
   "snapshot_id": "geno-lewm-data-v0.1.0-r1",
   "sources": [
@@ -57,6 +69,13 @@
       "url": "https://gnomad.broadinstitute.org/downloads"
     },
     {
+      "license": "Ensembl genome browser data terms",
+      "name": "Ensembl GRCh38 chromosome FASTA",
+      "notes": "Local chr22 FASTA source file is used only to generate reference-placed training windows.",
+      "revision": "release-110 chr22",
+      "url": "https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/"
+    },
+    {
       "license": "NCBI public data terms",
       "name": "ClinVar",
       "notes": "Local VCF source file is normalized into the held-out first-experiment evaluation shard.",
@@ -64,13 +83,16 @@
       "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/"
     }
   ],
-  "split_policy": "Carbon and gnomAD training material excludes any comparable variant keys present in the held-out ClinVar evaluation split.",
+  "split_policy": "Carbon, gnomAD, and placed-window training material excludes any comparable variant keys present in the held-out ClinVar evaluation split.",
   "splits": {
     "eval_clinvar": {
       "description": "held-out ClinVar SNV labels for first-experiment evaluation"
     },
     "train_carbon": {
       "description": "Carbon source-mix genomic windows for representation and transition training"
+    },
+    "train_placed_gnomad_common": {
+      "description": "reference-placed chr22 windows generated from gnomAD common variants for real-coordinate training"
     },
     "train_gnomad_common": {
       "description": "gnomAD common SNVs for edit sampling and common-variant context"

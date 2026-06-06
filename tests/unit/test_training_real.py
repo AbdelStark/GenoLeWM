@@ -8,17 +8,32 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.config import load_config
+from geno_lewm.data import (
+    SOURCE_CLINVAR,
+    SOURCE_GNOMAD_COMMON,
+    SOURCE_SYNTHETIC_INDEL,
+    SOURCE_SYNTHETIC_SNV,
+    WindowContext,
+    synthetic_indel_provider,
+    synthetic_snv_provider,
+)
 from geno_lewm.errors import InputError
 from geno_lewm.training.real import (
     _collapse_var_min,
+    _dataset_fallback_sources,
+    _dataset_files,
+    _load_dataset_manifest,
+    _load_windows,
     _move_trainable_to_device,
     _nan_loss_count,
+    _next_batch,
+    _repeat_training_items,
     _training_device,
     _validate_resume_checkpoint_payload,
     _write_metrics,
 )
 from geno_lewm.training.trainer import TorchTrainerStepResult, TrainerSeeds
-from tests.unit.test_training_preflight import _write_training_config
+from tests.unit.test_training_preflight import _write_release_dataset, _write_training_config
 
 
 def _step_result(*, loss: float, var: float, step: int = 1) -> TorchTrainerStepResult:
@@ -91,6 +106,70 @@ def test_training_device_uses_runtime_config_device(tmp_path: Path) -> None:
     config = load_config(_write_training_config(tmp_path))
 
     assert _training_device(config) == "cuda"
+
+
+def test_release_training_loader_prefers_placed_windows(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    files = _dataset_files(_load_dataset_manifest(dataset_dir))
+
+    windows = tuple(_load_windows(dataset_dir, files))
+
+    assert len(windows) == 1
+    assert windows[0].chrom == "1"
+    assert windows[0].source == "gnomad_common"
+    assert _dataset_fallback_sources(windows) == {"clinvar": "synthetic_snv"}
+
+
+def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
+    windows = (
+        WindowContext(
+            record_id="placed-1",
+            source="gnomad_common",
+            sequence="ACGT" * 64,
+            chrom="1",
+            start_bp=100,
+        ),
+    )
+    providers = {
+        SOURCE_GNOMAD_COMMON: synthetic_snv_provider,
+        SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
+        SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
+        SOURCE_CLINVAR: lambda window, count, rng: (),
+    }
+
+    iterator = _repeat_training_items(
+        windows,
+        providers,
+        seed=11,
+        fallback_sources=_dataset_fallback_sources(windows),
+    )
+
+    first_epoch = _next_batch(iterator, 8)
+    next_epoch = _next_batch(iterator, 1)
+
+    assert {item.source_window.record_id for item in first_epoch} == {"placed-1"}
+    assert next_epoch[0].source_window.record_id == "placed-1"
+
+
+def test_repeat_training_items_rejects_empty_epoch() -> None:
+    windows: tuple[WindowContext, ...] = ()
+    providers = {
+        SOURCE_GNOMAD_COMMON: lambda window, count, rng: (),
+        SOURCE_SYNTHETIC_SNV: lambda window, count, rng: (),
+        SOURCE_SYNTHETIC_INDEL: lambda window, count, rng: (),
+        SOURCE_CLINVAR: lambda window, count, rng: (),
+    }
+
+    iterator = _repeat_training_items(
+        windows,
+        providers,
+        seed=11,
+        fallback_sources={},
+    )
+
+    with pytest.raises(InputError, match="epoch produced no usable tuples"):
+        next(iterator)
 
 
 def test_move_trainable_to_device_invokes_module_to_for_accelerator() -> None:

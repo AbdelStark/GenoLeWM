@@ -131,6 +131,52 @@ def test_publication_evidence_report_accepts_clean_machine_relative_paths(
     assert report.issues == ()
 
 
+def test_publication_evidence_report_uses_exact_model_manifest_download(
+    tmp_path: Path,
+) -> None:
+    paths = _write_publication_inputs(tmp_path)
+    plan = json.loads(paths["plan"].read_text(encoding="utf-8"))
+    candidate = json.loads(paths["candidate"].read_text(encoding="utf-8"))
+    publish = json.loads(paths["publish"].read_text(encoding="utf-8"))
+    clean_machine = json.loads(paths["clean_machine"].read_text(encoding="utf-8"))
+
+    distractor = _downloaded_artifact(tmp_path / "downloads", "model", "dataset_manifest.json")
+    distractor["source_url"] = (
+        f"https://huggingface.co/{plan['repo_id']}/resolve/main/dataset_manifest.json"
+    )
+    plan["files"].insert(
+        0,
+        {
+            "destination": "dataset_manifest.json",
+            "sha256": distractor["sha256"],
+            "size_bytes": distractor["size_bytes"],
+            "source": "model/dataset_manifest.json",
+        },
+    )
+    candidate["hub_plan"] = plan
+    candidate["public_artifacts"] = _candidate_public_artifacts(plan)
+    publish["plan"] = plan
+    publish["final_candidate_report"] = candidate
+    clean_machine["downloaded_artifacts"].insert(0, distractor)
+
+    _write_json(paths["plan"], plan)
+    _write_json(paths["candidate"], candidate)
+    publish["final_candidate_report"] = candidate
+    _write_json(paths["publish"], publish)
+    clean_machine["release_candidate_report_identity"] = _report_identity(paths["candidate"])
+    _write_json(paths["clean_machine"], clean_machine)
+
+    report = build_publication_evidence_report(
+        plan_path=paths["plan"],
+        release_candidate_path=paths["candidate"],
+        publish_report_path=paths["publish"],
+        clean_machine_report_path=paths["clean_machine"],
+    )
+
+    assert report.ok is True
+    assert report.issues == ()
+
+
 def test_publication_evidence_report_rejects_mismatched_publish_candidate(
     tmp_path: Path,
 ) -> None:

@@ -10,6 +10,7 @@ that are easy to unit-test with fixtures and later wire to real shards.
 from __future__ import annotations
 
 import random
+from bisect import bisect_right
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -411,6 +412,11 @@ def synthetic_indel_provider(
 def variant_provider(variants: Sequence[EditSpec]) -> _EditProvider:
     """Return a provider backed by absolute VCF-style variants."""
     normalized = tuple(_require_edit_spec(value) for value in variants)
+    by_chrom: dict[str, tuple[tuple[int, ...], tuple[EditSpec, ...]]] = {}
+    chroms = sorted({variant.chrom for variant in normalized})
+    for chrom in chroms:
+        ordered = tuple(sorted((item for item in normalized if item.chrom == chrom), key=_edit_pos))
+        by_chrom[chrom] = (tuple(item.pos for item in ordered), ordered)
 
     def _provider(window: WindowContext, count: int, rng: random.Random) -> tuple[RelEdit, ...]:
         _require_nonnegative_int("count", count)
@@ -423,17 +429,25 @@ def variant_provider(variants: Sequence[EditSpec]) -> _EditProvider:
             # synthetic edits (see DEFAULT_SOURCE_FALLBACKS). Placed windows with
             # a chrom still receive their real gnomAD/ClinVar variants.
             return ()
+        indexed = by_chrom.get(window.chrom)
+        if indexed is None:
+            return ()
+        positions, chrom_variants = indexed
+        start = bisect_right(positions, window.start_bp)
+        stop = bisect_right(positions, window.end_bp)
         candidates = [
             variant.relative_to(window.start_bp, window.end_bp - 1)
-            for variant in normalized
-            if variant.chrom == window.chrom
-            and window.start_bp < variant.pos <= window.end_bp
-            and variant.pos - 1 + len(variant.ref) <= window.end_bp
+            for variant in chrom_variants[start:stop]
+            if variant.pos - 1 + len(variant.ref) <= window.end_bp
         ]
         rng.shuffle(candidates)
         return tuple(candidates[:count])
 
     return _provider
+
+
+def _edit_pos(value: EditSpec) -> int:
+    return value.pos
 
 
 def _torch_worker_info() -> _DatasetWorkerInfo:

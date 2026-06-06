@@ -14,7 +14,7 @@ import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from geno_lewm.action import RelEdit
 from geno_lewm.config import GenoLeWMConfig
@@ -48,6 +48,7 @@ except ImportError:  # pragma: no cover - covered by missing-runtime tests.
     Tensor = Any
 
 ScheduleName = Literal["wsd", "constant", "cosine"]
+_SOURCE_STATE_MEMORY_CACHE_ATTR = "_geno_lewm_source_state_cache"
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,33 +509,53 @@ def _source_states(
     source_sequences: Sequence[str],
 ) -> tuple[tuple[float, ...], ...]:
     runtime = _encoder_runtime(encoder)
-    loci = [None] * len(source_sequences)
+    memory_cache = _source_state_memory_cache(runtime)
     cache_dir = default_cache_dir()
-    if not _source_cache_index_exists(cache_dir):
-        return tuple(runtime.encode_batch(source_sequences, loci))
+    disk_cache_exists = _source_cache_index_exists(cache_dir)
 
     states: list[tuple[float, ...] | None] = []
     missing_indices: list[int] = []
     for index, sequence in enumerate(source_sequences):
-        key = _source_cache_key(encoder, sequence)
-        cached = read_embedding(cache_dir, key)
-        if cached is None:
-            states.append(None)
-            missing_indices.append(index)
-        else:
+        cached = memory_cache.get(sequence)
+        if cached is not None:
             states.append(cached)
+            continue
+        if disk_cache_exists:
+            key = _source_cache_key(encoder, sequence)
+            cached = read_embedding(cache_dir, key)
+            if cached is not None:
+                state = _require_state_vector(cached, index=index)
+                memory_cache[sequence] = state
+                states.append(state)
+                continue
+        states.append(None)
+        missing_indices.append(index)
 
     if missing_indices:
-        encoded = tuple(
-            runtime.encode_batch(
-                [source_sequences[index] for index in missing_indices],
-                [None] * len(missing_indices),
-            )
-        )
-        for index, vector in zip(missing_indices, encoded, strict=True):
-            states[index] = vector
+        missing_by_sequence: dict[str, list[int]] = {}
+        for index in missing_indices:
+            missing_by_sequence.setdefault(source_sequences[index], []).append(index)
+        missing_sequences = list(missing_by_sequence)
+        encoded = tuple(runtime.encode_batch(missing_sequences, [None] * len(missing_sequences)))
+        for sequence, vector in zip(missing_sequences, encoded, strict=True):
+            state = _require_state_vector(vector, index=missing_by_sequence[sequence][0])
+            memory_cache[sequence] = state
+            for index in missing_by_sequence[sequence]:
+                states[index] = state
 
     return tuple(_require_state_vector(state, index=index) for index, state in enumerate(states))
+
+
+def _source_state_memory_cache(encoder: object) -> dict[str, tuple[float, ...]]:
+    raw_cache = getattr(encoder, _SOURCE_STATE_MEMORY_CACHE_ATTR, None)
+    if isinstance(raw_cache, dict):
+        return cast(dict[str, tuple[float, ...]], raw_cache)
+    cache: dict[str, tuple[float, ...]] = {}
+    try:
+        setattr(encoder, _SOURCE_STATE_MEMORY_CACHE_ATTR, cache)
+    except Exception:
+        return {}
+    return cache
 
 
 def _source_cache_index_exists(cache_dir: Path) -> bool:

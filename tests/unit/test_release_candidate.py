@@ -12,7 +12,7 @@ from tests.unit.test_release_hub_release import _write_release_candidate
 from tools.demo.terminal_inference import DEMO_MANIFEST_NAME
 from tools.release import release_candidate
 from tools.release.efficiency_report import REPORT_NAME as EFFICIENCY_REPORT_NAME
-from tools.release.hub_release import UploadFile
+from tools.release.hub_release import HubReleasePlan, UploadFile
 from tools.release.issue_refs import issue_ref_payload
 from tools.release.model_package import EVAL_CONFIG_NAME, EVAL_METRICS_NAME, MODEL_PACKAGE_NAME
 from tools.release.release_candidate import (
@@ -396,6 +396,90 @@ def test_public_artifact_probe_blocks_unexpected_public_files(
     assert check.size_mismatches == ()
     assert check.unexpected == ("private.bin",)
     assert check.verified_count == 1
+
+
+def test_public_artifact_probe_ignores_hugging_face_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = (
+        UploadFile(
+            source="/tmp/model_card.md",
+            destination="model_card.md",
+            sha256="sha256:" + "a" * 64,
+            size_bytes=12,
+        ),
+    )
+
+    monkeypatch.setattr(
+        release_candidate,
+        "_open_json_for_status",
+        lambda _url, _timeout_seconds: (
+            200,
+            {"siblings": [{"rfilename": ".gitattributes"}, {"rfilename": "model_card.md"}]},
+        ),
+    )
+    monkeypatch.setattr(
+        release_candidate,
+        "_hash_and_size_url",
+        lambda _url, _timeout_seconds: ("sha256:" + "a" * 64, 12),
+    )
+
+    check = release_candidate._probe_public_artifacts(
+        "model",
+        "https://huggingface.co/AbdelStark/geno-lewm-v0.1.0-carbon-500m-r1",
+        expected,
+        1.0,
+    )
+
+    assert check.ok is True
+    assert check.observed_count == 1
+    assert check.unexpected == ()
+    assert check.verified_count == 1
+
+
+def test_expected_public_artifacts_allow_paper_on_demo_release() -> None:
+    paper = UploadFile(
+        source="paper.md",
+        destination="paper.md",
+        sha256="sha256:" + "b" * 64,
+        size_bytes=34,
+    )
+    demo = UploadFile(
+        source="terminal-demo-transcript.md",
+        destination="terminal-demo-transcript.md",
+        sha256="sha256:" + "a" * 64,
+        size_bytes=12,
+    )
+    plan = HubReleasePlan(
+        schema_version="1.0.0",
+        generated_by="tools.release.hub_release",
+        generated_at="2026-06-01T12:00:00Z",
+        ready=True,
+        repo_id="AbdelStark/geno-lewm",
+        release_id="geno-lewm-v0.1.0-r1",
+        model_id="sha256:" + "c" * 64,
+        commit_sha="abcdef1234567890",
+        dataset_url="https://huggingface.co/datasets/AbdelStark/geno-lewm-data",
+        demo_url="https://github.com/AbdelStark/GenoLeWM/releases/tag/demo-v0.1.0",
+        paper_url=("https://github.com/AbdelStark/GenoLeWM/releases/download/demo-v0.1.0/paper.md"),
+        paper_file=paper,
+        files=(),
+        dataset_files=(),
+        demo_files=(demo,),
+        commands=(),
+        requirements=(),
+    )
+
+    expected = release_candidate._expected_public_artifacts(
+        plan,
+        urls={"demo": plan.demo_url, "paper": plan.paper_url},
+    )
+
+    assert {file.destination for file in expected["demo"]} == {
+        "terminal-demo-transcript.md",
+        "paper.md",
+    }
+    assert expected["paper"] == (paper,)
 
 
 def test_release_candidate_main_writes_report_and_uses_ready_exit_code(

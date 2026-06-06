@@ -13,7 +13,7 @@ import json
 import math
 import platform
 import shutil
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,7 @@ from typing import Any
 from geno_lewm.action import ActionEncoder, EditSpec
 from geno_lewm.config import GenoLeWMConfig, write_resolved_config
 from geno_lewm.data import (
+    DEFAULT_SOURCE_FALLBACKS,
     SOURCE_CLINVAR,
     SOURCE_GNOMAD_COMMON,
     SOURCE_SYNTHETIC_INDEL,
@@ -36,6 +37,7 @@ from geno_lewm.data import (
 )
 from geno_lewm.encoder import CarbonStateEncoder
 from geno_lewm.errors import InputError, RuntimeSetupError
+from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
 from geno_lewm.provenance import sha256_file
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
@@ -156,17 +158,18 @@ def run_carbon_training(
     determinism = configure_torch_reproducibility(
         seed=seeds.predictor, deterministic=config.deterministic
     )
-    dataset = GenoLeWMDataset(
+    providers = {
+        SOURCE_GNOMAD_COMMON: variant_provider(gnomad_edits),
+        SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
+        SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
+        SOURCE_CLINVAR: variant_provider(clinvar_edits),
+    }
+    iterator = _repeat_training_items(
         windows,
-        {
-            SOURCE_GNOMAD_COMMON: variant_provider(gnomad_edits),
-            SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
-            SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
-            SOURCE_CLINVAR: variant_provider(clinvar_edits),
-        },
+        providers,
         seed=seeds.data,
+        fallback_sources=_dataset_fallback_sources(windows),
     )
-    iterator = dataset.iter_with_source_windows()
     resumed_from_step = 0
     resume_checkpoint: _ResumeCheckpoint | None = None
     if resume_from is not None:
@@ -230,11 +233,13 @@ def run_carbon_training(
         config=config,
         total_steps=steps,
     )
+    progress_every = max(1, int(config.training.collapse_log_every_steps))
 
     step_results = []
     collapse_alert_count = 0
     sample_count = resumed_from_step * config.data.batch_size
     log_mode = "a" if resumed_from_step else "w"
+    progress_logger = get_logger("training", run_id=config.run_id, log_dir=run_dir)
     with log_path.open(log_mode, encoding="utf-8") as log:
         if resumed_from_step:
             log.write(
@@ -269,6 +274,31 @@ def run_carbon_training(
             collapse_alert_count += len(collapse_alerts)
             sample_count += len(current_batch.window_ids)
             log.write(json.dumps({"event": "train.step", **result.to_dict()}) + "\n")
+            if step in (first_step, steps) or step % progress_every == 0:
+                progress_logger.info(
+                    "training.metric",
+                    step=step,
+                    name="sample_count",
+                    value=sample_count,
+                    unit="samples",
+                    kind="counter",
+                )
+                progress_logger.info(
+                    "training.metric",
+                    step=step,
+                    name="loss",
+                    value=result.loss,
+                    unit="unitless",
+                    kind="gauge",
+                )
+                progress_logger.info(
+                    "training.metric",
+                    step=step,
+                    name="pred_var_per_dim",
+                    value=result.pred_var_per_dim,
+                    unit="unitless",
+                    kind="gauge",
+                )
             for alert in collapse_alerts:
                 log.write(
                     json.dumps(
@@ -359,6 +389,38 @@ def _skip_training_items(
             ) from exc
 
 
+def _repeat_training_items(
+    windows: Sequence[WindowContext],
+    providers: Mapping[str, Any],
+    *,
+    seed: int,
+    fallback_sources: Mapping[str, str],
+) -> Iterator[TrainingDatasetItem]:
+    """Yield deterministic repeated passes over a finite release dataset."""
+    epoch = 0
+    while True:
+        dataset = GenoLeWMDataset(
+            windows,
+            providers,
+            seed=seed + epoch,
+            fallback_sources=fallback_sources,
+        )
+        produced = 0
+        for item in dataset.iter_with_source_windows():
+            produced += 1
+            yield item
+        if produced == 0:
+            raise InputError(
+                "training dataset epoch produced no usable tuples",
+                details={"epoch": epoch, "window_count": len(windows)},
+                remediation=(
+                    "provide placed windows with matching edit shards or restore explicit "
+                    "fallback sources for the active release dataset"
+                ),
+            )
+        epoch += 1
+
+
 def _next_batch(
     iterator: Iterator[TrainingDatasetItem],
     batch_size: int,
@@ -444,23 +506,45 @@ def _dataset_files(manifest: dict[str, Any]) -> tuple[dict[str, Any], ...]:
 
 
 def _load_windows(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[WindowContext]:
-    for item in files:
-        path_text = _required_text(item, "path")
-        if not (path_text.startswith("carbon/") and path_text.endswith(".jsonl")):
-            continue
+    placed_paths = _window_jsonl_paths(files, prefix="placed/")
+    path_texts = placed_paths or _window_jsonl_paths(files, prefix="carbon/")
+    require_chrom = bool(placed_paths)
+    for path_text in path_texts:
         path = _safe_dataset_path(dataset_dir, path_text)
         with path.open(encoding="utf-8") as handle:
             for line_no, line in enumerate(handle, start=1):
                 if not line.strip():
                     continue
                 payload = _json_object_line(line, path=path, line_no=line_no)
+                chrom = _optional_text(payload, "chrom")
+                if require_chrom and chrom is None:
+                    raise InputError(
+                        "placed training window rows must include chrom",
+                        details={"path": str(path), "line": line_no},
+                    )
                 yield WindowContext(
                     record_id=_required_text(payload, "record_id"),
                     source=_required_text(payload, "source"),
                     sequence=_required_text(payload, "sequence"),
                     start_bp=_optional_int(payload, "start_bp", default=0),
-                    chrom=_optional_text(payload, "chrom"),
+                    chrom=chrom,
                 )
+
+
+def _window_jsonl_paths(files: Sequence[dict[str, Any]], *, prefix: str) -> tuple[str, ...]:
+    paths: list[str] = []
+    for item in files:
+        path_text = _required_text(item, "path")
+        if path_text.startswith(prefix) and path_text.endswith(".jsonl"):
+            paths.append(path_text)
+    return tuple(paths)
+
+
+def _dataset_fallback_sources(windows: Sequence[WindowContext]) -> dict[str, str]:
+    """Return source fallbacks for a release dataset's active window stream."""
+    if windows and all(window.chrom is not None for window in windows):
+        return {SOURCE_CLINVAR: SOURCE_SYNTHETIC_SNV}
+    return dict(DEFAULT_SOURCE_FALLBACKS)
 
 
 def _load_gnomad_edits(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[EditSpec]:
