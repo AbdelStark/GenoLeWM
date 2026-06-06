@@ -337,6 +337,12 @@ aggregate report generation, and the all-up readiness report. Without
 measured evidence. With `--execute`, `ok=true` only means every planned
 command completed, and the generated metrics, efficiency, rollout-speed,
 and readiness artifacts must still validate separately.
+For rollout benchmarks, the manifest can optionally include a
+`state_generation` block so
+`python -m tools.release.rollout_state_rows` runs before
+`geno-lewm-rollout`; that generator consumes supplied measured latent
+examples and the manifest-backed action encoder/predictor to produce
+`geno-lewm-rollout-states` JSONL.
 
 ```bash
 python -m tools.release.v02_benchmark_readiness \
@@ -377,7 +383,10 @@ now aggregates measured latent-state rows into eval-compatible
 `cosine_similarity_mean`, `l2_distance_mean`, and `recall_at_k` metrics
 with source-state baseline deltas and per-K stratification. It does not
 generate held-out haplotypes or run Carbon encoding; those measured
-state-row artifacts are still v0.2 benchmark inputs.
+state-row artifacts are still v0.2 benchmark inputs. The lower-level
+`tools.release.rollout_state_rows` helper only bridges precomputed
+measured latent examples to rollout-state JSONL; it does not create the
+held-out examples or Carbon states.
 
 - audit data issues #49, #50, #51, and #52 against the actual v0.1
   pipeline and turn remaining deltas into narrower v0.2 work;

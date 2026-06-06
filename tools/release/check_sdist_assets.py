@@ -41,6 +41,7 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "tools/release/publication_report.py",
     "tools/release/release_candidate.py",
     "tools/release/runtime_preflight.py",
+    "tools/release/rollout_state_rows.py",
     "tools/release/rollout_speed_scope.py",
     "tools/release/training_run.py",
     "tools/release/v02_benchmark_readiness.py",

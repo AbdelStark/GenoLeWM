@@ -272,6 +272,15 @@ trusted only after their hashes match the fetched manifest.
     suite reports must keep `ok=false`; execute-mode suite reports
     record command status but do not replace the generated metric,
     efficiency, rollout-speed, package, or readiness validators.
+    Rollout benchmark entries may include a state-generation step that
+    runs `python -m tools.release.rollout_state_rows --examples-jsonl ... --model-dir ...`
+    before `geno-lewm-rollout`. That helper must consume supplied
+    measured source/target/candidate latent examples, load the
+    manifest-backed action encoder and predictor, write
+    `geno-lewm-rollout-states` JSONL, and record package-relative
+    provenance. It does not run Carbon encoding or construct held-out
+    haplotypes, so those input examples remain required benchmark
+    artifacts.
     If the RFC-0004 AR rollout speed target is not met and the project
     explicitly accepts a re-scope in #42/#197, generate
     `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`

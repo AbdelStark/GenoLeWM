@@ -395,6 +395,38 @@ def _append_rollout_steps(
     _required_text(benchmark, "split")
     states = _path_text(benchmark.get("states_jsonl"), field=f"{benchmark_id}.states_jsonl")
     metrics = _path_text(benchmark.get("metrics_json"), field=f"{benchmark_id}.metrics_json")
+    state_generation = _optional_mapping(benchmark, "state_generation")
+    if state_generation is not None:
+        report = _path_text(
+            state_generation.get("report_json"),
+            field=f"{benchmark_id}.state_generation.report_json",
+        )
+        steps.append(
+            SuiteStep(
+                step_id=f"{benchmark_id}.rollout_states",
+                kind="rollout_state_generation",
+                command=(
+                    "python",
+                    "-m",
+                    "tools.release.rollout_state_rows",
+                    "--examples-jsonl",
+                    _path_text(
+                        state_generation.get("examples_jsonl"),
+                        field=f"{benchmark_id}.state_generation.examples_jsonl",
+                    ),
+                    "--model-dir",
+                    shared["model_dir"],
+                    "--artifact-root",
+                    shared["artifact_root"],
+                    "--output-jsonl",
+                    states,
+                    "--output-report",
+                    report,
+                ),
+                outputs=(states, report),
+                issue_refs=("#57", "#197"),
+            )
+        )
     command = [
         "geno-lewm-rollout",
         "--quiet",
