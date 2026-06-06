@@ -133,6 +133,129 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
     ]
 
 
+def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                    *_binary_metrics("clinvar_noncoding", baseline=True),
+                    _metric("brca2", "spearman_rho", 0.61, baseline=True),
+                    _metric("traitgym_mendelian", "spearman_rho", 0.44, baseline=True),
+                    _metric("rollout_phased_haplotypes", "cosine_similarity_mean", 0.91),
+                    _metric("rollout_phased_haplotypes", "l2_distance_mean", 0.12),
+                    _metric("rollout_phased_haplotypes", "recall_at_k", 0.66),
+                    _metric("rollout_synthetic_edit_chains", "cosine_similarity_mean", 0.89),
+                    _metric("rollout_synthetic_edit_chains", "l2_distance_mean", 0.15),
+                    _metric("rollout_synthetic_edit_chains", "recall_at_k", 0.63),
+                ],
+                release_ready=True,
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(
+        json.dumps(_efficiency_payload(release_ready=True)),
+        encoding="utf-8",
+    )
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        require_release_inputs=True,
+    )
+
+    assert report["ok"] is True
+    assert report["release_inputs_required"] is True
+    rows = _rows_by_id(report)
+    assert rows["release_inputs"]["status"] == "pass"
+    assert rows["release_inputs"]["findings"] == []
+
+
+def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
+    tmp_path: Path,
+) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                    *_binary_metrics("clinvar_noncoding", baseline=True),
+                    _metric("brca2", "spearman_rho", 0.61, baseline=True),
+                    _metric("traitgym_mendelian", "spearman_rho", 0.44, baseline=True),
+                    _metric("rollout_phased_haplotypes", "cosine_similarity_mean", 0.91),
+                    _metric("rollout_phased_haplotypes", "l2_distance_mean", 0.12),
+                    _metric("rollout_phased_haplotypes", "recall_at_k", 0.66),
+                    _metric("rollout_synthetic_edit_chains", "cosine_similarity_mean", 0.89),
+                    _metric("rollout_synthetic_edit_chains", "l2_distance_mean", 0.15),
+                    _metric("rollout_synthetic_edit_chains", "recall_at_k", 0.63),
+                ]
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(json.dumps(_efficiency_payload()), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    assert report["ok"] is False
+    assert rows["release_inputs"]["status"] == "failed"
+    assert "release_inputs" in report["missing_or_failed_benchmarks"]
+    findings = "\n".join(rows["release_inputs"]["findings"])
+    assert "readiness evidence" in findings
+    assert "scores+labels or metrics_input_*" in findings
+
+
+def test_release_inputs_row_accepts_aggregate_metrics_input_artifacts(
+    tmp_path: Path,
+) -> None:
+    metrics = tmp_path / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                ],
+                release_ready=True,
+                aggregate_inputs=True,
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(
+        json.dumps(_efficiency_payload(release_ready=True)),
+        encoding="utf-8",
+    )
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    assert rows["release_inputs"]["status"] == "pass"
+
+
 def test_rollout_speed_requires_declared_horizons(tmp_path: Path) -> None:
     rollout = tmp_path / "rollout.ar_speed.json"
     rollout.write_text(
@@ -232,7 +355,9 @@ def test_main_writes_report_and_require_ok_returns_nonzero(tmp_path: Path) -> No
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["generated_by"] == "tools.release.v02_benchmark_readiness"
     assert payload["ok"] is False
+    assert payload["release_inputs_required"] is True
     assert payload["command"][-1] == "--require-ok"
+    assert "release_inputs" in payload["missing_or_failed_benchmarks"]
 
 
 def _rows_by_id(report: dict[str, object]) -> dict[str, dict[str, object]]:
@@ -241,28 +366,54 @@ def _rows_by_id(report: dict[str, object]) -> dict[str, dict[str, object]]:
     return {str(row["benchmark_id"]): row for row in rows if isinstance(row, dict)}
 
 
-def _metrics_payload(metrics: list[dict[str, object]]) -> dict[str, object]:
-    return {
-        "schema_version": "1.0.0",
-        "generated_by": "geno-lewm-eval-all",
-        "generated_at": "2026-06-06T00:00:00Z",
-        "model_id": sha256_bytes(b"model"),
-        "model_release": "geno-lewm-v0.2.0-readiness",
-        "dataset_snapshot": "geno-lewm-data-v0.2.0-readiness",
-        "commit": "abcdef1234567890",
-        "hardware": "readiness test CPU",
-        "metrics": metrics,
-        "artifacts": {
-            "baseline_scores": "eval/carbon_zero_shot_scores.jsonl",
+def _metrics_payload(
+    metrics: list[dict[str, object]],
+    *,
+    release_ready: bool = False,
+    aggregate_inputs: bool = False,
+) -> dict[str, object]:
+    artifacts = {
+        "baseline_scores": "eval/carbon_zero_shot_scores.jsonl",
+        "checkpoint": "model/predictor.safetensors",
+        "config": "model/train_config.yaml",
+        "dataset_manifest": "dataset/dataset_manifest.json",
+        "efficiency_report": "model/efficiency_report.json",
+        "eval_config": "eval_config.effective.yaml",
+        "scores": "eval/scores.jsonl",
+    }
+    if aggregate_inputs:
+        artifacts = {
             "checkpoint": "model/predictor.safetensors",
             "config": "model/train_config.yaml",
             "dataset_manifest": "dataset/dataset_manifest.json",
             "efficiency_report": "model/efficiency_report.json",
             "eval_config": "eval_config.effective.yaml",
-            "scores": "eval/scores.jsonl",
-        },
-        "limitations": ["Readiness tests use synthetic measured rows."],
-        "negative_findings": ["No clinical utility is measured by this readiness report."],
+            "input_1.baseline_scores": "eval/carbon_zero_shot_scores.jsonl",
+            "input_1.labels": "eval/labels.jsonl",
+            "input_1.scores": "eval/scores.jsonl",
+            "metrics_input_1": "eval/clinvar_coding.metrics.json",
+        }
+    if release_ready and not aggregate_inputs:
+        artifacts["labels"] = "eval/labels.jsonl"
+    return {
+        "schema_version": "1.0.0",
+        "generated_by": "geno-lewm-eval-all",
+        "generated_at": "2026-06-06T00:00:00Z",
+        "model_id": sha256_bytes(b"model"),
+        "model_release": ("geno-lewm-v0.2.0-r1" if release_ready else "geno-lewm-v0.2.0-readiness"),
+        "dataset_snapshot": (
+            "geno-lewm-data-v0.2.0-r1" if release_ready else "geno-lewm-data-v0.2.0-readiness"
+        ),
+        "commit": "abcdef1234567890",
+        "hardware": "Apple M3 Max CPU" if release_ready else "readiness test CPU",
+        "metrics": metrics,
+        "artifacts": artifacts,
+        "limitations": (
+            ["Single local hardware profile; no cross-platform timing claim is made."]
+            if release_ready
+            else ["Readiness tests use synthetic measured rows."]
+        ),
+        "negative_findings": ["No clinical utility is measured by this benchmark report."],
         "conclusions": [
             (
                 f"The {metric['name']} metric value {metric['value']:.6g} on "
@@ -319,17 +470,43 @@ def _metric(
     return metric
 
 
-def _efficiency_payload() -> dict[str, object]:
+def _passing_rollout_payload() -> dict[str, object]:
+    return {
+        "schema_version": "1.0.0",
+        "generated_by": "bench.rollout",
+        "ok": True,
+        "commit": "abcdef1234567890",
+        "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
+        "rows": [
+            {
+                "horizon": 5,
+                "measured_speedup": 2.1,
+                "target_speedup": 2.0,
+                "target_met": True,
+            },
+            {
+                "horizon": 20,
+                "measured_speedup": 5.2,
+                "target_speedup": 5.0,
+                "target_met": True,
+            },
+        ],
+    }
+
+
+def _efficiency_payload(*, release_ready: bool = False) -> dict[str, object]:
     return {
         "schema_version": "1.0.0",
         "generated_by": "tools.release.efficiency_report",
         "generated_at": "2026-06-06T00:00:00Z",
         "model_id": sha256_bytes(b"model"),
-        "model_release": "geno-lewm-v0.2.0-readiness",
-        "dataset_snapshot": "geno-lewm-data-v0.2.0-readiness",
+        "model_release": ("geno-lewm-v0.2.0-r1" if release_ready else "geno-lewm-v0.2.0-readiness"),
+        "dataset_snapshot": (
+            "geno-lewm-data-v0.2.0-r1" if release_ready else "geno-lewm-data-v0.2.0-readiness"
+        ),
         "commit": "abcdef1234567890",
         "command": ["geno-lewm-score", "--variant", "1:10:A:T"],
-        "hardware": "readiness test CPU",
+        "hardware": "Apple M3 Max CPU" if release_ready else "readiness test CPU",
         "runtime": "Python 3.13; backend=cpu",
         "warmup_batches": 1,
         "samples": 3,

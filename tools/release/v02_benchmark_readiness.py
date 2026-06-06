@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Final
 
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
@@ -27,6 +28,15 @@ GENERATED_BY: Final = "tools.release.v02_benchmark_readiness"
 ROLLOUT_GENERATED_BY: Final = "bench.rollout"
 ROLLOUT_SCHEMA_VERSION: Final = "1.0.0"
 ROLLOUT_SPEED_REQUIRED_METRICS: Final = ("k5_speedup", "k20_speedup")
+RELEASE_INPUT_PLACEHOLDER_RE: Final = re.compile(
+    r"\b(?:fixture|synthetic|readiness|placeholder|dummy|mock|fake|test)\b",
+    re.IGNORECASE,
+)
+RELEASE_ARTIFACT_PLACEHOLDER_RE: Final = re.compile(
+    r"\b(?:fixture|placeholder|dummy|mock|fake|test)\b",
+    re.IGNORECASE,
+)
+COMMIT_RE: Final = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +111,7 @@ def build_readiness_report(
     rollout_speed_report: Path | None = None,
     efficiency_report: Path | None = None,
     command: tuple[str, ...] = (),
+    require_release_inputs: bool = False,
 ) -> dict[str, object]:
     """Build a machine-readable v0.2 benchmark-readiness report."""
     metric_reports = tuple(load_report_input(path) for path in metrics_json)
@@ -114,6 +125,14 @@ def build_readiness_report(
     rows = [_benchmark_row(requirement, metric_rows) for requirement in BENCHMARK_REQUIREMENTS]
     rows.append(_efficiency_row(efficiency))
     rows.append(_rollout_speed_row(rollout_speed_report, expected_commit=identity.get("commit")))
+    if require_release_inputs:
+        rows.append(
+            _release_inputs_row(
+                metric_reports=metric_reports,
+                rollout_speed_report=rollout_speed_report,
+                efficiency=efficiency,
+            )
+        )
     missing_or_failed = [
         str(row["benchmark_id"]) for row in rows if str(row.get("status")) != "pass"
     ]
@@ -134,6 +153,7 @@ def build_readiness_report(
         "commit": identity.get("commit"),
         "hardware": identity.get("hardware"),
         "command": list(command),
+        "release_inputs_required": require_release_inputs,
         "inputs": artifact_inputs,
         "benchmark_rows": rows,
         "missing_or_failed_benchmarks": missing_or_failed,
@@ -153,6 +173,7 @@ def write_readiness_report(
     rollout_speed_report: Path | None = None,
     efficiency_report: Path | None = None,
     command: tuple[str, ...] = (),
+    require_release_inputs: bool = False,
 ) -> dict[str, object]:
     """Build and write the v0.2 benchmark-readiness report."""
     report = build_readiness_report(
@@ -160,6 +181,7 @@ def write_readiness_report(
         rollout_speed_report=rollout_speed_report,
         efficiency_report=efficiency_report,
         command=command,
+        require_release_inputs=require_release_inputs,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -177,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
             rollout_speed_report=args.rollout_speed_report,
             efficiency_report=args.efficiency_report,
             command=command,
+            require_release_inputs=args.require_release_inputs or args.require_ok,
         )
     except GenoLeWMError as exc:
         sys.stderr.write(f"error: {exc}\n")
@@ -324,6 +347,151 @@ def _rollout_speed_row(path: Path | None, *, expected_commit: str | None) -> dic
         "command": command,
         "issue_refs": ["#42", "#197"],
     }
+
+
+def _release_inputs_row(
+    *,
+    metric_reports: tuple[EvalReportInput, ...],
+    rollout_speed_report: Path | None,
+    efficiency: EfficiencyReport | None,
+) -> dict[str, object]:
+    findings: list[str] = []
+    if not metric_reports:
+        findings.append("at least one measured eval metrics JSON artifact is required")
+    if rollout_speed_report is None:
+        findings.append("a bench.rollout speed report is required")
+    if efficiency is None:
+        findings.append("an efficiency_report.json artifact is required")
+    for index, report in enumerate(metric_reports, start=1):
+        findings.extend(_metric_release_input_findings(report, input_index=index))
+    if efficiency is not None:
+        findings.extend(_efficiency_release_input_findings(efficiency))
+    if findings:
+        status = (
+            "missing"
+            if not metric_reports or rollout_speed_report is None or efficiency is None
+            else "failed"
+        )
+    else:
+        status = "pass"
+    return {
+        "benchmark_id": "release_inputs",
+        "track": "artifact_provenance",
+        "status": status,
+        "required_metrics": [
+            "package_relative_artifacts",
+            "score_or_metrics_input_provenance",
+            "non_fixture_release_identity",
+            "efficiency_input_identities",
+        ],
+        "observed_metrics": []
+        if findings
+        else [
+            "package_relative_artifacts",
+            "score_or_metrics_input_provenance",
+            "non_fixture_release_identity",
+            "efficiency_input_identities",
+        ],
+        "findings": findings,
+        "issue_refs": ["#56", "#197"],
+    }
+
+
+def _metric_release_input_findings(
+    report: EvalReportInput,
+    *,
+    input_index: int,
+) -> list[str]:
+    prefix = f"metrics_json[{input_index}]"
+    findings: list[str] = []
+    text_fields = {
+        "model_release": report.model_release,
+        "dataset_snapshot": report.dataset_snapshot,
+        "hardware": report.hardware,
+    }
+    if COMMIT_RE.fullmatch(report.commit) is None:
+        findings.append(f"{prefix}.commit must be a 7-40 character hexadecimal SHA")
+    findings.extend(_placeholder_findings(text_fields, prefix=prefix))
+    artifacts = dict(report.artifacts)
+    findings.extend(_artifact_findings(artifacts, prefix=f"{prefix}.artifacts"))
+    artifact_keys = set(artifacts)
+    has_raw_score_inputs = {"scores", "labels"} <= artifact_keys
+    has_aggregate_inputs = any(key.startswith("metrics_input_") for key in artifact_keys)
+    if not has_raw_score_inputs and not has_aggregate_inputs:
+        findings.append(
+            f"{prefix}.artifacts must include scores+labels or metrics_input_* provenance"
+        )
+    has_baseline_metrics = any(metric.baseline is not None for metric in report.metrics)
+    has_baseline_artifact = any(
+        key == "baseline_scores" or key.endswith(".baseline_scores") for key in artifact_keys
+    )
+    if has_baseline_metrics and not has_baseline_artifact:
+        findings.append(f"{prefix}.artifacts must include baseline score provenance")
+    return findings
+
+
+def _efficiency_release_input_findings(report: EfficiencyReport) -> list[str]:
+    findings: list[str] = []
+    if COMMIT_RE.fullmatch(report.commit) is None:
+        findings.append("efficiency_report.commit must be a 7-40 character hexadecimal SHA")
+    findings.extend(
+        _placeholder_findings(
+            {
+                "model_release": report.model_release,
+                "dataset_snapshot": report.dataset_snapshot,
+                "hardware": report.hardware,
+                "runtime": report.runtime,
+            },
+            prefix="efficiency_report",
+        )
+    )
+    for key, identity in report.inputs:
+        findings.extend(
+            _path_findings(
+                identity.path,
+                field=f"efficiency_report.inputs.{key}.path",
+                allow_inline=True,
+            )
+        )
+        if RELEASE_ARTIFACT_PLACEHOLDER_RE.search(identity.path):
+            findings.append(
+                f"efficiency_report.inputs.{key}.path must not reference fixture/test artifacts"
+            )
+    return findings
+
+
+def _artifact_findings(artifacts: dict[str, str], *, prefix: str) -> list[str]:
+    findings: list[str] = []
+    for key, value in sorted(artifacts.items()):
+        field = f"{prefix}.{key}"
+        findings.extend(_path_findings(value, field=field, allow_inline=False))
+        if RELEASE_ARTIFACT_PLACEHOLDER_RE.search(value):
+            findings.append(f"{field} must not reference fixture/test artifacts")
+    return findings
+
+
+def _path_findings(value: str, *, field: str, allow_inline: bool) -> list[str]:
+    if allow_inline and value.startswith("inline:"):
+        label = value.removeprefix("inline:")
+        if not label or "/" in label or "\\" in label or label in {".", ".."}:
+            return [f"{field} must use inline:<label> when inline paths are used"]
+        return []
+    if "://" in value:
+        return [f"{field} must be package-relative"]
+    if PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute() or "\\" in value:
+        return [f"{field} must be package-relative"]
+    candidate = Path(value)
+    if ".." in candidate.parts or not candidate.parts:
+        return [f"{field} must be package-relative"]
+    return []
+
+
+def _placeholder_findings(values: dict[str, str], *, prefix: str) -> list[str]:
+    return [
+        f"{prefix}.{field} must not look like fixture/test/readiness evidence"
+        for field, value in sorted(values.items())
+        if RELEASE_INPUT_PLACEHOLDER_RE.search(value)
+    ]
 
 
 def _require_shared_identity(reports: tuple[EvalReportInput, ...]) -> None:
@@ -563,6 +731,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exit non-zero when the v0.2 readiness report is incomplete.",
     )
+    parser.add_argument(
+        "--require-release-inputs",
+        action="store_true",
+        help=("Require release-ready artifact provenance checks; implied by --require-ok."),
+    )
     return parser
 
 
@@ -577,6 +750,8 @@ def _command_from_args(args: argparse.Namespace) -> tuple[str, ...]:
     command.extend(("--output", str(args.output)))
     if args.require_ok:
         command.append("--require-ok")
+    if args.require_release_inputs:
+        command.append("--require-release-inputs")
     return tuple(command)
 
 

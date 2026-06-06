@@ -333,9 +333,12 @@ python -m tools.release.v02_benchmark_readiness \
   --require-ok
 ```
 
-The report is expected to remain `ok=false` until the broader benchmark
-suite and [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout
-speed target pass from measured artifacts.
+With `--require-ok`, the gate also requires release-shaped input
+provenance: package-relative score/label or aggregate metrics inputs,
+efficiency input identities, and non-fixture release identity text. The
+report is expected to remain `ok=false` until the broader benchmark suite
+and [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed
+target pass from measured artifacts.
 
 - audit data issues #49, #50, #51, and #52 against the actual v0.1
   pipeline and turn remaining deltas into narrower v0.2 work;
