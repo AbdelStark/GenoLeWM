@@ -484,6 +484,7 @@ def _rollout_speed_row(
         )
     command = _required_text_list(payload.get("command"), "rollout speed command")
     report_ok = _required_bool(payload, "ok")
+    _require_rollout_claim_boundary(payload.get("claim_boundary"))
     rows = _require_list(payload.get("rows"), "rollout speed rows")
     observed: dict[str, float] = {}
     failed: list[str] = []
@@ -1768,6 +1769,21 @@ def _require_scope_negative_findings(raw: object) -> None:
         raise InputError(
             "rollout speed scope report negative_findings must preserve failed-target boundaries"
         )
+
+
+def _require_rollout_claim_boundary(raw: object) -> None:
+    text = _require_text_value(raw, "claim_boundary")
+    lower = text.lower()
+    required_terms = (
+        "rollout speed",
+        "not",
+        "model-quality",
+        "clinical",
+        "privacy",
+        "release-readiness",
+    )
+    if any(term not in lower for term in required_terms):
+        raise InputError("rollout speed report claim_boundary must preserve benchmark limits")
 
 
 def _require_scope_claim_boundary(raw: object) -> None:

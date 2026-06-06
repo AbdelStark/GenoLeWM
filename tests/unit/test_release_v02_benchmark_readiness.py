@@ -11,6 +11,11 @@ from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_bytes
 from tools.release import rollout_speed_scope, v02_benchmark_readiness, v02_benchmark_suite
 
+ROLLOUT_CLAIM_BOUNDARY = (
+    "This benchmark measures local predictor rollout speed only; it is not "
+    "model-quality, clinical, privacy, or release-readiness evidence."
+)
+
 
 def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
     metrics = tmp_path / "clinvar_coding.metrics.json"
@@ -33,6 +38,7 @@ def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
                 "ok": False,
                 "commit": "abcdef1234567890",
                 "command": ["python", "-m", "bench.rollout", "--k", "5"],
+                "claim_boundary": ROLLOUT_CLAIM_BOUNDARY,
                 "rows": [
                     {
                         "horizon": 5,
@@ -248,6 +254,7 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
                 "ok": True,
                 "commit": "abcdef1234567890",
                 "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
+                "claim_boundary": ROLLOUT_CLAIM_BOUNDARY,
                 "rows": [
                     {
                         "horizon": 5,
@@ -1271,6 +1278,7 @@ def test_rollout_speed_requires_declared_horizons(tmp_path: Path) -> None:
                 "ok": True,
                 "commit": "abcdef1",
                 "command": ["python", "-m", "bench.rollout", "--k", "5"],
+                "claim_boundary": ROLLOUT_CLAIM_BOUNDARY,
                 "rows": [
                     {
                         "horizon": 5,
@@ -1306,6 +1314,7 @@ def test_readiness_rejects_rollout_commit_drift(tmp_path: Path) -> None:
                 "ok": True,
                 "commit": "fffffff",
                 "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
+                "claim_boundary": ROLLOUT_CLAIM_BOUNDARY,
                 "rows": [
                     {
                         "horizon": 5,
@@ -1341,6 +1350,7 @@ def test_readiness_rejects_rollout_without_command(tmp_path: Path) -> None:
                 "generated_by": "bench.rollout",
                 "ok": True,
                 "commit": "abcdef1",
+                "claim_boundary": ROLLOUT_CLAIM_BOUNDARY,
                 "rows": [],
             }
         ),
@@ -1348,6 +1358,18 @@ def test_readiness_rejects_rollout_without_command(tmp_path: Path) -> None:
     )
 
     with pytest.raises(InputError, match="command"):
+        v02_benchmark_readiness.build_readiness_report(rollout_speed_report=rollout)
+
+
+def test_readiness_rejects_rollout_with_weakened_claim_boundary(
+    tmp_path: Path,
+) -> None:
+    rollout = tmp_path / "rollout.ar_speed.json"
+    payload = _passing_rollout_payload()
+    payload["claim_boundary"] = "This report records rollout speed."
+    rollout.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputError, match="claim_boundary must preserve"):
         v02_benchmark_readiness.build_readiness_report(rollout_speed_report=rollout)
 
 
@@ -1503,6 +1525,7 @@ def _passing_rollout_payload() -> dict[str, object]:
         "ok": True,
         "commit": "abcdef1234567890",
         "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
+        "claim_boundary": ROLLOUT_CLAIM_BOUNDARY,
         "rows": [
             {
                 "horizon": 5,
@@ -1598,6 +1621,7 @@ def _failing_rollout_payload() -> dict[str, object]:
         "ok": False,
         "commit": "abcdef1234567890",
         "command": ["python", "-m", "bench.rollout", "--k", "5", "--k", "20"],
+        "claim_boundary": ROLLOUT_CLAIM_BOUNDARY,
         "rows": [
             {
                 "horizon": 5,

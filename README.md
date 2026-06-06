@@ -380,6 +380,9 @@ and readiness, efficiency, accepted scope, or nested rollout-speed
 command path arguments with public-safe paths plus SHA-256 and size
 where applicable, and its `release_inputs` row records checked metrics
 artifact paths, efficiency input identities, and suite output identities.
+The direct `bench.rollout` speed report must also carry a claim boundary
+stating that rollout speed is not model-quality, clinical, privacy, or
+release-readiness evidence.
 The suite report must include the readiness `--metrics-json` artifact in
 passed-step output identities, preventing stale metrics from being paired
 with an unrelated suite execution.
