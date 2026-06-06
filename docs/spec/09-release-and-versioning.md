@@ -306,7 +306,8 @@ trusted only after their hashes match the fetched manifest.
     `tools.release.v02_benchmark_readiness` may then consume
     `--rollout-speed-scope-report ...`, but only when that report binds
     the exact failing `bench.rollout` path/SHA-256/size identity and
-    failed K targets.
+    failed K targets, and when the scope command plus copied
+    `bench.rollout` summary command are public-safe and current.
     The readiness row is recorded as `rescoped`, not as passing
     rollout-speed evidence.
 15. For model/demo releases: normalize measured efficiency evidence as

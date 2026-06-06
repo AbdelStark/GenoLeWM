@@ -249,8 +249,8 @@ The first paper/demo release is not ready until:
   speed targets. Readiness consumes it only when the report binds the
   exact failing `bench.rollout` path/SHA-256/size identity, failed K
   targets, and public-safe scope plus nested rollout command path
-  identities, and the readiness row remains `rescoped` rather than
-  passing speed evidence;
+  identities. The readiness row remains `rescoped` rather than passing
+  speed evidence;
 - eval-report `negative_findings` must be non-empty and render as
   `## Negative Findings`;
   baseline delta rows must carry matching evaluated variant-key hashes;

@@ -499,6 +499,7 @@ def _rollout_speed_row(
             rollout_speed_scope_report,
             rollout_speed_report=path,
             rollout_commit=commit,
+            rollout_command=command,
             rollout_report_ok=report_ok,
             observed_values=observed,
             failed_targets=failed_target_rows,
@@ -527,6 +528,7 @@ def _load_rollout_speed_scope_decision(
     *,
     rollout_speed_report: Path,
     rollout_commit: str,
+    rollout_command: list[str],
     rollout_report_ok: bool,
     observed_values: dict[str, float],
     failed_targets: list[dict[str, object]],
@@ -571,6 +573,13 @@ def _load_rollout_speed_scope_decision(
         or "#197" not in raw_issue_refs
     ):
         raise InputError("rollout speed scope report issue_refs must include #42 and #197")
+    scope_command = _required_text_list(payload.get("command"), "rollout speed scope command")
+    expected_scope_command = _public_safe_command(tuple(scope_command))
+    if scope_command != expected_scope_command:
+        raise InputError(
+            "rollout speed scope report command must be public-safe",
+            details={"expected": expected_scope_command, "observed": scope_command},
+        )
     raw_identity = payload.get("rollout_speed_report")
     if not isinstance(raw_identity, dict):
         raise InputError("rollout speed scope report must bind rollout_speed_report")
@@ -589,6 +598,15 @@ def _load_rollout_speed_scope_decision(
     if not isinstance(raw_summary, dict):
         raise InputError("rollout speed scope report must bind rollout_speed_summary")
     summary_mismatches: dict[str, object] = {}
+    expected_rollout_command = _public_safe_command(tuple(rollout_command))
+    observed_rollout_command = _required_text_list(
+        raw_summary.get("command"), "rollout speed scope summary command"
+    )
+    if observed_rollout_command != expected_rollout_command:
+        summary_mismatches["command"] = {
+            "expected": expected_rollout_command,
+            "observed": observed_rollout_command,
+        }
     if raw_summary.get("commit") != rollout_commit:
         summary_mismatches["commit"] = {
             "expected": rollout_commit,

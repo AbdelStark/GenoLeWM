@@ -266,6 +266,7 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
         rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
+        command=_scope_report_command(rollout, scope),
     )
     efficiency.write_text(json.dumps(_efficiency_payload()), encoding="utf-8")
 
@@ -308,6 +309,7 @@ def test_readiness_rejects_stale_rollout_speed_rescope(tmp_path: Path) -> None:
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
         rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
+        command=_scope_report_command(rollout, scope),
     )
     payload = _failing_rollout_payload()
     payload["rows"][0]["measured_speedup"] = 1.7
@@ -334,12 +336,89 @@ def test_readiness_rejects_scope_report_with_stale_rollout_speed_path(
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
         rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
+        command=_scope_report_command(rollout, scope),
     )
     scope_payload = json.loads(scope.read_text(encoding="utf-8"))
     scope_payload["rollout_speed_report"]["path"] = "stale-rollout.ar_speed.json"
     scope.write_text(json.dumps(scope_payload), encoding="utf-8")
 
     with pytest.raises(InputError, match="does not match rollout speed report"):
+        v02_benchmark_readiness.build_readiness_report(
+            rollout_speed_report=rollout,
+            rollout_speed_scope_report=scope,
+        )
+
+
+def test_readiness_rejects_scope_report_with_absolute_scope_command_paths(
+    tmp_path: Path,
+) -> None:
+    rollout = tmp_path / "rollout.ar_speed.json"
+    scope = tmp_path / "rollout_speed_scope.json"
+    rollout.write_text(json.dumps(_failing_rollout_payload()), encoding="utf-8")
+    rollout_speed_scope.write_scope_report(
+        rollout_speed_report=rollout,
+        output=scope,
+        accepted_by="maintainer",
+        accepted_at="2026-06-06T12:00:00Z",
+        decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        replacement_target="Report measured rollout speed until #42 accepts a new target.",
+        command=_scope_report_command(rollout, scope),
+    )
+    scope_payload = json.loads(scope.read_text(encoding="utf-8"))
+    scope_payload["command"] = [
+        "python",
+        "-m",
+        "tools.release.rollout_speed_scope",
+        "--rollout-speed-report",
+        str(rollout.resolve()),
+        "--output",
+        str(scope.resolve()),
+    ]
+    scope.write_text(json.dumps(scope_payload), encoding="utf-8")
+
+    with pytest.raises(InputError, match="scope report command must be public-safe"):
+        v02_benchmark_readiness.build_readiness_report(
+            rollout_speed_report=rollout,
+            rollout_speed_scope_report=scope,
+        )
+
+
+def test_readiness_rejects_scope_report_with_stale_rollout_summary_command(
+    tmp_path: Path,
+) -> None:
+    rollout = tmp_path / "rollout.ar_speed.json"
+    scope = tmp_path / "rollout_speed_scope.json"
+    payload = _failing_rollout_payload()
+    payload["command"] = [
+        "python",
+        "-m",
+        "bench.rollout",
+        "--output-json",
+        str(rollout.resolve()),
+        "--out-dir",
+        str((tmp_path / "bench").resolve()),
+        "--k",
+        "5",
+        "--k",
+        "20",
+    ]
+    rollout.write_text(json.dumps(payload), encoding="utf-8")
+    rollout_speed_scope.write_scope_report(
+        rollout_speed_report=rollout,
+        output=scope,
+        accepted_by="maintainer",
+        accepted_at="2026-06-06T12:00:00Z",
+        decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
+        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        replacement_target="Report measured rollout speed until #42 accepts a new target.",
+        command=_scope_report_command(rollout, scope),
+    )
+    scope_payload = json.loads(scope.read_text(encoding="utf-8"))
+    scope_payload["rollout_speed_summary"]["command"] = payload["command"]
+    scope.write_text(json.dumps(scope_payload), encoding="utf-8")
+
+    with pytest.raises(InputError, match="scope report summary is stale"):
         v02_benchmark_readiness.build_readiness_report(
             rollout_speed_report=rollout,
             rollout_speed_scope_report=scope,
@@ -847,6 +926,18 @@ def _failing_rollout_payload() -> dict[str, object]:
             },
         ],
     }
+
+
+def _scope_report_command(rollout: Path, scope: Path) -> tuple[str, ...]:
+    return (
+        "python",
+        "-m",
+        "tools.release.rollout_speed_scope",
+        "--rollout-speed-report",
+        str(rollout),
+        "--output",
+        str(scope),
+    )
 
 
 def _efficiency_payload(*, release_ready: bool = False) -> dict[str, object]:
