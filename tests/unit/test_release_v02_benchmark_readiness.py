@@ -156,6 +156,37 @@ def test_readiness_report_sanitizes_nested_rollout_speed_command_paths(
     assert str(tmp_path) not in json.dumps(command, sort_keys=True)
 
 
+def test_readiness_report_sanitizes_efficiency_command_paths(tmp_path: Path) -> None:
+    efficiency = tmp_path / "efficiency_report.json"
+    payload = _efficiency_payload()
+    payload["command"] = [
+        "python",
+        "-m",
+        "bench.inference",
+        "--output-json",
+        str(efficiency.resolve()),
+        "--out-dir",
+        str((tmp_path / "efficiency-results").resolve()),
+    ]
+    efficiency.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        efficiency_report=efficiency.resolve(),
+    )
+
+    command = _rows_by_id(report)["inference_efficiency"]["command"]
+    assert command == [
+        "python",
+        "-m",
+        "bench.inference",
+        "--output-json",
+        "efficiency_report.json",
+        "--out-dir",
+        "efficiency-results",
+    ]
+    assert str(tmp_path) not in json.dumps(command, sort_keys=True)
+
+
 def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -> None:
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
@@ -227,10 +258,25 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
         "peak_memory_bytes",
         "single_variant_latency_ms",
     ]
+    assert rows["inference_efficiency"]["observed_values"] == {
+        "batched_throughput_variants_per_s": 50.0,
+        "peak_memory_bytes": 123456,
+        "single_variant_latency_ms": 10.0,
+    }
+    assert rows["inference_efficiency"]["command"] == [
+        "geno-lewm-score",
+        "--variant",
+        "1:10:A:T",
+    ]
+    assert rows["inference_efficiency"]["runtime"] == "Python 3.13; backend=cpu"
+    assert rows["inference_efficiency"]["samples"] == 3
     conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
     assert "clinvar_coding passed" in conclusions
     assert "auroc=0.73" in conclusions
     assert "Baseline deltas: accuracy=0.01" in conclusions
+    assert "inference_efficiency passed" in conclusions
+    assert "single_variant_latency_ms=10" in conclusions
+    assert "batched_throughput_variants_per_s=50" in conclusions
 
 
 def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) -> None:

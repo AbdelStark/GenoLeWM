@@ -402,6 +402,7 @@ def _efficiency_row(report: EfficiencyReport | None) -> dict[str, object]:
             "observed_metrics": [],
             "issue_refs": ["#56", "#58", "#197"],
         }
+    measurements = report.measurements.to_dict()
     return {
         "benchmark_id": "inference_efficiency",
         "track": "inference_efficiency",
@@ -411,9 +412,18 @@ def _efficiency_row(report: EfficiencyReport | None) -> dict[str, object]:
             "batched_throughput_variants_per_s",
             "peak_memory_bytes",
         ],
-        "observed_metrics": list(report.measurements.to_dict()),
+        "observed_metrics": list(measurements),
+        "observed_values": measurements,
+        "model_id": report.model_id,
         "model_release": report.model_release,
         "dataset_snapshot": report.dataset_snapshot,
+        "commit": report.commit,
+        "hardware": report.hardware,
+        "runtime": report.runtime,
+        "command": _public_safe_command(tuple(report.command)),
+        "warmup_batches": report.warmup_batches,
+        "samples": report.samples,
+        "limitations": list(report.limitations),
         "issue_refs": ["#56", "#58", "#197"],
     }
 
