@@ -106,6 +106,7 @@ def test_write_suite_report_execute_runs_steps_in_manifest_directory(tmp_path: P
         calls.append((args, cwd))
         for output_path in outputs_by_command[tuple(args)]:
             path = cwd / output_path
+            assert not path.exists()
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("{}", encoding="utf-8")
         return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
@@ -160,6 +161,70 @@ def test_write_suite_report_execute_rejects_missing_declared_outputs(tmp_path: P
     assert statuses[1:] == ["not_run"] * 7
 
 
+def test_write_suite_report_execute_clears_stale_declared_outputs(tmp_path: Path) -> None:
+    manifest = _write_manifest(tmp_path)
+    output = tmp_path / "suite_report.json"
+    stale = tmp_path / "eval" / "clinvar_coding.scores.jsonl"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale\n", encoding="utf-8")
+
+    def fake_runner(
+        args: list[str],
+        *,
+        cwd: Path,
+        text: bool,
+        capture_output: bool,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
+
+    report = v02_benchmark_suite.write_suite_report(
+        manifest_path=manifest,
+        output_report=output,
+        execute=True,
+        runner=fake_runner,
+    )
+
+    assert report["ok"] is False
+    assert report["steps"][0]["output_findings"] == [
+        "missing declared output eval/clinvar_coding.scores.jsonl",
+    ]
+    assert not stale.exists()
+
+
+def test_write_suite_report_execute_rejects_declared_output_directories(tmp_path: Path) -> None:
+    manifest = _write_manifest(tmp_path)
+    output = tmp_path / "suite_report.json"
+    output_dir = tmp_path / "eval" / "clinvar_coding.scores.jsonl"
+    output_dir.mkdir(parents=True)
+    called = False
+
+    def fake_runner(
+        args: list[str],
+        *,
+        cwd: Path,
+        text: bool,
+        capture_output: bool,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal called
+        called = True
+        return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
+
+    report = v02_benchmark_suite.write_suite_report(
+        manifest_path=manifest,
+        output_report=output,
+        execute=True,
+        runner=fake_runner,
+    )
+
+    assert called is False
+    assert report["ok"] is False
+    assert report["steps"][0]["output_findings"] == [
+        "declared output eval/clinvar_coding.scores.jsonl exists but is not a file",
+    ]
+
+
 def test_write_suite_report_execute_stops_after_first_failure(tmp_path: Path) -> None:
     manifest = _write_manifest(tmp_path)
     output = tmp_path / "suite_report.json"
@@ -201,6 +266,18 @@ def test_suite_manifest_rejects_nonportable_paths(tmp_path: Path) -> None:
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(InputError, match=r"artifacts\.model_dir must be package-relative"):
+        v02_benchmark_suite.build_suite_steps(path)
+
+
+def test_suite_manifest_rejects_duplicate_outputs(tmp_path: Path) -> None:
+    manifest = _manifest_payload()
+    aggregate = manifest["aggregate"]
+    assert isinstance(aggregate, dict)
+    aggregate["metrics_json"] = "eval/clinvar_coding.metrics.json"
+    path = tmp_path / "suite.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(InputError, match="step outputs must be unique"):
         v02_benchmark_suite.build_suite_steps(path)
 
 

@@ -3,8 +3,9 @@
 
 This runner composes existing benchmark-producing commands. It does not
 generate private-data fixtures and a plan-only report is not benchmark
-evidence; ``ok`` is true only after ``--execute`` runs every planned step
-successfully and each step's declared output files exist.
+evidence; ``ok`` is true only after ``--execute`` clears each step's
+declared output files, runs every planned step successfully, and observes
+the declared output files again.
 """
 
 from __future__ import annotations
@@ -144,6 +145,7 @@ def build_suite_steps(manifest_path: Path) -> tuple[SuiteStep, ...]:
 
     if readiness is not None:
         steps.append(_readiness_step(readiness, aggregate_metrics, shared["efficiency_report"]))
+    _validate_unique_step_outputs(steps)
     return tuple(steps)
 
 
@@ -166,27 +168,33 @@ def write_suite_report(
         elif failed:
             report["status"] = "not_run"
         else:
-            completed = runner(
-                list(step.command),
-                cwd=manifest_path.parent,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            report["exit_code"] = completed.returncode
-            report["stdout_tail"] = _tail_text(completed.stdout)
-            report["stderr_tail"] = _tail_text(completed.stderr)
-            if completed.returncode == 0:
-                output_findings = _missing_output_findings(step, root=manifest_path.parent)
-                if output_findings:
-                    report["status"] = "failed"
-                    report["output_findings"] = output_findings
-                    failed = True
-                else:
-                    report["status"] = "pass"
-            else:
+            output_findings = _clear_declared_outputs(step, root=manifest_path.parent)
+            if output_findings:
                 report["status"] = "failed"
+                report["output_findings"] = output_findings
                 failed = True
+            else:
+                completed = runner(
+                    list(step.command),
+                    cwd=manifest_path.parent,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                report["exit_code"] = completed.returncode
+                report["stdout_tail"] = _tail_text(completed.stdout)
+                report["stderr_tail"] = _tail_text(completed.stderr)
+                if completed.returncode == 0:
+                    output_findings = _missing_output_findings(step, root=manifest_path.parent)
+                    if output_findings:
+                        report["status"] = "failed"
+                        report["output_findings"] = output_findings
+                        failed = True
+                    else:
+                        report["status"] = "pass"
+                else:
+                    report["status"] = "failed"
+                    failed = True
         step_reports.append(report)
     if execute:
         status = "failed" if failed else "pass"
@@ -679,6 +687,23 @@ def _optional_path_text(
     return _path_text(value, field=field)
 
 
+def _validate_unique_step_outputs(steps: list[SuiteStep]) -> None:
+    owners: dict[str, str] = {}
+    for step in steps:
+        for output in step.outputs:
+            owner = owners.get(output)
+            if owner is not None:
+                raise InputError(
+                    "benchmark suite step outputs must be unique",
+                    details={
+                        "output": output,
+                        "first_step": owner,
+                        "duplicate_step": step.step_id,
+                    },
+                )
+            owners[output] = step.step_id
+
+
 def _path_text(raw: object, *, field: str, allow_dot: bool = False) -> str:
     if not isinstance(raw, str) or not raw.strip():
         raise InputError(f"benchmark suite manifest requires path field {field}")
@@ -699,6 +724,17 @@ def _tail_text(value: str | None) -> str:
     if not value:
         return ""
     return value[-MAX_CAPTURE_CHARS:]
+
+
+def _clear_declared_outputs(step: SuiteStep, *, root: Path) -> list[str]:
+    findings: list[str] = []
+    for output in step.outputs:
+        path = root / output
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+        elif path.exists():
+            findings.append(f"declared output {output} exists but is not a file")
+    return findings
 
 
 def _missing_output_findings(step: SuiteStep, *, root: Path) -> list[str]:
