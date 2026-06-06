@@ -255,10 +255,15 @@ def _benchmark_row(
         "status": status,
         "required_metrics": list(requirement.required_metrics),
         "observed_metrics": observed_names,
+        "observed_values": _observed_metric_values(required_metric_rows),
+        "confidence_intervals": _observed_confidence_intervals(required_metric_rows),
+        "evaluated_variant_key_identities": _observed_variant_key_identities(required_metric_rows),
         "missing_metrics": missing_metrics,
         "confidence_intervals_required": requirement.require_confidence_intervals,
         "missing_confidence_intervals": missing_confidence_intervals,
         "required_baseline": requirement.required_baseline,
+        "baseline_values": _observed_baseline_values(required_metric_rows),
+        "delta_vs_baseline": _observed_baseline_deltas(required_metric_rows),
         "baseline_observed": (
             None if requirement.required_baseline is None else not baseline_missing
         ),
@@ -626,13 +631,58 @@ def _metric_has_confidence_interval(metric: MetricResult) -> bool:
     return metric.ci_low is not None and metric.ci_high is not None
 
 
+def _observed_metric_values(metrics: tuple[MetricResult, ...]) -> dict[str, float]:
+    return {_normalized_metric_name(metric): metric.value for metric in metrics}
+
+
+def _observed_confidence_intervals(
+    metrics: tuple[MetricResult, ...],
+) -> dict[str, dict[str, float]]:
+    return {
+        _normalized_metric_name(metric): {"ci_low": metric.ci_low, "ci_high": metric.ci_high}
+        for metric in metrics
+        if metric.ci_low is not None and metric.ci_high is not None
+    }
+
+
+def _observed_variant_key_identities(metrics: tuple[MetricResult, ...]) -> dict[str, str]:
+    return {
+        _normalized_metric_name(metric): metric.evaluated_variant_keys_sha256
+        for metric in metrics
+        if metric.evaluated_variant_keys_sha256 is not None
+    }
+
+
+def _observed_baseline_values(metrics: tuple[MetricResult, ...]) -> dict[str, float]:
+    return {
+        _normalized_metric_name(metric): metric.baseline_value
+        for metric in metrics
+        if metric.baseline_value is not None
+    }
+
+
+def _observed_baseline_deltas(metrics: tuple[MetricResult, ...]) -> dict[str, float]:
+    return {
+        _normalized_metric_name(metric): metric.delta_vs_baseline
+        for metric in metrics
+        if metric.delta_vs_baseline is not None
+    }
+
+
 def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
     conclusions: list[str] = []
     for row in rows:
         benchmark = str(row["benchmark_id"])
         status = str(row["status"])
         if status == "pass":
-            conclusions.append(f"{benchmark} has measured artifact coverage for this report.")
+            values = _format_metric_values(row.get("observed_values"))
+            deltas = _format_metric_values(row.get("delta_vs_baseline"))
+            conclusion = f"{benchmark} passed with measured artifact coverage" + (
+                f": {values}" if values else "."
+            )
+            if deltas:
+                conclusion += f" Baseline deltas: {deltas}."
+            conclusions.append(conclusion)
         else:
             raw_issue_refs = row.get("issue_refs")
             issue_refs = (
@@ -645,6 +695,18 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
                 f"{benchmark} is {status}; route remaining work through {issue_refs}."
             )
     return conclusions
+
+
+def _format_metric_values(raw: object) -> str:
+    if not isinstance(raw, dict) or not raw:
+        return ""
+    items: list[str] = []
+    for key in sorted(raw):
+        value = raw[key]
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            continue
+        items.append(f"{key}={float(value):.6g}")
+    return ", ".join(items)
 
 
 def _negative_findings(missing_or_failed: list[str]) -> list[str]:

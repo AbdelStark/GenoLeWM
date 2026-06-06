@@ -335,9 +335,9 @@ python -m tools.release.v02_benchmark_readiness \
 
 With `--require-ok`, the gate also requires release-shaped input
 provenance: package-relative score/label or aggregate metrics inputs,
-efficiency input identities, CI-bearing VEP metric rows, and
-non-fixture release identity text. The report is expected to remain
-`ok=false` until the broader benchmark suite and
+efficiency input identities, measured VEP values with baseline deltas
+and confidence intervals, and non-fixture release identity text. The
+report is expected to remain `ok=false` until the broader benchmark suite and
 [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target
 pass from measured artifacts.
 

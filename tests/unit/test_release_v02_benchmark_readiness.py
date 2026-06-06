@@ -126,11 +126,20 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
     assert report["missing_or_failed_benchmarks"] == []
     rows = _rows_by_id(report)
     assert all(row["status"] == "pass" for row in rows.values())
+    assert rows["clinvar_coding"]["observed_values"]["auroc"] == 0.73
+    assert rows["clinvar_coding"]["delta_vs_baseline"]["auroc"] == 0.01
+    assert rows["clinvar_coding"]["confidence_intervals"]["auroc"]["ci_low"] == pytest.approx(0.68)
+    assert rows["clinvar_coding"]["confidence_intervals"]["auroc"]["ci_high"] == pytest.approx(0.78)
+    assert rows["clinvar_coding"]["evaluated_variant_key_identities"]["auroc"].startswith("sha256:")
     assert rows["inference_efficiency"]["observed_metrics"] == [
         "batched_throughput_variants_per_s",
         "peak_memory_bytes",
         "single_variant_latency_ms",
     ]
+    conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
+    assert "clinvar_coding passed" in conclusions
+    assert "auroc=0.73" in conclusions
+    assert "Baseline deltas: accuracy=0.01" in conclusions
 
 
 def test_vep_rows_require_confidence_intervals(tmp_path: Path) -> None:
@@ -174,8 +183,10 @@ def test_vep_rows_require_confidence_intervals(tmp_path: Path) -> None:
     assert report["ok"] is False
     rows = _rows_by_id(report)
     assert rows["clinvar_coding"]["status"] == "incomplete"
+    assert rows["clinvar_coding"]["observed_values"]["auroc"] == 0.73
     assert rows["clinvar_coding"]["confidence_intervals_required"] is True
     assert rows["clinvar_coding"]["missing_confidence_intervals"] == ["auroc"]
+    assert "auroc" not in rows["clinvar_coding"]["confidence_intervals"]
     assert "clinvar_coding" in report["missing_or_failed_benchmarks"]
 
 
