@@ -387,10 +387,11 @@ baseline, not a reason to publish stronger model-quality claims.
 - `python -m tools.release.rollout_state_rows --examples-jsonl ... --model-dir ...`
   generates `geno-lewm-rollout-states` JSONL from those measured
   source/target/candidate latent examples and the manifest-backed action
-  encoder/predictor; both helpers record package-relative provenance but
-  do not run Carbon encoding or construct held-out haplotypes. Release
-  readiness requires rollout metrics to carry both generation reports as
-  package-relative artifacts;
+  encoder/predictor, rejecting example rows without the supported
+  `schema_version=1.0.0` and generator marker; both helpers record
+  package-relative provenance but do not run Carbon encoding or construct
+  held-out haplotypes. Release readiness requires rollout metrics to
+  carry both generation reports as package-relative artifacts;
 - `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
   records an accepted #42/#197 decision to re-scope a failed RFC-0004
   speed target; readiness accepts this only when the scope report binds

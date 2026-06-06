@@ -203,6 +203,16 @@ def main(argv: list[str] | None = None) -> int:
 def _parse_example(payload: Any, *, line_no: int) -> RolloutStateExample:
     if not isinstance(payload, dict):
         raise InputError("rollout-state examples must be JSON objects", details={"line": line_no})
+    schema_version = _required_text(payload, "schema_version", line_no=line_no)
+    if schema_version != SCHEMA_VERSION:
+        raise InputError(
+            "unsupported rollout-state example schema_version",
+            details={
+                "line": line_no,
+                "schema_version": schema_version,
+                "supported": SCHEMA_VERSION,
+            },
+        )
     generated_by = _required_text(payload, "generated_by", line_no=line_no)
     if generated_by != INPUT_GENERATED_BY:
         raise InputError(

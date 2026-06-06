@@ -241,11 +241,12 @@ The first paper/demo release is not ready until:
   candidate latent states into examples JSONL;
 - `python -m tools.release.rollout_state_rows --examples-jsonl ... --model-dir ...`
   generates rollout-state JSONL from those measured latent examples and
-  the manifest-backed action encoder/predictor. These helpers bridge
-  precomputed source/target/candidate states to `geno-lewm-rollout`; they
-  are not Carbon encoder runs or held-out haplotype generators. Release
-  readiness requires rollout metrics to carry both generation reports as
-  package-relative artifacts;
+  the manifest-backed action encoder/predictor, rejecting example rows
+  without the supported `schema_version=1.0.0` and generator marker.
+  These helpers bridge precomputed source/target/candidate states to
+  `geno-lewm-rollout`; they are not Carbon encoder runs or held-out
+  haplotype generators. Release readiness requires rollout metrics to
+  carry both generation reports as package-relative artifacts;
 - `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
   records an accepted #42/#197 re-scope for failed RFC-0004 AR rollout
   speed targets. Readiness consumes it only when the report binds the

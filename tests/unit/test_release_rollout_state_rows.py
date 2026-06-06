@@ -69,6 +69,16 @@ def test_rollout_state_examples_reject_stale_target_candidate(tmp_path: Path) ->
         rollout_state_rows.load_rollout_state_examples(examples)
 
 
+def test_rollout_state_examples_reject_stale_schema_version(tmp_path: Path) -> None:
+    examples = tmp_path / "rollout_state_examples.jsonl"
+    row = _example_row()
+    row["schema_version"] = "0.9.0"
+    examples.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="unsupported rollout-state example schema_version"):
+        rollout_state_rows.load_rollout_state_examples(examples)
+
+
 def test_rollout_state_rows_reject_prediction_dimension_mismatch(tmp_path: Path) -> None:
     examples = tmp_path / "rollout_state_examples.jsonl"
     examples.write_text(json.dumps(_example_row()) + "\n", encoding="utf-8")
@@ -97,6 +107,7 @@ def test_rollout_state_examples_reject_invalid_edit_type(tmp_path: Path) -> None
 
 def _example_row() -> dict[str, object]:
     return {
+        "schema_version": "1.0.0",
         "generated_by": "tools.release.rollout_state_examples",
         "id": "phased-k2-a",
         "split": "rollout_phased_haplotypes",

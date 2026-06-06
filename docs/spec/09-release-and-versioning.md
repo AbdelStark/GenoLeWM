@@ -287,10 +287,13 @@ trusted only after their hashes match the fetched manifest.
     helper must consume those measured latent examples, load the
     manifest-backed action encoder and predictor, write
     `geno-lewm-rollout-states` JSONL, and record package-relative
-    provenance. These helpers do not run Carbon encoding or construct
-    held-out haplotypes, so those cache-backed specs remain required
-    benchmark inputs. When rollout metrics are used for release-input
-    readiness, `geno-lewm-rollout` must record package-relative
+    provenance. The rows helper MUST reject example rows that are missing
+    the supported `schema_version=1.0.0` or the
+    `tools.release.rollout_state_examples` generator marker. These
+    helpers do not run Carbon encoding or construct held-out haplotypes,
+    so those cache-backed specs remain required benchmark inputs. When
+    rollout metrics are used for release-input readiness,
+    `geno-lewm-rollout` must record package-relative
     `rollout_state_examples_report` and `rollout_state_rows_report`
     artifacts.
     Readiness input artifact identities plus readiness, efficiency, and
