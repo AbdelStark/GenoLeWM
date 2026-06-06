@@ -321,6 +321,22 @@ public v0.1 evidence. Green local tooling is necessary, but it is not a substitu
 The next work should improve the evidence substrate before expanding
 demos. Track it in [#197](https://github.com/AbdelStark/GenoLeWM/issues/197):
 
+Use the v0.2 readiness report to bind measured eval, efficiency, and AR
+rollout speed artifacts before making broader claims:
+
+```bash
+python -m tools.release.v02_benchmark_readiness \
+  --metrics-json .../eval_metrics.json \
+  --rollout-speed-report .../rollout.ar_speed.json \
+  --efficiency-report .../efficiency_report.json \
+  --output .../v0.2_benchmark_readiness_report.json \
+  --require-ok
+```
+
+The report is expected to remain `ok=false` until the broader benchmark
+suite and [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout
+speed target pass from measured artifacts.
+
 - audit data issues #49, #50, #51, and #52 against the actual v0.1
   pipeline and turn remaining deltas into narrower v0.2 work;
 - run broader coding/non-coding held-out benchmarks with measured
