@@ -300,15 +300,16 @@ trusted only after their hashes match the fetched manifest.
     explicitly accepts a re-scope in #42/#197, generate
     `python -m tools.release.rollout_speed_scope --rollout-speed-report ... --output ...`
     with a UTC accepted timestamp, HTTP(S) accepted decision URL,
-    rationale, replacement target, and issue refs. The generated scope
-    report MUST record the failing `bench.rollout` input identity plus
-    scope and nested rollout command path arguments with public-safe path
-    text.
+    rationale, replacement target, and GitHub issue refs including #42
+    and #197. The generated scope report MUST record the failing
+    `bench.rollout` input identity plus scope and nested rollout command
+    path arguments with public-safe path text.
     `tools.release.v02_benchmark_readiness` may then consume
     `--rollout-speed-scope-report ...`, but only when that report binds
     the exact failing `bench.rollout` path/SHA-256/size identity and
-    failed K targets, and when the scope command plus copied
-    `bench.rollout` summary command are public-safe and current.
+    failed K targets, has valid GitHub issue refs including #42 and
+    #197, and when the scope command plus copied `bench.rollout` summary
+    command are public-safe and current.
     The readiness row is recorded as `rescoped`, not as passing
     rollout-speed evidence.
 15. For model/demo releases: normalize measured efficiency evidence as

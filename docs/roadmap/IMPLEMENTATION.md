@@ -248,9 +248,10 @@ The first paper/demo release is not ready until:
   records an accepted #42/#197 re-scope for failed RFC-0004 AR rollout
   speed targets. Readiness consumes it only when the report binds the
   exact failing `bench.rollout` path/SHA-256/size identity, failed K
-  targets, UTC accepted timestamp, HTTP(S) decision URL, and public-safe
-  scope plus nested rollout command path identities. The readiness row
-  remains `rescoped` rather than passing speed evidence;
+  targets, valid GitHub issue refs including #42 and #197, UTC accepted
+  timestamp, HTTP(S) decision URL, and public-safe scope plus nested
+  rollout command path identities. The readiness row remains `rescoped`
+  rather than passing speed evidence;
 - eval-report `negative_findings` must be non-empty and render as
   `## Negative Findings`;
   baseline delta rows must carry matching evaluated variant-key hashes;

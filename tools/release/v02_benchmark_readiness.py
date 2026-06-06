@@ -566,13 +566,7 @@ def _load_rollout_speed_scope_decision(
             "rollout speed scope report decision is invalid",
             details={"expected": ROLLOUT_SPEED_SCOPE_DECISION, "observed": decision},
         )
-    raw_issue_refs = payload.get("issue_refs")
-    if (
-        not isinstance(raw_issue_refs, list)
-        or "#42" not in raw_issue_refs
-        or "#197" not in raw_issue_refs
-    ):
-        raise InputError("rollout speed scope report issue_refs must include #42 and #197")
+    issue_refs = _required_issue_refs(payload.get("issue_refs"))
     scope_command = _required_text_list(payload.get("command"), "rollout speed scope command")
     expected_scope_command = _public_safe_command(tuple(scope_command))
     if scope_command != expected_scope_command:
@@ -641,7 +635,7 @@ def _load_rollout_speed_scope_decision(
         "decision_url": _require_url(payload.get("decision_url"), "decision_url"),
         "rationale": _required_text(payload, "rationale"),
         "replacement_target": _required_text(payload, "replacement_target"),
-        "issue_refs": raw_issue_refs,
+        "issue_refs": issue_refs,
     }
 
 
@@ -1169,6 +1163,19 @@ def _require_utc_timestamp(value: object, field: str) -> str:
     except ValueError as exc:
         raise InputError(f"{field} must be an ISO-8601 UTC timestamp") from exc
     return text
+
+
+def _required_issue_refs(raw: object) -> list[str]:
+    if not isinstance(raw, list):
+        raise InputError("rollout speed scope report issue_refs must be a JSON list")
+    refs: list[str] = []
+    for ref in raw:
+        if not isinstance(ref, str) or not ref.startswith("#") or not ref[1:].isdigit():
+            raise InputError("rollout speed scope report issue_refs must be GitHub issue refs")
+        refs.append(ref)
+    if "#42" not in refs or "#197" not in refs:
+        raise InputError("rollout speed scope report issue_refs must include #42 and #197")
+    return refs
 
 
 def _required_text_list(raw: object, label: str) -> list[str]:

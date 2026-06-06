@@ -374,12 +374,12 @@ passes from measured artifacts and the
 [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target
 either passes or is explicitly re-scoped through
 `python -m tools.release.rollout_speed_scope`. A scope report must bind
-the failing `bench.rollout` report, issue refs, UTC accepted timestamp,
-HTTP(S) decision URL, rationale, replacement target, public-safe input
-path/SHA-256/size identity, and public-safe scope and nested rollout
-command paths; readiness verifies those scope-report identities before
-recording the AR-speed row as `rescoped` while preserving the failed
-measured speedups.
+the failing `bench.rollout` report, GitHub issue refs including #42 and
+#197, UTC accepted timestamp, HTTP(S) decision URL, rationale,
+replacement target, public-safe input path/SHA-256/size identity, and
+public-safe scope and nested rollout command paths; readiness verifies
+those scope-report identities before recording the AR-speed row as
+`rescoped` while preserving the failed measured speedups.
 
 Before building the all-up readiness report, use
 `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`
