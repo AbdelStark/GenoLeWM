@@ -313,7 +313,9 @@ trusted only after their hashes match the fetched manifest.
     not passing rollout-speed evidence. The readiness report's
     `scope_decisions` summary MUST preserve the accepted scope report
     identity, accepter, rationale, replacement target, generated/accepted
-    timestamps, decision URL, and issue refs.
+    timestamps, decision URL, and issue refs. Re-scoped metric
+    conclusions MUST include failed-target details plus the accepted
+    decision URL, rationale, replacement target, and issue refs.
     `tools.release.v02_benchmark_readiness` may then consume
     `--rollout-speed-scope-report ...`, but only when that report binds
     the exact failing `bench.rollout` path/SHA-256/size identity and

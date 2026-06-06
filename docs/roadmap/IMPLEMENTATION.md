@@ -255,7 +255,9 @@ The first paper/demo release is not ready until:
   passing rollout-speed evidence. The readiness row remains `rescoped`
   rather than passing speed evidence, and `scope_decisions` preserves the
   accepted report identity, accepter, rationale, replacement target,
-  timestamps, decision URL, and issue refs;
+  timestamps, decision URL, and issue refs. Metric conclusions must also
+  include failed-target details and accepted decision context for
+  re-scoped rows;
 - eval-report `negative_findings` must be non-empty and render as
   `## Negative Findings`;
   baseline delta rows must carry matching evaluated variant-key hashes;

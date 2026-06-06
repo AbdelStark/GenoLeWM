@@ -354,6 +354,26 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
         }
     ]
     assert "not passing speed evidence" in "\n".join(report["negative_findings"])
+    conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
+    assert "ar_rollout_speed was explicitly rescoped" in conclusions
+    assert "track=rollout_performance" in conclusions
+    assert "k5_speedup=1.8" in conclusions
+    assert "Failed targets: K=5: 1.8x < 2x; K=20: 1.9x < 5x; report ok=false" in conclusions
+    assert "decision=rescope_rfc0004_speed_target" in conclusions
+    assert "accepted_by=maintainer" in conclusions
+    assert (
+        "decision_url=https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1"
+        in conclusions
+    )
+    assert (
+        "rationale=The current recurrent rollout benchmark missed the RFC-0004 speed target."
+        in conclusions
+    )
+    assert (
+        "replacement_target=Report measured rollout speed until #42 accepts a new target."
+        in conclusions
+    )
+    assert "issue_refs=#42,#197" in conclusions
 
 
 def test_readiness_rejects_stale_rollout_speed_rescope(tmp_path: Path) -> None:

@@ -1043,11 +1043,19 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
                 conclusion += f" Evaluated variant-key identities: {variant_identities}."
             conclusions.append(conclusion)
         elif status == "rescoped":
+            context = _format_row_context(row)
             values = _format_metric_values(row.get("observed_values"))
-            conclusions.append(
-                f"{benchmark} was explicitly rescoped after failed measured targets"
-                + (f": {values}." if values else ".")
-            )
+            failed_targets = _format_text_list(row.get("failed_targets"))
+            scope_decision = _format_scope_decision(row.get("scope_decision"))
+            conclusion = f"{benchmark} was explicitly rescoped after failed measured targets"
+            if context:
+                conclusion += f" ({context})"
+            conclusion += f": {values}." if values else "."
+            if failed_targets:
+                conclusion += f" Failed targets: {failed_targets}."
+            if scope_decision:
+                conclusion += f" Accepted re-scope: {scope_decision}."
+            conclusions.append(conclusion)
         else:
             raw_issue_refs = row.get("issue_refs")
             issue_refs = (
@@ -1140,6 +1148,36 @@ def _format_text_values(raw: object) -> str:
         if isinstance(value, str) and value:
             items.append(f"{key}={value}")
     return ", ".join(items)
+
+
+def _format_text_list(raw: object) -> str:
+    if not isinstance(raw, list) or not raw:
+        return ""
+    values = [value for value in raw if isinstance(value, str) and value]
+    return "; ".join(values)
+
+
+def _format_scope_decision(raw: object) -> str:
+    if not isinstance(raw, dict) or not raw:
+        return ""
+    parts: list[str] = []
+    for key in (
+        "decision",
+        "accepted_by",
+        "accepted_at",
+        "decision_url",
+        "rationale",
+        "replacement_target",
+    ):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            parts.append(f"{key}={value}")
+    issue_refs = raw.get("issue_refs")
+    if isinstance(issue_refs, list) and issue_refs:
+        refs = [ref for ref in issue_refs if isinstance(ref, str) and ref]
+        if refs:
+            parts.append(f"issue_refs={','.join(refs)}")
+    return "; ".join(parts)
 
 
 def _negative_findings(

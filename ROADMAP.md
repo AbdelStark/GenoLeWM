@@ -401,7 +401,8 @@ baseline, not a reason to publish stronger model-quality claims.
   still records the AR-speed row as `rescoped` rather than passing speed
   evidence while copying the accepted report identity, accepter,
   rationale, replacement target, timestamps, decision URL, and issue refs
-  into `scope_decisions`;
+  into `scope_decisions`; metric conclusions also include failed-target
+  details and accepted decision context for re-scoped rows;
 - `efficiency_report.json` is generated with
   `python -m bench.inference --release-efficiency ... --output-json ...`
   and records measured single-variant latency, batched throughput, peak

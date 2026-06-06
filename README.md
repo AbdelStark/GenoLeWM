@@ -388,7 +388,9 @@ the failed target remains not passing rollout-speed evidence; readiness
 verifies those scope-report identities before recording the AR-speed row
 as `rescoped` while preserving the failed measured speedups, report
 identity, accepter, rationale, replacement target, timestamps, decision
-URL, and issue refs in `scope_decisions`.
+URL, and issue refs in `scope_decisions`. The re-scope metric conclusion
+also carries failed-target details plus the accepted decision URL,
+rationale, replacement target, and issue refs.
 
 Before building the all-up readiness report, use
 `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`
