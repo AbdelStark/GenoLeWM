@@ -49,7 +49,10 @@ from geno_lewm.surprise import (
     score_variant as score_surprise_variant,
     score_vcf as score_surprise_vcf,
 )
-from geno_lewm.surprise.score import _iter_vcf_scores
+from geno_lewm.surprise.score import (
+    _iter_vcf_scores,
+    _predict_next_state as _score_predict_next_state,
+)
 
 __all__ = [
     "BACKEND_AUTO",
@@ -259,7 +262,7 @@ class GenoLeWMRuntime:
 
     def encode_window(self, window: str, edit_locus: int | None = None) -> Any:
         """Encode a DNA window once the encoder backend is installed."""
-        canonicalize_dna(window)
+        normalized_window = canonicalize_dna(window)
         if edit_locus is not None and (
             not isinstance(edit_locus, int) or isinstance(edit_locus, bool) or edit_locus < 0
         ):
@@ -267,7 +270,10 @@ class GenoLeWMRuntime:
                 "edit_locus must be a non-negative integer or None",
                 details={"edit_locus": edit_locus, "type": type(edit_locus).__name__},
             )
-        with fail_closed_network_guard():
+        scorer = self._scorer
+        with fail_closed_network_guard(), torch_inference_context():
+            if scorer is not None:
+                return _encode_runtime_window(scorer.encoder, normalized_window, edit_locus)
             _raise_backend_not_ready("encode_window", self.backend, self.model_dir)
 
     def predict(self, state: Any, edits: Sequence[RelEdit]) -> Any:
@@ -285,7 +291,14 @@ class GenoLeWMRuntime:
                     "edits must contain RelEdit values",
                     details={"index": idx, "type": type(edit).__name__},
                 )
-        with fail_closed_network_guard():
+        scorer = self._scorer
+        with fail_closed_network_guard(), torch_inference_context():
+            if scorer is not None:
+                normalized_edits = tuple(edits)
+                if not normalized_edits:
+                    return state
+                action = _encode_action_sequence(scorer.action_encoder, normalized_edits)
+                return _score_predict_next_state(scorer.predictor, state=state, action=action)
             _raise_backend_not_ready("predict", self.backend, self.model_dir)
 
 
@@ -490,6 +503,40 @@ def _resolve_scorer_components(
         action_encoder=action_encoder,
         predictor=predictor,
         calibration=resolved_calibration,
+    )
+
+
+def _encode_action_sequence(action_encoder: object, edits: Sequence[RelEdit]) -> object:
+    method = getattr(action_encoder, "encode", None)
+    if callable(method):
+        return method(edits)
+    if callable(action_encoder):
+        return action_encoder(edits)
+    raise InputError(
+        "action_encoder must be callable or expose encode(edits)",
+        details={"type": type(action_encoder).__name__},
+    )
+
+
+def _encode_runtime_window(
+    encoder: object,
+    window: str,
+    edit_locus: int | None,
+) -> object:
+    method = getattr(encoder, "encode", None)
+    if callable(method):
+        try:
+            return method(window, edit_locus=edit_locus)
+        except TypeError:
+            return method(window)
+    if callable(encoder):
+        try:
+            return encoder(window, edit_locus=edit_locus)
+        except TypeError:
+            return encoder(window)
+    raise InputError(
+        "encoder must be callable or expose encode(window)",
+        details={"type": type(encoder).__name__},
     )
 
 

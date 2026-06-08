@@ -501,8 +501,8 @@ For project-direction changes:
   list removed or absent paths such as `eval/`, `holdouts.py`,
   `deploy/provenance.py`, or export modules that have not landed;
 - public API docs/RFC-0014 point to `tests/api/public_surface.json` as
-  the exhaustive enforced symbol list, and upcoming planning solver
-  types are not described as stable top-level exports;
+  the exhaustive enforced symbol list, and planning solver types are
+  not described as stable top-level exports;
 - CLI scaffold factory helpers remain private to the shared stub factory
   and do not leak into command-module public surfaces;
 - README and roadmap state current implementation gaps honestly;

@@ -3,13 +3,14 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-06
+- **Updated:** 2026-06-08
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004
 - **Supersedes:** —
 - **Implementation status:** Partial; cost functions, the factored
-  `ActionSampler`, numeric distance helpers, and an evaluator-first CEM
-  solver core are implemented. Predictor-backed planning and CLI
-  integration are not yet implemented.
+  `ActionSampler`, numeric distance helpers, an evaluator-first CEM
+  solver core, runtime-backed `GenoLeWMRuntime.predict`, and the
+  `geno-lewm-plan` alpha CLI are implemented. Released-artifact planning
+  showcase evidence and runtime performance acceptance are not complete.
 
 ---
 
@@ -276,9 +277,10 @@ on the predictor.
 ### 3.9 CLI
 
 ```
-geno-lewm plan \
+geno-lewm-plan \
     --window-fasta region.fa \
     --target-fasta target_region.fa \
+    --model-dir model/ \
     --horizon 5 \
     --iterations 5 \
     --samples 1024 \
@@ -287,7 +289,10 @@ geno-lewm plan \
 
 The CLI accepts target states either as a FASTA (which gets encoded to
 a target state) or as a pre-computed `.npy` latent vector (for advanced
-users who have constructed targets in latent space directly).
+users who have constructed targets in latent space directly). For tests
+and local smoke runs without model artifacts, `--allow-sequence-proxy`
+enables a labeled FASTA-to-FASTA sequence proxy; that mode is not
+learned predictor evidence.
 
 ## 4. Rationale and alternatives
 

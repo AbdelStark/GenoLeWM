@@ -17,7 +17,7 @@ import pytest
 
 import geno_lewm.deploy.runtime as runtime_mod
 from geno_lewm._artifact_sources import SCORE_JSONL_GENERATED_BY
-from geno_lewm.action import EditSpec
+from geno_lewm.action import EditSpec, EditType, RelEdit
 from geno_lewm.deploy import (
     BACKEND_COREML,
     BACKEND_CPU,
@@ -344,6 +344,23 @@ def test_runtime_scores_with_manifest_verified_local_components(tmp_path: Path) 
 
     assert result.bucket_id == "*"
     assert result.sigma_raw > 0.0
+
+
+def test_runtime_encodes_and_predicts_with_local_components(tmp_path: Path) -> None:
+    _write_runtime_model_dir(tmp_path)
+    runtime = GenoLeWMRuntime(
+        tmp_path,
+        encoder=FakeEncoder(),
+        action_encoder=FakeActionEncoder(),
+        predictor=EchoPredictor(),
+    )
+    edit = RelEdit(rel_pos=0, edit_type=EditType.SNV, ref_bases="A", alt_bases="C")
+    state = runtime.encode_window("ACGT")
+
+    predicted = runtime.predict(state, (edit,))
+
+    assert state == (0.25, 0.25, 0.25, 0.25)
+    assert predicted == state
 
 
 def test_runtime_score_variant_enters_inference_context(

@@ -67,6 +67,7 @@ TYPER_STUB_SCRIPTS: tuple[tuple[str, str], ...] = tuple(
         "geno_lewm.cli.eval_all",
         "geno_lewm.cli.carbon_baseline",
         "geno_lewm.cli.rollout",
+        "geno_lewm.cli.plan",
         "geno_lewm.cli.score",
         "geno_lewm.cli.train",
         "geno_lewm.cli.update",

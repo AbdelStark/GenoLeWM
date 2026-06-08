@@ -466,8 +466,9 @@ the readiness report can bind both generation stages.
   readiness run only re-scopes the K20 miss for v0.2 reporting;
 - add regression/benchmark gates for finite loss, collapse health,
   eval-artifact integrity, and rollout performance;
-- unblock planning API/CLI work only after the predictor/eval substrate
-  supports honest claims.
+- use the implemented `geno-lewm-plan` alpha CLI for CEM planning smoke
+  runs, and reserve released-artifact planning/showcase claims for runs
+  backed by measured predictor and eval evidence.
 
 ---
 
@@ -934,7 +935,7 @@ v0.1 proof release toward v0.2 benchmark and rollout readiness:
 - trainer/evaluator paths that produce better publishable artifacts
   without weakening the v0.1 evidence contract;
 - AR rollout speed work and benchmark gates for the RFC-0004 target;
-- planning API/CLI work backed by measured predictor and eval evidence;
+- planning showcase work backed by measured predictor and eval evidence;
 - Documentation that keeps claims aligned with measured behavior.
 
 Personal-genome reproducers are not accepted. Use synthetic data or

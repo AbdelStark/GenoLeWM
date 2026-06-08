@@ -1,9 +1,8 @@
 # GenoLeWM planning config — Phase 1 default (RFC-0017 §3.3).
 #
-# Planning piggy-backs on the predictor checkpoint. The CEM solver
-# configuration block lives under ``runtime`` in v1 (it does not fit
-# any other subsystem); a dedicated ``planning`` block lands once the
-# CEM implementation (#59) is in place.
+# Planning piggy-backs on the predictor checkpoint. The current
+# geno-lewm-plan CLI maps command-line flags into the CEM PlanningConfig;
+# a dedicated schema-backed ``planning`` block remains future cleanup.
 
 run_id: plan-default
 seed: 0

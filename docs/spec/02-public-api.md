@@ -840,9 +840,12 @@ def projection_distance(predicted: Iterable[float],
 ```
 
 `geno_lewm.planning.cem` implements a deterministic evaluator-first CEM
-solver core for local integrations. Predictor/action-encoder wiring,
-runtime performance acceptance, and the `geno-lewm-plan` CLI remain open
-v0.2 work. `PlanningConfig`, `PlanningResult`, and `plan` are not stable top-level exports yet.
+solver core for local integrations. `geno-lewm-plan` now writes
+`plan.json` from either manifest-backed runtime state prediction or an
+explicit sequence-proxy FASTA smoke mode that is labeled as non-model
+evidence. Runtime performance acceptance and serious showcase evidence
+remain open v0.2 work. `PlanningConfig`, `PlanningResult`, and `plan`
+are not stable top-level exports yet.
 
 Defined by [RFC-0008 §3.3](../rfcs/0008-latent-planning.md#33-edit-search-space),
 [§3.5](../rfcs/0008-latent-planning.md#35-cost-functions), and
@@ -980,7 +983,7 @@ Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-artifact-provenance-receipts.md)
 | `geno-lewm-prepare-clinvar` | Implemented alpha | build the ClinVar Parquet shard from an explicit local VCF/VCF.gz | RFC-0006 |
 | `geno-lewm-update` | Implemented alpha | check or apply explicit user-approved model updates | RFC-0010 |
 | `geno-lewm-rollout` | Implemented alpha | aggregate measured latent rollout state rows into eval-compatible cosine, L2, Recall@k, naive-baseline, and per-K stratification metrics; the June 8 v0.2 readiness run generated release-shaped rollout rows through the suite path | RFC-0004, RFC-0007 |
-| `geno-lewm-plan` | Entry-point scaffold | CEM planning to a target state; pure solver core, cost, and sampler primitives exist, while predictor-backed CLI integration and evidence remain open | RFC-0008 |
+| `geno-lewm-plan` | Implemented alpha | CEM planning to a target state; supports manifest-backed runtime planning from FASTA or precomputed latent states, plus an explicit sequence-proxy FASTA smoke mode that is not learned-model evidence | RFC-0008 |
 | `geno-lewm-export` | Implemented (safetensors) | exports a training `predictor_checkpoint.pt` to deploy `predictor.safetensors` + `action_encoder.safetensors` + `export_report.json`; ONNX / Core ML / GGUF targets and quantization remain scaffolds (#67–#70) | RFC-0010 |
 
 All commands accept `--config FILE` (Hydra-compatible), `--seed INT`,
