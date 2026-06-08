@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.encoder import read_embedding
+from geno_lewm.errors import InputError
 from geno_lewm.provenance import (
     Manifest,
     ManifestArtifact,
@@ -98,6 +99,61 @@ def test_v02_rollout_inputs_write_cache_specs_and_report(tmp_path: Path) -> None
     assert read_embedding(cache_dir, specs[0].source_state_key) is not None
 
 
+def test_v02_rollout_inputs_rejects_horizon_above_model_action_limit(tmp_path: Path) -> None:
+    placed = tmp_path / "dataset" / "placed" / "gnomad-common-windows.jsonl"
+    gnomad = tmp_path / "dataset" / "gnomad" / "variants.parquet"
+    manifest = tmp_path / "model" / "manifest.json"
+    carbon_dir = tmp_path / "carbon"
+    cache_dir = tmp_path / "cache" / "window_embeddings"
+    phased_spec = tmp_path / "eval" / "rollout_phased_haplotypes.specs.jsonl"
+    synthetic_spec = tmp_path / "eval" / "rollout_synthetic_edit_chains.specs.jsonl"
+    report = tmp_path / "eval" / "v02_rollout_inputs_report.json"
+
+    placed.parent.mkdir(parents=True)
+    placed.write_text(
+        json.dumps(
+            {
+                "chrom": "22",
+                "start_bp": 0,
+                "end_bp": 20,
+                "sequence": "ACGTACGTACGTACGTACGT",
+                "record_id": "gnomad:22:0-20",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    gnomad.parent.mkdir(parents=True)
+    pq.write_table(
+        pa.Table.from_pylist(
+            [{"chrom": "22", "pos": 2, "ref": "C", "alt": "A", "filter": "PASS"}]
+        ),
+        gnomad,
+    )
+    _write_manifest(manifest, action_max_len=4)
+    carbon_dir.mkdir()
+
+    with pytest.raises(InputError, match="rollout horizon exceeds model action max_len"):
+        v02_rollout_inputs.write_v02_rollout_inputs(
+            artifact_root=tmp_path,
+            placed_windows_jsonl=placed,
+            gnomad_variants_parquet=gnomad,
+            model_manifest=manifest,
+            carbon_model_dir=carbon_dir,
+            cache_dir=cache_dir,
+            phased_spec_jsonl=phased_spec,
+            synthetic_spec_jsonl=synthetic_spec,
+            output_report=report,
+            examples_per_split=1,
+            phased_horizon=2,
+            synthetic_horizon=5,
+            candidate_count=3,
+            batch_size=2,
+            dtype="fp32",
+            encoder=_FakeEncoder(),
+        )
+
+
 class _FakeEncoder:
     def encode_batch(
         self,
@@ -114,8 +170,12 @@ class _FakeEncoder:
         )
 
 
-def _write_manifest(path: Path) -> None:
+def _write_manifest(path: Path, *, action_max_len: int = 16) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    (path.parent / "training_config.effective.yaml").write_text(
+        f"action:\n  max_len: {action_max_len}\n",
+        encoding="utf-8",
+    )
     write_manifest(
         Manifest(
             schema_version="1.0.0",

@@ -38,4 +38,5 @@ def build_predictor(config: Any) -> Predictor:
         d_action=config.action.d_action,
         n_heads=config.predictor.n_heads,
         n_cross_layers=config.predictor.n_layers,
+        max_actions=getattr(config.action, "max_len", 16),
     )

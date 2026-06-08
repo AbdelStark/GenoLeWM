@@ -500,6 +500,23 @@ def _build_loaded_scorer_modules(
     """Build encoder/action_encoder/predictor and load their safetensors weights."""
     cfg = _load_commitment_config_source(model_dir, manifest)
     encoder = _build_runtime_encoder(manifest, cfg)
+    action_encoder, predictor = _build_loaded_action_predictor_modules(
+        model_dir,
+        manifest,
+        cfg=cfg,
+    )
+    return encoder, action_encoder, predictor
+
+
+def _build_loaded_action_predictor_modules(
+    model_dir: Path,
+    manifest: Manifest,
+    *,
+    cfg: Any | None = None,
+) -> tuple[object, object]:
+    """Build action_encoder/predictor and load their safetensors weights."""
+    if cfg is None:
+        cfg = _load_commitment_config_source(model_dir, manifest)
     action_encoder = _build_runtime_action_encoder(cfg)
     predictor = _build_runtime_predictor(cfg)
     _load_module_state(
@@ -512,7 +529,7 @@ def _build_loaded_scorer_modules(
         _artifact_path(model_dir, manifest.predictor.file),
         artifact="predictor",
     )
-    return encoder, action_encoder, predictor
+    return action_encoder, predictor
 
 
 def _try_load_manifest_scorer_components(
@@ -579,10 +596,49 @@ def load_scorer_modules(model_dir: Path | str) -> tuple[object, object, object]:
         ) from exc
 
 
+def load_action_predictor_modules(model_dir: Path | str) -> tuple[object, object]:
+    """Load (action_encoder, predictor) from a model dir without Carbon.
+
+    Rollout-fidelity state row generation consumes already encoded source and
+    target latent states, so it only needs the action encoder and predictor.
+    Keeping this path independent of ``transformers`` and local Carbon weights
+    prevents an unused encoder runtime from blocking release evidence.
+    """
+    model_dir = Path(model_dir)
+    manifest = _load_runtime_manifest(model_dir)
+    if manifest is None:
+        raise ModelNotFoundError(
+            "model_dir must contain manifest.json",
+            details={"model_dir": str(model_dir)},
+        )
+    if not _native_action_predictor_runtime_available():
+        raise RuntimeSetupError(
+            "rollout-state generation requires torch and safetensors",
+            remediation="install geno-lewm[train]",
+        )
+    try:
+        return _build_loaded_action_predictor_modules(model_dir, manifest)
+    except RuntimeSetupError:
+        raise
+    except Exception as exc:
+        raise RuntimeSetupError(
+            "could not load action encoder and predictor from model_dir",
+            details={"model_dir": str(model_dir), "error": str(exc)},
+            remediation=(
+                "verify that the checkpoint was exported for this geno-lewm version "
+                "and install geno-lewm[train]"
+            ),
+        ) from exc
+
+
 def _native_scorer_runtime_available() -> bool:
     return all(
         _optional_module_available(name) for name in ("torch", "safetensors.torch", "transformers")
     )
+
+
+def _native_action_predictor_runtime_available() -> bool:
+    return all(_optional_module_available(name) for name in ("torch", "safetensors.torch"))
 
 
 def _optional_module_available(name: str) -> bool:

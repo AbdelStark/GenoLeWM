@@ -433,6 +433,53 @@ def test_runtime_auto_loads_manifest_components_when_optional_runtime_available(
     ]
 
 
+def test_load_action_predictor_modules_does_not_build_carbon_encoder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_runtime_model_dir(tmp_path)
+    action_encoder = LoadableActionEncoder()
+    predictor = LoadableEchoPredictor()
+    loaded_paths: list[tuple[str, Path]] = []
+
+    monkeypatch.setattr(runtime_mod, "_native_action_predictor_runtime_available", lambda: True)
+    monkeypatch.setattr(
+        runtime_mod,
+        "_build_runtime_encoder",
+        lambda _manifest, _cfg: pytest.fail("Carbon encoder should not be built"),
+    )
+    monkeypatch.setattr(
+        runtime_mod,
+        "_build_runtime_action_encoder",
+        lambda _cfg: action_encoder,
+    )
+    monkeypatch.setattr(
+        runtime_mod,
+        "_build_runtime_predictor",
+        lambda _cfg: predictor,
+    )
+
+    def fake_load_module_state(module: object, path: Path, *, artifact: str) -> None:
+        loaded_paths.append((artifact, path))
+        module.load_state_dict({"ok": True}, strict=True)  # type: ignore[attr-defined]
+        module.eval()  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(runtime_mod, "_load_module_state", fake_load_module_state)
+
+    loaded_action_encoder, loaded_predictor = runtime_mod.load_action_predictor_modules(tmp_path)
+
+    assert loaded_action_encoder is action_encoder
+    assert loaded_predictor is predictor
+    assert action_encoder.loaded is True
+    assert action_encoder.eval_called is True
+    assert predictor.loaded is True
+    assert predictor.eval_called is True
+    assert loaded_paths == [
+        ("action_encoder", tmp_path / "action_encoder.safetensors"),
+        ("predictor", tmp_path / "predictor.safetensors"),
+    ]
+
+
 def test_runtime_keeps_manifest_scoring_unloaded_without_optional_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

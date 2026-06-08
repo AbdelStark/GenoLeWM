@@ -316,10 +316,10 @@ def _candidate_states(raw: object, *, line_no: int) -> tuple[CandidateState, ...
 
 
 def _predictor_fn_from_model_dir(model_dir: Path) -> PredictorFn:
-    from geno_lewm.deploy import load_scorer_modules
+    from geno_lewm.deploy.runtime import load_action_predictor_modules
     from geno_lewm.predictor import ARPredictor
 
-    _encoder, action_encoder, predictor = load_scorer_modules(model_dir)
+    action_encoder, predictor = load_action_predictor_modules(model_dir)
     rollout = cast(Any, ARPredictor(predictor))
 
     def predict(example: RolloutStateExample) -> tuple[float, ...]:

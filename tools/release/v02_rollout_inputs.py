@@ -39,6 +39,7 @@ SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.v02_rollout_inputs"
 SPEC_GENERATED_BY: Final = "tools.release.rollout_state_example_specs"
 ISSUE_REFS: Final = ("#57", "#197")
+DEFAULT_SYNTHETIC_HORIZON: Final = 16
 
 PHASED_SPLIT: Final = "rollout_phased_haplotypes"
 SYNTHETIC_SPLIT: Final = "rollout_synthetic_edit_chains"
@@ -114,7 +115,7 @@ def write_v02_rollout_inputs(
     output_report: Path,
     examples_per_split: int = 16,
     phased_horizon: int = 5,
-    synthetic_horizon: int = 20,
+    synthetic_horizon: int = DEFAULT_SYNTHETIC_HORIZON,
     candidate_count: int = 8,
     batch_size: int = 4,
     state_layer: int = -1,
@@ -137,6 +138,12 @@ def write_v02_rollout_inputs(
 
     artifact_root = artifact_root.resolve()
     manifest = load_manifest(model_manifest)
+    _require_horizons_within_model_action_limit(
+        model_manifest=model_manifest,
+        manifest=manifest,
+        phased_horizon=phased_horizon,
+        synthetic_horizon=synthetic_horizon,
+    )
     windows = load_source_windows(placed_windows_jsonl)
     variants_by_chrom = load_gnomad_snvs(gnomad_variants_parquet)
     phased_examples, phased_skipped = build_phased_examples(
@@ -823,6 +830,46 @@ def _require_positive(name: str, value: int) -> None:
         raise InputError(f"{name} must be a positive integer")
 
 
+def _require_horizons_within_model_action_limit(
+    *,
+    model_manifest: Path,
+    manifest: object,
+    phased_horizon: int,
+    synthetic_horizon: int,
+) -> None:
+    max_len = _model_action_max_len(model_manifest=model_manifest, manifest=manifest)
+    requested = {
+        "phased_horizon": phased_horizon,
+        "synthetic_horizon": synthetic_horizon,
+    }
+    offending = {name: value for name, value in requested.items() if value > max_len}
+    if offending:
+        raise InputError(
+            "rollout horizon exceeds model action max_len",
+            details={"action_max_len": max_len, **offending},
+        )
+
+
+def _model_action_max_len(*, model_manifest: Path, manifest: object) -> int:
+    from geno_lewm.config import load_config
+
+    training = getattr(manifest, "training", None)
+    config_file = getattr(training, "config_file", None)
+    if not isinstance(config_file, str) or not config_file.strip():
+        raise InputError("model manifest must name training.config_file")
+    config_path = (model_manifest.parent / config_file).resolve()
+    if not config_path.is_file():
+        raise InputError(
+            "model training config is missing",
+            details={"path": str(config_path), "manifest": str(model_manifest)},
+        )
+    cfg = load_config(config_path)
+    max_len = getattr(cfg.action, "max_len", None)
+    if isinstance(max_len, bool) or not isinstance(max_len, int) or max_len <= 0:
+        raise InputError("model action.max_len must be a positive integer")
+    return max_len
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", type=Path, required=True)
@@ -836,7 +883,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-report", type=Path, required=True)
     parser.add_argument("--examples-per-split", type=int, default=16)
     parser.add_argument("--phased-horizon", type=int, default=5)
-    parser.add_argument("--synthetic-horizon", type=int, default=20)
+    parser.add_argument("--synthetic-horizon", type=int, default=DEFAULT_SYNTHETIC_HORIZON)
     parser.add_argument("--candidate-count", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--state-layer", type=int, default=-1)
