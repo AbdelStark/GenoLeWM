@@ -237,7 +237,7 @@ def current_commit() -> str:
     """Resolve the current git HEAD; ``unknown`` if not in a repo."""
     try:
         out = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "rev-parse", "HEAD"],
             check=True,
             capture_output=True,
             text=True,
