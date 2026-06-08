@@ -55,6 +55,7 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "tools/jobs/eval_run.sh",
     "tools/jobs/proof_run.sh",
     "tools/jobs/publish_run.sh",
+    "tools/jobs/v02_suite_run.sh",
 )
 
 
