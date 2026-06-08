@@ -38,17 +38,62 @@ MIN_TUPLES_PER_SECOND="${MIN_TUPLES_PER_SECOND:-5000}"
 WINDOW_BP="${WINDOW_BP:-4096}"
 UPLOAD_REPO="${UPLOAD_REPO:-abdelstark/geno-lewm-runs}"
 RUN_NAME="${RUN_NAME:-geno-lewm-proof}"
+UPLOAD_PROGRESS="${UPLOAD_PROGRESS:-0}"
+PARTIAL_UPLOAD_INTERVAL_SECONDS="${PARTIAL_UPLOAD_INTERVAL_SECONDS:-0}"
+PARTIAL_UPLOAD_SUBPATH="${PARTIAL_UPLOAD_SUBPATH:-$RUN_NAME/run-progress}"
 CLINVAR_URL="${CLINVAR_URL:-https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz}"
 GNOMAD_URL="${GNOMAD_URL:-https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz}"
 FASTA22_URL="${FASTA22_URL:-https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz}"
 
 CONFIG="${CONFIG:-configs/first_experiment/train-carbon-500m-snv.yaml}"
 SPEC_SRC="${SPEC_SRC:-configs/first_experiment/dataset-snapshot-snv.json}"
+PROGRESS_UPLOAD_PID=""
 
 log() { echo "=== $* ==="; }
 
+stop_progress_uploads() {
+  if [ -n "$PROGRESS_UPLOAD_PID" ]; then
+    kill "$PROGRESS_UPLOAD_PID" 2>/dev/null || true
+    wait "$PROGRESS_UPLOAD_PID" 2>/dev/null || true
+    PROGRESS_UPLOAD_PID=""
+  fi
+}
+
+upload_run_progress_loop() {
+  local checkpoint="$WORK/run/predictor_checkpoint.pt"
+  local last_hash=""
+  local hash=""
+  while sleep "$PARTIAL_UPLOAD_INTERVAL_SECONDS"; do
+    if [ ! -f "$checkpoint" ]; then
+      continue
+    fi
+    hash="$(sha256sum "$checkpoint" 2>/dev/null | awk '{print $1}')" || hash=""
+    if [ -z "$hash" ] || [ "$hash" = "$last_hash" ]; then
+      continue
+    fi
+    log "upload progress checkpoint to $UPLOAD_REPO/$PARTIAL_UPLOAD_SUBPATH"
+    hf upload "$UPLOAD_REPO" "$WORK/run" "$PARTIAL_UPLOAD_SUBPATH" --repo-type model || true
+    last_hash="$hash"
+  done
+}
+
+start_progress_uploads() {
+  if [ "$UPLOAD_PROGRESS" != "1" ]; then
+    return
+  fi
+  if ! [[ "$PARTIAL_UPLOAD_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] \
+    || [ "$PARTIAL_UPLOAD_INTERVAL_SECONDS" -le 0 ]; then
+    echo "FATAL: PARTIAL_UPLOAD_INTERVAL_SECONDS must be a positive integer when UPLOAD_PROGRESS=1" >&2
+    exit 1
+  fi
+  log "enable progress checkpoint uploads every ${PARTIAL_UPLOAD_INTERVAL_SECONDS}s to $UPLOAD_REPO/$PARTIAL_UPLOAD_SUBPATH"
+  upload_run_progress_loop &
+  PROGRESS_UPLOAD_PID="$!"
+}
+
 upload_partial_run_on_failure() {
   rc=$?
+  stop_progress_uploads
   if [ "$rc" -ne 0 ] && [ -f "$WORK/run/predictor_checkpoint.pt" ]; then
     log "upload partial run checkpoint to $UPLOAD_REPO/$RUN_NAME/run-partial (rc=$rc)"
     hf upload "$UPLOAD_REPO" "$WORK/run" "$RUN_NAME/run-partial" --repo-type model || true
@@ -149,11 +194,13 @@ geno-lewm-train --carbon-preflight \
   --min-cuda-vram-gb "$MIN_CUDA_VRAM_GB" --no-banner --quiet
 
 log "carbon-train ($STEPS steps on cuda)"
+start_progress_uploads
 geno-lewm-train --carbon-train \
   --run-dir "$WORK/run" --dataset-dir "$WORK/dataset" \
   --carbon-model-dir "$CARBON_DIR" --training-config "$CONFIG" \
   --steps "$STEPS" --min-cuda-vram-gb "$MIN_CUDA_VRAM_GB" \
   --package-release-run --no-banner --quiet
+stop_progress_uploads
 
 # Upload the run dir (which holds predictor_checkpoint.pt) FIRST, before export.
 # Training is the expensive step; protecting its output immediately means a
