@@ -24,7 +24,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Final, TextIO
+from typing import Any, Final, TextIO, cast
 from urllib.parse import unquote
 
 from geno_lewm.errors import GenoLeWMError, InputError, RuntimeSetupError, exit_code_for
@@ -280,7 +280,9 @@ def load_clinvar_rows(
             "clinvar_id",
         ),
     ):
-        key = _variant_key(payload.get("chrom"), payload.get("pos"), payload.get("ref"), payload.get("alt"))
+        key = _variant_key(
+            payload.get("chrom"), payload.get("pos"), payload.get("ref"), payload.get("alt")
+        )
         if key is None:
             skipped["not_snv"] += 1
             continue
@@ -313,7 +315,9 @@ def load_clinvar_rows(
     return tuple(rows), dict(skipped)
 
 
-def split_clinvar_rows(rows: Sequence[ClinVarRow]) -> tuple[tuple[ClinVarRow, ...], tuple[ClinVarRow, ...]]:
+def split_clinvar_rows(
+    rows: Sequence[ClinVarRow],
+) -> tuple[tuple[ClinVarRow, ...], tuple[ClinVarRow, ...]]:
     """Split ClinVar rows into coding and noncoding SNV benchmark sets."""
     coding: list[ClinVarRow] = []
     noncoding: list[ClinVarRow] = []
@@ -363,7 +367,9 @@ def load_traitgym_rows(
         path,
         columns=("chrom", "pos", "ref", "alt", "label", "consequence", "OMIM"),
     ):
-        key = _variant_key(payload.get("chrom"), payload.get("pos"), payload.get("ref"), payload.get("alt"))
+        key = _variant_key(
+            payload.get("chrom"), payload.get("pos"), payload.get("ref"), payload.get("alt")
+        )
         if key is None:
             skipped["not_snv"] += 1
             continue
@@ -521,13 +527,15 @@ def _read_parquet_rows(path: Path, *, columns: Sequence[str]) -> tuple[dict[str,
             remediation="install the project development or release dependencies",
         ) from exc
     try:
-        table = pq.read_table(path, columns=list(columns))
+        pq_any = cast(Any, pq)
+        table = pq_any.read_table(path, columns=list(columns))
     except Exception as exc:
         raise InputError(
             "failed to read benchmark parquet input",
             details={"path": str(path)},
         ) from exc
-    return tuple(dict(row) for row in table.to_pylist())
+    rows = cast(list[Mapping[str, object]], table.to_pylist())
+    return tuple(dict(row) for row in rows)
 
 
 def _open_text(path: Path) -> TextIO:
@@ -555,11 +563,8 @@ def _variant_key(
     ref: object,
     alt: object,
 ) -> VariantKey | None:
-    if isinstance(pos, bool):
-        return None
-    try:
-        pos_int = int(pos)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    pos_int = _coerce_int(pos)
+    if pos_int is None:
         return None
     if not isinstance(chrom, str) or not isinstance(ref, str) or not isinstance(alt, str):
         return None
@@ -573,6 +578,23 @@ def _variant_key(
     if pos_int < 1:
         return None
     return VariantKey(chrom=chrom_text, pos=pos_int, ref=ref_text, alt=alt_text)
+
+
+def _coerce_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            return None
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _normalize_chrom(chrom: str) -> str:
@@ -676,10 +698,7 @@ def _write_vcf(path: Path, keys: Iterable[VariantKey], *, source: str) -> None:
         f"##source={source}",
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
     ]
-    lines.extend(
-        f"{row.chrom}\t{row.pos}\t.\t{row.ref}\t{row.alt}\t.\tPASS\t."
-        for row in rows
-    )
+    lines.extend(f"{row.chrom}\t{row.pos}\t.\t{row.ref}\t{row.alt}\t.\tPASS\t." for row in rows)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -758,7 +777,9 @@ def _continuous_split_summary(rows: Sequence[ContinuousRow]) -> dict[str, object
 
 def _file_identity(path: Path, *, root: Path, label: str) -> dict[str, object]:
     if not path.exists():
-        raise InputError("benchmark artifact does not exist", details={"label": label, "path": str(path)})
+        raise InputError(
+            "benchmark artifact does not exist", details={"label": label, "path": str(path)}
+        )
     return {
         "path": _display_path(path, root=root),
         "sha256": sha256_file(path),

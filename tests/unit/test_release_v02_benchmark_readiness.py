@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.errors import InputError
-from geno_lewm.provenance import sha256_bytes
+from geno_lewm.provenance import sha256_bytes, sha256_file
 from tools.release import rollout_speed_scope, v02_benchmark_readiness, v02_benchmark_suite
 
 ROLLOUT_CLAIM_BOUNDARY = (
@@ -863,6 +863,55 @@ def test_release_inputs_row_passes_for_release_shaped_artifacts(tmp_path: Path) 
     assert first_outputs[0]["path"] == "eval/clinvar_coding.metrics.json"
 
 
+def test_release_inputs_row_accepts_suite_root_relative_metrics_identity(
+    tmp_path: Path,
+) -> None:
+    model_dir = tmp_path / "suite" / "model"
+    model_dir.mkdir(parents=True)
+    metrics = model_dir / "eval_metrics.json"
+    rollout = tmp_path / "rollout.ar_speed.json"
+    efficiency = tmp_path / "efficiency_report.json"
+    suite = model_dir / "v0.2_benchmark_suite_report.json"
+    metrics.write_text(
+        json.dumps(
+            _metrics_payload(
+                [
+                    *_binary_metrics("clinvar_coding", baseline=True),
+                ],
+                release_ready=True,
+            )
+        ),
+        encoding="utf-8",
+    )
+    rollout.write_text(json.dumps(_passing_rollout_payload()), encoding="utf-8")
+    efficiency.write_text(
+        json.dumps(_efficiency_payload(release_ready=True)),
+        encoding="utf-8",
+    )
+    suite_payload = _suite_report_payload(aggregate_metrics_output="model/eval_metrics.json")
+    for step in suite_payload["steps"]:
+        if isinstance(step, dict) and step.get("id") == "aggregate.eval_all":
+            step["output_identities"] = [
+                _file_identity_payload(metrics, public_path="model/eval_metrics.json")
+                if output == "model/eval_metrics.json"
+                else _identity_payload(output)
+                for output in step["outputs"]
+            ]
+    suite.write_text(json.dumps(suite_payload), encoding="utf-8")
+
+    report = v02_benchmark_readiness.build_readiness_report(
+        metrics_json=(metrics,),
+        rollout_speed_report=rollout,
+        efficiency_report=efficiency,
+        suite_report=suite,
+        require_release_inputs=True,
+    )
+
+    rows = _rows_by_id(report)
+    assert rows["release_inputs"]["status"] == "pass"
+    assert rows["release_inputs"]["findings"] == []
+
+
 def test_release_inputs_row_rejects_fixture_like_readiness_payloads(
     tmp_path: Path,
 ) -> None:
@@ -1611,6 +1660,14 @@ def _identity_payload(path: str) -> dict[str, object]:
         "path": path,
         "sha256": sha256_bytes(path.encode()),
         "size_bytes": len(path.encode()),
+    }
+
+
+def _file_identity_payload(path: Path, *, public_path: str) -> dict[str, object]:
+    return {
+        "path": public_path,
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
     }
 
 

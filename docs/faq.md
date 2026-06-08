@@ -87,12 +87,13 @@ both surface this prominently.
 
 The v0.1 release reports a narrow chr21 ClinVar slice: 3,000 variants,
 AUROC `0.5191596847727398`, AP `0.1651739690365932`, and balanced
-accuracy `0.5`. The broader v0.2 benchmark target still mirrors Carbon:
-ClinVar coding, ClinVar non-coding, BRCA2 (Findlay et al. saturation
-editing), and TraitGym Mendelian. AUROC, AUPRC, and Spearman rho are the
-target reporting metrics where applicable. Direct side-by-side
-GenoLeWM-vs-Carbon claims require the v0.2 measured benchmark run, exact
-variant identities, and negative findings. See
+accuracy `0.5`. The June 8 v0.2 readiness run adds measured
+GenoLeWM-vs-Carbon evidence for ClinVar coding, ClinVar non-coding,
+BRCA2 (Findlay et al. saturation editing), and TraitGym Mendelian, with
+exact evaluated variant identities and negative findings. Those results
+are benchmark evidence from the public v0.1 lineage and reproducibly
+staged inputs, not clinical utility claims or a new trained checkpoint.
+See
 [RFC-0007](rfcs/0007-evaluation-suite.md).
 
 ### How does it handle structural variants?
@@ -137,8 +138,9 @@ baselines, and negative findings before making comparison claims.
 The architecture is designed to use Carbon's non-coding sequence
 representations, and the GenoLeWM training mix (RFC-0006) draws from the
 full corpus. The v0.1 release does not establish separate non-coding
-performance; v0.2 evaluation should report coding and non-coding
-ClinVar splits separately so non-coding performance is visible.
+performance; the June 8 v0.2 readiness run reports coding and
+non-coding ClinVar splits separately so non-coding performance is
+visible, with the non-coding row preserved as a negative finding.
 
 ### Why centered-mean pooling around the edit?
 

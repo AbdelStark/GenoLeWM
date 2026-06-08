@@ -138,7 +138,8 @@ def test_readme_publish_release_evidence_matrix() -> None:
         "replay artifact hash/size drift",
         "python -m tools.release.publication_report",
         "Completed for v0.1",
-        "broader measured benchmark and rollout evidence remain open",
+        "the June 8 v0.2 readiness run added broader reproducibly staged benchmark and rollout evidence",
+        "did not publish a new v0.2 checkpoint or close the true #42 K20 speed target",
     )
 
     for fragment in required_fragments:
@@ -401,7 +402,8 @@ def test_faq_keeps_target_numbers_behind_release_evidence() -> None:
     normalized = " ".join(text.split())
     required_fragments = (
         "The v0.1 release reports a narrow chr21 ClinVar slice",
-        "Direct side-by-side GenoLeWM-vs-Carbon claims require the v0.2 measured benchmark run",
+        "The June 8 v0.2 readiness run adds measured GenoLeWM-vs-Carbon evidence",
+        "not clinical utility claims or a new trained checkpoint",
         "not a measured GenoLeWM dataset result",
         "The v0.1 model package includes a public `calibration.parquet`",
         "The v0.1 release does not establish separate non-coding performance",

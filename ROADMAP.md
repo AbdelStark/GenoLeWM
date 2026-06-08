@@ -95,13 +95,12 @@ Implemented:
 Not implemented end-to-end yet:
 
 - attention KV-cache speedups for RFC-0004 autoregressive rollout;
-- broader held-out benchmark coverage beyond the narrow v0.1 chr21
-  ClinVar release slice;
-- measured v0.2 GenoLeWM-vs-Carbon baseline deltas over coding,
-  non-coding, BRCA2 saturation, and TraitGym Mendelian splits with exact
-  evaluated variant identities;
-- rollout-fidelity state-row generation plus performance regression gates
-  beyond the implemented `geno-lewm-rollout` metrics aggregator;
+- a newly trained v0.2 checkpoint/model package that improves on the
+  v0.1 release lineage;
+- public v0.2 dataset/model/paper packaging around the June 8 benchmark
+  evidence;
+- performance regression gates beyond the measured June 8 HF Jobs
+  benchmark/readiness run;
 - planning-ready API/CLI demos backed by measured predictor evidence;
 - first PyPI package tag.
 
@@ -127,8 +126,8 @@ must reuse them with stronger data, evaluation, and rollout evidence.
 | --- | --- | --- |
 | Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked snapshot spec; `--check-inputs` records staged upstream input hashes/sizes; `python -m tools.release.dataset_snapshot` and `python -m tools.release.dataset_package` generate package metadata, data card, manifest, split-integrity, input-check report, snapshot report, and checksums once local upstream files are staged | Completed and published for v0.1 ([#163](https://github.com/AbdelStark/GenoLeWM/issues/163)); v0.2 needs broader benchmark snapshots and refreshed split evidence |
 | Carbon-backed training | `geno-lewm-train --carbon-preflight` and `geno-lewm-train --carbon-train --package-release-run` bind config, dataset, CUDA/VRAM readiness, Carbon model, metrics, logs, checkpoint, and training-run checksums | Completed and published for v0.1 ([#164](https://github.com/AbdelStark/GenoLeWM/issues/164)); v0.2 training should wait for stronger data/eval gates |
-| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`, `geno-lewm-rollout`, `python -m tools.release.rollout_state_examples`, `python -m tools.release.rollout_state_rows`, `python -m tools.release.v02_benchmark_suite`, and `python -m bench.inference --release-efficiency` generate or orchestrate metrics, report, effective eval config, aggregate VEP/rollout metric coverage checks, cache-keyed latent examples, rollout-state rows, and efficiency evidence | Completed for the narrow v0.1 release ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)); broader GenoLeWM-vs-Carbon deltas, real held-out latent rollout specs/states, and benchmark gates remain open |
-| v0.2 benchmark readiness | `python -m tools.release.v02_benchmark_readiness --metrics-json ... --rollout-speed-report ... --rollout-speed-scope-report ... --efficiency-report ... --suite-report ... --output ... --require-ok` reconciles measured eval values/deltas, measured efficiency latency/throughput/memory plus command provenance, AR rollout speed, optional accepted rollout-speed scope decisions, confidence-interval coverage, rollout generation report artifacts, suite output identities, and release-input provenance into `v0.2_benchmark_readiness_report.json`; input artifact identities and readiness, efficiency, suite, or nested rollout-speed command path arguments use public-safe paths plus SHA-256 and size where applicable, while the `release_inputs` row records checked metrics artifact paths, efficiency input identities, and suite output identities, requiring the consumed `bench.rollout` report plus suite outputs to preserve their claim boundaries and requiring the suite outputs to include the consumed metrics JSON artifacts; `readiness` and `blockers` entries are derived from benchmark rows and carry issue refs; metric conclusions include split/track context, measured values, baseline deltas, confidence intervals, evaluated variant-key identities, missing metrics, baseline gaps, failed targets, and release-input findings where available | New v0.2 gate for [#197](https://github.com/AbdelStark/GenoLeWM/issues/197); expected `ok=false` until broader benchmark rows, CI-bearing VEP metrics, non-fixture release inputs, and the [#42](https://github.com/AbdelStark/GenoLeWM/issues/42) rollout speed target either passes or is explicitly re-scoped through `python -m tools.release.rollout_speed_scope` |
+| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all --require-v02-vep-metrics --require-v02-rollout-metrics`, `geno-lewm-rollout`, `python -m tools.release.rollout_state_examples`, `python -m tools.release.rollout_state_rows`, `python -m tools.release.v02_benchmark_suite`, and `python -m bench.inference --release-efficiency` generate or orchestrate metrics, report, effective eval config, aggregate VEP/rollout metric coverage checks, cache-keyed latent examples, rollout-state rows, and efficiency evidence | Completed for the narrow v0.1 release ([#165](https://github.com/AbdelStark/GenoLeWM/issues/165)); the June 8 HF Jobs v0.2 run produced broader GenoLeWM-vs-Carbon deltas, rollout-fidelity rows, efficiency, suite, and readiness evidence from public or reproducibly staged inputs |
+| v0.2 benchmark readiness | `python -m tools.release.v02_benchmark_readiness --metrics-json ... --rollout-speed-report ... --rollout-speed-scope-report ... --efficiency-report ... --suite-report ... --output ... --require-ok` reconciles measured eval values/deltas, measured efficiency latency/throughput/memory plus command provenance, AR rollout speed, optional accepted rollout-speed scope decisions, confidence-interval coverage, rollout generation report artifacts, suite output identities, and release-input provenance into `v0.2_benchmark_readiness_report.json`; input artifact identities and readiness, efficiency, suite, or nested rollout-speed command path arguments use public-safe paths plus SHA-256 and size where applicable, while the `release_inputs` row records checked metrics artifact paths, efficiency input identities, and suite output identities, requiring the consumed `bench.rollout` report plus suite outputs to preserve their claim boundaries and requiring the suite outputs to include the consumed metrics JSON artifacts; `readiness` and `blockers` entries are derived from benchmark rows and carry issue refs; metric conclusions include split/track context, measured values, baseline deltas, confidence intervals, evaluated variant-key identities, missing metrics, baseline gaps, failed targets, and release-input findings where available | Completed for [#197](https://github.com/AbdelStark/GenoLeWM/issues/197) by the June 8 HF Jobs report with `ok=true`: <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v02-autonomous/9bec68ad04f2787dd0dfdf42d116050061ad53f6/suite-r11/model/v0.2_benchmark_readiness_report.json>. The K20 #42 speed target remains open; the report records an accepted v0.2 re-scope, not speed-target closure |
 | Source distribution | `python -m build`, `twine check`, and `python -m tools.release.check_sdist_assets dist/*.tar.gz` verify package metadata and the release-critical repo assets needed by the dataset, model, eval, efficiency, terminal-demo, clean-replay, and publication-evidence gates | No tagged package release has been built by the protected release workflow yet |
 | Terminal demo | `python tools/demo/terminal_inference.py` emits transcript, score/receipt JSONL, runtime preflight, batch receipt report, and terminal demo manifest | Completed for v0.1 ([#166](https://github.com/AbdelStark/GenoLeWM/issues/166)); v0.2 should demonstrate benchmark/planning behavior without clinical claims |
 | Paper and publication | `python -m tools.release.paper_draft`, `python -m tools.release.paper_package`, `python -m tools.release.release_candidate`, `python -m tools.release.clean_machine_demo`, and `python -m tools.release.publication_report` bind paper text, package verification, public links, clean replay, and final evidence | Completed for v0.1 through [#167](https://github.com/AbdelStark/GenoLeWM/issues/167) and [#101](https://github.com/AbdelStark/GenoLeWM/issues/101); final binder has `ok=true` and zero issues |
@@ -472,9 +471,12 @@ baseline, not a reason to publish stronger model-quality claims.
 - all metrics link to config, commit, dataset manifest, and checkpoint;
 - conclusions list what worked, what failed, and what experiment comes next.
 
-**Status:** completed for the narrow v0.1 release; v0.2 needs broader
-ClinVar/Carbon baseline, real rollout-fidelity state-row generation, and
-performance benchmarks.
+**Status:** completed for the narrow v0.1 release, and the June 8 HF
+Jobs v0.2 run produced broader ClinVar/Carbon-baseline, BRCA2/TraitGym,
+rollout-fidelity, efficiency, suite, and `ok=true` readiness evidence.
+Future work should package a new v0.2 model/data/paper release and close
+the true #42 K20 speed target instead of treating the accepted v0.2
+scope decision as speed evidence.
 
 ---
 

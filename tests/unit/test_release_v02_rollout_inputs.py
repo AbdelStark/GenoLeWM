@@ -125,9 +125,7 @@ def test_v02_rollout_inputs_rejects_horizon_above_model_action_limit(tmp_path: P
     )
     gnomad.parent.mkdir(parents=True)
     pq.write_table(
-        pa.Table.from_pylist(
-            [{"chrom": "22", "pos": 2, "ref": "C", "alt": "A", "filter": "PASS"}]
-        ),
+        pa.Table.from_pylist([{"chrom": "22", "pos": 2, "ref": "C", "alt": "A", "filter": "PASS"}]),
         gnomad,
     )
     _write_manifest(manifest, action_max_len=4)

@@ -68,8 +68,7 @@ def test_v02_benchmark_inputs_write_split_vcfs_labels_and_report(tmp_path: Path)
         ],
     )
     brca_scores.write_text(
-        "accession,hgvs_nt,hgvs_splice,hgvs_pro,score\n"
-        "urn:mavedb:test#1,NA,NA,NA,-0.5\n",
+        "accession,hgvs_nt,hgvs_splice,hgvs_pro,score\nurn:mavedb:test#1,NA,NA,NA,-0.5\n",
         encoding="utf-8",
     )
     brca_mapped.write_text(
@@ -111,9 +110,11 @@ def test_v02_benchmark_inputs_write_split_vcfs_labels_and_report(tmp_path: Path)
     assert payload["splits"]["clinvar_noncoding"]["rows"] == 2
     assert payload["splits"]["brca2_saturation"]["rows"] == 1
     assert payload["splits"]["traitgym_mendelian"]["rows"] == 2
-    assert (tmp_path / "benchmark_inputs" / "clinvar_coding.vcf").read_text(
-        encoding="utf-8"
-    ).startswith("##fileformat=VCFv4.2")
+    assert (
+        (tmp_path / "benchmark_inputs" / "clinvar_coding.vcf")
+        .read_text(encoding="utf-8")
+        .startswith("##fileformat=VCFv4.2")
+    )
     labels = [
         json.loads(line)
         for line in (tmp_path / "eval" / "traitgym_mendelian.labels.jsonl")

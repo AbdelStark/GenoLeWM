@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Final
+from typing import Any, Final, cast
 
 from geno_lewm.action import EditType, RelEdit
 from geno_lewm.action.apply import apply_edits
@@ -248,7 +248,9 @@ def load_source_windows(path: Path) -> tuple[SourceWindow, ...]:
         try:
             payload = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise InputError("placed window JSONL row is invalid", details={"line": line_no}) from exc
+            raise InputError(
+                "placed window JSONL row is invalid", details={"line": line_no}
+            ) from exc
         windows.append(
             SourceWindow(
                 chrom=_required_text(payload, "chrom", line_no=line_no),
@@ -273,7 +275,9 @@ def load_gnomad_snvs(path: Path) -> dict[str, tuple[AbsoluteSNV, ...]]:
         snv = _absolute_snv(row.get("chrom"), row.get("pos"), row.get("ref"), row.get("alt"))
         if snv is not None:
             grouped[snv.chrom].append(snv)
-    return {chrom: tuple(sorted(values, key=lambda snv: snv.pos)) for chrom, values in grouped.items()}
+    return {
+        chrom: tuple(sorted(values, key=lambda snv: snv.pos)) for chrom, values in grouped.items()
+    }
 
 
 def build_phased_examples(
@@ -388,8 +392,16 @@ def encode_example_states(
     """Encode all unique example states with the supplied Carbon encoder."""
     states: dict[str, tuple[SourceWindow, str, int]] = {}
     for example in examples:
-        states[f"{example.row_id}:source"] = (example.source, example.source.sequence, example.edit_locus)
-        states[f"{example.row_id}:target"] = (example.source, example.target_sequence, example.edit_locus)
+        states[f"{example.row_id}:source"] = (
+            example.source,
+            example.source.sequence,
+            example.edit_locus,
+        )
+        states[f"{example.row_id}:target"] = (
+            example.source,
+            example.target_sequence,
+            example.edit_locus,
+        )
         for candidate in example.candidates:
             states[f"{example.row_id}:candidate:{candidate.candidate_id}"] = (
                 example.source,
@@ -399,7 +411,9 @@ def encode_example_states(
 
     encode_batch = getattr(encoder, "encode_batch", None)
     if not callable(encode_batch):
-        raise RuntimeSetupError("rollout input encoder must expose encode_batch(windows, edit_loci)")
+        raise RuntimeSetupError(
+            "rollout input encoder must expose encode_batch(windows, edit_loci)"
+        )
 
     output: dict[str, EncodedState] = {}
     items = list(states.items())
@@ -509,7 +523,9 @@ def _synthetic_edits(sequence: str, *, horizon: int, seed: int) -> tuple[RelEdit
     positions = [editable[min(len(editable) - 1, (idx + 1) * step)] for idx in range(horizon)]
     rng.shuffle(positions)
     selected = sorted(positions[:horizon])
-    return tuple(_synthetic_edit(sequence, pos, salt=seed + index) for index, pos in enumerate(selected))
+    return tuple(
+        _synthetic_edit(sequence, pos, salt=seed + index) for index, pos in enumerate(selected)
+    )
 
 
 def _synthetic_edit(sequence: str, pos: int, *, salt: int) -> RelEdit:
@@ -543,7 +559,9 @@ def _candidate_sequences(
         edits = list(_synthetic_edits(source, horizon=horizon, seed=seed + attempts))
         if edits and rng.random() < 0.5:
             drop_index = rng.randrange(len(edits))
-            edits[drop_index] = _synthetic_edit(source, edits[drop_index].rel_pos, salt=seed + attempts + 1)
+            edits[drop_index] = _synthetic_edit(
+                source, edits[drop_index].rel_pos, salt=seed + attempts + 1
+            )
         sequence = apply_edits(source, tuple(edits), preserve_length=True)
         if sequence in seen:
             continue
@@ -667,18 +685,19 @@ def _read_parquet_rows(path: Path, *, columns: Sequence[str]) -> tuple[dict[str,
             remediation="install the project development or release dependencies",
         ) from exc
     try:
-        table = pq.read_table(path, columns=list(columns))
+        pq_any = cast(Any, pq)
+        table = pq_any.read_table(path, columns=list(columns))
     except Exception as exc:
-        raise InputError("failed to read gnomAD parquet input", details={"path": str(path)}) from exc
-    return tuple(dict(row) for row in table.to_pylist())
+        raise InputError(
+            "failed to read gnomAD parquet input", details={"path": str(path)}
+        ) from exc
+    rows = cast(list[Mapping[str, object]], table.to_pylist())
+    return tuple(dict(row) for row in rows)
 
 
 def _absolute_snv(chrom: object, pos: object, ref: object, alt: object) -> AbsoluteSNV | None:
-    if isinstance(pos, bool):
-        return None
-    try:
-        pos_int = int(pos)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    pos_int = _coerce_int(pos)
+    if pos_int is None:
         return None
     if not isinstance(chrom, str) or not isinstance(ref, str) or not isinstance(alt, str):
         return None
@@ -691,6 +710,23 @@ def _absolute_snv(chrom: object, pos: object, ref: object, alt: object) -> Absol
     return AbsoluteSNV(chrom=_normalize_chrom(chrom), pos=pos_int, ref=ref_text, alt=alt_text)
 
 
+def _coerce_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            return None
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
+
+
 def _normalize_chrom(chrom: str) -> str:
     value = chrom.strip()
     if value.lower().startswith("chr"):
@@ -699,14 +735,20 @@ def _normalize_chrom(chrom: str) -> str:
 
 
 def _state_vector(value: object, *, state_id: str) -> tuple[float, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise InputError("encoder state vector is not numeric", details={"state_id": state_id})
     try:
-        values = tuple(float(item) for item in value)  # type: ignore[arg-type]
+        values = tuple(float(item) for item in value)
     except (TypeError, ValueError) as exc:
-        raise InputError("encoder state vector is not numeric", details={"state_id": state_id}) from exc
+        raise InputError(
+            "encoder state vector is not numeric", details={"state_id": state_id}
+        ) from exc
     if not values:
         raise InputError("encoder state vector is empty", details={"state_id": state_id})
     if any(not math.isfinite(item) for item in values):
-        raise InputError("encoder state vector contains non-finite values", details={"state_id": state_id})
+        raise InputError(
+            "encoder state vector contains non-finite values", details={"state_id": state_id}
+        )
     return values
 
 
@@ -762,7 +804,9 @@ def _path_identity(path: Path, *, root: Path, label: str) -> dict[str, object]:
         if label == "cache_dir":
             index = path / "embeddings" / "index.sqlite"
             if not index.exists():
-                raise InputError("cache directory is missing index.sqlite", details={"label": label})
+                raise InputError(
+                    "cache directory is missing index.sqlite", details={"label": label}
+                )
             return {
                 "path": _display_path(path, root=root),
                 "index_sha256": sha256_file(index),
@@ -778,7 +822,9 @@ def _path_identity(path: Path, *, root: Path, label: str) -> dict[str, object]:
             ][:16],
         }
     if not path.exists():
-        raise InputError("rollout input artifact does not exist", details={"label": label, "path": str(path)})
+        raise InputError(
+            "rollout input artifact does not exist", details={"label": label, "path": str(path)}
+        )
     return {
         "path": _display_path(path, root=root),
         "sha256": sha256_file(path),

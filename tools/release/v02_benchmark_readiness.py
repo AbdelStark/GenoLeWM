@@ -960,6 +960,7 @@ def _suite_release_input_findings(
         return findings
     output_identity_count = 0
     output_paths: set[str] = set()
+    output_identity_keys: set[tuple[str, int]] = set()
     for index, raw_step in enumerate(steps, start=1):
         prefix = f"suite_report.steps[{index}]"
         if not isinstance(raw_step, dict):
@@ -982,6 +983,9 @@ def _suite_release_input_findings(
                 if isinstance(path, str):
                     identity_paths.append(path)
                     output_paths.add(path)
+                identity_key = _artifact_identity_key(raw_identity)
+                if identity_key is not None:
+                    output_identity_keys.add(identity_key)
                 findings.extend(_artifact_identity_findings(raw_identity, field=identity_field))
             else:
                 findings.append(f"{identity_field} must be an artifact identity object")
@@ -991,10 +995,14 @@ def _suite_release_input_findings(
     if output_identity_count == 0:
         findings.append("suite_report must record at least one output identity")
     if suite_report is not None:
-        expected_metrics = [
-            _suite_relative_input_path(path, root=suite_report.parent) for path in metrics_json
-        ]
-        missing_metrics = [path for path in expected_metrics if path not in output_paths]
+        missing_metrics: list[str] = []
+        for path in metrics_json:
+            expected_path = _suite_relative_input_path(path, root=suite_report.parent)
+            if expected_path in output_paths:
+                continue
+            if _suite_output_identity_matches_file(path, output_identity_keys):
+                continue
+            missing_metrics.append(expected_path)
         if missing_metrics:
             findings.append(
                 "suite_report.output_identities must include metrics_json inputs: "
@@ -1074,6 +1082,25 @@ def _artifact_identity_findings(raw: dict[str, object], *, field: str) -> list[s
     if isinstance(size_bytes, bool) or not isinstance(size_bytes, int) or size_bytes <= 0:
         findings.append(f"{field}.size_bytes must be a positive integer")
     return findings
+
+
+def _artifact_identity_key(raw: dict[str, object]) -> tuple[str, int] | None:
+    sha256 = raw.get("sha256")
+    size_bytes = raw.get("size_bytes")
+    if not isinstance(sha256, str) or not isinstance(size_bytes, int):
+        return None
+    if isinstance(size_bytes, bool):
+        return None
+    return (sha256, size_bytes)
+
+
+def _suite_output_identity_matches_file(
+    path: Path,
+    output_identity_keys: set[tuple[str, int]],
+) -> bool:
+    if not output_identity_keys or not path.is_file():
+        return False
+    return (sha256_file(path), path.stat().st_size) in output_identity_keys
 
 
 def _artifact_path_release_findings(path: str, *, field: str) -> list[str]:
