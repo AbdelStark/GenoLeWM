@@ -155,9 +155,10 @@ The first paper/demo release is not ready until:
   train/eval comparable-key comparison can be made; `data_card.md`
   renders the same class-balance summary;
 - train/eval configs are committed under `configs/first_experiment/`,
-  and the Carbon preflight records the effective training config hash
-  plus resolved closed-schema config payload and CUDA/VRAM accelerator
-  readiness;
+  while the serious-completion post-v0.2 training lineage is committed
+  under `configs/serious_completion/`; Carbon preflight records the
+  effective training config hash plus resolved closed-schema config
+  payload and CUDA/VRAM accelerator readiness;
 - real training inputs are preflighted with
   `geno-lewm-train --carbon-preflight`;
   preflight requires the generated dataset package evidence set,

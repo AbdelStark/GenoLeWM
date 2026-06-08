@@ -297,6 +297,9 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     root = Path(__file__).resolve().parents[2]
     train_cfg = load_config(root / "configs/first_experiment/train-carbon-500m-snv.yaml")
     eval_cfg = load_config(root / "configs/first_experiment/eval-clinvar-snv.yaml")
+    serious_cfg = load_config(
+        root / "configs/serious_completion/train-carbon-500m-snv-post-v02.yaml"
+    )
 
     assert train_cfg.run_id == "first-snv-carbon-500m-r1"
     assert train_cfg.action.sub_encoders == ("snv",)
@@ -307,6 +310,13 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     assert train_cfg.runtime.device == "cuda"
     assert eval_cfg.run_id == "first-snv-clinvar-eval-r1"
     assert "clinvar_coding" in eval_cfg.eval.benchmarks
+    assert serious_cfg.run_id == "post-v02-snv-carbon-500m-r1"
+    assert serious_cfg.phase == "phase2"
+    assert serious_cfg.action.sub_encoders == ("snv",)
+    assert serious_cfg.encoder.model_id == "/carbon"
+    assert serious_cfg.training.max_steps == 40000
+    assert serious_cfg.optimizer.warmup_steps < serious_cfg.training.max_steps
+    assert serious_cfg.runtime.device == "cuda"
 
 
 def _write_release_dataset(root: Path, *, snapshot_id: str = "geno-lewm-data-v0.1.0-r1") -> Path:

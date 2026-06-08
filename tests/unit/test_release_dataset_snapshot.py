@@ -23,12 +23,46 @@ from tools.release.dataset_snapshot import (
 from tools.release.paper_package import PackageIssue, _verify_dataset_dir
 
 FIRST_EXPERIMENT_SPEC = Path("configs/first_experiment/dataset-snapshot-snv.json")
+SERIOUS_COMPLETION_SPEC = Path("configs/serious_completion/dataset-snapshot-snv-post-v02.json")
 
 
 def test_checked_first_experiment_snapshot_spec_is_valid() -> None:
     report = check_dataset_snapshot_spec(FIRST_EXPERIMENT_SPEC)
 
     assert report.snapshot_id == "geno-lewm-data-v0.1.0-r1"
+    assert report.generated_by == SPEC_CHECK_GENERATED_BY
+    assert report.staged_paths == (
+        "carbon/source-mix-windows.jsonl",
+        "gnomad/v4.1/variants.parquet",
+        "placed/gnomad-common-windows.jsonl",
+        "clinvar/2026-04-15/variants.parquet",
+    )
+    assert report.source_paths == (
+        "inputs/carbon/source-mix-windows.jsonl",
+        "inputs/gnomad/gnomad-v4.1-snv.vcf.gz",
+        "inputs/reference/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz",
+        "inputs/clinvar/clinvar-2026-04-15-snv.vcf.gz",
+    )
+    assert report.splits == (
+        "eval_clinvar",
+        "train_carbon",
+        "train_placed_gnomad_common",
+        "train_gnomad_common",
+    )
+    assert report.sources == (
+        "Carbon pretraining corpus",
+        "gnomAD",
+        "Ensembl GRCh38 chromosome FASTA",
+        "ClinVar",
+    )
+    assert all(not Path(path).is_absolute() for path in report.source_paths)
+    assert all(".." not in Path(path).parts for path in report.source_paths)
+
+
+def test_checked_serious_completion_snapshot_spec_is_valid() -> None:
+    report = check_dataset_snapshot_spec(SERIOUS_COMPLETION_SPEC)
+
+    assert report.snapshot_id == "geno-lewm-data-v0.2.1-r1"
     assert report.generated_by == SPEC_CHECK_GENERATED_BY
     assert report.staged_paths == (
         "carbon/source-mix-windows.jsonl",

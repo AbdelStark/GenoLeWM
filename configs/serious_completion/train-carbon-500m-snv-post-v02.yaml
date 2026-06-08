@@ -1,0 +1,72 @@
+# GenoLeWM post-v0.2 serious-completion Carbon-backed training config.
+#
+# This config defines a distinct lineage from the v0.1 first paper run. The
+# HF proof job mounts Carbon-500M at /carbon and pairs this config with
+# configs/serious_completion/dataset-snapshot-snv-post-v02.json.
+
+run_id: post-v02-snv-carbon-500m-r1
+seed: 271828
+phase: phase2
+deterministic: true
+schema_version: 1.0.0
+
+encoder:
+  model_id: /carbon
+  revision: 5d31d59b3c845b288a13aedb1358934196852eec
+  dtype: bf16
+  state_layer: 20
+  pool_type: centered_mean
+  pool_radius: 8
+  normalize: true
+  trust_remote_code: true
+
+predictor:
+  architecture: cross_attention
+  n_layers: 6
+  n_heads: 8
+  d_state: 1024
+  d_action: 64
+  dtype: bf16
+
+action:
+  d_action: 64
+  max_len: 16
+  sub_encoders:
+    - snv
+
+training:
+  max_steps: 40000
+  collapse_log_every_steps: 500
+
+optimizer:
+  name: adamw
+  lr: 3.0e-4
+  beta1: 0.9
+  beta2: 0.95
+  weight_decay: 0.1
+  grad_clip: 1.0
+  warmup_steps: 1000
+  schedule: wsd
+
+data:
+  corpus_id: HuggingFaceBio/carbon-pretraining-corpus
+  corpus_revision: cb4c13a78102933b3a6ac65734d326f7b431d9b7
+  batch_size: 8
+  num_workers: 0
+  shuffle_buffer: 8192
+
+eval:
+  benchmarks:
+    - clinvar_coding
+    - clinvar_noncoding
+    - rollout
+  smoke_variants: 2000
+
+observability:
+  log_level: info
+  redaction_strict: true
+  wandb_project: null
+
+runtime:
+  backend: torch
+  device: cuda

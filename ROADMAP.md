@@ -265,6 +265,12 @@ and refresh split evidence rather than reopen the first snapshot gate.
   first paper-run training config and
   `configs/first_experiment/eval-clinvar-snv.yaml` records the matching
   eval configuration;
+- the serious-completion post-v0.2 training lineage is tracked
+  separately in
+  `configs/serious_completion/train-carbon-500m-snv-post-v02.yaml` and
+  `configs/serious_completion/dataset-snapshot-snv-post-v02.json`; those
+  files define the intended next run but do not by themselves prove
+  checkpoint quality;
 - deterministic fixture smoke mode for CLI/release plumbing;
 - clean-machine `geno-lewm-train --carbon-preflight` readiness report
   for the packaged dataset, local Carbon model directory, training

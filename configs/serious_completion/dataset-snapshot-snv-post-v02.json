@@ -1,0 +1,102 @@
+{
+  "carbon_files": [
+    {
+      "description": "Carbon pretraining source-mix genomic windows staged from the pinned corpus revision for post-v0.2 serious-completion training",
+      "path": "carbon/source-mix-windows.jsonl",
+      "source_path": "inputs/carbon/source-mix-windows.jsonl",
+      "split": "train_carbon"
+    }
+  ],
+  "clinvar": {
+    "description": "ClinVar SNV records held out for post-v0.2 serious-completion pathogenicity and rollout evaluation",
+    "input_vcf": "inputs/clinvar/clinvar-2026-04-15-snv.vcf.gz",
+    "max_allele_len": 16,
+    "release": "2026-04-15",
+    "split": "eval_clinvar"
+  },
+  "generated_at": "2026-06-08T00:00:00Z",
+  "gnomad": {
+    "description": "gnomAD v4.1 PASS common SNVs used for edit sampling and common-variant training context",
+    "input_vcf": "inputs/gnomad/gnomad-v4.1-snv.vcf.gz",
+    "max_allele_len": 16,
+    "min_af": 0.01,
+    "release": "v4.1",
+    "split": "train_gnomad_common"
+  },
+  "intended_use": "Post-v0.2 serious-completion GenoLeWM training, benchmark reruns, and planning/showcase evidence without clinical or deployment-readiness claims.",
+  "leakage_checks": [
+    "No training split may share comparable variant keys with held-out ClinVar evaluation rows.",
+    "Split record counts and comparable-key overlaps are recomputed from staged files before publication."
+  ],
+  "license": "Apache-2.0 for GenoLeWM package metadata; upstream data licenses and terms apply to source records.",
+  "limitations": [
+    "This snapshot is a research artifact for world-model experiments and is not a clinical dataset.",
+    "ClinVar labels and gnomAD population frequencies may change after the pinned upstream releases.",
+    "Local operators must stage upstream source files under the ignored inputs directory before building the public package.",
+    "The expanded training window count is intended to produce a distinct post-v0.2 lineage; model quality still requires measured benchmark evidence."
+  ],
+  "preprocessing": [
+    "Stage Carbon source-mix windows from the pinned Hugging Face corpus revision.",
+    "Filter local gnomAD VCF rows to PASS SNVs above the configured global allele-frequency threshold.",
+    "Generate placed training windows from the gnomAD shard and a pinned GRCh38 chr22 reference FASTA so common-variant edits are sampled on real coordinates.",
+    "Normalize local ClinVar VCF rows and preserve labelled and unlabelled SNV classes for evaluation."
+  ],
+  "placed_windows": {
+    "description": "Reference-placed chr22 windows generated from the gnomAD common-variant shard for post-v0.2 serious-completion training",
+    "input_fasta": "inputs/reference/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz",
+    "max_windows": 40000,
+    "min_variants_per_window": 3,
+    "path": "placed/gnomad-common-windows.jsonl",
+    "source": "gnomad_common",
+    "split": "train_placed_gnomad_common",
+    "variant_source": "gnomad",
+    "window_bp": 4096
+  },
+  "schema_version": "1.0.0",
+  "snapshot_id": "geno-lewm-data-v0.2.1-r1",
+  "sources": [
+    {
+      "license": "Carbon upstream corpus terms",
+      "name": "Carbon pretraining corpus",
+      "notes": "Revision pinned from the Hugging Face dataset repository head used for the serious-completion snapshot plan.",
+      "revision": "cb4c13a78102933b3a6ac65734d326f7b431d9b7",
+      "url": "https://huggingface.co/datasets/HuggingFaceBio/carbon-pretraining-corpus"
+    },
+    {
+      "license": "gnomAD terms of use",
+      "name": "gnomAD",
+      "notes": "Local VCF source file is filtered to PASS common SNVs before packaging.",
+      "revision": "v4.1",
+      "url": "https://gnomad.broadinstitute.org/downloads"
+    },
+    {
+      "license": "Ensembl genome browser data terms",
+      "name": "Ensembl GRCh38 chromosome FASTA",
+      "notes": "Local chr22 FASTA source file is used only to generate reference-placed training windows.",
+      "revision": "release-110 chr22",
+      "url": "https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/"
+    },
+    {
+      "license": "NCBI public data terms",
+      "name": "ClinVar",
+      "notes": "Local VCF source file is normalized into the held-out serious-completion evaluation shard.",
+      "revision": "2026-04-15",
+      "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/"
+    }
+  ],
+  "split_policy": "Carbon, gnomAD, and placed-window training material excludes any comparable variant keys present in the held-out ClinVar evaluation split.",
+  "splits": {
+    "eval_clinvar": {
+      "description": "held-out ClinVar SNV labels for post-v0.2 serious-completion evaluation"
+    },
+    "train_carbon": {
+      "description": "Carbon source-mix genomic windows for representation and transition training"
+    },
+    "train_placed_gnomad_common": {
+      "description": "reference-placed chr22 windows generated from gnomAD common variants for real-coordinate training"
+    },
+    "train_gnomad_common": {
+      "description": "gnomAD common SNVs for edit sampling and common-variant context"
+    }
+  }
+}

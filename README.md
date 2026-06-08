@@ -328,6 +328,15 @@ The report preserves negative findings: the model trails Carbon on most
 benchmark rows, and K20 rollout speed is accepted as a v0.2 scope
 decision rather than RFC-0004 speed-target closure.
 
+The post-v0.2 training lineage for #202 is defined separately from the
+v0.1 first-experiment lineage. Use
+`configs/serious_completion/train-carbon-500m-snv-post-v02.yaml` with
+`configs/serious_completion/dataset-snapshot-snv-post-v02.json` when
+launching the next Carbon-backed proof job; this records a phase-2 run
+ID, 40,000-step training horizon, and expanded 40,000 placed-window
+snapshot plan. This config/spec pair does not support model claims until
+the GPU training run, packaging, and benchmark artifacts are published.
+
 Use the v0.2 readiness report to bind measured eval, efficiency, and AR
 rollout speed artifacts before making broader claims:
 

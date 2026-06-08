@@ -17,6 +17,8 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "configs/first_experiment/dataset-snapshot-snv.json",
     "configs/first_experiment/eval-clinvar-snv.yaml",
     "configs/first_experiment/train-carbon-500m-snv.yaml",
+    "configs/serious_completion/dataset-snapshot-snv-post-v02.json",
+    "configs/serious_completion/train-carbon-500m-snv-post-v02.yaml",
     "docs/spec/09-release-and-versioning.md",
     "examples/data/verify_receipt/manifest.json",
     "examples/data/verify_receipt/receipt.json",
@@ -49,6 +51,10 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "tools/release/v02_benchmark_readiness.py",
     "tools/release/v02_benchmark_suite.py",
     "tools/release/v02_rollout_inputs.py",
+    "tools/jobs/demo_run.sh",
+    "tools/jobs/eval_run.sh",
+    "tools/jobs/proof_run.sh",
+    "tools/jobs/publish_run.sh",
 )
 
 

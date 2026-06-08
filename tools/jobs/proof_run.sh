@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# First-experiment PROOF run orchestration for Hugging Face Jobs.
+# First-experiment / serious-completion training run orchestration for
+# Hugging Face Jobs.
 #
 # Stages real inputs (ClinVar + a gnomAD chr-subset + pinned Carbon corpus
 # windows), builds the dataset snapshot, trains the JEPA predictor on real
@@ -41,12 +42,12 @@ CLINVAR_URL="${CLINVAR_URL:-https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/
 GNOMAD_URL="${GNOMAD_URL:-https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz}"
 FASTA22_URL="${FASTA22_URL:-https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz}"
 
-CONFIG="configs/first_experiment/train-carbon-500m-snv.yaml"
-SPEC_SRC="configs/first_experiment/dataset-snapshot-snv.json"
+CONFIG="${CONFIG:-configs/first_experiment/train-carbon-500m-snv.yaml}"
+SPEC_SRC="${SPEC_SRC:-configs/first_experiment/dataset-snapshot-snv.json}"
 
 log() { echo "=== $* ==="; }
 
-log "proof run: $RUN_NAME (steps=$STEPS windows=$MAX_WINDOWS)"
+log "proof run: $RUN_NAME (steps=$STEPS windows=$MAX_WINDOWS config=$CONFIG spec=$SPEC_SRC)"
 test "$CARBON_DIR" = "/carbon" || { echo "FATAL: coherent release config expects Carbon mounted at /carbon"; exit 1; }
 python - <<'PY'
 import os
