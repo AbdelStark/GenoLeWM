@@ -53,6 +53,7 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "tools/release/v02_rollout_inputs.py",
     "tools/jobs/demo_run.sh",
     "tools/jobs/eval_run.sh",
+    "tools/jobs/planning_demo_run.sh",
     "tools/jobs/proof_run.sh",
     "tools/jobs/publish_run.sh",
     "tools/jobs/v02_suite_run.sh",

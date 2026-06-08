@@ -42,6 +42,7 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "examples/data/verify_receipt/manifest.json",
         "examples/data/verify_receipt/receipt.json",
         "tools/jobs/eval_run.sh",
+        "tools/jobs/planning_demo_run.sh",
         "tools/jobs/proof_run.sh",
         "tools/jobs/v02_suite_run.sh",
         "tools/demo/terminal_inference.py",
