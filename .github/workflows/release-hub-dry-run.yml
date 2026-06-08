@@ -185,7 +185,7 @@ jobs:
             "${args[@]}"
 
       - name: Upload dry-run reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: hub-release-dry-run-reports
           path: |

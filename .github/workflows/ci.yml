@@ -215,7 +215,7 @@ jobs:
           --work-dir .eval-smoke
           --summary-json .eval-smoke/eval_smoke_summary.json
       - name: Upload eval smoke summary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: eval-smoke-summary
           path: .eval-smoke/eval_smoke_summary.json
