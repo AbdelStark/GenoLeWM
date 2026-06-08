@@ -300,6 +300,16 @@ def run_carbon_training(
                     unit="unitless",
                     kind="gauge",
                 )
+                _write_checkpoint(
+                    checkpoint_path,
+                    predictor=predictor,
+                    action_encoder=action_encoder,
+                    optimizer=optimizer,
+                    config=config,
+                    dataset_snapshot_id=dataset_snapshot_id,
+                    steps=step,
+                    seeds=seeds,
+                )
             for alert in collapse_alerts:
                 log.write(
                     json.dumps(

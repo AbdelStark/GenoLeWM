@@ -47,6 +47,16 @@ SPEC_SRC="${SPEC_SRC:-configs/first_experiment/dataset-snapshot-snv.json}"
 
 log() { echo "=== $* ==="; }
 
+upload_partial_run_on_failure() {
+  rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$WORK/run/predictor_checkpoint.pt" ]; then
+    log "upload partial run checkpoint to $UPLOAD_REPO/$RUN_NAME/run-partial (rc=$rc)"
+    hf upload "$UPLOAD_REPO" "$WORK/run" "$RUN_NAME/run-partial" --repo-type model || true
+  fi
+  return "$rc"
+}
+trap upload_partial_run_on_failure EXIT
+
 log "proof run: $RUN_NAME (steps=$STEPS windows=$MAX_WINDOWS config=$CONFIG spec=$SPEC_SRC)"
 test "$CARBON_DIR" = "/carbon" || { echo "FATAL: coherent release config expects Carbon mounted at /carbon"; exit 1; }
 python - <<'PY'

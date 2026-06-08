@@ -30,6 +30,7 @@ from geno_lewm.training.real import (
     _repeat_training_items,
     _training_device,
     _validate_resume_checkpoint_payload,
+    _write_checkpoint,
     _write_metrics,
 )
 from geno_lewm.training.trainer import TorchTrainerStepResult, TrainerSeeds
@@ -253,6 +254,42 @@ def test_validate_resume_checkpoint_rejects_finished_checkpoint(tmp_path: Path) 
             seeds=seeds,
             target_steps=5,
         )
+
+
+def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> None:
+    torch = pytest.importorskip("torch")
+    config = load_config(_write_training_config(tmp_path))
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    predictor = torch.nn.Linear(2, 2)
+    action_encoder = torch.nn.Linear(2, 2)
+    optimizer = torch.optim.AdamW(list(predictor.parameters()) + list(action_encoder.parameters()))
+    path = tmp_path / "predictor_checkpoint.pt"
+
+    _write_checkpoint(
+        path,
+        predictor=predictor,
+        action_encoder=action_encoder,
+        optimizer=optimizer,
+        config=config,
+        dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+        steps=7,
+        seeds=seeds,
+    )
+
+    payload = torch.load(path, map_location="cpu")
+    checkpoint = _validate_resume_checkpoint_payload(
+        payload,
+        path=path,
+        config=config,
+        dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+        seeds=seeds,
+        target_steps=8,
+    )
+
+    assert checkpoint.steps_completed == 7
+    assert payload["predictor"]
+    assert payload["action_encoder"]
+    assert payload["optimizer"]
 
 
 def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dict[str, object]:
