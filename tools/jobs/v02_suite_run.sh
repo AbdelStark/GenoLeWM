@@ -201,6 +201,8 @@ template["artifacts"] = {
     "dataset_manifest": "dataset/dataset_manifest.json",
     "efficiency_report": "model/efficiency_report.v02.json",
 }
+template["aggregate"]["metrics_json"] = "model/eval_metrics.v02.json"
+template["aggregate"]["report_md"] = "model/eval_report.v02.md"
 for benchmark in template["benchmarks"]:
     baseline = benchmark.get("carbon_baseline")
     if isinstance(baseline, dict):
@@ -280,7 +282,7 @@ fi
 log "run final v0.2 readiness gate"
 READINESS_ARGS=(
   python -m tools.release.v02_benchmark_readiness
-  --metrics-json model/eval_metrics.json
+  --metrics-json model/eval_metrics.v02.json
   --rollout-speed-report bench/rollout.ar_speed.json
   --efficiency-report model/efficiency_report.v02.json
   --suite-report model/v0.2_benchmark_suite_report.json
