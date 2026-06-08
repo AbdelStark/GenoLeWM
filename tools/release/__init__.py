@@ -29,6 +29,12 @@ Two mechanical helpers used by the release checklist in
   benchmark command graph from a JSON manifest, composing score,
   Carbon-baseline, eval, rollout, aggregate, and readiness commands while
   keeping plan-only reports explicitly non-evidence.
+* :mod:`tools.release.v02_benchmark_inputs` normalizes public ClinVar,
+  TraitGym, and MaveDB rows into v0.2 VCF plus label JSONL benchmark
+  inputs with source identities and split summaries.
+* :mod:`tools.release.v02_rollout_inputs` encodes released gnomAD
+  windows and deterministic edit chains with Carbon into cache-backed
+  rollout-state specs consumed by the rollout benchmark.
 * :mod:`tools.release.rollout_state_examples` resolves explicit cache
   keys for measured source, target, and candidate latent states into the
   examples JSONL consumed by rollout-state row generation.
