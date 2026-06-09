@@ -101,13 +101,7 @@ done
 
 log "stage previous public v0.2 input bundle from $INPUT_BUNDLE_REPO ($INPUT_BUNDLE_SUBPATH)"
 hf download "$INPUT_BUNDLE_REPO" --repo-type model \
-  --include "$INPUT_BUNDLE_SUBPATH/benchmark_inputs/*.vcf" \
-  --include "$INPUT_BUNDLE_SUBPATH/benchmark_inputs/v02_benchmark_inputs_report.json" \
-  --include "$INPUT_BUNDLE_SUBPATH/eval/*.labels.jsonl" \
-  --include "$INPUT_BUNDLE_SUBPATH/eval/*example_specs.jsonl" \
-  --include "$INPUT_BUNDLE_SUBPATH/eval/v02_rollout_inputs_report.json" \
-  --include "$INPUT_BUNDLE_SUBPATH/cache/window_embeddings/**" \
-  --include "$INPUT_BUNDLE_SUBPATH/cache/carbon_zero_shot_logp.jsonl" \
+  --include "$INPUT_BUNDLE_SUBPATH/**" \
   --local-dir "$WORK/dl-inputs"
 copy_downloaded_subpath "$WORK/dl-inputs" "$INPUT_BUNDLE_SUBPATH/benchmark_inputs" "$ROOT/benchmark_inputs"
 cp "$WORK/dl-inputs/$INPUT_BUNDLE_SUBPATH"/eval/*.labels.jsonl "$ROOT/eval/"
