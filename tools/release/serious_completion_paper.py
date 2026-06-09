@@ -38,7 +38,9 @@ from tools.release.v02_benchmark_suite import (
 SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.paper_draft"
 PAPER_KIND: Final = "serious_completion_v0.2"
-DEFAULT_TITLE: Final = "GenoLeWM Serious Completion Evidence Report"
+DEFAULT_TITLE: Final = (
+    "GenoLeWM: Evidence-Bound Genomic Edit World Models, Benchmarks, and Negative Results"
+)
 
 EVAL_METRICS_NAME: Final = "eval_metrics.v02.json"
 EVAL_REPORT_NAME: Final = "eval_report.v02.md"
@@ -426,6 +428,116 @@ def _render_serious_completion_paper(
         f"Schema: {SCHEMA_VERSION}",
         f"Paper kind: {PAPER_KIND}",
         "",
+        "## Abstract",
+        "",
+        (
+            "We study GenoLeWM, an action-conditioned latent world model for genomic "
+            "edits that predicts changes in frozen Carbon-500M sequence representations "
+            "rather than directly reconstructing DNA. The paper reports the v0.2 "
+            "serious-completion experiments: ClinVar coding and non-coding SNV "
+            "classification, BRCA2 saturation and TraitGym Mendelian continuous-label "
+            "benchmarks, rollout-fidelity measurements, autoregressive rollout-speed "
+            "measurements, and a released-artifact multi-edit planning demo. The main "
+            "finding is negative: although the artifact pipeline is reproducible and "
+            "the broader benchmark package is complete, GenoLeWM trails Carbon zero-shot "
+            "on most variant-effect rows, rollout fidelity is weak versus source-state "
+            "baselines, the K20 rollout-speed target remains open under #42, and the "
+            "planning demo records execution rather than useful planning behavior."
+        ),
+        "",
+        "## Introduction",
+        "",
+        (
+            "Genomic foundation models can score and represent DNA sequence context, "
+            "but edit-conditioned reasoning asks a different question: given a local "
+            "reference state and an explicit genomic edit, can a learned model predict "
+            "the edited state cheaply enough to support scoring, rollout, and planning? "
+            "GenoLeWM tests this question by freezing Carbon-500M as the state encoder "
+            "and training a smaller predictor over edit actions and latent states."
+        ),
+        "",
+        (
+            "The contribution of this paper is deliberately bounded. It is not a claim "
+            "of clinical utility, deployment readiness, privacy assurance, runtime "
+            "assurance, or broad superiority over Carbon. It is a negative-results and "
+            "systems paper: an evidence-bound account of what worked operationally, "
+            "what failed empirically, and which benchmark artifacts support those "
+            "conclusions."
+        ),
+        "",
+        "The paper makes three concrete contributions:",
+        "",
+        (
+            "1. A reproducible artifact chain for training, evaluating, benchmarking, "
+            "and demoing an action-conditioned genomic latent predictor."
+        ),
+        (
+            "2. A broader v0.2 benchmark package showing mixed and mostly negative "
+            "variant-effect performance against Carbon zero-shot baselines."
+        ),
+        (
+            "3. A planning and rollout audit showing that released-artifact execution "
+            "is possible, but useful multi-edit planning behavior is not established."
+        ),
+        "",
+        "## Related Work",
+        "",
+        (
+            "GenoLeWM sits between DNA foundation modeling, variant-effect prediction, "
+            "and latent predictive world models. DNABERT adapted BERT-style masked "
+            "language modeling to genomic DNA; HyenaDNA studied long-context genome "
+            "modeling at single-nucleotide resolution; and Nucleotide Transformer "
+            "evaluated large transformer representations for human genomics. Carbon-500M "
+            "is the frozen DNA language model used here as a state encoder."
+        ),
+        "",
+        (
+            "The evaluation setup is also shaped by variant interpretation resources. "
+            "ClinVar provides submitted clinical variant interpretations, gnomAD provides "
+            "large-scale population variation context, TraitGym targets causal regulatory "
+            "variant prediction, and AlphaMissense is an example of a high-performing "
+            "protein-centric variant-effect model. GenoLeWM does not compete with those "
+            "systems as a clinical predictor; it asks whether action-conditioned latent "
+            "prediction adds useful evidence over Carbon-style sequence scoring."
+        ),
+        "",
+        (
+            "The modeling objective follows the broader joint-embedding predictive "
+            "architecture idea: predict representation-space targets rather than "
+            "high-entropy observations. In this project the input and target spaces are "
+            "Carbon-encoded DNA windows, and the conditioning variable is an explicit "
+            "genomic edit action."
+        ),
+        "",
+        "## Method",
+        "",
+        (
+            "For each training tuple, GenoLeWM encodes a source reference window into a "
+            "state `s_t`, encodes a canonical edit action, and trains a cross-attention "
+            "predictor to approximate the edited-window target state `s_{t+1}` produced "
+            "by the frozen Carbon encoder. The predictor and action encoder are the "
+            "trainable artifacts; Carbon-500M remains frozen and is required at runtime."
+        ),
+        "",
+        (
+            "Variant scoring uses surprise-style comparisons derived from model-predicted "
+            "state changes and calibration artifacts. Rollout experiments repeatedly apply "
+            "the predictor over edit chains. Planning uses the released manifest-backed "
+            "runtime to search over candidate SNV edits against a target latent state."
+        ),
+        "",
+        "## Experiments",
+        "",
+        (
+            "The v0.2 experiment package evaluates the same released model identity across "
+            "binary ClinVar coding and non-coding SNV slices, continuous-label BRCA2 and "
+            "TraitGym Mendelian slices, two rollout-fidelity slices, inference-efficiency "
+            "measurements, autoregressive rollout-speed measurements at K5 and K20, and "
+            "one synthetic multi-SNV planning demo. Every result below is loaded from the "
+            "artifact files listed in the reproducibility sections rather than copied from "
+            "hand-authored tables."
+        ),
+        "",
         "## Citation Metadata",
         "",
         f"- Model release: `{eval_input.model_release}`",
@@ -436,18 +548,6 @@ def _render_serious_completion_paper(
         f"- Benchmark readiness: `{_package_path(artifacts.readiness_report_path)}`",
         f"- Benchmark suite: `{_package_path(artifacts.suite_report_path)}`",
         f"- Planning demo manifest: `{_package_path(artifacts.planning_manifest_path)}`",
-        "",
-        "## Abstract",
-        "",
-        (
-            "This report packages the v0.2 serious-completion evidence as a "
-            "negative-results and systems artifact-chain contribution. The June 9 "
-            "benchmark suite validates broader artifact coverage, but the measured "
-            "GenoLeWM rows trail Carbon on most variant-effect benchmarks, rollout "
-            "fidelity remains weak versus source-state baselines, the K20 rollout-speed "
-            "target remains open under #42, and the planning demo records released-artifact "
-            "execution rather than useful planning behavior."
-        ),
         "",
         "## Artifact Inputs",
         "",
@@ -584,6 +684,35 @@ def _render_serious_completion_paper(
     lines.extend(
         [
             "",
+            "## Discussion and Learnings",
+            "",
+            (
+                "The central lesson is that an artifact-complete genomic world-model "
+                "pipeline is easier to achieve than a useful learned edit model. The "
+                "training, packaging, scoring, evaluation, rollout, planning, and release "
+                "contracts now bind their inputs and outputs, but those contracts mainly "
+                "make the negative findings auditable."
+            ),
+            "",
+            (
+                "The most informative failure is the gap between narrow classification "
+                "successes and latent rollout behavior. Coding ClinVar balanced accuracy "
+                "improves slightly over Carbon on this tiny slice, but AUROC and average "
+                "precision trail Carbon, non-coding ClinVar is worse on every reported "
+                "metric, BRCA2 saturation correlation trails Carbon, and rollout-state "
+                "cosine similarity is far below the source-state baseline. This suggests "
+                "that the current predictor has not learned an edit-transition model that "
+                "transfers cleanly across evaluation modes."
+            ),
+            "",
+            (
+                "The planning demo is therefore best interpreted as integration evidence. "
+                "It proves that a released checkpoint can be loaded through the planning "
+                "runtime and can emit a candidate edit sequence, but the measured non-zero "
+                "best distance and patience stop show that the run should not be presented "
+                "as useful genomic planning behavior."
+            ),
+            "",
             "## Negative Findings",
             "",
         ]
@@ -601,9 +730,26 @@ def _render_serious_completion_paper(
             "",
             "## Conclusions",
             "",
-            "- The serious-completion paper should be framed as a systems and reproducibility report with negative model-quality findings.",
+            "- The v0.2 evidence supports a systems and reproducibility contribution with negative model-quality findings.",
             "- Artifact generation, benchmark aggregation, readiness checks, and released-artifact planning execution are now bound by public-safe identities.",
             "- The measured result does not justify claims of broad GenoLeWM improvement over Carbon or useful multi-edit planning.",
+            "",
+            "## Reproducibility",
+            "",
+            (
+                "The manuscript is generated from machine-readable benchmark, readiness, "
+                "efficiency, rollout-speed, and planning-demo artifacts. Verification "
+                "re-renders the paper from those artifacts and rejects stale text, missing "
+                "negative findings, missing K20 scope markers, mutated planning evidence, "
+                "and private absolute workstation paths."
+            ),
+            "",
+            (
+                "The artifact chain records model release, model id, dataset snapshot, "
+                "commit, hardware string, package-relative artifact paths, SHA-256 hashes, "
+                "and file sizes. These commitments support reproducible inspection of the "
+                "reported experiments; they do not establish runtime assurance."
+            ),
             "",
             "## Artifact Availability",
             "",
@@ -619,6 +765,53 @@ def _render_serious_completion_paper(
             f"- Planning manifest: `{_package_path(artifacts.planning_manifest_path)}`.",
             f"- Planning plan: `{_package_path(artifacts.plan_path)}`.",
             f"- Planning transcript: `{_package_path(artifacts.transcript_path)}`.",
+            "",
+            "## References",
+            "",
+            (
+                "1. HuggingFaceBio. Carbon-500M model card. "
+                "https://huggingface.co/HuggingFaceBio/Carbon-500M"
+            ),
+            (
+                "2. Assran et al. Self-Supervised Learning from Images with a "
+                "Joint-Embedding Predictive Architecture. arXiv:2301.08243, 2023. "
+                "https://arxiv.org/abs/2301.08243"
+            ),
+            (
+                "3. Ji et al. DNABERT: pre-trained Bidirectional Encoder Representations "
+                "from Transformers model for DNA-language in genome. Bioinformatics, "
+                "2021. https://doi.org/10.1093/bioinformatics/btab083"
+            ),
+            (
+                "4. Nguyen et al. HyenaDNA: Long-Range Genomic Sequence Modeling at "
+                "Single Nucleotide Resolution. arXiv:2306.15794, 2023. "
+                "https://arxiv.org/abs/2306.15794"
+            ),
+            (
+                "5. Dalla-Torre et al. Nucleotide Transformer: building and evaluating "
+                "robust foundation models for human genomics. Nature Methods, 2025. "
+                "https://www.nature.com/articles/s41592-024-02523-z"
+            ),
+            (
+                "6. Landrum et al. ClinVar: public archive of relationships among "
+                "sequence variation and human phenotype. Nucleic Acids Research, 2014. "
+                "https://academic.oup.com/nar/article/42/D1/D980/1051029"
+            ),
+            (
+                "7. Karczewski et al. The mutational constraint spectrum quantified "
+                "from variation in 141,456 humans. Nature, 2020. "
+                "https://www.nature.com/articles/s41586-020-2308-7"
+            ),
+            (
+                "8. Benegas et al. Benchmarking DNA Sequence Models for Causal Regulatory "
+                "Variant Prediction in Human Genetics. bioRxiv, 2025. "
+                "https://doi.org/10.1101/2025.02.11.637758"
+            ),
+            (
+                "9. Cheng et al. Accurate proteome-wide missense variant effect prediction "
+                "with AlphaMissense. Science, 2023. "
+                "https://doi.org/10.1126/science.adg7492"
+            ),
             "",
         ]
     )
@@ -639,20 +832,31 @@ def _verify_paper_path(
         text,
         issues,
         sections=(
+            "Abstract",
+            "Introduction",
+            "Related Work",
+            "Method",
+            "Experiments",
             "Citation Metadata",
             "Artifact Inputs",
             "Results",
             "Planning Demo Evidence",
+            "Discussion and Learnings",
             "Negative Findings",
             "Limitations",
+            "Reproducibility",
             "Conclusions",
             "Artifact Availability",
+            "References",
         ),
     )
     required_patterns = {
         "serious_paper.generated_by": rf"(?m)^Generated by: {re.escape(GENERATED_BY)}$",
         "serious_paper.generated_at": r"(?m)^Generated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
         "serious_paper.kind": rf"(?m)^Paper kind: {re.escape(PAPER_KIND)}$",
+        "serious_paper.carbon": r"Carbon-500M",
+        "serious_paper.jepa": r"Joint-Embedding Predictive Architecture",
+        "serious_paper.genomic_foundation_models": r"DNABERT.*HyenaDNA.*Nucleotide Transformer",
         "serious_paper.eval_metrics": re.escape(EVAL_METRICS_NAME),
         "serious_paper.eval_report": re.escape(EVAL_REPORT_NAME),
         "serious_paper.efficiency_report": re.escape(EFFICIENCY_REPORT_NAME),
@@ -666,6 +870,7 @@ def _verify_paper_path(
         "serious_paper.k20_open": r"K20.*#42",
         "serious_paper.weak_planning": r"does not prove useful planning behavior",
         "serious_paper.negative_results": r"negative-results and systems",
+        "serious_paper.references": r"(?m)^## References$",
     }
     for code, pattern in required_patterns.items():
         if re.search(pattern, text) is None:
