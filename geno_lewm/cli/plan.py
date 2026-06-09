@@ -16,7 +16,7 @@ from geno_lewm.action import EditType, RelEdit, apply_edits
 from geno_lewm.cli._dispatch import SharedOptions, finalize_shared, run_app, shared_option_decls
 from geno_lewm.deploy import GenoLeWMRuntime
 from geno_lewm.encoder.windowing import canonicalize_dna
-from geno_lewm.errors import InputError, RuntimeSetupError
+from geno_lewm.errors import InputError, RuntimeSetupError, SchemaCompatError
 from geno_lewm.planning.cem import (
     CandidateEvaluation,
     PlanningConfig,
@@ -27,7 +27,7 @@ from geno_lewm.planning.cem import (
 )
 from geno_lewm.planning.costs import bp_cost, count_cost, weighted_type_cost
 from geno_lewm.planning.sampling import ActionSampler
-from geno_lewm.provenance import sha256_file
+from geno_lewm.provenance import load_manifest, sha256_file
 from geno_lewm.training import EditTypeWeight
 
 __all__ = ["app", "cli_main"]
@@ -462,7 +462,7 @@ def _load_fasta_sequence(path: Path) -> str:
 def _load_numeric_state(path: Path) -> tuple[float, ...]:
     if path.suffix == ".npy":
         try:
-            import numpy as np  # type: ignore[import-not-found]
+            import numpy as np
         except ImportError as exc:
             raise RuntimeSetupError(
                 ".npy target states require numpy",
@@ -631,11 +631,10 @@ def _runtime_model_id(model_dir: Path) -> str | None:
     if not manifest_path.is_file():
         return None
     try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        manifest = load_manifest(manifest_path)
+    except (OSError, InputError, SchemaCompatError):
         return None
-    model_id = payload.get("model_id")
-    return model_id if isinstance(model_id, str) else None
+    return manifest.model_id()
 
 
 def _edit_payload(edit: RelEdit) -> dict[str, object]:

@@ -7,6 +7,14 @@ import json
 from pathlib import Path
 
 from geno_lewm.cli import _dispatch, plan as plan_cli
+from geno_lewm.provenance import (
+    SCHEMA_VERSION,
+    Manifest,
+    ManifestArtifact,
+    ManifestEncoder,
+    ManifestTraining,
+    write_manifest,
+)
 
 
 def test_plan_requires_window_fasta(capsys) -> None:
@@ -113,6 +121,7 @@ def test_plan_uses_manifest_runtime_for_precomputed_states(
 ) -> None:
     model_dir = tmp_path / "model"
     model_dir.mkdir()
+    manifest = _write_manifest(model_dir / "manifest.json")
     window = tmp_path / "window.fa"
     initial = tmp_path / "initial.json"
     target = tmp_path / "target.json"
@@ -168,8 +177,36 @@ def test_plan_uses_manifest_runtime_for_precomputed_states(
     assert json.loads(capsys.readouterr().out)["evaluation_mode"] == "manifest_runtime"
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["evaluation_mode"] == "manifest_runtime"
+    assert payload["runtime"]["model_id"] == manifest.model_id()
     assert payload["negative_findings"] == []
     assert payload["result"]["best_distance"] == 0.0
+
+
+def _write_manifest(path: Path) -> Manifest:
+    manifest = Manifest(
+        schema_version=SCHEMA_VERSION,
+        model_name="geno-lewm-test",
+        model_version="0.0.0",
+        release_id="test-release",
+        encoder=ManifestEncoder(
+            id="HuggingFaceBio/Carbon-500M",
+            revision="test-revision",
+            hash="sha256:" + "a" * 64,
+        ),
+        predictor=ManifestArtifact(file="predictor.safetensors", hash="sha256:" + "b" * 64),
+        action_encoder=ManifestArtifact(
+            file="action_encoder.safetensors",
+            hash="sha256:" + "c" * 64,
+        ),
+        calibration=ManifestArtifact(file="calibration.parquet", hash="sha256:" + "d" * 64),
+        training=ManifestTraining(
+            config_file="training_config.effective.yaml",
+            hash="sha256:" + "e" * 64,
+        ),
+        eval=ManifestArtifact(file="eval_metrics.json", hash="sha256:" + "f" * 64),
+    )
+    write_manifest(manifest, path)
+    return manifest
 
 
 def _write_fasta(path: Path, sequence: str) -> None:
