@@ -28,7 +28,7 @@ Carbon-backed SNV training run, public model and dataset artifacts,
 measured first-release evaluation, an artifact-backed terminal demo, and
 final publication evidence with `ok=true`.
 
-As of June 8, 2026:
+As of June 9, 2026:
 
 | Area | Current state |
 | --- | --- |
@@ -40,7 +40,7 @@ As of June 8, 2026:
 | Carbon encoder integration | Lazy `CarbonStateEncoder` wrapper and native artifact loading are implemented; the v0.1 terminal demo replayed from public model/data/demo artifacts; broader platform/runtime validation remains v0.2 work |
 | Data/training stream | Carbon window sampler, tuple-builder contract, `GenoLeWMDataset` iterator, source-state cache lookup, local VCF-to-Parquet prep, the v0.1 public dataset package, and reproducibly staged v0.2 benchmark inputs are in place; larger public snapshots and warm-cache throughput validation remain future work |
 | Predictor/training | Base cross-attention `Predictor`, `ARPredictor` rollout wrapper, losses, collapse checks, torch trainer core, WSD scheduling, optimizer grouping, Carbon preflight/training launch plumbing, packaged run evidence, and one real Carbon-backed SNV run are published; true attention KV-cache speedups remain open |
-| Evaluation | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, `tools.release.v02_benchmark_suite`, and `bench.inference --release-efficiency` cover measured metrics/report contracts; the June 8 HF Jobs v0.2 run produced coding/non-coding ClinVar, BRCA2/TraitGym Spearman, Carbon-baseline, rollout-fidelity, efficiency, suite, and `ok=true` readiness evidence, while K20 rollout speed remains explicitly re-scoped rather than passed |
+| Evaluation | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, `tools.release.v02_benchmark_suite`, and `bench.inference --release-efficiency` cover measured metrics/report contracts; the June 8 HF Jobs v0.2 run produced the first broader readiness evidence, and the June 9 #203 rerun on `geno-lewm-v021-strong-4f36eef-10k-r1` produced `ok=true` suite/readiness evidence with mostly negative GenoLeWM-vs-Carbon deltas, while K20 rollout speed remains explicitly re-scoped rather than passed |
 | Package/model release | Public model, dataset, demo, paper, and publication-evidence artifacts are published; the first PyPI package tag remains open |
 
 The v0.1 measured evaluation is intentionally narrow: chr21 ClinVar,
@@ -312,7 +312,7 @@ public v0.1 evidence. Green local tooling is necessary, but it is not a substitu
 | --- | --- | --- |
 | Dataset package | `python -m tools.release.dataset_snapshot --spec-json configs/first_experiment/dataset-snapshot-snv.json --check-spec` validates the checked rebuild spec; `--check-inputs` hashes staged upstream files; the same spec with `--dataset-dir ... --overwrite` writes `dataset_input_check_report.json`, `dataset_snapshot_report.json`, `dataset_package.json`, `dataset_manifest.json`, `data_card.md`, `split_integrity.json`, and `SHA256SUMS` | Completed for v0.1 and published with [#163](https://github.com/AbdelStark/GenoLeWM/issues/163); repeat for larger v0.2 benchmark snapshots |
 | Training run | `geno-lewm-train --carbon-preflight ...` and `geno-lewm-train --carbon-train --package-release-run ...` bind config, dataset, CUDA/VRAM readiness, Carbon model, checkpoint, logs, metrics, and `training_run_SHA256SUMS` | Completed for v0.1 with [#164](https://github.com/AbdelStark/GenoLeWM/issues/164); v0.2 needs stronger runs only after data/eval gates improve |
-| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, and `python -m bench.inference --release-efficiency` generate `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`, rollout-fidelity metric rows from measured state JSONL, and `efficiency_report.json` | Completed for the narrow v0.1 release with [#165](https://github.com/AbdelStark/GenoLeWM/issues/165); the June 8 v0.2 readiness run added broader reproducibly staged benchmark and rollout evidence, but did not publish a new v0.2 checkpoint or close the true #42 K20 speed target |
+| Evaluation and efficiency | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, and `python -m bench.inference --release-efficiency` generate `eval_metrics.json`, `eval_config.effective.yaml`, `eval_report.md`, rollout-fidelity metric rows from measured state JSONL, and `efficiency_report.json` | Completed for the narrow v0.1 release with [#165](https://github.com/AbdelStark/GenoLeWM/issues/165); the June 8 v0.2 readiness run added broader reproducibly staged benchmark and rollout evidence, and the June 9 #203 rerun applied it to the #202 checkpoint lineage, but neither run closes the true #42 K20 speed target |
 | Terminal demo | `python tools/demo/terminal_inference.py ...` records `terminal-demo-transcript.md`, `terminal_demo_manifest.json`, `runtime_preflight_report.json`, `scores.jsonl`, `receipts.jsonl`, and `batch_receipt_report.json` | Completed for v0.1 with [#166](https://github.com/AbdelStark/GenoLeWM/issues/166); v0.2 should demonstrate benchmark/planning behavior without clinical claims |
 | Paper and publication evidence | `python -m tools.release.paper_draft`, `python -m tools.release.paper_package`, `python -m tools.release.release_candidate`, `python -m tools.release.clean_machine_demo`, and `python -m tools.release.publication_report` bind the paper, Hub plan, public links, replay, and final evidence report | Completed for v0.1 through [#167](https://github.com/AbdelStark/GenoLeWM/issues/167) and [#101](https://github.com/AbdelStark/GenoLeWM/issues/101); final binder is public and has `ok=true` |
 
@@ -324,18 +324,39 @@ report is
 [`v0.2_benchmark_readiness_report.json`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v02-autonomous/9bec68ad04f2787dd0dfdf42d116050061ad53f6/suite-r11/model/v0.2_benchmark_readiness_report.json)
 with `ok=true`, and its suite report is
 [`v0.2_benchmark_suite_report.json`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v02-autonomous/9bec68ad04f2787dd0dfdf42d116050061ad53f6/suite-r11/model/v0.2_benchmark_suite_report.json).
-The report preserves negative findings: the model trails Carbon on most
-benchmark rows, and K20 rollout speed is accepted as a v0.2 scope
-decision rather than RFC-0004 speed-target closure.
+The June 9, 2026 #203 rerun applied the same suite to the #202
+checkpoint lineage, `geno-lewm-v021-strong-4f36eef-10k-r1`. Its
+uploaded
+[`v0.2_benchmark_readiness_report.json`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/suite/model/v0.2_benchmark_readiness_report.json)
+has `ok=true` and zero blockers, with suite evidence under
+[`geno-lewm-v021-strong-4f36eef-10k-r1/suite`](https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1/suite).
+The measured result supports a negative-results/systems artifact-chain
+paper framing, not an improved-results claim:
+
+| Split/track | Measured result | Baseline delta |
+| --- | --- | --- |
+| ClinVar coding | AUROC `0.734375`, AP `0.8529761904761904`, balanced accuracy `0.75`, accuracy `0.75` | vs Carbon: AUROC `-0.1875`, AP `-0.09894688644688643`, balanced accuracy `+0.0625`, accuracy `+0.0625` |
+| ClinVar non-coding | AUROC `0.5625`, AP `0.6054563492063492`, balanced accuracy `0.4375`, accuracy `0.4375` | vs Carbon: AUROC `-0.3125`, AP `-0.30896672771672784`, balanced accuracy `-0.25`, accuracy `-0.25` |
+| BRCA2 saturation | Spearman rho `0.14919354838709678` | vs Carbon: `-0.32771260997067453` |
+| TraitGym Mendelian | Spearman rho `-0.02796450759873114` | vs Carbon: `+0.05592901519746229` |
+| Rollout phased haplotypes | cosine mean `0.28886058350550603`, L2 mean `33.319687258878126`, Recall@4 `1.0` | vs source-state baseline: cosine `-0.7089701215468133`, L2 `+31.19289051130368`, Recall@4 `0.0` |
+| Rollout synthetic edit chains | cosine mean `0.30160847029349436`, L2 mean `28.802888778495763`, Recall@4 `1.0` | vs source-state baseline: cosine `-0.6896310938123016`, L2 `+25.637059814259455`, Recall@4 `0.0` |
+| AR rollout speed | K=5 speedup `2.413859489667916`; K=20 speedup `2.4732225135799566` | K=5 target met; K=20 remains below the 5x RFC-0004 target and is recorded as a v0.2 scope decision, not closure |
+| Inference efficiency | single-variant latency `115262.939968` ms, throughput `0.3095340544239052` variants/s, peak memory `1966149632` bytes | H200 measurement only |
+
+The report preserves negative findings: GenoLeWM trails Carbon on most
+benchmark rows, rollout fidelity is weak versus source-state baselines,
+and K20 rollout speed is accepted as a v0.2 scope decision rather than
+RFC-0004 speed-target closure.
 
 The post-v0.2 training lineage for #202 is defined separately from the
-v0.1 first-experiment lineage. Use
+v0.1 first-experiment lineage and has published proof/eval/suite
+evidence under
+`geno-lewm-v021-strong-4f36eef-10k-r1`. Reuse
 `configs/serious_completion/train-carbon-500m-snv-post-v02.yaml` with
-`configs/serious_completion/dataset-snapshot-snv-post-v02.json` when
-launching the next Carbon-backed proof job; this records a phase-2 run
-ID, 40,000-step training horizon, and expanded 40,000 placed-window
-snapshot plan. This config/spec pair does not support model claims until
-the GPU training run, packaging, and benchmark artifacts are published.
+`configs/serious_completion/dataset-snapshot-snv-post-v02.json` for
+repeat or follow-on proof jobs, but do not turn this lineage into model
+quality, clinical, deployment, privacy, or runtime-assurance claims.
 
 Use the v0.2 readiness report to bind measured eval, efficiency, and AR
 rollout speed artifacts before making broader claims:
@@ -469,10 +490,11 @@ the readiness report can bind both generation stages.
 
 - audit data issues #49, #50, #51, and #52 against the actual v0.1
   pipeline and turn remaining deltas into narrower v0.2 work;
-- keep the June 8 v0.2 benchmark artifacts public and rerun the suite
-  when model/data lineage changes;
+- keep the June 8 and June 9 v0.2 benchmark artifacts public and rerun
+  the suite when model/data lineage changes;
 - implement the RFC-0004 AR rollout KV-cache speed target; the June 8
-  readiness run only re-scopes the K20 miss for v0.2 reporting;
+  and June 9 readiness runs only re-scope the K20 miss for v0.2
+  reporting;
 - add regression/benchmark gates for finite loss, collapse health,
   eval-artifact integrity, and rollout performance;
 - use the implemented `geno-lewm-plan` alpha CLI for CEM planning smoke

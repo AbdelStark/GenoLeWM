@@ -90,9 +90,11 @@ AUROC `0.5191596847727398`, AP `0.1651739690365932`, and balanced
 accuracy `0.5`. The June 8 v0.2 readiness run adds measured
 GenoLeWM-vs-Carbon evidence for ClinVar coding, ClinVar non-coding,
 BRCA2 (Findlay et al. saturation editing), and TraitGym Mendelian, with
-exact evaluated variant identities and negative findings. Those results
-are benchmark evidence from the public v0.1 lineage and reproducibly
-staged inputs, not clinical utility claims or a new trained checkpoint.
+exact evaluated variant identities and negative findings. The June 9
+#203 rerun applied that suite to the #202 checkpoint lineage and still
+supports a negative-results/systems framing rather than an
+improved-results claim. Those results are benchmark evidence, not
+clinical utility claims or a public v0.2 model release.
 See
 [RFC-0007](rfcs/0007-evaluation-suite.md).
 
@@ -138,8 +140,8 @@ baselines, and negative findings before making comparison claims.
 The architecture is designed to use Carbon's non-coding sequence
 representations, and the GenoLeWM training mix (RFC-0006) draws from the
 full corpus. The v0.1 release does not establish separate non-coding
-performance; the June 8 v0.2 readiness run reports coding and
-non-coding ClinVar splits separately so non-coding performance is
+performance; the June 8 and June 9 v0.2 readiness runs report coding
+and non-coding ClinVar splits separately so non-coding performance is
 visible, with the non-coding row preserved as a negative finding.
 
 ### Why centered-mean pooling around the edit?

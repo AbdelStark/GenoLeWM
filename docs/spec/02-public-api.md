@@ -983,7 +983,7 @@ Defined by [RFC-0011 §3.3, §3.4](../rfcs/0011-artifact-provenance-receipts.md)
 | `geno-lewm-prepare-gnomad` | Implemented alpha | build the gnomAD Parquet shard from an explicit local VCF/VCF.gz | RFC-0006 |
 | `geno-lewm-prepare-clinvar` | Implemented alpha | build the ClinVar Parquet shard from an explicit local VCF/VCF.gz | RFC-0006 |
 | `geno-lewm-update` | Implemented alpha | check or apply explicit user-approved model updates | RFC-0010 |
-| `geno-lewm-rollout` | Implemented alpha | aggregate measured latent rollout state rows into eval-compatible cosine, L2, Recall@k, naive-baseline, and per-K stratification metrics; the June 8 v0.2 readiness run generated release-shaped rollout rows through the suite path | RFC-0004, RFC-0007 |
+| `geno-lewm-rollout` | Implemented alpha | aggregate measured latent rollout state rows into eval-compatible cosine, L2, Recall@k, naive-baseline, and per-K stratification metrics; the June 8 and June 9 v0.2 readiness runs generated release-shaped rollout rows through the suite path | RFC-0004, RFC-0007 |
 | `geno-lewm-plan` | Implemented alpha | CEM planning to a target state; supports manifest-backed runtime planning from FASTA or precomputed latent states, plus an explicit sequence-proxy FASTA smoke mode that is not learned-model evidence | RFC-0008 |
 | `geno-lewm-export` | Implemented (safetensors) | exports a training `predictor_checkpoint.pt` to deploy `predictor.safetensors` + `action_encoder.safetensors` + `export_report.json`; ONNX / Core ML / GGUF targets and quantization remain scaffolds (#67–#70) | RFC-0010 |
 

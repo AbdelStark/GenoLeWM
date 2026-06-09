@@ -139,7 +139,8 @@ def test_readme_publish_release_evidence_matrix() -> None:
         "python -m tools.release.publication_report",
         "Completed for v0.1",
         "the June 8 v0.2 readiness run added broader reproducibly staged benchmark and rollout evidence",
-        "did not publish a new v0.2 checkpoint or close the true #42 K20 speed target",
+        "the June 9 #203 rerun applied it to the #202 checkpoint lineage",
+        "neither run closes the true #42 K20 speed target",
     )
 
     for fragment in required_fragments:
@@ -403,7 +404,8 @@ def test_faq_keeps_target_numbers_behind_release_evidence() -> None:
     required_fragments = (
         "The v0.1 release reports a narrow chr21 ClinVar slice",
         "The June 8 v0.2 readiness run adds measured GenoLeWM-vs-Carbon evidence",
-        "not clinical utility claims or a new trained checkpoint",
+        "The June 9 #203 rerun applied that suite to the #202 checkpoint lineage",
+        "not clinical utility claims or a public v0.2 model release",
         "not a measured GenoLeWM dataset result",
         "The v0.1 model package includes a public `calibration.parquet`",
         "The v0.1 release does not establish separate non-coding performance",
