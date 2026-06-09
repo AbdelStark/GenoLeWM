@@ -6,7 +6,7 @@ of Carbon.**
 [![CI](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/AbdelStark/GenoLeWM/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/codeql.yml)
 [![Docs](https://github.com/AbdelStark/GenoLeWM/actions/workflows/docs.yml/badge.svg?branch=main)](https://abdelstark.github.io/GenoLeWM/)
-[![Status](https://img.shields.io/badge/status-alpha%20v0.1%20published-blue.svg)](ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-alpha%20v0.2.1%20evidence-blue.svg)](ROADMAP.md)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Typed: mypy --strict](https://img.shields.io/badge/typed-mypy--strict-blue.svg)](https://mypy.readthedocs.io/)
@@ -23,10 +23,10 @@ of Carbon.**
 ## Status
 
 GenoLeWM is an alpha research codebase. The first public paper/demo
-release is published as `geno-lewm-v0.1.0-r1`: it includes a real
-Carbon-backed SNV training run, public model and dataset artifacts,
-measured first-release evaluation, an artifact-backed terminal demo, and
-final publication evidence with `ok=true`.
+release is published as `geno-lewm-v0.1.0-r1`, and the v0.2.1
+serious-completion artifact chain adds a stronger checkpoint lineage,
+broader benchmark-suite evidence, released-artifact planning demo, and
+generated negative-results/systems paper package.
 
 As of June 9, 2026:
 
@@ -42,7 +42,7 @@ As of June 9, 2026:
 | Predictor/training | Base cross-attention `Predictor`, `ARPredictor` rollout wrapper, losses, collapse checks, torch trainer core, WSD scheduling, optimizer grouping, Carbon preflight/training launch plumbing, packaged run evidence, and one real Carbon-backed SNV run are published; true attention KV-cache speedups remain open |
 | Evaluation | `geno-lewm-eval`, `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, `geno-lewm-rollout`, `tools.release.v02_benchmark_suite`, and `bench.inference --release-efficiency` cover measured metrics/report contracts; the June 8 HF Jobs v0.2 run produced the first broader readiness evidence, and the June 9 #203 rerun on `geno-lewm-v021-strong-4f36eef-10k-r1` produced `ok=true` suite/readiness evidence with mostly negative GenoLeWM-vs-Carbon deltas, while K20 rollout speed remains explicitly re-scoped rather than passed |
 | Planning | Pure CEM solver, `geno-lewm-plan`, the June 9 #204 released-artifact planning demo, and `bench.planning` pure-solver timing reports are implemented; useful-planning behavior and named M3 Max/H100 performance acceptance remain open |
-| Package/model release | Public model, dataset, demo, paper, and publication-evidence artifacts are published; the first PyPI package tag remains open |
+| Package/model release | Public model, dataset, demo, paper, and publication-evidence artifacts are published; `0.2.1` is the first Python package release target |
 
 The v0.1 measured evaluation is intentionally narrow: chr21 ClinVar,
 3,000 variants, AUROC `0.5191596847727398`, AP
@@ -60,6 +60,17 @@ Public v0.1 artifacts:
   <https://github.com/AbdelStark/GenoLeWM/releases/download/geno-lewm-v0.1.0-r1/paper.md>
 - Final publication binder:
   <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-coherent-cd2bfcc/publication/publication_evidence_report.json>
+
+Public v0.2.1 serious-completion artifacts:
+
+- Checkpoint/data/suite tree:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1>
+- Benchmark readiness:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/suite/model/v0.2_benchmark_readiness_report.json>
+- Planning demo:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1/planning-demo>
+- Serious-completion paper:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md>
 
 ---
 
@@ -139,8 +150,14 @@ Detailed design:
 
 ## Install
 
-Python 3.10 or newer is required. The first PyPI release has not been
-cut yet, so install from source for now:
+Python 3.10 or newer is required. Install the alpha package from PyPI
+once the `v0.2.1` tag workflow has published, or install from source:
+
+```bash
+python -m pip install geno-lewm
+```
+
+Source install:
 
 ```bash
 git clone https://github.com/AbdelStark/GenoLeWM.git

@@ -10,6 +10,20 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [0.2.1] - 2026-06-09
+
+### Release Summary
+
+- First Python package release target for GenoLeWM's alpha public surface.
+- Publishes the v0.2.1 serious-completion artifact chain: stronger
+  post-v0.2 checkpoint lineage, broader benchmark-suite evidence,
+  released-artifact planning demo, and generated paper package.
+- Preserves the measured negative-results/systems framing: GenoLeWM does
+  not broadly beat Carbon, K20 rollout speed remains below the RFC-0004
+  target, and the planning demo does not prove useful planning behavior.
+
 ### Changed
 
 - Narrowed RFC-0011 and the public roadmap to artifact provenance and

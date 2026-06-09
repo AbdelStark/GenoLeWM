@@ -68,11 +68,14 @@ implemented surface now includes:
 - release tooling, API-snapshot tooling, duplicate-free `__all__`
   checks, and current public module-map docs.
 
-The v0.1 paper/demo release is complete. Remaining high-priority work is
-post-release evidence: broader held-out benchmarks, GenoLeWM-vs-Carbon
-baseline deltas, RFC-0004 attention KV-cache speedups, rollout-fidelity
-state-row generation beyond the implemented metrics aggregator,
-planning-ready APIs/CLI, and the first PyPI package tag.
+The v0.1 paper/demo release is complete, and v0.2.1 now has public
+serious-completion evidence: broader held-out benchmarks,
+GenoLeWM-vs-Carbon baseline deltas, rollout-fidelity rows, a
+released-artifact planning demo, and a generated negative-results/systems
+paper package. Remaining high-priority work is true RFC-0004 attention
+KV-cache speed closure, stronger measured model behavior,
+useful-planning behavior, and completion of the protected `0.2.1`
+Python package tag publication.
 
 ## Active Milestones
 
@@ -114,7 +117,7 @@ re-run. Do not use local fixture/tooling evidence alone for v0.2 claims.
 | Dataset builders and split enforcement | #49, #50, #51, #52 | v0.1 dataset publication exists; audit remaining issue deltas against the actual pipeline, then narrow v0.2 work around larger shards, holdouts, and warm-cache throughput |
 | ClinVar, baseline, and rollout evaluation | #53, #55, #56, #57 | June 8 v0.2 readiness evidence exists for coding/non-coding ClinVar, Carbon baselines, BRCA2/TraitGym, rollout state rows, and exact evaluated variant identities; the June 9 #203 rerun repeats those checks on the #202 checkpoint lineage with mostly negative deltas; future work is new v0.2 model/data/paper packaging and true #42 speed closure |
 | Score CLI and terminal demo | #62, #65 | v0.1 clean-machine scoring transcript exists; close or re-scope remaining work to reusable examples, quickstart polish, and future benchmark/planning demos |
-| Model checkpoint Hub release | #101 | v0.1 model release is complete; future work is PyPI/source-package publication and v0.2 model package evidence |
+| Model checkpoint Hub release | #101 | v0.1 model release is complete; v0.2.1 model/suite/planning/paper evidence is public in the runs repository; remaining work is protected PyPI/source-package publication and any future model-quality-positive package |
 | Hosted ML smoke gate | #89 | Dedicated `tests/ml` fixture smoke coverage and CI `ml-smoke` job exist; this remains separate from #54's hosted eval smoke-regression gate |
 | Hosted eval smoke gate | #54 | Dedicated `tools.ci.eval_smoke_gate`, `tests/eval`, and CI `eval-smoke` job exist; this remains separate from real ClinVar/rollout benchmark execution |
 | Paper-grade docs and tutorials | #94, #95, #96, #97, #98 | Should wait for real artifacts where possible |

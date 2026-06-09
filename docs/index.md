@@ -3,7 +3,7 @@
 > **Action-conditioned JEPA world model for DNA, built on top of Carbon.**
 
 [![CI](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml/badge.svg)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml)
-[![Status](https://img.shields.io/badge/status-alpha%20v0.1%20published-blue.svg)](roadmap/IMPLEMENTATION.md)
+[![Status](https://img.shields.io/badge/status-alpha%20v0.2.1%20evidence-blue.svg)](roadmap/IMPLEMENTATION.md)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/AbdelStark/GenoLeWM/blob/main/pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/AbdelStark/GenoLeWM/blob/main/LICENSE)
 [![Typed](https://img.shields.io/badge/typed-mypy--strict-blue.svg)](https://mypy.readthedocs.io/)
@@ -39,9 +39,10 @@ The research hypothesis is that this can support:
 ## What ships today
 
 The repository currently ships alpha code plus the public
-`geno-lewm-v0.1.0-r1` paper/demo artifact set. Install the Python package
-from source through the [Quickstart](quickstart.md) until the first PyPI
-tag is cut.
+`geno-lewm-v0.1.0-r1` paper/demo artifact set and the v0.2.1
+serious-completion benchmark/planning/paper evidence bundle. Install the
+Python package from PyPI after the `v0.2.1` tag workflow publishes, or
+from source through the [Quickstart](quickstart.md).
 
 - **Core Python surface:** typed errors, privacy-aware structured logs,
   metrics, canonical edit specs, pure-Python edit application,
@@ -71,6 +72,17 @@ The v0.1 publication evidence is public:
   <https://github.com/AbdelStark/GenoLeWM/releases/download/geno-lewm-v0.1.0-r1/paper.md>
 - Final binder:
   <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-coherent-cd2bfcc/publication/publication_evidence_report.json>
+
+The v0.2.1 serious-completion evidence is also public:
+
+- Artifact tree:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1>
+- Benchmark readiness:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/suite/model/v0.2_benchmark_readiness_report.json>
+- Planning demo:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1/planning-demo>
+- Serious-completion paper:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md>
 
 What is *not* established yet: broad model quality beyond the narrow
 chr21 ClinVar v0.1 slice, RFC-0004 rollout-speed closure, useful

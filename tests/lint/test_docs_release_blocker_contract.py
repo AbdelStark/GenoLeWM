@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 from tools.release.issue_refs import (
@@ -34,6 +35,7 @@ SPEC_PERFORMANCE = REPO_ROOT / "docs" / "spec" / "08-performance-budget.md"
 SPEC_GLOSSARY = REPO_ROOT / "docs" / "spec" / "10-glossary.md"
 DEPLOYMENT_RFC = REPO_ROOT / "rfcs" / "0010-on-device-personal-genome-deployment.md"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
+PACKAGE_INIT = REPO_ROOT / "geno_lewm" / "__init__.py"
 
 RELEASE_GATE_ISSUES = {
     DATASET_ISSUE: "Dataset snapshot and data card",
@@ -366,7 +368,7 @@ def test_release_blocker_docs_keep_claim_boundaries() -> None:
 
 
 def test_public_docs_do_not_claim_unreleased_package_distribution() -> None:
-    """Public docs should not advertise package-index installs before first release."""
+    """Public docs should match dev-vs-release package distribution state."""
     public_docs = (
         README,
         DOCS_INDEX,
@@ -377,24 +379,33 @@ def test_public_docs_do_not_claim_unreleased_package_distribution() -> None:
         DEPLOYMENT_RFC,
     )
     combined = "\n".join(path.read_text(encoding="utf-8") for path in public_docs)
-    forbidden_fragments = (
+    always_forbidden_fragments = (
         "pypi/v/geno-lewm",
         "pypi/pyversions",
         "PyPI exists",
         "PyPI | Stable",
         "HuggingFace Hub | Stable",
         "GitHub releases | Stable",
-        "pip install " + "geno-lewm",
-        "uv pip install " + "geno-lewm",
     )
 
-    for fragment in forbidden_fragments:
+    for fragment in always_forbidden_fragments:
         assert fragment not in combined
 
     normalized = " ".join(combined.split())
-    assert "first PyPI release has not been cut yet" in normalized
-    assert "install from source" in normalized
-    assert "Planned first tag" in RELEASE_SPEC.read_text(encoding="utf-8")
+    if _package_version().is_dev:
+        forbidden_fragments = (
+            "pip install " + "geno-lewm",
+            "uv pip install " + "geno-lewm",
+        )
+        for fragment in forbidden_fragments:
+            assert fragment not in combined
+        assert "first PyPI release has not been cut yet" in normalized
+        assert "install from source" in normalized
+        assert "Planned first tag" in RELEASE_SPEC.read_text(encoding="utf-8")
+    else:
+        assert "python -m pip install geno-lewm" in normalized
+        assert "first PyPI release has not been cut yet" not in normalized
+        assert "0.2.1 release target" in RELEASE_SPEC.read_text(encoding="utf-8")
 
 
 def test_faq_keeps_target_numbers_behind_release_evidence() -> None:
@@ -554,6 +565,28 @@ def test_sdist_includes_release_contract_assets() -> None:
 
 def _issue_link(number: int) -> str:
     return f"[#{number}]({_issue_url(number)})"
+
+
+def _package_version() -> _Version:
+    """Read the package version without importing optional runtime modules."""
+    module = ast.parse(PACKAGE_INIT.read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id == "__version__"
+                    and isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, str)
+                ):
+                    return _Version(node.value.value)
+    raise AssertionError("__version__ assignment not found")
+
+
+class _Version(str):
+    @property
+    def is_dev(self) -> bool:
+        return ".dev" in self
 
 
 def _issue_url(number: int) -> str:

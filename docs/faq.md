@@ -253,8 +253,9 @@ action.
 The project is in alpha implementation. The most valuable contributions
 now are narrow PRs that move v0.2 benchmark and rollout readiness
 forward: broader held-out data/eval builders, Carbon-baseline deltas,
-rollout speed gates, planning APIs/CLI, first PyPI tag work, and docs
-that keep claims tied to measured evidence.
+rollout speed gates, planning-quality work beyond the current weak
+demo, package-release hardening, and docs that keep claims tied to
+measured evidence.
 
 ### Can I add a new encoder?
 

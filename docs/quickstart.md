@@ -1,14 +1,21 @@
 # Quickstart
 
 A 5-minute tour of the modules that ship today, plus the public v0.1
-release artifacts.
+release artifacts and v0.2.1 benchmark/planning evidence.
 
 ## Install
 
-GenoLeWM requires **Python 3.10+**. The first PyPI release has not been
-cut yet, so install from source. The implemented surface keeps
-heavyweight ML dependencies behind optional extras; the base install is
-small and includes the CLI scaffolding dependencies.
+GenoLeWM requires **Python 3.10+**. Install the alpha package from PyPI
+after the `v0.2.1` tag workflow publishes, or install from source. The
+implemented surface keeps heavyweight ML dependencies behind optional
+extras; the base install is small and includes the CLI scaffolding
+dependencies.
+
+=== "PyPI"
+
+    ```bash
+    python -m pip install geno-lewm
+    ```
 
 === "uv source install"
 
@@ -51,6 +58,25 @@ $ geno-lewm-score --quiet --no-banner --model-dir model --backend auto --vcf dem
 It scored 32 VCF records and recorded matching score/receipt JSONL
 hashes. This is release replay evidence, not a clinical or broad
 model-quality claim.
+
+## Public v0.2.1 benchmark and planning evidence
+
+The v0.2.1 serious-completion bundle records broader benchmark rows and
+a released-artifact planning demo:
+
+- Artifact tree:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1>
+- Benchmark readiness:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/suite/model/v0.2_benchmark_readiness_report.json>
+- Planning demo:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1/planning-demo>
+- Serious-completion paper:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md>
+
+Those artifacts support a negative-results/systems framing: GenoLeWM
+does not broadly beat Carbon, K20 rollout speed remains below the
+RFC-0004 target, and the planning demo does not prove useful planning
+behavior.
 
 ## 1. Edit specs
 

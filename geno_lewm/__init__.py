@@ -19,7 +19,7 @@ from __future__ import annotations
 # Single source of truth for the package version. Hatch reads this
 # value (see ``[tool.hatch.version]`` in pyproject.toml) so the metadata
 # and the runtime constant cannot drift.
-__version__ = "0.1.0.dev0"
+__version__ = "0.2.1"
 
 from geno_lewm.action import (
     DEFAULT_EDGE_MARGIN,

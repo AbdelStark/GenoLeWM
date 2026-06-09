@@ -6,9 +6,9 @@ themselves are published here when they're issued.
 
 ## Status
 
-No signed binaries exist yet. The project is still pre-release. This
-page exists so [`SECURITY`](../security.md) can reference a stable
-URL.
+No signed binaries exist yet. The first package-release target is
+`0.2.1`, published through the protected PyPI workflow. This page exists
+so [`SECURITY`](../security.md) can reference a stable URL.
 
 ## Planned posture
 
@@ -23,10 +23,10 @@ URL.
 
 ## Until then
 
-- The first PyPI project release will be published from the
-  `Release PyPI` workflow at `.github/workflows/release-pypi.yml` after
-  trusted publishing is configured. Verify the workflow's OIDC claim
-  against the trusted-publisher configuration before the first tag.
+- PyPI project releases are published from the `Release PyPI` workflow
+  at `.github/workflows/release-pypi.yml` through trusted publishing.
+  Verify the workflow's OIDC claim against the trusted-publisher
+  configuration before each protected tag.
 - The repository's tags are GPG-signed by the project lead. Verify
   with `git tag -v vX.Y.Z` after importing the lead's GPG key.
 - Release assets should also verify with the GitHub CLI
