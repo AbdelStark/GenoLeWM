@@ -54,6 +54,16 @@ def test_space_preserves_claim_boundaries_and_artifact_links() -> None:
         assert fragment.lower() not in lower
 
 
+def test_space_default_scoring_example_is_sequence_consistent() -> None:
+    app = SPACE_APP.read_text(encoding="utf-8")
+
+    assert 'DEFAULT_VARIANT = "chrSynthetic:3073:A:T"' in app
+    assert "DEFAULT_WINDOW_START_BP = 0" in app
+    assert '"ACGT" * 3072' in app
+    assert "reference base mismatch before scoring" in app
+    assert "observed_ref" in app
+
+
 def test_space_is_in_source_distribution_contract() -> None:
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 

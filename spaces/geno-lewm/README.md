@@ -39,6 +39,9 @@ checkpoint-backed scoring path.
 - Verifies that the action encoder and predictor weights can be loaded.
 - Attempts single-variant scoring with the checkpoint when the Space
   runtime can also resolve the pinned Carbon-500M encoder.
+- Uses a synthetic, sequence-consistent default scoring example. For real
+  variants, the supplied `REF` allele must match the pasted FASTA reference
+  window at the relative locus; the app checks this before loading the model.
 
 ## Boundaries
 

@@ -23,6 +23,8 @@ RUN_PREFIX = "geno-lewm-v021-strong-4f36eef-10k-r1"
 CARBON_REPO = "HuggingFaceBio/Carbon-500M"
 CARBON_REVISION = "5d31d59b3c845b288a13aedb1358934196852eec"
 SPACE_CACHE = Path(os.getenv("HF_HOME", "/tmp/huggingface")) / "geno_lewm_space"
+DEFAULT_VARIANT = "chrSynthetic:3073:A:T"
+DEFAULT_WINDOW_START_BP = 0
 
 CHECKPOINTS: dict[str, dict[str, Any]] = {
     "v0.2.1 serious-completion checkpoint": {
@@ -391,7 +393,7 @@ def score_single_variant(
     profile_name: str,
     variant: str,
     window: str,
-    window_start_bp: int,
+    window_start_bp: int | float | str,
     backend: str,
     resolve_carbon_from_hub: bool,
 ) -> tuple[str, dict[str, Any]]:
@@ -399,7 +401,11 @@ def score_single_variant(
         from geno_lewm.action import EditSpec
         from geno_lewm.deploy import GenoLeWMRuntime
 
-        chrom, pos, ref, alt = _parse_variant_text(variant)
+        chrom, pos, ref, alt, normalized_window, start_bp, preflight = _prepare_scoring_inputs(
+            variant,
+            window,
+            window_start_bp,
+        )
         edit = EditSpec(chrom=chrom, pos=pos, ref=ref, alt=alt)
         model_dir = _materialize_model(profile_name)
         runtime_note = "using manifest paths as published"
@@ -410,22 +416,86 @@ def score_single_variant(
         runtime = GenoLeWMRuntime(runtime_dir, backend=backend)
         result = runtime.score_variant(
             edit,
-            window=window,
-            window_start_bp=int(window_start_bp),
+            window=normalized_window,
+            window_start_bp=start_bp,
             receipt_path=receipt_path,
         )
         payload = result.to_dict() if hasattr(result, "to_dict") else dict(result)
         payload["receipt_path"] = str(receipt_path)
         payload["runtime_note"] = runtime_note
+        payload["input_preflight"] = preflight
         return "Scored with the trained checkpoint runtime.", payload
     except Exception as exc:
         message = (
-            "Scoring did not complete. This usually means the Space runtime has not "
-            "downloaded or mounted Carbon-500M, or the optional ML stack failed to load. "
-            "The checkpoint files remain inspectable from the panel above.\n\n"
+            "Scoring did not complete. If this is an input error, fix the variant/window "
+            "pair and retry. Otherwise the Space runtime may still be downloading "
+            "Carbon-500M or loading the optional ML stack.\n\n"
             f"`{_exception_line(exc)}`"
         )
         return message, {"trace": _short_trace(exc)}
+
+
+def _prepare_scoring_inputs(
+    variant: str,
+    window: str,
+    window_start_bp: int | float | str,
+) -> tuple[str, int, str, str, str, int, dict[str, Any]]:
+    chrom, pos, ref, alt = _parse_variant_text(variant)
+    start_bp = _coerce_window_start_bp(window_start_bp)
+    normalized_window = _normalize_window_text(window)
+    rel_pos = pos - 1 - start_bp
+    if rel_pos < 0 or rel_pos + len(ref) > len(normalized_window):
+        raise ValueError(
+            "variant is outside the supplied reference window "
+            f"(relative offset {rel_pos}, window length {len(normalized_window)})"
+        )
+    observed_ref = normalized_window[rel_pos : rel_pos + len(ref)]
+    if observed_ref != ref:
+        raise ValueError(
+            "reference base mismatch before scoring: "
+            f"variant REF={ref!r}, observed window bases={observed_ref!r}, "
+            f"relative offset={rel_pos}. Use a matching FASTA window or correct the REF allele."
+        )
+    return (
+        chrom,
+        pos,
+        ref,
+        alt,
+        normalized_window,
+        start_bp,
+        {
+            "chrom": chrom,
+            "pos": pos,
+            "ref": ref,
+            "alt": alt,
+            "window_start_bp": start_bp,
+            "relative_offset": rel_pos,
+            "observed_ref": observed_ref,
+            "window_bp": len(normalized_window),
+        },
+    )
+
+
+def _coerce_window_start_bp(raw: int | float | str) -> int:
+    if isinstance(raw, bool):
+        raise ValueError("window_start_bp must be an integer, not bool")
+    if isinstance(raw, int):
+        value = raw
+    elif isinstance(raw, float):
+        if not raw.is_integer():
+            raise ValueError("window_start_bp must be an integer")
+        value = int(raw)
+    elif isinstance(raw, str):
+        value = int(raw.strip())
+    else:
+        raise ValueError(f"window_start_bp must be an integer, got {type(raw).__name__}")
+    if value < 0:
+        raise ValueError("window_start_bp must be non-negative")
+    return value
+
+
+def _normalize_window_text(raw: str) -> str:
+    return "".join(str(raw).split()).upper()
 
 
 def _parse_variant_text(raw: str) -> tuple[str, int, str, str]:
@@ -518,15 +588,20 @@ deployment readiness.
                     outputs=[inspect_status, inspect_json],
                 )
                 gr.Markdown("### Single-Variant Scoring")
+                gr.Markdown(
+                    "The prefilled example is synthetic and sequence-consistent. "
+                    "For real variants, paste the reference window from FASTA; the "
+                    "REF allele must match the supplied window at the relative locus."
+                )
                 with gr.Row():
                     variant = gr.Textbox(
                         label="Variant",
-                        value="chr17:43091983:A:T",
+                        value=DEFAULT_VARIANT,
                         placeholder="CHROM:POS:REF:ALT",
                     )
                     window_start = gr.Number(
                         label="Window start bp",
-                        value=43088911,
+                        value=DEFAULT_WINDOW_START_BP,
                         precision=0,
                     )
                     backend = gr.Dropdown(
@@ -576,9 +651,9 @@ Run a local score once the model directory and Carbon-500M are available:
 geno-lewm-score \\
   --model-dir /path/to/model \\
   --backend auto \\
-  --variant chr17:43091983:A:T \\
+  --variant {DEFAULT_VARIANT} \\
   --window ACGT... \\
-  --window-start-bp 43088911 \\
+  --window-start-bp {DEFAULT_WINDOW_START_BP} \\
   --receipt receipt.json
 ```
 
