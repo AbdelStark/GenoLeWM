@@ -79,7 +79,7 @@ def test_load_samples_pytest_benchmark_file(tmp_path: Path) -> None:
 
 
 def test_load_samples_skips_placeholder_results(tmp_path: Path) -> None:
-    # iters == 0 (planning placeholder) should be skipped.
+    # iters == 0 legacy placeholder results should be skipped.
     _write_harness_result(tmp_path, "planning.cem", 0, iters=0)
     samples = list(perf_regression.load_samples(tmp_path))
     assert samples == []

@@ -12,7 +12,7 @@ but the shared library at [`_harness.py`](_harness.py) does not.
 | [`inference.py`](inference.py) | Commitment microbenchmarks by default; release mode benchmarks the real `geno-lewm-score` command and writes `efficiency_report.json`. |
 | [`training.py`](training.py) | `apply_edit` / `apply_edits` batches (data-prep hot path). Full training-step lands with [#44](https://github.com/AbdelStark/GenoLeWM/issues/44). |
 | [`rollout.py`](rollout.py) | AR rollout speed report comparing cached `ARPredictor` rollout with naive repeated one-step `Predictor.forward` calls for the RFC-0004 K=5/K=20 targets. |
-| [`planning.py`](planning.py) | Placeholder for the CEM solver ([#59](https://github.com/AbdelStark/GenoLeWM/issues/59) / [#60](https://github.com/AbdelStark/GenoLeWM/issues/60) / [#61](https://github.com/AbdelStark/GenoLeWM/issues/61)). |
+| [`planning.py`](planning.py) | Pure CEM solver, `ActionSampler`, and cost-loop timings plus a deterministic default-config planning report for [#59](https://github.com/AbdelStark/GenoLeWM/issues/59). |
 | [`profile.py`](profile.py) | Canonical profiler invocations (py-spy, cProfile, tracemalloc, torch.profiler). |
 | [`_harness.py`](_harness.py) | Shared library: `BenchResult`, `time_callable`, `write_result`, `machine_id`. |
 
@@ -60,6 +60,7 @@ python -m bench.planning
 python -m bench.inference --iters 50 --no-write
 uv run --extra train python -m bench.rollout \
   --k 5 --k 20 --iters 10 --warmup 2 --no-write
+python -m bench.planning --k 1 --k 3 --iters 10 --warmup 2 --no-write
 
 # Release efficiency evidence: median single-variant latency, batched VCF
 # throughput, and child-process peak RSS from the real score command.
@@ -81,6 +82,15 @@ so release-readiness reports can bind the exact benchmark invocation.
 horizon meets the RFC-0004 speedup target (`>=2x` at K=5 and `>=5x` at
 K=20). Use that flag for rollout-performance gates once the attention
 KV-cache implementation is expected to satisfy the target.
+
+`bench.planning` writes per-workload harness JSON files and an aggregate
+`planning.performance.json` report. The aggregate report includes a
+deterministic repeat of the default CEM config (`K=5`, 5 iterations,
+1024 samples, 64 elites). Use `--target-profile m3-max --require-targets`
+or `--target-profile h100 --require-targets` only on that named hardware;
+the command records CPU/GPU identity and fails named target profiles when
+the detected hardware does not match. The report is pure solver timing
+and does not establish learned-model planning quality.
 
 ## Regression detection
 

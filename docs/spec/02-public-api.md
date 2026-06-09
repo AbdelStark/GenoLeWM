@@ -846,9 +846,12 @@ explicit sequence-proxy FASTA smoke mode that is labeled as non-model
 evidence. The June 9 #204 planning demo ran the manifest-backed path
 from packaged v0.2.1 model artifacts and recorded a weak measured result
 (`best_distance=23.656930390534644`, 384 evaluations, patience stop);
-it is execution evidence, not proof of useful planning behavior. Runtime
-performance acceptance and stronger planning behavior remain open v0.2
-work. `PlanningConfig`, `PlanningResult`, and `plan` are not stable top-level exports yet.
+it is execution evidence, not proof of useful planning behavior.
+`bench.planning` now records pure CEM solver timing, deterministic
+default-config repeats, detected CPU/GPU identity, and named target
+profile pass/fail status. M3 Max/H100 performance acceptance and
+stronger planning behavior remain open v0.2 work. `PlanningConfig`,
+`PlanningResult`, and `plan` are not stable top-level exports yet.
 
 Defined by [RFC-0008 §3.3](../rfcs/0008-latent-planning.md#33-edit-search-space),
 [§3.5](../rfcs/0008-latent-planning.md#35-cost-functions), and
