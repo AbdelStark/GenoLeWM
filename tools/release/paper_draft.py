@@ -28,6 +28,10 @@ from tools.release.efficiency_report import (
 from tools.release.eval_report import load_report_input, render_report
 from tools.release.model_package import EVAL_METRICS_NAME, MODEL_PACKAGE_NAME, load_model_package
 from tools.release.runtime_preflight import REPORT_NAME as RUNTIME_PREFLIGHT_REPORT_NAME
+from tools.release.serious_completion_paper import (
+    DEFAULT_TITLE as SERIOUS_COMPLETION_DEFAULT_TITLE,
+    build_serious_completion_paper,
+)
 
 SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.paper_draft"
@@ -166,14 +170,37 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     try:
-        report = build_paper_draft(
-            model_dir=args.model_dir,
-            dataset_dir=args.dataset_dir,
-            demo_dir=args.demo_dir,
-            output=args.output,
-            title=args.title,
-            allow_placeholders=args.allow_placeholders,
-        )
+        report: Any
+        if args.serious_completion:
+            if args.suite_dir is None:
+                raise InputError("--suite-dir is required with --serious-completion")
+            if args.planning_demo_dir is None:
+                raise InputError("--planning-demo-dir is required with --serious-completion")
+            report = build_serious_completion_paper(
+                suite_dir=args.suite_dir,
+                planning_demo_dir=args.planning_demo_dir,
+                output=args.output,
+                title=(
+                    SERIOUS_COMPLETION_DEFAULT_TITLE
+                    if args.title == "GenoLeWM First Experiment Report"
+                    else args.title
+                ),
+            )
+        else:
+            if args.model_dir is None:
+                raise InputError("--model-dir is required")
+            if args.dataset_dir is None:
+                raise InputError("--dataset-dir is required")
+            if args.demo_dir is None:
+                raise InputError("--demo-dir is required")
+            report = build_paper_draft(
+                model_dir=args.model_dir,
+                dataset_dir=args.dataset_dir,
+                demo_dir=args.demo_dir,
+                output=args.output,
+                title=args.title,
+                allow_placeholders=args.allow_placeholders,
+            )
     except GenoLeWMError as exc:
         sys.stderr.write(f"error: {exc}\n")
         return exit_code_for(exc)
@@ -183,11 +210,18 @@ def main(argv: list[str] | None = None) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate a first-experiment paper draft from release artifacts.",
+        description="Generate a paper draft from release artifacts.",
     )
-    parser.add_argument("--model-dir", type=Path, required=True)
-    parser.add_argument("--dataset-dir", type=Path, required=True)
-    parser.add_argument("--demo-dir", type=Path, required=True)
+    parser.add_argument("--model-dir", type=Path)
+    parser.add_argument("--dataset-dir", type=Path)
+    parser.add_argument("--demo-dir", type=Path)
+    parser.add_argument(
+        "--serious-completion",
+        action="store_true",
+        help="Generate the v0.2 serious-completion paper from suite and planning-demo artifacts.",
+    )
+    parser.add_argument("--suite-dir", type=Path)
+    parser.add_argument("--planning-demo-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--title", default="GenoLeWM First Experiment Report")
     parser.add_argument(

@@ -94,7 +94,11 @@ exact evaluated variant identities and negative findings. The June 9
 #203 rerun applied that suite to the #202 checkpoint lineage and still
 supports a negative-results/systems framing rather than an
 improved-results claim. Those results are benchmark evidence, not
-clinical utility claims or a public v0.2 model release.
+clinical utility claims or a public v0.2 model release. The generated
+#205 serious-completion paper package records that framing in
+[`paper.serious-completion.md`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md),
+with an `ok=true`
+[`paper_package_report.json`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper_package_report.json).
 See
 [RFC-0007](rfcs/0007-evaluation-suite.md).
 

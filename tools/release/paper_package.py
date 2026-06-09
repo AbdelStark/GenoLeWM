@@ -62,6 +62,10 @@ from tools.release.runtime_preflight import (
     REPORT_NAME as RUNTIME_PREFLIGHT_REPORT_NAME,
     SCHEMA_VERSION as RUNTIME_PREFLIGHT_SCHEMA_VERSION,
 )
+from tools.release.serious_completion_paper import (
+    SeriousCompletionPaperPaths,
+    verify_serious_completion_paper,
+)
 from tools.release.training_run import (
     CARD_NAME as TRAINING_RUN_CARD_NAME,
     CHECKSUMS_NAME as TRAINING_RUN_CHECKSUMS_NAME,
@@ -174,15 +178,35 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     try:
-        report = verify_package(
-            PackagePaths(
-                model_dir=args.model_dir,
-                dataset_dir=args.dataset_dir,
-                demo_dir=args.demo_dir,
-                paper_path=args.paper_path,
-            ),
-            allow_fixture_manifest=args.allow_fixture_manifest,
-        )
+        report: Any
+        if args.serious_completion:
+            if args.suite_dir is None:
+                raise InputError("--suite-dir is required with --serious-completion")
+            if args.planning_demo_dir is None:
+                raise InputError("--planning-demo-dir is required with --serious-completion")
+            report = verify_serious_completion_paper(
+                SeriousCompletionPaperPaths(
+                    suite_dir=args.suite_dir,
+                    planning_demo_dir=args.planning_demo_dir,
+                    paper_path=args.paper_path,
+                )
+            )
+        else:
+            if args.model_dir is None:
+                raise InputError("--model-dir is required")
+            if args.dataset_dir is None:
+                raise InputError("--dataset-dir is required")
+            if args.demo_dir is None:
+                raise InputError("--demo-dir is required")
+            report = verify_package(
+                PackagePaths(
+                    model_dir=args.model_dir,
+                    dataset_dir=args.dataset_dir,
+                    demo_dir=args.demo_dir,
+                    paper_path=args.paper_path,
+                ),
+                allow_fixture_manifest=args.allow_fixture_manifest,
+            )
     except GenoLeWMError as exc:
         sys.stderr.write(f"error: {exc}\n")
         return exit_code_for(exc)
@@ -192,11 +216,18 @@ def main(argv: list[str] | None = None) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate the first paper/demo release artifact package.",
+        description="Validate a paper/demo release artifact package.",
     )
-    parser.add_argument("--model-dir", type=Path, required=True)
-    parser.add_argument("--dataset-dir", type=Path, required=True)
-    parser.add_argument("--demo-dir", type=Path, required=True)
+    parser.add_argument("--model-dir", type=Path)
+    parser.add_argument("--dataset-dir", type=Path)
+    parser.add_argument("--demo-dir", type=Path)
+    parser.add_argument(
+        "--serious-completion",
+        action="store_true",
+        help="Verify the v0.2 serious-completion paper against suite and planning-demo artifacts.",
+    )
+    parser.add_argument("--suite-dir", type=Path)
+    parser.add_argument("--planning-demo-dir", type=Path)
     parser.add_argument("--paper-path", type=Path)
     parser.add_argument(
         "--allow-fixture-manifest",

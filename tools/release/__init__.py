@@ -68,6 +68,10 @@ Two mechanical helpers used by the release checklist in
   publishing a terminal-demo transcript.
 * :mod:`tools.release.paper_draft` generates a first-experiment paper
   draft from the release artifact set.
+* :mod:`tools.release.serious_completion_paper` generates and verifies the
+  v0.2 serious-completion paper from benchmark-suite/readiness artifacts
+  plus the released planning-demo manifest, preserving negative-results
+  and claim-boundary wording.
 * :mod:`tools.release.hub_release` dry-runs the Hugging Face Hub upload
   plan after the package verifier passes, including model, dataset, and
   terminal-demo upload file inventories with checksum manifests and

@@ -349,6 +349,28 @@ benchmark rows, rollout fidelity is weak versus source-state baselines,
 and K20 rollout speed is accepted as a v0.2 scope decision rather than
 RFC-0004 speed-target closure.
 
+The #205 serious-completion paper package is generated from those
+artifact identities plus the #204 planning-demo manifest with:
+
+```bash
+python -m tools.release.paper_draft --serious-completion \
+  --suite-dir .../suite \
+  --planning-demo-dir .../planning-demo \
+  --output paper.serious-completion.md
+
+python -m tools.release.paper_package --serious-completion \
+  --suite-dir .../suite \
+  --planning-demo-dir .../planning-demo \
+  --paper-path paper.serious-completion.md
+```
+
+The public generated paper is
+[`paper.serious-completion.md`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md),
+and its verifier report is
+[`paper_package_report.json`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper_package_report.json)
+with `ok=true`. Treat it as a negative-results/systems evidence
+package, not a model-quality breakthrough or planning-success claim.
+
 The post-v0.2 training lineage for #202 is defined separately from the
 v0.1 first-experiment lineage and has published proof/eval/suite
 evidence under
@@ -504,6 +526,10 @@ the readiness report can bind both generation stages.
   over 384 evaluations, and stopped on patience. Treat it as
   released-artifact execution evidence with negative findings, not proof
   of useful planning behavior.
+- keep the #205 serious-completion paper artifact public:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md>.
+  Its package verifier report is `ok=true`, and the paper should remain
+  framed as negative-results/systems evidence.
 
 ---
 
