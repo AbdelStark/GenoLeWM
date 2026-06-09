@@ -133,8 +133,15 @@ log "run geno-lewm-plan in manifest_runtime mode"
 test -s "$PLAN_JSON" || fail "plan.json was not written"
 
 log "write transcript and planning demo manifest"
-OUT="$OUT" PLAN_CMD_JSON="$(printf '%s\n' "${PLAN_CMD[@]}" | python -c 'import json,sys; print(json.dumps([line.rstrip(\"\\n\") for line in sys.stdin]))')" \
-python - <<'PY'
+PLAN_CMD_JSON="$(
+  python - "${PLAN_CMD[@]}" <<'PY'
+import json
+import sys
+
+print(json.dumps(sys.argv[1:]))
+PY
+)"
+OUT="$OUT" PLAN_CMD_JSON="$PLAN_CMD_JSON" python - <<'PY'
 import json
 import os
 from datetime import datetime, timezone
