@@ -462,7 +462,7 @@ def _load_fasta_sequence(path: Path) -> str:
 def _load_numeric_state(path: Path) -> tuple[float, ...]:
     if path.suffix == ".npy":
         try:
-            import numpy as np
+            import numpy as np  # type: ignore[import-not-found,unused-ignore]
         except ImportError as exc:
             raise RuntimeSetupError(
                 ".npy target states require numpy",
