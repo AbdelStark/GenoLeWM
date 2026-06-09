@@ -151,6 +151,9 @@ nav:
       - FAQ: faq.md
       - Maintainers: maintainers.md
       - Implementation tracker: roadmap/IMPLEMENTATION.md
+  - Release:
+      - Hugging Face model card: release/huggingface-model-card.md
+      - Signing keys: release/signing-keys.md
   - Community:
       - Contributing: contributing.md
       - Code of Conduct: code-of-conduct.md
