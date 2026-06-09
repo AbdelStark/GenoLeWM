@@ -219,7 +219,7 @@ for benchmark in template["benchmarks"]:
     if benchmark["kind"] == "rollout":
         benchmark["recall_k"] = 4
 template.pop("readiness", None)
-path = root / "configs" / "v0.2_benchmark_suite.autonomous.json"
+path = root / "v0.2_benchmark_suite.autonomous.json"
 path.write_text(json.dumps(template, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 print(path)
 PY
@@ -228,7 +228,7 @@ log "run benchmark suite"
 (
   cd "$ROOT"
   python -m tools.release.v02_benchmark_suite \
-    --manifest configs/v0.2_benchmark_suite.autonomous.json \
+    --manifest v0.2_benchmark_suite.autonomous.json \
     --output-report model/v0.2_benchmark_suite_report.json \
     --execute | tee model/v0.2_benchmark_suite.stdout.log
 )
