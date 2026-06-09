@@ -115,7 +115,7 @@ gzip -dc "$WORK/chr13.fa.gz" > "$ROOT/benchmark_inputs/reference.fa"
 test -s "$ROOT/benchmark_inputs/reference.fa" || fail "reference FASTA is empty"
 
 log "extract efficiency single-variant window"
-read -r EFF_VARIANT EFF_WINDOW < <(
+read -r EFF_VARIANT EFF_WINDOW_START EFF_WINDOW < <(
   python - "$ROOT/benchmark_inputs/clinvar_coding.efficiency.vcf" \
     "$ROOT/benchmark_inputs/reference.fa" <<'PY'
 import sys
@@ -142,10 +142,11 @@ if end > len(sequence):
 window = sequence[start:end]
 if len(window) != window_bp:
     raise SystemExit(f"expected {window_bp}bp window, observed {len(window)}")
-print(f"{chrom}:{pos}:{ref}:{alt}\t{window}")
+print(f"{chrom}:{pos}:{ref}:{alt}\t{start}\t{window}")
 PY
 )
 test -n "$EFF_VARIANT" || fail "could not extract efficiency variant"
+test -n "$EFF_WINDOW_START" || fail "could not extract efficiency window start"
 test -n "$EFF_WINDOW" || fail "could not extract efficiency window"
 
 log "write v0.2 efficiency report"
@@ -157,6 +158,7 @@ log "write v0.2 efficiency report"
     --fasta benchmark_inputs/reference.fa \
     --variant "$EFF_VARIANT" \
     --window "$EFF_WINDOW" \
+    --window-start-bp "$EFF_WINDOW_START" \
     --output-json model/efficiency_report.v02.json \
     --backend auto \
     --batch-size "$EFF_BATCH_SIZE" \

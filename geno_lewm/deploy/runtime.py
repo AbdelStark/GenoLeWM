@@ -156,6 +156,7 @@ class GenoLeWMRuntime:
         variant: EditSpec,
         window: str | None = None,
         *,
+        window_start_bp: int = 0,
         receipt_path: str | Path | None = None,
     ) -> Any:
         """Score a single variant through local scorer components when available."""
@@ -163,6 +164,18 @@ class GenoLeWMRuntime:
             raise InputError(
                 "variant must be an EditSpec",
                 details={"type": type(variant).__name__},
+            )
+        if (
+            not isinstance(window_start_bp, int)
+            or isinstance(window_start_bp, bool)
+            or window_start_bp < 0
+        ):
+            raise InputError(
+                "window_start_bp must be a non-negative integer",
+                details={
+                    "window_start_bp": window_start_bp,
+                    "type": type(window_start_bp).__name__,
+                },
             )
         normalized_window = None
         if window is not None:
@@ -182,6 +195,7 @@ class GenoLeWMRuntime:
                     scorer.predictor,
                     scorer.calibration,
                     reference_window=normalized_window,
+                    window_start_bp=window_start_bp,
                 )
                 if receipt_path is not None:
                     _write_score_variant_receipt(
@@ -190,6 +204,7 @@ class GenoLeWMRuntime:
                         manifest=self.manifest,
                         variant=variant,
                         reference_window=normalized_window,
+                        window_start_bp=window_start_bp,
                         result=result,
                         receipt_path=receipt_path,
                     )
@@ -803,6 +818,7 @@ def _write_score_variant_receipt(
     reference_window: str,
     result: Any,
     receipt_path: str | Path,
+    window_start_bp: int = 0,
 ) -> Path:
     resolved_manifest = _require_receipt_manifest(manifest)
     pooling_config, dtype_config = _resolve_commitment_configs(model_dir, resolved_manifest)
@@ -815,6 +831,7 @@ def _write_score_variant_receipt(
         pooling_config=pooling_config,
         dtype_config=dtype_config,
         scope="single_variant",
+        details={"window_start_bp": window_start_bp},
     )
     return write_receipt(receipt, receipt_path)
 
@@ -879,6 +896,7 @@ def _write_vcf_scores_and_receipts(
                 details={
                     "receipt_stream": "jsonl_per_scored_alternate_v1",
                     "row_index": row_index,
+                    "window_start_bp": record.window_start_bp,
                 },
             )
             receipt_handle.write(receipt.to_canonical_json().decode("utf-8") + "\n")

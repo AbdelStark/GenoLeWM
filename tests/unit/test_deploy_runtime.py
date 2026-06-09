@@ -340,7 +340,11 @@ def test_runtime_scores_with_manifest_verified_local_components(tmp_path: Path) 
         predictor=EchoPredictor(),
     )
 
-    result = runtime.score_variant(EditSpec(chrom="1", pos=1, ref="A", alt="T"), window="ACGT")
+    result = runtime.score_variant(
+        EditSpec(chrom="1", pos=11, ref="A", alt="T"),
+        window="ACGT",
+        window_start_bp=10,
+    )
 
     assert result.bucket_id == "*"
     assert result.sigma_raw > 0.0
@@ -533,6 +537,7 @@ def test_runtime_writes_single_variant_receipt_with_manifest_commitment(tmp_path
     assert receipt.provenance.kind == "checksum_only"
     assert receipt.provenance.details is not None
     assert receipt.provenance.details["scope"] == "single_variant"
+    assert receipt.provenance.details["window_start_bp"] == 0
     assert receipt.input_commitment == compute_input_commitment(
         "ACGT",
         variant,

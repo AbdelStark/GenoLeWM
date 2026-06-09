@@ -60,6 +60,7 @@ def test_release_efficiency_report_benchmarks_score_command(tmp_path: Path) -> N
             output_json=output,
             variant="1:10:A:T",
             window="A" * 4096,
+            window_start_bp=4,
             backend="cpu",
             samples=2,
             warmup_batches=1,
@@ -84,8 +85,11 @@ def test_release_efficiency_report_benchmarks_score_command(tmp_path: Path) -> N
     assert inputs["single_window"].path == "inline:single_window"
     assert len(calls) == 6
     assert "--variant" in calls[0]
+    assert "--window-start-bp" in calls[0]
+    assert calls[0][calls[0].index("--window-start-bp") + 1] == "4"
     assert "--vcf" in calls[-1]
     assert "<redacted-inline-window>" in report.command
+    assert "--window-start-bp" in report.command
 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["generated_by"] == GENERATED_BY

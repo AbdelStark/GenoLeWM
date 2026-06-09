@@ -25,6 +25,7 @@ import datetime as _dt
 import json
 import platform
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Sequence
@@ -42,7 +43,7 @@ from bench._harness import (
     write_result,
 )
 from geno_lewm.action.spec import EditSpec
-from geno_lewm.errors import InputError
+from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import (
     DtypeConfig,
     Manifest,
@@ -120,6 +121,7 @@ class ReleaseEfficiencyRequest:
     output_json: Path
     variant: str
     window: str
+    window_start_bp: int = 0
     backend: str = "auto"
     batch_size: int = 64
     samples: int = DEFAULT_RELEASE_SAMPLES
@@ -280,6 +282,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--fasta", type=Path)
     parser.add_argument("--variant")
     parser.add_argument("--window")
+    parser.add_argument("--window-start-bp", type=int, default=0)
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--backend", default="auto")
     parser.add_argument("--batch-size", type=int, default=64)
@@ -311,6 +314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_json=_required_path("--output-json", args.output_json),
             variant=_required_text("--variant", args.variant),
             window=_required_text("--window", args.window),
+            window_start_bp=args.window_start_bp,
             backend=args.backend,
             batch_size=args.batch_size,
             samples=args.samples,
@@ -320,7 +324,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             peak_memory_bytes=args.peak_memory_bytes,
             allow_fixture_manifest=args.allow_fixture_manifest,
         )
-        path = write_release_efficiency_report(request)
+        try:
+            path = write_release_efficiency_report(request)
+        except GenoLeWMError as exc:
+            sys.stderr.write(f"error: {exc.message or str(exc)}\n")
+            if exc.details:
+                sys.stderr.write(
+                    json.dumps({"details": exc.details}, indent=2, sort_keys=True) + "\n"
+                )
+            if exc.remediation:
+                sys.stderr.write(f"remediation: {exc.remediation}\n")
+            return exit_code_for(exc)
         print(f"wrote {path}")
         return 0
 
@@ -355,6 +369,12 @@ def _validate_release_request(request: ReleaseEfficiencyRequest) -> None:
         raise InputError("warmup must be a non-negative integer")
     if request.batch_size <= 0:
         raise InputError("batch_size must be a positive integer")
+    if (
+        not isinstance(request.window_start_bp, int)
+        or isinstance(request.window_start_bp, bool)
+        or request.window_start_bp < 0
+    ):
+        raise InputError("window_start_bp must be a non-negative integer")
     if request.peak_memory_bytes is not None and request.peak_memory_bytes <= 0:
         raise InputError("peak_memory_bytes must be a positive integer when supplied")
 
@@ -372,6 +392,8 @@ def _single_variant_command(request: ReleaseEfficiencyRequest) -> tuple[str, ...
         request.variant,
         "--window",
         request.window,
+        "--window-start-bp",
+        str(request.window_start_bp),
         "--no-receipt",
     )
 
@@ -414,6 +436,8 @@ def _benchmark_command(request: ReleaseEfficiencyRequest) -> list[str]:
         request.variant,
         "--window",
         "<redacted-inline-window>",
+        "--window-start-bp",
+        str(request.window_start_bp),
         "--output-json",
         str(request.output_json),
         "--backend",

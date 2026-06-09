@@ -48,6 +48,13 @@ def main(
             "--window", help="Reference window for --variant; FASTA extraction is not hidden."
         ),
     ] = None,
+    window_start_bp: Annotated[
+        int,
+        typer.Option(
+            "--window-start-bp",
+            help="0-based inclusive start coordinate for --window in single-variant scoring.",
+        ),
+    ] = 0,
     vcf: Annotated[
         Path | None,
         typer.Option("--vcf", help="Input VCF for batch scoring."),
@@ -131,9 +138,14 @@ def main(
                 remediation="pass the reference bases covering CHROM:POS:REF:ALT",
             )
         if receipt is None:
-            result = runtime.score_variant(edit, window=window)
+            result = runtime.score_variant(edit, window=window, window_start_bp=window_start_bp)
         else:
-            result = runtime.score_variant(edit, window=window, receipt_path=receipt)
+            result = runtime.score_variant(
+                edit,
+                window=window,
+                window_start_bp=window_start_bp,
+                receipt_path=receipt,
+            )
         typer.echo(
             json.dumps(
                 {

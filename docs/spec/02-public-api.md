@@ -887,6 +887,7 @@ class GenoLeWMRuntime:
     def score_variant(self, variant: EditSpec,
                       window: str | None = None,
                       *,
+                      window_start_bp: int = 0,
                       receipt_path: str | Path | None = None) -> Any: ...
     def score_vcf(self, vcf_path: str | Path,
                   fasta_path: str | Path,

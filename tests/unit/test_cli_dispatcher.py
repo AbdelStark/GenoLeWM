@@ -384,9 +384,16 @@ def test_score_invokes_runtime_for_single_variant(
             calls["model_dir"] = model_dir
             calls["backend"] = backend
 
-        def score_variant(self, variant: object, window: str | None = None) -> SurpriseResult:
+        def score_variant(
+            self,
+            variant: object,
+            window: str | None = None,
+            *,
+            window_start_bp: int = 0,
+        ) -> SurpriseResult:
             calls["variant"] = variant
             calls["window"] = window
+            calls["window_start_bp"] = window_start_bp
             return SurpriseResult(
                 sigma_raw=0.25,
                 sigma_calibrated=0.5,
@@ -410,6 +417,8 @@ def test_score_invokes_runtime_for_single_variant(
             "1:1:a:t",
             "--window",
             "ACGT",
+            "--window-start-bp",
+            "10",
         ],
     )
     captured = capsys.readouterr()
@@ -424,6 +433,7 @@ def test_score_invokes_runtime_for_single_variant(
     assert calls["model_dir"] == model_dir
     assert calls["backend"] == "cpu"
     assert calls["window"] == "ACGT"
+    assert calls["window_start_bp"] == 10
 
 
 def test_score_invokes_runtime_for_single_variant_receipt(
@@ -451,10 +461,12 @@ def test_score_invokes_runtime_for_single_variant_receipt(
             variant: object,
             window: str | None = None,
             *,
+            window_start_bp: int = 0,
             receipt_path: Path | None = None,
         ) -> SurpriseResult:
             calls["variant"] = variant
             calls["window"] = window
+            calls["window_start_bp"] = window_start_bp
             calls["receipt_path"] = receipt_path
             return SurpriseResult(
                 sigma_raw=0.25,
