@@ -65,6 +65,7 @@ def test_release_efficiency_report_benchmarks_score_command(tmp_path: Path) -> N
             samples=2,
             warmup_batches=1,
             commit_sha="abcdef1",
+            hardware="NVIDIA H200 release runner",
         ),
         runner=runner,
         memory_probe=memory_probe,
@@ -90,10 +91,12 @@ def test_release_efficiency_report_benchmarks_score_command(tmp_path: Path) -> N
     assert "--vcf" in calls[-1]
     assert "<redacted-inline-window>" in report.command
     assert "--window-start-bp" in report.command
+    assert "--hardware" in report.command
 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["generated_by"] == GENERATED_BY
     assert payload["dataset_snapshot"] == "geno-lewm-data-v0.1.0-r1"
+    assert payload["hardware"] == "NVIDIA H200 release runner"
 
 
 def test_release_efficiency_report_rejects_failed_score_command(tmp_path: Path) -> None:

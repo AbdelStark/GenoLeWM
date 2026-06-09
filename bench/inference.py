@@ -129,6 +129,7 @@ class ReleaseEfficiencyRequest:
     command: str = "geno-lewm-score"
     commit_sha: str | None = None
     dataset_snapshot: str | None = None
+    hardware: str | None = None
     peak_memory_bytes: int | None = None
     allow_fixture_manifest: bool = False
 
@@ -211,7 +212,7 @@ def build_release_efficiency_payload(
         "dataset_snapshot": dataset_snapshot,
         "commit": commit,
         "command": _benchmark_command(request),
-        "hardware": f"{machine_id()} ({platform.platform(terse=True)})",
+        "hardware": request.hardware or f"{machine_id()} ({platform.platform(terse=True)})",
         "runtime": f"Python {platform.python_version()}; backend={request.backend}",
         "warmup_batches": request.warmup_batches,
         "samples": request.samples,
@@ -289,6 +290,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--samples", type=int, default=DEFAULT_RELEASE_SAMPLES)
     parser.add_argument("--commit-sha")
     parser.add_argument("--dataset-snapshot")
+    parser.add_argument(
+        "--hardware",
+        help=(
+            "hardware label to record in release efficiency evidence; defaults to "
+            "the benchmark host identity"
+        ),
+    )
     parser.add_argument("--peak-memory-bytes", type=int)
     parser.add_argument(
         "--allow-fixture-manifest",
@@ -321,6 +329,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             warmup_batches=args.warmup,
             commit_sha=args.commit_sha,
             dataset_snapshot=args.dataset_snapshot,
+            hardware=args.hardware,
             peak_memory_bytes=args.peak_memory_bytes,
             allow_fixture_manifest=args.allow_fixture_manifest,
         )
@@ -421,7 +430,7 @@ def _batch_command(request: ReleaseEfficiencyRequest, output: Path) -> tuple[str
 
 
 def _benchmark_command(request: ReleaseEfficiencyRequest) -> list[str]:
-    return [
+    command = [
         "python",
         "-m",
         "bench.inference",
@@ -449,6 +458,9 @@ def _benchmark_command(request: ReleaseEfficiencyRequest) -> list[str]:
         "--warmup",
         str(request.warmup_batches),
     ]
+    if request.hardware is not None:
+        command.extend(("--hardware", request.hardware))
+    return command
 
 
 def _input_identities(request: ReleaseEfficiencyRequest, manifest: Manifest) -> dict[str, object]:

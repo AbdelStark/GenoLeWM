@@ -165,7 +165,8 @@ log "write v0.2 efficiency report"
     --samples "$EFF_SAMPLES" \
     --warmup "$EFF_WARMUP" \
     --commit-sha "$COMMIT" \
-    --dataset-snapshot "$SNAP"
+    --dataset-snapshot "$SNAP" \
+    --hardware "$HARDWARE"
 )
 
 log "write benchmark suite manifest"
