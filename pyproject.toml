@@ -171,6 +171,7 @@ include = [
     "/desktop/src-tauri/icons",
     "/desktop/src-tauri/src",
     "/desktop/src-tauri/tauri.conf.json",
+    "/spaces",
     "/rfcs",
     "/examples",
     "/README.md",
