@@ -15,6 +15,7 @@ DOCS_INDEX = REPO_ROOT / "docs" / "index.md"
 DOCS_QUICKSTART = REPO_ROOT / "docs" / "quickstart.md"
 DOCS_FAQ = REPO_ROOT / "docs" / "faq.md"
 RELEASE_SIGNING_KEYS = REPO_ROOT / "docs" / "release" / "signing-keys.md"
+HF_MODEL_CARD = REPO_ROOT / "docs" / "release" / "huggingface-model-card.md"
 RELEASE_SPEC = REPO_ROOT / "docs" / "spec" / "09-release-and-versioning.md"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PACKAGE_INIT = REPO_ROOT / "geno_lewm" / "__init__.py"
@@ -81,6 +82,7 @@ def test_public_docs_match_published_package_state() -> None:
         DOCS_INDEX,
         DOCS_FAQ,
         DOCS_QUICKSTART,
+        HF_MODEL_CARD,
         RELEASE_SIGNING_KEYS,
         RELEASE_SPEC,
     )
@@ -102,6 +104,36 @@ def test_public_docs_match_published_package_state() -> None:
     assert "0.2.1 published" in RELEASE_SPEC.read_text(encoding="utf-8")
     for fragment in forbidden:
         assert fragment not in combined
+
+
+def test_huggingface_model_card_is_model_documentation_not_artifact_listing() -> None:
+    text = HF_MODEL_CARD.read_text(encoding="utf-8")
+    required = (
+        "# GenoLeWM checkpoint and evidence bundle",
+        "## Which Checkpoint Should I Use?",
+        "## Scoring Contract",
+        "WindowMismatchError",
+        "## v0.2.1 Benchmark Evidence",
+        "K=20 measured 2.47x against a 5x target",
+        "best_distance=23.656930390534644",
+        "## Troubleshooting",
+        "paper.serious-completion.md",
+        "No clinical utility claim",
+        "not a standard `transformers.AutoModel.from_pretrained()` checkpoint",
+    )
+    forbidden = (
+        "clinically validated",
+        "deployment ready",
+        "provides privacy assurance",
+        "establishes broad superiority",
+        "GenoLeWM broadly outperforms Carbon",
+    )
+
+    for fragment in required:
+        assert fragment in text
+    lower = text.lower()
+    for fragment in forbidden:
+        assert fragment.lower() not in lower
 
 
 def test_context_docs_are_current_and_concise() -> None:
