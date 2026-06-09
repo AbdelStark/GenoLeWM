@@ -405,7 +405,7 @@ def test_public_docs_do_not_claim_unreleased_package_distribution() -> None:
     else:
         assert "python -m pip install geno-lewm" in normalized
         assert "first PyPI release has not been cut yet" not in normalized
-        assert "0.2.1 release target" in RELEASE_SPEC.read_text(encoding="utf-8")
+        assert "0.2.1 published" in RELEASE_SPEC.read_text(encoding="utf-8")
 
 
 def test_faq_keeps_target_numbers_behind_release_evidence() -> None:

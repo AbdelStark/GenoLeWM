@@ -16,7 +16,7 @@ No unreleased changes.
 
 ### Release Summary
 
-- First Python package release target for GenoLeWM's alpha public surface.
+- First Python package release for GenoLeWM's alpha public surface.
 - Publishes the v0.2.1 serious-completion artifact chain: stronger
   post-v0.2 checkpoint lineage, broader benchmark-suite evidence,
   released-artifact planning demo, and generated paper package.
@@ -252,11 +252,15 @@ No unreleased changes.
     plumbing evidence only, not a Carbon-backed model result.
 
 - **PyPI release workflow hardening** (issue #100).
-  - `.github/workflows/release-pypi.yml` is now the trusted-publisher
-    workflow path for tagged releases.
-  - Release artifacts build from the committed `uv.lock`, publish to
-    PyPI via OIDC trusted publishing, and emit GitHub/Sigstore build
-    provenance with `SHA256SUMS` attached to the GitHub release.
+  - `.github/workflows/release-pypi.yml` is the intended
+    trusted-publisher workflow path for tagged releases.
+  - Release artifacts build from the committed `uv.lock`, run the
+    package and source-distribution gates, emit GitHub/Sigstore build
+    provenance, and attach `SHA256SUMS` to the GitHub release.
+  - The `0.2.1` upload exposed an account-side PyPI trusted-publisher
+    configuration gap (`invalid-publisher`), so the validated
+    distributions were published with the maintainer token available to
+    the release runner and the fallback was recorded in #201.
 
 - **Receipt-verification tutorial notebook** (issue #99).
   - `examples/07_verify_receipt.ipynb` verifies a committed
@@ -499,8 +503,9 @@ No unreleased changes.
 
 ### Security
 
-- PyPI Trusted Publishing (OIDC) on the release workflow — no
-  long-lived API tokens are stored in repository secrets.
+- PyPI release workflow configured for Trusted Publishing (OIDC);
+  `0.2.1` was published through a maintainer-token fallback after PyPI
+  rejected the trusted-publisher claim.
 - CodeQL Python analysis on every PR + weekly schedule.
 
 ## [0.1.0-draft] — 2026-05-20

@@ -5,8 +5,10 @@
 #     publishes to PyPI and creates a GitHub release.
 #   - manual dispatch publishes the same locked artifacts to TestPyPI only.
 #
-# Uses PyPI Trusted Publishing (OIDC); no API tokens are stored in repository
-# secrets. The PyPI trusted-publisher claim is bound to this workflow path.
+# Intended to use PyPI Trusted Publishing (OIDC). If the PyPI
+# account-side trusted-publisher mapping is missing, maintainers may
+# publish the validated dist/ files with a scoped token and must record
+# that fallback in the release tracker and notes.
 name: Release PyPI
 
 on:

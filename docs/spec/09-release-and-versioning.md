@@ -151,10 +151,12 @@ trusted only after their hashes match the fetched manifest.
 6. Open a release PR. Require sign-off from a non-author maintainer.
 7. Merge to `main`. Tag `v<X>.<Y>.<Z>`.
 8. CI builds the PyPI artifacts from `uv.lock`, publishes them through
-   `.github/workflows/release-pypi.yml` via trusted publishing, and
-   emits GitHub/Sigstore build provenance. The source distribution must
-   include the release-critical repo assets used by documented release
-   gates: `bench/`, `configs/first_experiment/`, `tools/`, `docs/`,
+   `.github/workflows/release-pypi.yml` via trusted publishing when the
+   PyPI account-side publisher mapping is configured, and emits
+   GitHub/Sigstore build provenance. If PyPI rejects the trusted
+   publisher claim, a scoped maintainer-token fallback is allowed only
+   when it is recorded in the release tracker and public notes. The source distribution must include the release-critical repo assets
+   used by documented release gates: `bench/`, `configs/first_experiment/`, `tools/`, `docs/`,
    `rfcs/`, `examples/`, README, ROADMAP, and AGENTS.
 9. Publish CHANGELOG to the release notes.
 10. For paper/demo releases: validate the checked first-experiment
@@ -607,7 +609,7 @@ Revocation-list mechanism is an [open question](#open-questions).
 
 | Channel | Status | Use |
 |---------|--------|-----|
-| PyPI | 0.2.1 release target | package wheels and sdists through trusted publishing |
+| PyPI | 0.2.1 published | package wheels and sdists through trusted publishing or recorded maintainer-token fallback |
 | HuggingFace Hub | v0.1 published | model checkpoints and dataset artifacts |
 | GitHub releases | v0.1 published | terminal-demo, paper, and publication-evidence assets |
 | Homebrew | Planned | post v1 |
