@@ -2,15 +2,9 @@
 
 **Action-conditioned latent world models for genomic edits.**
 
-[![CI](https://img.shields.io/github/actions/workflow/status/AbdelStark/GenoLeWM/ci.yml?branch=main&label=ci&style=for-the-badge)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml)
-[![CodeQL](https://img.shields.io/github/actions/workflow/status/AbdelStark/GenoLeWM/codeql.yml?branch=main&label=codeql&style=for-the-badge)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/codeql.yml)
-[![Docs](https://img.shields.io/github/actions/workflow/status/AbdelStark/GenoLeWM/docs.yml?branch=main&label=docs&style=for-the-badge)](https://abdelstark.github.io/GenoLeWM/)
-[![Hugging Face Space](https://img.shields.io/badge/hugging%20face-space-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co/spaces/abdelstark/geno-lewm)
-[![Checkpoint](https://img.shields.io/badge/checkpoint-published-FF9D00?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co/abdelstark/geno-lewm)
-[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](pyproject.toml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-2f6f9f?style=for-the-badge)](LICENSE)
-[![Typed](https://img.shields.io/badge/typed-mypy--strict-2f6f9f?style=for-the-badge)](https://mypy.readthedocs.io/)
-[![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
+[![CI](https://img.shields.io/github/actions/workflow/status/AbdelStark/GenoLeWM/ci.yml?branch=main&label=ci&style=for-the-badge)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/ci.yml) [![CodeQL](https://img.shields.io/github/actions/workflow/status/AbdelStark/GenoLeWM/codeql.yml?branch=main&label=codeql&style=for-the-badge)](https://github.com/AbdelStark/GenoLeWM/actions/workflows/codeql.yml) [![Docs](https://img.shields.io/github/actions/workflow/status/AbdelStark/GenoLeWM/docs.yml?branch=main&label=docs&style=for-the-badge)](https://abdelstark.github.io/GenoLeWM/)
+[![Hugging Face Space](https://img.shields.io/badge/hugging%20face-space-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co/spaces/abdelstark/geno-lewm) [![Checkpoint](https://img.shields.io/badge/checkpoint-published-FF9D00?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co/abdelstark/geno-lewm)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](pyproject.toml) [![License](https://img.shields.io/badge/license-Apache--2.0-2f6f9f?style=for-the-badge)](LICENSE) [![Typed](https://img.shields.io/badge/typed-mypy--strict-2f6f9f?style=for-the-badge)](https://mypy.readthedocs.io/) [![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
 
 GenoLeWM models a genomic edit as an action in a latent state space.
 A frozen DNA encoder maps a reference sequence window to `s_t`; a
