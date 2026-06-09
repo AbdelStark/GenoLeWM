@@ -413,6 +413,33 @@ def test_main_writes_plan_report(tmp_path: Path) -> None:
     assert json.loads(output.read_text(encoding="utf-8"))["status"] == "planned"
 
 
+def test_main_prints_failed_step_diagnostics(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest = _write_manifest(tmp_path)
+    output = tmp_path / "suite_report.json"
+    stale_output = tmp_path / "eval" / "clinvar_coding.scores.jsonl"
+    stale_output.mkdir(parents=True)
+
+    rc = v02_benchmark_suite.main(
+        [
+            "--manifest",
+            str(manifest),
+            "--output-report",
+            str(output),
+            "--execute",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert "failed step: clinvar_coding.score" in captured.err
+    assert "declared output eval/clinvar_coding.scores.jsonl exists but is not a file" in (
+        captured.err
+    )
+
+
 def _write_manifest(tmp_path: Path) -> Path:
     path = tmp_path / "suite.json"
     path.write_text(json.dumps(_manifest_payload()), encoding="utf-8")

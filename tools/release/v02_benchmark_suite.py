@@ -239,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
         return exit_code_for(exc)
     sys.stdout.write(f"wrote {args.output_report}\n")
     if args.execute and not bool(report["ok"]):
+        for line in _failed_step_diagnostics(report):
+            sys.stderr.write(line + "\n")
         return 1
     return 0
 
@@ -816,6 +818,37 @@ def _negative_findings(*, execute: bool, failed: bool) -> list[str]:
     return [
         "No suite-runner failures were observed; measured claims still depend on downstream artifact validators.",
     ]
+
+
+def _failed_step_diagnostics(report: dict[str, object]) -> tuple[str, ...]:
+    """Return compact stderr lines for failed suite executions."""
+    raw_steps = report.get("steps")
+    if not isinstance(raw_steps, list):
+        return ()
+    lines: list[str] = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict) or raw_step.get("status") != "failed":
+            continue
+        step_id = raw_step.get("id", "<unknown>")
+        kind = raw_step.get("kind", "<unknown>")
+        exit_code = raw_step.get("exit_code")
+        if exit_code is None:
+            lines.append(f"failed step: {step_id} ({kind})")
+        else:
+            lines.append(f"failed step: {step_id} ({kind}) exit_code={exit_code}")
+        output_findings = raw_step.get("output_findings")
+        if isinstance(output_findings, list) and output_findings:
+            lines.extend(f"output finding: {finding}" for finding in output_findings[:5])
+        stderr_tail = raw_step.get("stderr_tail")
+        if isinstance(stderr_tail, str) and stderr_tail.strip():
+            lines.append("stderr tail:")
+            lines.append(stderr_tail.strip())
+        stdout_tail = raw_step.get("stdout_tail")
+        if isinstance(stdout_tail, str) and stdout_tail.strip():
+            lines.append("stdout tail:")
+            lines.append(stdout_tail.strip())
+        break
+    return tuple(lines)
 
 
 def _utc_now() -> str:
