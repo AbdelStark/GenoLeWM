@@ -497,9 +497,13 @@ the readiness report can bind both generation stages.
   reporting;
 - add regression/benchmark gates for finite loss, collapse health,
   eval-artifact integrity, and rollout performance;
-- use the implemented `geno-lewm-plan` alpha CLI for CEM planning smoke
-  runs, and reserve released-artifact planning/showcase claims for runs
-  backed by measured predictor and eval evidence.
+- keep the June 9 #204 planning-demo artifact public:
+  <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1/planning-demo>.
+  It ran `geno-lewm-plan` in `manifest_runtime` mode from packaged
+  v0.2.1 model artifacts, recorded `best_distance=23.656930390534644`
+  over 384 evaluations, and stopped on patience. Treat it as
+  released-artifact execution evidence with negative findings, not proof
+  of useful planning behavior.
 
 ---
 
@@ -966,7 +970,8 @@ v0.1 proof release toward v0.2 benchmark and rollout readiness:
 - trainer/evaluator paths that produce better publishable artifacts
   without weakening the v0.1 evidence contract;
 - AR rollout speed work and benchmark gates for the RFC-0004 target;
-- planning showcase work backed by measured predictor and eval evidence;
+- planning follow-up work that improves on the June 9 #204 measured
+  planning-demo result without weakening its negative findings;
 - Documentation that keeps claims aligned with measured behavior.
 
 Personal-genome reproducers are not accepted. Use synthetic data or

@@ -678,8 +678,10 @@ After the first paper/demo release, the v0.2 workstreams are:
 - multi-edit rollout;
 - calibrated surprise-score validation beyond the v0.1 artifact;
 - planning with CEM; the pure solver core and `geno-lewm-plan` alpha CLI
-  exist, while released-artifact showcase evidence and performance
-  acceptance remain open;
+  exist, and the June 9 #204 released-artifact planning demo recorded a
+  weak `manifest_runtime` run (`best_distance=23.656930390534644`, 384
+  evaluations, patience stop). Stronger useful-planning behavior and
+  performance acceptance remain open;
 - ONNX/Core ML export and local desktop workflow;
 - larger Carbon checkpoints and LoRA adaptation.
 
