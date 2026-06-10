@@ -309,27 +309,3 @@ uv run python -m tools.release.check_sdist_assets dist/*.tar.gz
 
 CI runs the same core contracts plus fixture-backed eval and ML smoke
 jobs. Fixture outputs are test evidence, not model results.
-
-## Limitations
-
-- Current measured benchmarks are mixed or negative relative to Carbon.
-- The K=20 AR rollout speed target remains open.
-- The released planning demo exercises the model path but does not show
-  useful planning behavior.
-- No clinical utility claim; the public model evidence is not clinical
-  evidence.
-- Personal-genome workflows are local-first, but local execution is not
-  the same thing as a privacy assurance.
-- Checksum receipts prove artifact and output identity; they do not
-  certify runtime behavior.
-
-## Documentation And Citation
-
-Docs: <https://abdelstark.github.io/GenoLeWM/>. Specification:
-[SPEC.md](SPEC.md). Architecture: [ARCHITECTURE.md](ARCHITECTURE.md).
-Roadmap: [ROADMAP.md](ROADMAP.md). Security and privacy:
-[SECURITY.md](SECURITY.md), [PRIVACY.md](PRIVACY.md). License:
-[Apache-2.0](LICENSE). Cite artifact URLs and hashes from the relevant
-release package; the v0.2.1 generated paper is the current
-manuscript-style reference:
-<https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md>.
