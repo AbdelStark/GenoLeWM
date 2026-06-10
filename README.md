@@ -309,3 +309,16 @@ uv run python -m tools.release.check_sdist_assets dist/*.tar.gz
 
 CI runs the same core contracts plus fixture-backed eval and ML smoke
 jobs. Fixture outputs are test evidence, not model results.
+
+## Limitations
+
+- Current measured benchmarks are mixed or negative relative to Carbon.
+- The K=20 AR rollout speed target remains open.
+- The released planning demo exercises the model path but does not show
+  useful planning behavior.
+- No clinical utility claim; the public model evidence is not clinical
+  evidence.
+- Personal-genome workflows are local-first, but local execution is not
+  the same thing as a privacy assurance.
+- Checksum receipts prove artifact and output identity; they do not
+  certify runtime behavior.
