@@ -1,0 +1,11 @@
+# tectonic / LaTeX build intermediates
+main.aux
+main.bbl
+main.blg
+main.log
+main.out
+*.synctex.gz
+
+# toolchain scratch tests (not part of the deliverable)
+_toolcheck.*
+figures/_*_test.*

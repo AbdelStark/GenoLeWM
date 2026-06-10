@@ -1,0 +1,122 @@
+% ======================================================================
+% tables.tex  --  all result tables for the GenoLeWM paper.
+% Every value is from the published v0.2.1-r1 readiness report / README.
+% Carbon columns are recovered as (GenoLeWM value) - (reported delta).
+% ======================================================================
+
+% ----------------------------------------------------------------------
+% Table 1: variant-effect prediction vs Carbon zero-shot
+% ----------------------------------------------------------------------
+\newcommand{\tabVEP}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Variant-effect prediction (v0.2.1-r1).} Binary ClinVar slices report
+  accuracy / AUROC / average precision (AP) / balanced accuracy; BRCA2 saturation and TraitGym
+  Mendelian report Spearman $\rho$ against continuous functional/causal labels. The baseline is the
+  same frozen Carbon-500M encoder scored zero-shot. $\Delta$ is GenoLeWM~$-$~Carbon (positive favours
+  GenoLeWM). Bold marks the better value per row. GenoLeWM shows a positive delta only on coding-ClinVar
+  accuracy/balanced accuracy ($+0.0625{=}1/16$, within quantization) and a TraitGym tie near zero; it
+  trails on every pathogenicity-bearing ranking metric.}
+  \label{tab:vep}
+  \small
+  \begin{tabular}{llrrr}
+    \toprule
+    Benchmark & Metric & GenoLeWM & Carbon 0-shot & $\Delta$ \\
+    \midrule
+    \multirow{4}{*}{ClinVar coding}
+      & Accuracy \up           & \textbf{0.7500} & 0.6875 & $+0.0625$ \\
+      & AUROC \up              & 0.7344 & \textbf{0.9219} & $-0.1875$ \\
+      & AP \up                 & 0.8530 & \textbf{0.9519} & $-0.0989$ \\
+      & Balanced acc.\ \up     & \textbf{0.7500} & 0.6875 & $+0.0625$ \\
+    \midrule
+    \multirow{4}{*}{ClinVar non-coding}
+      & Accuracy \up           & 0.4375 & \textbf{0.6875} & $-0.2500$ \\
+      & AUROC \up              & 0.5625 & \textbf{0.8750} & $-0.3125$ \\
+      & AP \up                 & 0.6055 & \textbf{0.9144} & $-0.3090$ \\
+      & Balanced acc.\ \up     & 0.4375 & \textbf{0.6875} & $-0.2500$ \\
+    \midrule
+    BRCA2 saturation   & Spearman $\rho$ \up & 0.1492 & \textbf{0.4769} & $-0.3277$ \\
+    TraitGym Mendelian & Spearman $\rho$ \up & \textbf{$-0.0280$} & $-0.0839$ & $+0.0559$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 2: latent rollout fidelity vs source-state baseline
+% ----------------------------------------------------------------------
+\newcommand{\tabRollout}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Latent rollout fidelity (v0.2.1-r1).} Mean cosine similarity (\up) and mean $L_2$
+  distance (\dn) between the predicted final state $\shat$ and the true encoded state $\stp$, over
+  two multi-edit settings. The baseline predicts no change ($\shat{=}\st$). The do-nothing baseline
+  dominates on both fidelity metrics, and Recall@4 is saturated at $1.0$ for \emph{both} the model and
+  the baseline, so it does not discriminate. This is the latent-residual baseline trap
+  (\cref{fig:rollout}).}
+  \label{tab:rollout}
+  \small
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    & \multicolumn{3}{c}{Cosine to $\stp$ \up} & \multicolumn{3}{c}{$L_2$ to $\stp$ \dn} \\
+    \cmidrule(lr){2-4}\cmidrule(lr){5-7}
+    Setting & GenoLeWM & Source-state & $\Delta$ & GenoLeWM & Source-state & $\Delta$ \\
+    \midrule
+    Phased haplotypes      & 0.2889 & \textbf{0.9978} & $-0.7090$ & 33.32 & \textbf{2.13} & $+31.19$ \\
+    Synthetic edit chains  & 0.3016 & \textbf{0.9912} & $-0.6896$ & 28.80 & \textbf{3.17} & $+25.64$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 3: inference efficiency + AR rollout speed
+% ----------------------------------------------------------------------
+\newcommand{\tabEfficiency}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Measured efficiency (v0.2.1-r1, single NVIDIA H200).} The released
+  single-variant score path is dominated by two frozen Carbon-500M forward passes under a cold cache
+  and process start, so per-variant latency is $\approx$115\,s --- the architectural amortization thesis
+  (\cref{fig:architecture}) is \emph{not} exercised by this naive path (\S\ref{sec:efficiency}). The
+  KV-cached autoregressive rollout speedup is the only place latent-only cheapness appears, and it
+  remains below the $5\times$ target at $K{=}20$.}
+  \label{tab:efficiency}
+  \small
+  \begin{tabular}{lr}
+    \toprule
+    Quantity & Value \\
+    \midrule
+    Single-variant latency (cold, 2 Carbon passes) & $115{,}262.94$ ms ($\approx$115\,s) \\
+    Batched throughput                             & $0.3095$ variants/s \\
+    Peak memory                                    & $1{,}966{,}149{,}632$ B ($\approx$1.83\,GiB) \\
+    \midrule
+    AR rollout speedup, $K{=}5$  & $2.41\times$ \;(local $2\times$ target met) \\
+    AR rollout speedup, $K{=}20$ & $2.47\times$ \;(RFC-0004 $5\times$ target \emph{not} met, \#42 open) \\
+    \bottomrule
+  \end{tabular}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 4: artifact identity / reproducibility commitments
+% ----------------------------------------------------------------------
+\newcommand{\tabArtifacts}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Content-addressed artifact identity for the evaluated release.} Every reported
+  number is bound to these identities through checksum receipts; the benchmark suite re-renders its
+  report (and this manuscript's machine-generated companion) from the artifacts and rejects stale text
+  or mutated evidence (\S\ref{sec:reproducibility}). All 28 suite outputs verified.}
+  \label{tab:artifacts}
+  \small
+  \begin{tabular}{ll}
+    \toprule
+    Field & Value \\
+    \midrule
+    Model release    & \texttt{geno-lewm-v0.2.1-r1} \\
+    Model id         & \texttt{sha256:cddb8f3b9671\ldots f5f3ed6af4} \\
+    Dataset snapshot & \texttt{geno-lewm-data-v0.2.1-r1} \\
+    Commit           & \texttt{d9b06815cf8e\ldots5aa4154d} \\
+    Hardware         & NVIDIA H200 (Linux x86\_64, glibc 2.35) \\
+    Suite outputs    & 28 / 28 verified (\texttt{release\_inputs}: pass) \\
+    \bottomrule
+  \end{tabular}
+\end{table}}

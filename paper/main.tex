@@ -1,0 +1,342 @@
+\documentclass{article}
+
+% ======================================================================
+% GenoLeWM paper -- preprint (NeurIPS 2025 style, preprint mode)
+% Build:  tectonic main.tex
+% ======================================================================
+\usepackage[preprint,nonatbib]{neurips}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.symbols,patterns}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{url}
+\usepackage[colorlinks=true,allcolors=blue!55!black,breaklinks=true]{hyperref}
+\usepackage{cleveref}
+\usepackage{enumitem}
+\usepackage{xspace}
+
+\newcommand{\up}{$\uparrow$\xspace}
+\newcommand{\dn}{$\downarrow$\xspace}
+
+% --- canonical notation (notation contract) ---
+\newcommand{\Real}{\mathbb{R}}
+\newcommand{\enc}{\mathrm{enc}}
+\newcommand{\st}{s_t}
+\newcommand{\stp}{s_{t+1}}
+\newcommand{\shat}{\hat s_{t+1}}
+\newcommand{\aemb}{a_{\mathrm{emb}}}
+\newcommand{\gpred}{g}
+\newcommand{\Lpred}{\mathcal{L}_{\mathrm{pred}}}
+\newcommand{\Lreg}{\mathcal{L}_{\mathrm{reg}}}
+\newcommand{\wref}{w_{\mathrm{ref}}}
+\newcommand{\walt}{w_{\mathrm{alt}}}
+\newcommand{\carbon}{Carbon-500M\xspace}
+\newcommand{\method}{GenoLeWM\xspace}
+\newcommand{\eg}{e.g.,\xspace}
+\newcommand{\ie}{i.e.,\xspace}
+
+\input{figures.tex}
+\input{tables.tex}
+
+\title{GenoLeWM: An Action-Conditioned Latent World Model for Genomic Edits ---\\
+A Reproducible Pipeline and an Honest Negative Result}
+
+\author{%
+  Abdelhamid Bakhta\\
+  \texttt{abdelhamid.bakhta@gmail.com}\\
+  \url{https://github.com/AbdelStark/GenoLeWM}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+A DNA foundation model scores a sequence, but it does not predict the \emph{consequence of an explicit edit}: whether a learned latent transition operator can predict a post-edit embedding cheaply enough to support variant scoring, multi-edit rollout, and edit planning is an open question. We present \method, an action-conditioned Joint-Embedding Predictive Architecture that freezes \carbon as a state encoder and trains a small cross-attention predictor $\shat=\gpred(\st,a)$ to map a reference-window embedding and a discrete genomic edit action to the edited-window embedding, equipped with an unsupervised surprise score, a cross-entropy-method (CEM) latent planner, and a fully content-addressed train$\to$eval$\to$benchmark$\to$replay pipeline. On the released \texttt{v0.2.1-r1} checkpoint, the predictor's multi-edit rollout reaches a cosine similarity of only $0.289$ to the true post-edit state---$0.709$ \emph{below} a trivial ``predict-no-change'' baseline of ${\approx}\,0.998$---and trails \carbon zero-shot AUROC by $-0.1875$ on ClinVar coding and $-0.3125$ on ClinVar non-coding. We argue this is not noise but a \emph{structural} latent-residual trap: a single edit barely moves a frozen $1024$-dimensional embedding, so the identity map is already a strong baseline, and the frozen encoder was never shaped to expose edit directions. The evaluation slices ($N{=}16$ per ClinVar slice) cannot distinguish near-parity from chance, and the very freezing that delivers the ``pay-Carbon-once'' efficiency thesis is what removes the encoder's ability to become edit-predictable. Our contribution is therefore a reproducible, checksum-receipted systems artifact and a sharp, falsifiable diagnosis---not a model that beats its encoder---together with a twelve-direction program for testing whether edit-conditioned latent world modeling is learnable at all against a near-frozen genomic encoder.
+\end{abstract}
+
+% ======================================================================
+\section{Introduction}
+\label{sec:intro}
+
+DNA foundation models~\citep{dnabert2021,hyenadna2023,nucleotidetransformer2025,caduceus2024,evo2024} answer a representational question: \emph{what is the embedding, or the likelihood, of this sequence?} A different and largely unanswered question is \emph{interventional}: given a reference genomic window and an explicit edit---a single-nucleotide variant, an insertion, a deletion---can a model predict the \emph{consequence} of that edit directly in representation space, cheaply enough to score variants, roll out multi-edit haplotypes, and plan edit sets? An affirmative answer would turn a static genomic encoder into an action-conditioned \emph{world model}~\citep{worldmodels2018,dreamerv3} whose actions are discrete genomic edits.
+
+\method tests this question in its most economical form. We freeze a pretrained DNA encoder, \carbon~\citep{carbon500m}, and train only a small predictor: a reference window $\wref$ is encoded once to a state $\st=\enc(\wref)\in\Real^{1024}$, an edit action $a$ is embedded by a lightweight action encoder, and a cross-attention predictor estimates the post-edit state $\shat=\gpred(\st,a)$, supervised against the frozen encoding $\stp=\enc(\walt)$ of the edited window (\cref{fig:architecture}). Once $\shat$ is available, three downstream operations---surprise scoring, autoregressive rollout, and CEM planning---run entirely in latent space and never re-invoke the encoder. This is the ``pay-Carbon-once'' design: amortize one expensive encode across many cheap latent queries.
+
+\paragraph{The headline is negative, and we lead with it.} \method does \emph{not} broadly beat the encoder it is built on. On the released \texttt{v0.2.1-r1} benchmark, the predictor trails \carbon zero-shot AUROC by $-0.1875$ (ClinVar coding) and $-0.3125$ (ClinVar non-coding), and its multi-edit rollout attains cosine ${\approx}\,0.29$ to the true post-edit state---roughly $0.70$ \emph{below} a trivial baseline that predicts no change at all (\cref{fig:rollout}). We treat this not as a result to bury but as the paper's empirical core, because the mechanism behind it is informative: it is a \emph{latent-residual baseline trap} that we believe is structural to the frozen-encoder regime, not a tuning failure. The same evidence package is content-addressed end to end: every number is bound to a model identity, a dataset snapshot, a commit, and a hardware string through checksum receipts, and the release toolchain re-renders its own report from those artifacts and refuses to pass unless the negative findings are present in them.
+
+\paragraph{Contributions.} This paper makes four contributions.
+\begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
+\item \textbf{A frozen-encoder, action-conditioned latent world model for genomic edits} (\cref{sec:method}): a discrete-edit action encoder and a cross-attention residual predictor over a frozen \carbon state, with surprise scoring, KV-cached autoregressive rollout, and a CEM latent planner.
+\item \textbf{A content-addressed train$\to$eval$\to$benchmark$\to$replay pipeline} (\cref{sec:systems}) in which a SHA-256-over-canonical-JSON scheme binds every artifact and output, and a verifier re-renders the release report and \emph{structurally requires} the negative findings to be real before it will pass.
+\item \textbf{A rigorous negative result} (\cref{sec:experiments}) measured against two \emph{a priori} naive baselines---\carbon zero-shot likelihood for variant effect, and a source-state ``no-change'' predictor for rollout fidelity---reported with their (small) sample sizes and quantization.
+\item \textbf{A mechanistic diagnosis and research program} (\cref{sec:discussion,sec:future}): we attribute the negative result to a latent-residual trap compounded by frozen-encoder geometry and under-powered evaluation, and lay out twelve falsifiable directions to test whether edit-conditioned latent prediction is learnable against a near-frozen encoder.
+\end{enumerate}
+
+\paragraph{What we do \emph{not} claim.} \method is not a clinical, diagnostic, or decision-support tool; its outputs are research signals. We do not claim statistical significance for the single positive variant-effect delta we observe, a privacy or runtime-execution guarantee (the receipts certify \emph{identity}, not correct execution), useful planning behavior, or that the efficiency thesis is demonstrated by our measurements. We make these boundaries precise throughout and collect them in \cref{sec:limitations}.
+
+\figArchitecture
+
+% ======================================================================
+\section{Related Work}
+\label{sec:related}
+
+\method sits at the intersection of four research programs. DNA foundation models supply the encoder; variant-effect prediction supplies the evaluation and the foil; joint-embedding predictive architectures supply the objective and its principal failure mode; and latent world models supply the action-conditioned framing and the planning interface. The negative result is most legible against all four.
+
+\paragraph{DNA and genomic foundation models: encoders, not edit predictors.}
+A first wave ported masked- and causal-language modeling to nucleotides: DNABERT~\citep{dnabert2021}, the multi-species Nucleotide Transformer~\citep{nucleotidetransformer2025}, the long-context HyenaDNA~\citep{hyenadna2023}, the reverse-complement-equivariant state-space model Caduceus~\citep{caduceus2024}, and the genome-scale generative models Evo and Evo~2~\citep{evo2024,evo2_2025}. Their unifying property is that they output a \emph{representation} or a \emph{likelihood}; where they predict, they predict tokens, not the consequence of an intervention. \carbon~\citep{carbon500m} is the instance \method builds on---a permissively licensed, consumer-hardware-runnable decoder-only DNA model. We use it strictly as a \emph{frozen} state encoder: pay once per reference window, never fine-tune in Phase~1. The distinction we draw is sharp: these models answer ``what is the representation of this sequence?''; \method trains a small head to answer ``given the frozen representation of a reference window and an explicit edit action, what is the representation of the edited window?''---an edit-conditioned latent transition operator, with the edit as a \emph{conditioning input} rather than a masked perturbation of the target.
+
+\paragraph{Variant-effect prediction and its resources---and the precise sense in which we are not a clinical predictor.}
+Our evaluation adopts the standard ecosystem: ClinVar clinical interpretations~\citep{clinvar2014}, gnomAD population frequencies~\citep{gnomad2020} (which we repurpose as a per-context null model for surprise calibration), the TraitGym causal-regulatory benchmark~\citep{traitgym2025}, a BRCA2 saturation genome-editing functional assay, and AlphaMissense~\citep{alphamissense2023} as the high end of supervised missense prediction. \method is not a clinical predictor, and the sense is precise along four axes. First, it is \emph{label-free by construction}: surprise is an unsupervised by-product of predictor residual error, and no pathogenicity label enters training. Second, every output is a \emph{signal, not a decision}, and we disclaim clinical use. Third, our baseline is the \emph{encoder itself}---\carbon zero-shot likelihood---because the scientific question is narrow and internal: does action-conditioning add evidence over the encoder it sits on? It is not ``does \method beat AlphaMissense?'', and conflating the two would be the central overclaim to avoid. Fourth, the honest finding is that \method does not, yet, even beat \carbon; so ``not a clinical predictor'' is an accurate scope description rather than modesty. We adopt the field's benchmarks for comparability while declining the field's claims.
+
+\paragraph{JEPAs and anti-collapse SSL: the objective, and why freezing sidesteps collapse but springs a different trap.}
+The objective lineage is the Joint-Embedding Predictive Architecture. I-JEPA~\citep{jepa2023} established that predicting in representation space, rather than reconstructing pixels, yields strong features; the genomic analogue is direct, since \method predicts \carbon-encoded window embeddings rather than nucleotides. The defining hazard of any predict-in-latent objective is \emph{representation collapse}, and the SSL literature offers a menu of defenses---stop-gradient/EMA targets, variance-covariance regularizers, contrastive negatives, and distribution matching. The most recent of these, LeJEPA~\citep{lejepa2025}, replaces heuristics with an isotropic-Gaussian regularizer (via sketched normality testing), and \method inherits its \emph{form}: a Phase-2 closed-form KL between the batch-empirical Gaussian and $\mathcal{N}(0,I)$. The pivot is that \emph{in Phase~1 the encoder is frozen}. Frozen targets cannot be driven to a constant, so collapse is mechanically impossible and the Gaussian regularizer is monitored rather than trained. This is a legitimate simplification---but its price is the latent-residual baseline trap (\cref{sec:discussion}): with a fixed pretrained target manifold on which a single edit moves the embedding only slightly, the trivial predictor $\shat:=\st$ becomes a \emph{strong} baseline, not because it is good but because the quantity to be predicted is small relative to embedding scale. Methods that train the encoder jointly never face this fully; by freezing \carbon, \method forgoes that adaptation. This is exactly why we designed the rollout evaluation, \emph{a priori}, with a naive source-state baseline.
+
+\paragraph{Latent world models and planning: a world model whose action is a discrete genomic edit.}
+The architectural lineage runs from Ha and Schmidhuber's World Models~\citep{worldmodels2018} through the Dreamer family~\citep{dreamerv3} to sampling-based latent model-predictive control. \method's planner is the cross-entropy method in latent space with MPC replanning, the same family as PETS~\citep{pets2018}. The distinctive move is the \emph{type of action}: in all of the above the action is a continuous control vector, whereas in \method the action is a discrete genomic edit $(\text{position},\text{type},\text{ref},\text{alt})$ over $\{$SNV, INS, DEL, MNV, INDEL$\}$, so planning is combinatorial search over a discrete edit space, scored by latent distance after predictor rollout. Honestly read, \method satisfies the \emph{architectural} definition of a world model (it predicts the next latent state given an action and exposes a planner) without yet the \emph{behavioral} one: our planning demonstration records execution, not useful planning. Dreamer and MPC methods earn the title through demonstrated control; we concede we have earned it structurally but not empirically.
+
+\Cref{tab:related} summarizes the positioning.
+
+\begin{table}[t]
+  \centering
+  \caption{Where \method sits. The load-bearing choice is freezing the encoder (collapse-immune by construction, but residual-trap-prone) with a \emph{discrete genomic edit} as the action.}
+  \label{tab:related}
+  \small
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lcccl}
+    \toprule
+    Method family & Learns encoder? & Anti-collapse & Action & Planning \\
+    \midrule
+    DNA FMs~\citep{dnabert2021,hyenadna2023,nucleotidetransformer2025,evo2024} & yes (pretrain) & n/a & none & none \\
+    Supervised VEP~\citep{alphamissense2023} & task-tuned & n/a & none & none \\
+    JEPA / LeJEPA~\citep{jepa2023,lejepa2025} & \textbf{yes, jointly} & EMA / Gaussian reg. & --- & none \\
+    Latent world models~\citep{worldmodels2018,dreamerv3,pets2018} & yes & recon./reward & continuous & imagination / MPC \\
+    \textbf{\method (this work)} & \textbf{no (frozen)} & n/a (frozen) & \textbf{discrete edit} & CEM / MPC \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+% ======================================================================
+\section{Method}
+\label{sec:method}
+
+\method has three trained-or-frozen components---a frozen state encoder, a trainable action encoder, and a trainable predictor---and three latent-space operations that reuse them: surprise scoring, rollout, and planning. We describe the released \texttt{v0.2.1-r1} configuration; where the running configuration diverges from the design RFCs on a load-bearing hyperparameter, we report the \emph{released} value and tabulate the divergence in \cref{tab:reconcile}.
+
+\subsection{State encoder (frozen)}
+The encoder is \carbon, a $500$M-parameter decoder-only DNA language model (LLaMA-style, hidden size $1024$), loaded at a pinned revision in \texttt{bf16} and never updated in Phase~1. A reference window of $12{,}288$\,bp ($=2{,}048$ six-mer tokens), wrapped in \carbon's custom tokenizer markers, is passed through the model; we take hidden states at layer $L{=}20$ and pool them by a \emph{centered mean} over a $\pm 8$-token window ($\pm 48$\,bp) around the edit locus, then $L_2$-normalize:
+\begin{equation}
+\st \;=\; \frac{1}{\lVert\cdot\rVert_2}\,\mathrm{mean}\!\Big(H_L\big[c-r:\,c+r+1\big]\Big),\qquad c=\lfloor \text{locus}/6\rfloor,\;\; r=8,\;\; H_L\in\Real^{2048\times 1024},
+\end{equation}
+giving $\st\in\Real^{1024}$. Reference-window embeddings are cached in content-addressed Parquet shards indexed by a SQLite index keyed on the window hash, encoder hash, layer, pool type, pool radius, and dtype; edited windows are encoded on demand. The $\pm 48$\,bp pooling radius is far tighter than the RFC's $\pm 1536$\,bp default and is a deliberate locality choice; we flag it because it determines how much sequence context the state actually summarizes.
+
+\subsection{Action encoder (trainable)}
+An edit is represented as an \texttt{EditSpec} (absolute VCF coordinates $\text{chrom},\text{pos},\text{ref},\text{alt}$) or its window-relative form \texttt{RelEdit}, with edit type derived from the $(\text{ref},\text{alt})$ lengths into $\{$SNV, INS, DEL, MNV, INDEL$\}$ and a $16$\,bp cap on either allele. The action encoder maps an edit to $\aemb\in\Real^{64}$ through four sub-encoders---a base-pair-resolution sinusoidal position embedding ($\Real^{128}$), a learned type embedding ($\Real^{64}$), and a \emph{shared} small Transformer (``SeqMicroEncoder'') applied to the reference and alternate alleles ($\Real^{256}$ each)---concatenated to $\Real^{704}$ and projected by a two-layer MLP with GELU and LayerNorm. The sinusoidal schedule uses the window length as its frequency base rather than the conventional $10{,}000$.
+
+\subsection{Predictor (trainable, residual)}
+The predictor $\gpred$ is a cross-attention Transformer over the token sequence $[\st\,;a_1\,;\dots;a_K]$, alternating state$\leftrightarrow$action cross-attention blocks (six, in the released config) with self-attention blocks (two), hidden dimension $768$, eight heads, GELU, pre-LayerNorm, learned token-type and step-position embeddings, and a causal mask so each action attends to the state and to earlier actions. Crucially, the read-out is \emph{residual} and $L_2$-normalized, with the final MLP layer zero-initialized so that the predictor is the identity at initialization:
+\begin{equation}
+\label{eq:residual}
+\shat \;=\; \frac{\st + \mathrm{MLP}\!\big(\gpred(\st,\aemb)\big)}{\big\lVert \st + \mathrm{MLP}\!\big(\gpred(\st,\aemb)\big)\big\rVert_2}.
+\end{equation}
+\Cref{eq:residual} is central to the paper: \emph{at initialization, $\shat=\st$ is exactly the ``predict-no-change'' baseline}, and training must move the prediction away from it by learning the small residual $\Delta=\stp-\st$. An autoregressive wrapper (\texttt{ARPredictor}) unrolls the predictor step by step with KV-caching for multi-edit rollout and planning, upcasting the output MLP to \texttt{fp32} beyond horizon $20$.
+
+\subsection{Training objective (Phase~1, frozen encoder)}
+With the encoder frozen, only the prediction loss is trained:
+\begin{equation}
+\label{eq:loss}
+\Lpred(\shat,\stp) \;=\; \alpha\,\big(1-\cos(\shat,\stp)\big)\;+\;\beta\,\frac{\lVert \shat-\stp\rVert_2^2}{d},\qquad \alpha{=}1.0,\;\beta{=}0.1,\;d{=}1024,
+\end{equation}
+averaged uniformly over rollout steps with a mask. The LeJEPA isotropic-Gaussian regularizer $\Lreg=\tfrac12(\lVert\mu\rVert^2+\mathrm{tr}\,\Sigma-\log\det(\Sigma+\epsilon I)-d)$ is computed for \emph{monitoring only} in Phase~1---because a frozen target cannot collapse---and becomes an active term ($\gamma{=}0.5$) only when the encoder is LoRA-adapted in a future Phase~2. We optimize with AdamW ($\beta_2{=}0.95$, weight decay $0.1$, gradient clip $1.0$) under a warmup-stable-decay schedule, and log seven collapse diagnostics (predicted variance per dimension, pairwise predicted distance, predicted-target correlation, the monitored KL, \emph{etc.}) every $500$ steps with explicit alert thresholds. The released run uses seed $104729$, $20{,}000$ steps, and a deterministic mode.
+
+\subsection{Surprise scoring}
+The raw surprise of a variant is the predictor residual against the true post-edit state, $\sigma_{\mathrm{raw}}(v)=\lVert \gpred(\st,a_v)-\enc(\mathrm{apply}(v,\wref))\rVert_2$. To make it comparable across genomic context, we calibrate it per context bucket $b(v)=\text{region}\,|\,\text{gc}\,|\,\text{repeat}$ ($11\times 3\times 5=165$ buckets) against an empirical CDF estimated from up to $10{,}000$ common gnomAD variants per bucket, with a backoff chain when a bucket is sparse, yielding $\sigma_{\mathrm{cal}}(v)=F_{b(v)}(\sigma_{\mathrm{raw}}(v))\in[0,1]$. Note that $\sigma$ is the variant-effect score we evaluate; it is unsupervised and label-free.
+
+\subsection{Latent planning}
+Given an initial state and a target latent, the CEM planner searches over $K$-edit sequences---sampling a factored proposal over edit type, position, and bases; evaluating each candidate by latent distance after a $K$-step predictor rollout (with optional edit-cost regularization); and refitting the proposal to the elite set with smoothing---using defaults of horizon $5$, five iterations, $1024$ samples, and $64$ elites. \carbon is called once to encode the initial and target windows; the entire inner search runs in latent space and never re-invokes the encoder.
+
+\subsection{The efficiency thesis and its honest scope}
+\label{sec:method-efficiency}
+The design rationale is amortization: pay one \carbon forward pass per reference window, then answer many downstream queries cheaply with the ${\sim}40$M-parameter predictor. This argument is \emph{correct for rollout and planning}, which make zero further encoder calls after the initial encode. It is only \emph{partial} for single-variant scoring, which by construction requires a second \carbon call on the \emph{edited} window to produce the target $\stp$; with a warm reference cache this halves the encoder cost, but it does not eliminate it. As we show in \cref{sec:efficiency}, the released latency benchmark exercises none of these amortized regimes, so the efficiency thesis remains architecturally sound but operationally unverified.
+
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Released configuration vs.\ design RFCs} for load-bearing hyperparameters. The released \texttt{v0.2.1-r1} values are canonical for every number in this paper; the RFC values are the (aspirational) specification. Divergences change what the state summarizes and the predictor's capacity, and any reader reproducing the work must use the released column.}
+  \label{tab:reconcile}
+  \small
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lll}
+    \toprule
+    Hyperparameter & Released (\texttt{v0.2.1-r1}) & Design RFC \\
+    \midrule
+    Encoder pooling layer $L$            & $20$                  & final ($-1$) \\
+    Pool radius $r$                      & $8$ tok ($\pm48$\,bp) & $256$ tok ($\pm1536$\,bp) \\
+    State dim $d_{\mathrm{state}}$        & $1024$                & $1024$ (package default $512$, overridden) \\
+    Action dim $d_{\mathrm{action}}$     & $64$                  & $512$ \\
+    Predictor cross\,$+$\,self blocks    & $6+2$                 & $4+2$ \\
+    Predictor hidden dim $d_{\mathrm{hidden}}$ & $768$           & $1024$ \\
+    FFN intermediate dim                 & $768$ (\ie $1{\times}$) & $2048$ ($2{\times}$) \\
+    Warmup steps                         & $1000$                & $2000$ \\
+    Weight decay                         & $0.1$                 & $0.05$ \\
+    Physical batch size                  & $8$                   & $256$ effective \\
+    Edit-source mix (gnomAD/synSNV/synINDEL/ClinVar) & $3{:}3{:}1{:}1$ & $4{:}3{:}2{:}1$ \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+% ======================================================================
+\section{Systems and Reproducibility}
+\label{sec:systems}
+
+The most defensible positive contribution of this work is infrastructural: every number we report is content-addressed and replayable, and the release toolchain is built so that the negative findings cannot be quietly edited away.
+
+\paragraph{Content-addressed provenance.}
+A canonical-JSON serialization (sorted keys, rejected NaN/Inf, UTF-8) feeds a SHA-256 scheme in which the \emph{model identity} is literally the hash of the model manifest, which in turn hashes every artifact file. Each scoring call emits a checksum receipt binding the model id, an input commitment (a hash over the reference window, edit spec, pooling and dtype configuration), the output, an output commitment, the calibration hash, and runtime metadata. The runtime verifies all manifest artifact hashes at construction and refuses absolute or traversing paths. We are explicit that these receipts certify \emph{integrity and identity, not attestation}: they prove which artifacts and outputs were produced, not that execution was correct---there is no trusted-execution or proof-of-computation layer.
+
+\paragraph{Evidence-bound benchmark suite.}
+The benchmark suite executes a fixed step graph---VEP scoring, the \carbon zero-shot baseline, VEP evaluation, rollout-state generation and evaluation, aggregation, and a readiness gate---recording for each step the content identity (path, SHA-256, size) of its outputs, and gating the whole run on every step passing. A readiness report then requires all nine benchmark rows to be present and carry their observed values, baseline deltas, and a non-empty list of negative findings; the evaluated release reports $28$ verified suite outputs.
+
+\paragraph{A verifier that requires the negatives to be real.}
+The release paper toolchain re-renders the machine-readable manuscript from the artifacts at verification time and rejects any text that does not match---no stale tables, no placeholder tokens, no mutated planning evidence. More pointedly, it \emph{hard-codes} the negative findings as pass conditions: the readiness artifacts must show a negative ClinVar non-coding AUROC delta, a negative BRCA2 Spearman delta, rollout weakness on both splits, and a $K{=}20$ rollout speedup below the $5\times$ target, with the autoregressive-speed row explicitly marked \texttt{rescoped} under an accepted scope decision. In other words, the pipeline cannot certify itself unless the negative result is present in the evidence that drives it. This inverts the usual incentive of result-reporting infrastructure and is, we argue, the right shape for a reproducibility artifact whose honest conclusion is a negative one.
+
+\paragraph{On-device posture.}
+The runtime additionally enforces a fail-closed network guard during inference and ships local-first importers for consumer personal-genome formats, with a redaction filter that drops DNA-like strings and a deny-list of personal fields at the logging boundary. We describe these as engineering choices for local execution; we explicitly do \emph{not} present them as a privacy guarantee.
+
+% ======================================================================
+\section{Experiments}
+\label{sec:experiments}
+
+\paragraph{Setup.}
+All results are from a single released identity (\cref{tab:artifacts}): model \texttt{geno-lewm-v0.2.1-r1}, dataset snapshot \texttt{geno-lewm-data-v0.2.1-r1}, commit \texttt{d9b06815}, evaluated on one NVIDIA~H200. There are six evaluation slices across three tracks, with the sample sizes shown in-line below. Two baselines are fixed \emph{a priori}: for variant effect, \carbon zero-shot, scored as the log-likelihood difference $\log P(\wref)-\log P(\walt)$ (higher is more pathogenic); for rollout fidelity, a source-state predictor that returns $\st$ unchanged.
+
+\subsection{Variant-effect prediction}
+\label{sec:exp-vep}
+\Cref{tab:vep} and \cref{fig:vep} report the variant-effect track. On the two binary ClinVar slices ($N{=}16$ each) and BRCA2 saturation ($N{=}32$), \method trails \carbon zero-shot on every ranking metric: ClinVar coding AUROC $0.734$ ($\Delta{=}-0.1875$), ClinVar non-coding AUROC $0.563$ ($\Delta{=}-0.3125$), and BRCA2 Spearman $0.149$ ($\Delta{=}-0.328$). The only positive deltas are ClinVar coding accuracy and balanced accuracy ($+0.0625$ each)---and $0.0625$ is exactly $1/16$, \ie a single one of sixteen variants, well within the slice's quantization; we decline to call it a win. The TraitGym ``win'' ($+0.056$, $N{=}32$) is a difference between two Spearman values indistinguishable from zero ($-0.028$ vs.\ $-0.084$). Because every ClinVar metric is quantized in steps of $1/16$, bootstrap confidence intervals over these slices are not meaningful, and we frame the result accordingly: on slices this size, \method shows \emph{no detectable improvement} over its encoder and shows \emph{detectable deficits} only where the deltas exceed the implied resolution.
+
+\tabVEP
+\figVEP
+
+\subsection{Latent rollout fidelity}
+\label{sec:exp-rollout}
+The rollout track (\cref{tab:rollout}, \cref{fig:rollout}) is the paper's clearest signal. Over two multi-edit settings ($N{=}8$ each), the predictor's final state attains mean cosine $0.289$ (phased haplotypes) and $0.302$ (synthetic edit chains) to the true post-edit state. The trivial source-state baseline---predict no change---attains $0.998$ and $0.991$, because a single edit barely perturbs the $1024$-dimensional frozen embedding. The predictor is thus $0.709$ and $0.690$ cosine \emph{below} the do-nothing baseline, and farther in $L_2$ ($+31.2$, $+25.6$): the learned map is not an imperfect mover toward $\stp$ but a \emph{worse-than-identity distortion}. Recall@$k$ is $1.0$ for \emph{both} the predictor and the baseline, so it does not discriminate at these sample sizes and we do not report it as a positive.
+
+\tabRollout
+\figRollout
+
+\subsection{Inference efficiency}
+\label{sec:efficiency}
+\Cref{tab:efficiency} and \cref{fig:efficiency} report the released efficiency measurement, and require care to interpret honestly. The benchmark times a cold \texttt{geno-lewm-score} subprocess end to end; the median single-variant latency is $115{,}262.94$\,ms ($\approx 115$\,s), throughput is $0.31$ variants/s, and peak memory is $1.83$\,GiB. This number does not contradict the architecture so much as fail to test it: the subprocess pays interpreter startup, ${\sim}1$\,GiB of \carbon model loading, and two \carbon forward passes (reference and edited windows), and the benchmark self-documents that its wall-clock ``includes CLI startup and artifact loading overhead.'' The ${\sim}160$\,ms of genuine \carbon compute is dwarfed by loading. Three regimes are relevant (\cref{fig:efficiency}): the \emph{measured} cold-subprocess regime; a \emph{warm-cache, in-process} regime that the efficiency thesis targets (one \carbon call, ${\sim}95$\,ms total, of which the predictor adds ${\sim}1$\,ms); and a \emph{latent-only rollout/planning} regime (zero further \carbon calls). Only the first is measured. We therefore claim neither that \method is slow per inference nor that it is fast versus \carbon---the apples-to-apples comparison (warm-cache, in-process) has not been made, and we mark it open.
+
+\tabEfficiency
+\figEfficiency
+
+\subsection{Autoregressive rollout speed}
+\label{sec:exp-arspeed}
+KV-caching the action projections speeds autoregressive rollout by $2.41\times$ at $K{=}5$ (meeting its local $2\times$ target) and $2.47\times$ at $K{=}20$ (missing the $5\times$ target; \cref{fig:arspeed}). The $K{=}20$ miss remains open and was explicitly rescoped rather than closed. We caution that this micro-benchmark runs on toy synthetic dimensions ($d_{\mathrm{state}}{=}64$, CPU, \texttt{fp32}), so the ratios are not predictive of the Carbon-scale model on a GPU; they establish that the cache helps, not by how much in production.
+
+\figARspeed
+
+\subsection{Planning}
+\label{sec:exp-planning}
+The released planning demonstration loads the checkpoint through the manifest-backed runtime and runs CEM against a synthetic multi-SNV target, terminating on patience after $384$ evaluations with a best latent distance of $23.66$ in ${\approx}15.3$\,s. It establishes that the planning path executes from released artifacts; it does \emph{not} demonstrate useful planning behavior. The non-zero terminal distance and patience stop are recorded as evidence of integration, not capability, and the target is a synthetic proxy rather than a learned objective.
+
+% ======================================================================
+\section{Discussion: Why the Negative Result Occurs}
+\label{sec:discussion}
+
+We argue the negative result is over-determined rather than accidental, and that low prediction loss is \emph{not} evidence of a learned edit-transition operator. Four interacting causes account for it.
+
+\paragraph{The latent-residual baseline trap (primary cause).}
+A single SNV inside a $12$\,kbp window, mean-pooled over a frozen $1024$-dimensional embedding, perturbs that embedding only slightly, so $\stp\approx\st$ and $\cos(\st,\stp)$ is near one. The copy map $\shat:=\st$ therefore captures most of the achievable cosine for free, and the predictor must learn only the small residual $\Delta=\stp-\st$---low in norm, high in relative variance, and dominated by the bulk $\st$ direction. Because the predictor is residual with an identity initialization (\cref{eq:residual}), gradient descent starts \emph{at} the copy solution and is attracted to it. The rollout evidence is the design's own canary firing: a predictor that genuinely learned $\Delta$ would beat copy, whereas one that learned a \emph{distorted} copy sits below it---which is what we observe ($-0.709$, $-0.690$ cosine). Critically, Phase-1 collapse-immunity is the \emph{cause}, not a defense: the Gaussian regularizer guards against \emph{encoder} collapse, and nothing in Phase~1 guards against \emph{functional collapse of the predictor onto identity}.
+
+\paragraph{Representation geometry.}
+For action-conditioning to be learnable, the map $(\st,a_v)\mapsto\Delta$ must be \emph{exposed} by the encoder's geometry---similar edits should produce similar, low-dimensional, roughly linear displacements. There is no guarantee a frozen model trained for sequence likelihood organizes its space this way; $\Delta$ may be near-isotropic noise of magnitude comparable to the encoder's regional variance, nonlinear, or entangled with nuisance directions. A direct test is a linear-versus-MLP probe gap for decoding $\Delta$, with $\Delta$-norm compared against regional encoder variance (\cref{sec:future}, D3).
+
+\paragraph{Tiny evaluation slices and absence of power.}
+ClinVar slices of $N{=}16$ quantize every metric to multiples of $1/16$, so a one-to-two-point AUROC difference is within the resolution and bootstrap intervals are not meaningful. The honest statement is not ``\method trails \carbon on every row with confidence'' but ``on slices this size, \method shows no detectable improvement and shows detectable deficits only where deltas exceed the implied resolution.''
+
+\paragraph{Frozen encoder may not expose an edit-linear latent (structural cause).}
+Synthesizing the above: the encoder was optimized for the wrong invariance (what the sequence \emph{is}, not how an edit moves it); the predictor has no leverage to reshape it; and so \emph{the efficiency thesis and the learnability thesis are in tension}---freezing \carbon enables ``pay once, query many'' but removes the encoder's ability to become edit-predictable. The deepest reading is that the very choice that buys efficiency may be the one that costs accuracy, and the natural remedy (Phase-2 LoRA under the Gaussian regularizer) reintroduces exactly the collapse risk that Phase~1 was designed to avoid. The result is not that edit-conditioned latent world modeling is impossible, but that it is not learnable against a fully frozen, edit-agnostic encoder on under-powered slices---a sharp, falsifiable claim.
+
+% ======================================================================
+\section{Limitations}
+\label{sec:limitations}
+
+We collect the boundaries that constrain every claim. (i)~\emph{Statistical power}: ClinVar slices are $N{=}16$ (metrics quantized at $1/16$) and rollout slices are $N{=}8$; no result here carries a meaningful confidence interval, and the lone positive delta is within quantization. (ii)~\emph{Coverage}: placed-window training is effectively single-chromosome (chr22), and the chr21 holdout specified in the data RFC is not confirmed in the released first-experiment configuration. (iii)~\emph{Configuration drift}: the released model diverges from the design RFCs on load-bearing hyperparameters (\cref{tab:reconcile})---most consequentially the $\pm48$\,bp pooling radius and the residual predictor depth---so the evaluated system is one specific point, not the RFC's intended design. (iv)~\emph{Efficiency}: no warm-cache or in-process latency was measured, so the efficiency thesis is untested in the regime it describes; the autoregressive speedups are on toy dimensions. (v)~\emph{Planning and calibration}: the planner is evaluated on a synthetic, non-learned proxy and does not demonstrate useful planning; the surprise calibration is not validated on a held-out population. (vi)~\emph{Receipts}: checksum receipts certify artifact and output identity, not correct execution or any privacy property. (vii)~\emph{Maturity}: all governing RFCs remain in \texttt{Draft} status.
+
+% ======================================================================
+\section{Negative Findings}
+\label{sec:negative}
+
+For directness, we enumerate the negative findings as first-class results, each tied to its number and the artifact that carries it. \method trails \carbon zero-shot on ClinVar non-coding AUROC ($\Delta{=}-0.3125$) and on BRCA2 saturation Spearman ($\Delta{=}-0.328$), and on ClinVar coding AUROC/AP as well; its only positive ClinVar delta ($+0.0625$) is one variant within quantization. Its multi-edit rollout is below the trivial source-state baseline on both splits (cosine $\Delta{=}-0.709$ and $-0.690$). Its $K{=}20$ autoregressive rollout speedup ($2.47\times$) misses the $5\times$ target, which remains open. Its planning demonstration stops on patience with a non-zero best distance and does not prove useful planning behavior. And its released single-variant latency ($\approx115$\,s) reflects cold-process model loading rather than per-inference compute, leaving the efficiency thesis unverified. These are the substance of the paper, and the release verifier structurally requires them to be present in the evidence (\cref{sec:systems}).
+
+% ======================================================================
+\section{Reproducibility}
+\label{sec:reproducibility}
+
+Every reported value is bound to the identities in \cref{tab:artifacts} through the content-addressed receipt chain of \cref{sec:systems}, and the release report (and its machine-rendered companion manuscript) re-derives from those artifacts. A reader can verify the artifact graph---hashes, sizes, the readiness gate, and that the negative findings are present and structurally required---without re-running the model. Reproducing the \emph{numbers} from scratch additionally requires the released checkpoint and the dataset snapshot, the pinned \carbon revision, and an equivalent GPU; the configuration in \cref{tab:reconcile} is the canonical recipe, and the deterministic training mode is available at a throughput cost. We note as an open reproducibility gap that the autoregressive-speed scope artifact was not persisted in the repository checkout, and that repeated-run bit-exactness is listed as future work.
+
+% ======================================================================
+\section{Future Work}
+\label{sec:future}
+
+The diagnosis in \cref{sec:discussion} organizes a falsifiable program; we sketch twelve directions as a decision tree, each with a hypothesis, a smallest falsifying experiment, and the baseline it must beat. \textbf{Attack the cause:} (D1) lightly LoRA-adapt \carbon under the Gaussian regularizer so $\Delta$ becomes linearly extractable, with collapse ($\mathrm{KL}{>}10$) or persistent sub-copy rollout as the failure signal; (D2) add an edit-contrastive / whitened-residual objective to kill the identity attractor; (D3) probe whether $\Delta$ is even linearly accessible in frozen \carbon (linear-vs-MLP gap, $\Delta$-norm vs regional variance)---the single highest-information experiment; (D4) curriculum on high-displacement edits (nonsense, splice) where the copy baseline is weak. \textbf{Fix measurement:} (D5) power analysis and slices sized to detect a two-point AUROC effect; (D6) stronger baselines (linear $\st\to\Delta$, $k$-NN-retrieved $\Delta$, \carbon $\Delta\log\mathrm{Lik}$); (D7) repeat Phase~1 across alternative frozen encoders (HyenaDNA, Caduceus, Evo~2) and correlate probe linearity with rollout margin; (D8) order-scrambled rollout controls for genuine edit composition. \textbf{Earn deployment/scale claims:} (D9) implement and benchmark the reference cache to test the efficiency thesis honestly and close or document the $5\times$ gap; (D10) distill into a sub-$100$M student and report the accuracy--latency Pareto; (D11) fit scaling laws for margin-over-copy-baseline against predictor size, edit count, and encoder scale; (D12) test whether surprise carries signal orthogonal to \carbon $\Delta\log\mathrm{Lik}$ and retire it honestly if not. The unifying question---\emph{is edit-conditioned latent prediction learnable against a near-frozen genomic encoder, and at what compute?}---is the paper's most valuable bequest.
+
+% ======================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We built an action-conditioned latent world model for genomic edits on top of a frozen DNA foundation model, wrapped it in a content-addressed train$\to$eval$\to$benchmark$\to$replay pipeline whose verifier requires its own negative findings to be real, and reported honestly that the learned predictor does not beat either the encoder's zero-shot baseline or a trivial predict-no-change baseline on the released, under-powered evaluation. We traced this to a latent-residual trap that we argue is structural to the frozen-encoder regime: freezing the encoder eliminates representation collapse and enables the efficiency thesis, but in doing so makes the identity map a competitive baseline and leaves the residual hard to extract. The contribution is a reproducible artifact and a sharp, falsifiable diagnosis, not a method that wins---and the bequeathed question of whether edit-conditioned latent prediction is learnable against a near-frozen encoder is, we hope, worth more than a premature claim that it already is.
+
+\section*{Acknowledgments}
+We thank the maintainers of the open genomic-modeling and self-supervised-learning ecosystems whose models, benchmarks, and methods this study builds on and measures against. Portions of the evidence-gathering, citation verification, and manuscript drafting were assisted by AI research tooling; all reported numbers derive from the content-addressed release artifacts and were checked against them.
+
+{\small
+\bibliographystyle{plainnat}
+\bibliography{refs}
+}
+
+\appendix
+% ======================================================================
+\section{Notation}
+\label{app:notation}
+\begin{center}\small
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$\wref,\walt$ & reference / edited DNA window ($12{,}288$\,bp $=2{,}048$ six-mer tokens) \\
+$\enc(\cdot)$ & frozen \carbon encoder (layer $20$, centered-mean pool $r{=}8$, $L_2$-normalized) \\
+$\st=\enc(\wref)$ & reference latent state, $\Real^{1024}$ \\
+$\stp=\enc(\walt)$ & true post-edit state (training target / eval ground truth) \\
+$\shat=\gpred(\st,a)$ & predicted post-edit state (residual, \cref{eq:residual}) \\
+$\Delta=\stp-\st$ & true edit residual (small norm; core of \cref{sec:discussion}) \\
+$a,\aemb$ & edit action and its embedding, $\Real^{64}$ \\
+$\gpred$ & cross-attention residual predictor ($6$ cross $+\,2$ self, $d_{\mathrm{hidden}}{=}768$) \\
+$\alpha,\beta$ & prediction-loss weights ($1.0$, $0.1$); $\gamma{=}0.5$ Phase-2 KL weight \\
+$\sigma_{\mathrm{raw}},\sigma_{\mathrm{cal}}$ & raw / context-calibrated surprise ($165$ buckets) \\
+$\mathrm{score}_{\mathrm{Carbon}}$ & $\log P(\wref)-\log P(\walt)$ (zero-shot baseline) \\
+$N$ & evaluated variants per slice: $16/16/32/32/8/8$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Artifact Identity}
+\label{app:artifacts}
+\tabArtifacts
+
+\section{Citation Verification Notes}
+\label{app:citations}
+All bibliography entries were verified programmatically against publisher pages, DOIs, or arXiv. Two caveats apply. The \carbon entry uses an organizational author because the model card exposes no formal author list or technical-report citation. The BRCA2 saturation genome-editing assay used as a continuous-label benchmark is described generically and \emph{not} attributed to a specific publication here, because we could not verify the exact source; we deliberately avoid a plausible-but-wrong citation (the widely cited Findlay~et~al.\ saturation genome-editing study concerns BRCA1, not BRCA2). A small number of page numbers in otherwise-verified entries are inferred and flagged in the bibliography file.
+
+\end{document}
