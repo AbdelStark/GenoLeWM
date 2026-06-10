@@ -151,6 +151,8 @@ nav:
       - FAQ: faq.md
       - Maintainers: maintainers.md
       - Implementation tracker: roadmap/IMPLEMENTATION.md
+  - Blog:
+      - What does this edit do? (explainer): blogposts/genolewm_explainer.md
   - Release:
       - Hugging Face model card: release/huggingface-model-card.md
       - Signing keys: release/signing-keys.md
