@@ -1,6 +1,6 @@
 # GenoLeWM paper
 
-**GenoLeWM: An Action-Conditioned Latent World Model for Genomic Edits — A Reproducible Pipeline and an Honest Negative Result**
+**GenoLeWM: An Action-Conditioned Latent World Model for Genomic Edits. A Reproducible Pipeline and an Honest Negative Result**
 
 A comprehensive preprint covering the GenoLeWM `v0.2.1-r1` experiments: an action-conditioned
 Joint-Embedding Predictive Architecture that freezes Carbon-500M as a state encoder and trains a small
@@ -8,7 +8,7 @@ cross-attention predictor to estimate post-edit DNA-window embeddings, with surp
 latent planner, and a content-addressed train→eval→benchmark→replay pipeline.
 
 The central finding is **negative and honest**: the learned predictor does not beat the encoder's own
-zero-shot baseline, and its multi-edit rollout is worse than a trivial "predict-no-change" baseline —
+zero-shot baseline, and its multi-edit rollout is worse than a trivial "predict-no-change" baseline,
 diagnosed as a *latent-residual baseline trap* structural to the frozen-encoder regime.
 
 ## Build
@@ -27,7 +27,7 @@ on first run). The NeurIPS 2025 preprint style (`neurips.sty`) is vendored.
 | File | Contents |
 | --- | --- |
 | `main.tex` | manuscript body + preamble + notation macros |
-| `figures.tex` | 5 figures (architecture, VEP-vs-Carbon, latent-residual trap, efficiency regimes, AR speedup) — TikZ/pgfplots, data-exact |
+| `figures.tex` | 5 figures (architecture, VEP-vs-Carbon, latent-residual trap, efficiency regimes, AR speedup); TikZ/pgfplots, data-exact |
 | `tables.tex` | result tables (VEP, rollout fidelity, efficiency, artifact identity) |
 | `refs.bib` | 16 programmatically verified references |
 | `neurips.sty` | vendored conference style |

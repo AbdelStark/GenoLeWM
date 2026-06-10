@@ -59,7 +59,7 @@
 
     \begin{scope}[on background layer]
       \node[fit=(enc1)(enc2)(wref)(walt),draw=genocolor,dashed,rounded corners,inner sep=6pt,
-        label={[genocolor,font=\footnotesize]above:frozen state encoder --- paid once per window}] {};
+        label={[genocolor,font=\footnotesize]above:frozen state encoder (paid once per window)}] {};
     \end{scope}
   \end{tikzpicture}}
   \caption{\textbf{GenoLeWM as an action-conditioned latent world model over genomic edits.}
@@ -138,7 +138,7 @@
   \caption{\textbf{The latent-residual baseline trap.} A trivial baseline that predicts \emph{no change}
   ($\hat s_{t+1}{=}s_t$) attains cosine $\approx0.99$ to the true post-edit state, because a single
   SNV barely perturbs a 1024-dimensional frozen Carbon embedding. The trained predictor's outputs sit at
-  cosine $\approx0.29$--$0.30$ --- far below the do-nothing baseline (deltas $-0.709$ and $-0.690$).
+  cosine $\approx0.29$--$0.30$, far below the do-nothing baseline (deltas $-0.709$ and $-0.690$).
   This is the central diagnostic for why edit-conditioned latent prediction is hard in this regime
   (\S\ref{sec:discussion}).}
   \label{fig:rollout}
@@ -166,8 +166,8 @@
   \end{axis}
   \end{tikzpicture}
   \caption{\textbf{KV-cached autoregressive rollout speedup.} Cached \texttt{ARPredictor} rollout is
-  $2.41\times$ ($K{=}5$) and $2.47\times$ ($K{=}20$) faster than naive repeated one-step prediction ---
-  real but short of the $5\times$ target at $K{=}20$, which remains open and was explicitly rescoped.
+  $2.41\times$ ($K{=}5$) and $2.47\times$ ($K{=}20$) faster than naive repeated one-step prediction.
+  The gain is real but short of the $5\times$ target at $K{=}20$, which remains open and was explicitly rescoped.
   Measured on toy synthetic dimensions ($d_{\mathrm{state}}{=}64$, CPU, fp32); not Carbon-scale.}
   \label{fig:arspeed}
 \end{figure}}
@@ -198,8 +198,8 @@
   \end{semilogyaxis}
   \end{tikzpicture}
   \caption{\textbf{The efficiency thesis is architecturally sound but unmeasured in the regime it
-  describes.} Only \emph{Regime 1} --- a cold \texttt{geno-lewm-score} subprocess (interpreter start,
-  ${\sim}1$\,GiB Carbon load, two Carbon forward passes) --- is measured, at $115{,}262.94$\,ms; the
+  describes.} Only \emph{Regime 1}, a cold \texttt{geno-lewm-score} subprocess (interpreter start,
+  ${\sim}1$\,GiB Carbon load, two Carbon forward passes), is measured, at $115{,}262.94$\,ms; the
   ${\sim}160$\,ms of actual Carbon compute is dwarfed by process start and model loading. The
   ``pay-Carbon-once'' thesis applies to \emph{Regime 2} (warm reference cache: one Carbon call on the
   edited window, in-process) and \emph{Regime 3} (latent-only rollout/planning: zero further Carbon

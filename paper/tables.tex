@@ -75,7 +75,7 @@
   \centering
   \caption{\textbf{Measured efficiency (v0.2.1-r1, single NVIDIA H200).} The released
   single-variant score path is dominated by two frozen Carbon-500M forward passes under a cold cache
-  and process start, so per-variant latency is $\approx$115\,s --- the architectural amortization thesis
+  and process start, so per-variant latency is $\approx$115\,s; the architectural amortization thesis
   (\cref{fig:architecture}) is \emph{not} exercised by this naive path (\S\ref{sec:efficiency}). The
   KV-cached autoregressive rollout speedup is the only place latent-only cheapness appears, and it
   remains below the $5\times$ target at $K{=}20$.}
