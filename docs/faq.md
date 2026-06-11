@@ -67,6 +67,10 @@ for private genome data.
 No broad superiority claim is supported. Current v0.2.1 evidence is
 mixed or negative versus Carbon on most benchmark rows. The generated
 paper records this as a negative-results and systems-evidence story.
+The public run tree includes exact evaluated identities for ClinVar
+coding, ClinVar non-coding, BRCA2 saturation-editing, and TraitGym
+Mendelian rows; treat those as benchmark evidence, not clinical utility
+claims.
 
 ## What does the planning demo prove?
 
