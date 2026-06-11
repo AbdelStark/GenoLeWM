@@ -93,10 +93,14 @@ h2 {
 }
 
 .safety-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   padding: 0.8rem 1.5rem;
   color: #ffffff;
   background: #763636;
   font-weight: 800;
+  line-height: 1.35;
 }
 
 .workspace {
