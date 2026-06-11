@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added `benchmark_result_sha256` to AR rollout speed reports so
+  release evidence can compare timing rows without hashing timestamp,
+  host, or commit metadata.
 
 ## [0.2.1] - 2026-06-09
 

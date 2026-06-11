@@ -77,7 +77,10 @@ python -m bench.profile --run-cprofile-on bench.inference
 ```
 
 `bench.rollout` records the normalized command in `rollout.ar_speed.json`
-so release-readiness reports can bind the exact benchmark invocation.
+so release-readiness reports can bind the exact benchmark invocation. It
+also records `benchmark_result_sha256`, a canonical hash over the
+command, config, pass/fail status, and timing rows that excludes
+timestamp, host, and commit metadata.
 `bench.rollout --require-targets` exits non-zero unless every requested
 horizon meets the RFC-0004 speedup target (`>=2x` at K=5 and `>=5x` at
 K=20). Use that flag for rollout-performance gates once the attention
