@@ -23,6 +23,12 @@ pnpm tauri dev
 `pnpm build` validates the TypeScript frontend. From `src-tauri/`, run
 `cargo check` to validate the Rust host and PyO3 bridge.
 
+`python -m tools.release.desktop_signing_preflight` writes a dry-run
+signing prerequisite report. The default mode checks bundle metadata and
+records missing signing secrets as warnings. Release workflows should add
+`--require-secrets` once macOS, Linux AppImage, and Windows signing
+credentials are configured.
+
 ## Network Policy
 
 The Tauri HTTP plugin is configured as default-deny. The only allowed
