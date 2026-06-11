@@ -3,13 +3,15 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0007, RFC-0012, RFC-0013
 - **Supersedes:** —
 - **Implementation status:** Partial — unit, property, integration,
   lint, API snapshot, docs, release-contract, fixture-tier ML, event
-  registry, and scope-language gates exist. Dedicated hosted `tests/ml`
-  and eval-smoke CI gates remain open.
+  registry, scope-language, hosted `tests/ml`, and generated-fixture
+  eval-smoke CI gates exist. Coverage is deliberately ratcheted below
+  the original 95% target while torch-backed paths gain real coverage;
+  full real-data eval remains a release-candidate gate.
 
 ---
 
