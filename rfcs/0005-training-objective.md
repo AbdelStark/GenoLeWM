@@ -3,14 +3,16 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004
 - **Supersedes:** —
 - **Implementation status:** Partial — prediction loss, LeJEPA KL
   regularizer, edit-balanced sampler, collapse monitoring, deterministic
   fixture training, AdamW grouping, WSD scheduling, Carbon-state batch
-  encoding, and the torch trainer core exist. Clean-machine
-  Carbon-backed training and deterministic real-run evidence remain open.
+  encoding, the torch trainer core, preflight-gated Carbon training
+  launcher, and training-run manifest/card/checksum packaging exist.
+  Completed clean-machine Carbon-backed training evidence and
+  deterministic real-run reproducibility evidence remain open.
 
 ---
 
@@ -282,6 +284,9 @@ SNVs (40%) than any other type, matching their importance.
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for Carbon training
+  preflight/launch support, training-run packaging, and remaining
+  clean-machine and deterministic real-run evidence gaps.
 - 2026-06-02 — Updated implementation status for fixture training,
   optimizer/scheduler plumbing, and trainer-core coverage.
 - 2026-05-20 — Initial draft.
