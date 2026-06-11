@@ -10,7 +10,10 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added a deterministic CEM planning reproducibility hash that excludes
+  elapsed wall-clock time and is emitted in `geno-lewm-plan` JSON output.
 
 ## [0.2.1] - 2026-06-09
 

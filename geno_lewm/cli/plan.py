@@ -430,6 +430,7 @@ def _plan_payload(
             "best_predicted_state": _json_state(result.best_predicted_state),
             "n_evaluations": result.n_evaluations,
             "n_predictor_calls": result.n_predictor_calls,
+            "reproducibility_sha256": result.reproducibility_sha256,
             "elapsed_seconds": result.elapsed_seconds,
             "stopped_reason": result.stopped_reason,
             "iterations": [
