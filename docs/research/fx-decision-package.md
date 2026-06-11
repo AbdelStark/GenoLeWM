@@ -13,6 +13,7 @@ Authoritative artifacts:
 - [FX feasibility and kill report](fx-feasibility-report.md)
 - [Machine-readable feasibility report](fx-feasibility-report.json)
 - [Borzoi rescue plan](fx-borzoi-rescue-plan.md)
+- [Borzoi alignment and overlap report](fx-borzoi-overlap-report.md)
 
 ## Decision
 
@@ -63,6 +64,14 @@ claim exact fipip table overlap.
 
 That follow-up is tracked in #266 and documented in
 [GenoLeWM-FX Borzoi rescue plan](fx-borzoi-rescue-plan.md).
+
+The first follow-up gate now has a source-controlled outcome:
+[GenoLeWM-FX Borzoi alignment and overlap report](fx-borzoi-overlap-report.md).
+It records a go decision for the compact TraitGym-native row-aligned
+Borzoi score path, with 11,400 usable rows and no #268 blockers. That is
+an alignment/cache-feasibility result only; it is not a model-quality
+claim and it does not claim exact fipip overlap because the full fipip
+table was not staged for that run.
 
 ## Child Issue Resolution
 

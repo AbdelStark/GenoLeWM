@@ -145,6 +145,7 @@ nav:
       - GenoLeWM-FX feasibility report: research/fx-feasibility-report.md
       - GenoLeWM-FX decision package: research/fx-decision-package.md
       - GenoLeWM-FX Borzoi rescue plan: research/fx-borzoi-rescue-plan.md
+      - GenoLeWM-FX Borzoi alignment report: research/fx-borzoi-overlap-report.md
   - Blog:
       - What does this edit do? (explainer): blogposts/genolewm_explainer.md
   - Release:

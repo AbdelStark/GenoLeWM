@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0.0",
+  "epic_issue": 266,
+  "contract_issue": 267,
+  "overlap_issue": 268,
+  "cache_issue": 269,
+  "min_usable_rows": 10000,
+  "holdout_chromosomes": [
+    "3",
+    "11",
+    "14",
+    "16",
+    "17",
+    "20"
+  ],
+  "traitgym_slice": {
+    "dataset": "songlab/TraitGym",
+    "config": "complex_traits",
+    "split": "test",
+    "artifact_path": "complex_traits_matched_9/test.parquet",
+    "revision": "1fde19555fe8c0a55b1382bdf4c6f7082209f566",
+    "expected_rows": 11400,
+    "variant_key_columns": [
+      "chrom",
+      "pos",
+      "ref",
+      "alt"
+    ],
+    "label_column": "label"
+  },
+  "traitgym_borzoi_score": {
+    "repo_id": "songlab/TraitGym",
+    "repo_type": "dataset",
+    "artifact_path": "complex_traits_matched_9/preds/all/Borzoi_L2_L2.plus.all.parquet",
+    "revision": "1fde19555fe8c0a55b1382bdf4c6f7082209f566",
+    "score_column": "score",
+    "score_id": "Borzoi_L2_L2.plus.all",
+    "score_semantics": "TraitGym-native row-aligned Borzoi L2 score; teacher-derived score, not ground truth."
+  },
+  "fipip_borzoi_source": {
+    "repository": "https://github.com/statgen/fipip",
+    "genome_build": "hg19",
+    "bucket": "seqnn-share",
+    "object": "sniff/borzoi_102_annotation_set/sniff_102_annotations.gz",
+    "readme_object": "sniff/borzoi_102_annotation_set/README",
+    "expected_rows": 19534182,
+    "compressed_size_bytes": 18670353280,
+    "score_kind": "Borzoi PCA-derived annotations for autosomal SNPs and indels.",
+    "exact_join_default": "not_run_full_table_not_staged"
+  },
+  "claim_boundary": "The Borzoi rescue overlap audit is an alignment and feasibility artifact only. It is not a model-quality result, clinical result, deployment-readiness result, broad VEP superiority claim, broad Carbon comparison, useful-planning claim, ground-truth biology claim, or exact fipip overlap claim unless the exact fipip table join is actually run."
+}

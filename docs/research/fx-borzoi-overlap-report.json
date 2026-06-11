@@ -1,0 +1,147 @@
+{
+  "blockers": [],
+  "cache_issue": 269,
+  "claim_boundary": "The Borzoi rescue overlap audit is an alignment and feasibility artifact only. It is not a model-quality result, clinical result, deployment-readiness result, broad VEP superiority claim, broad Carbon comparison, useful-planning claim, ground-truth biology claim, or exact fipip overlap claim unless the exact fipip table join is actually run.",
+  "contract_issue": 267,
+  "decision": "go_traitgym_native_borzoi",
+  "epic_issue": 266,
+  "fipip_exact_join": {
+    "metadata_only": {
+      "bucket": "seqnn-share",
+      "generation": "1750977790216459",
+      "object": "sniff/borzoi_102_annotation_set/sniff_102_annotations.gz",
+      "size_bytes": 18670353280
+    },
+    "reason": "The full fipip table was not staged locally for this run.",
+    "status": "not_run_full_table_not_staged"
+  },
+  "generated_at": "2026-06-11T12:00:00Z",
+  "generated_by": "tools.research.fx_borzoi_overlap",
+  "manifest": {
+    "path": "configs/fx/borzoi_rescue_sources.json",
+    "sha256": "sha256:a1a7eb0dfcd06aca753f13279465f9bfb035c71dd1ffd5379862c38ddeea6e99"
+  },
+  "minimum_usable_rows": 10000,
+  "ok_to_build_cache": true,
+  "overlap_issue": 268,
+  "recommended_issue_actions": [
+    {
+      "action": "close-completed",
+      "issue": 268,
+      "reason": "The TraitGym-native row-aligned Borzoi path passes the 10,000-row alignment gate."
+    },
+    {
+      "action": "open-next",
+      "issue": 269,
+      "reason": "Build the manifest-backed cache from the compact row-aligned Borzoi score vector."
+    }
+  ],
+  "schema_version": "1.0.0",
+  "source_inputs": {
+    "fipip_borzoi_source": {
+      "bucket": "seqnn-share",
+      "crc32c": "DPBpaA==",
+      "expected_rows": 19534182,
+      "generation": "1750977790216459",
+      "genome_build": "hg19",
+      "md5_hash": "KmaNYQ9EEH+5MQvOfCOaZQ==",
+      "object": "sniff/borzoi_102_annotation_set/sniff_102_annotations.gz",
+      "repository": "https://github.com/statgen/fipip",
+      "score_kind": "Borzoi PCA-derived annotations for autosomal SNPs and indels.",
+      "size_bytes": 18670353280,
+      "updated": "2025-06-26T22:43:10.246Z"
+    },
+    "traitgym_borzoi_score": {
+      "path": "complex_traits_matched_9/preds/all/Borzoi_L2_L2.plus.all.parquet",
+      "repo_id": "songlab/TraitGym",
+      "repo_type": "dataset",
+      "revision": "1fde19555fe8c0a55b1382bdf4c6f7082209f566",
+      "sha256": "sha256:04ecf61997bad7f84c36021cd2ca2d30d6781b2f56d3a22e65e6742b0cac2a3f",
+      "size_bytes": 66797
+    },
+    "traitgym_slice": {
+      "path": "complex_traits_matched_9/test.parquet",
+      "repo_id": "songlab/TraitGym",
+      "repo_type": "dataset",
+      "revision": "1fde19555fe8c0a55b1382bdf4c6f7082209f566",
+      "sha256": "sha256:068940684e1e6f735a25a1a4418fb65390628023a96188af7f1a15dd17de7036",
+      "size_bytes": 411336
+    }
+  },
+  "traitgym_native_alignment": {
+    "chromosome_counts": {
+      "1": 1000,
+      "10": 510,
+      "11": 680,
+      "12": 590,
+      "13": 200,
+      "14": 380,
+      "15": 390,
+      "16": 590,
+      "17": 560,
+      "18": 290,
+      "19": 580,
+      "2": 900,
+      "20": 530,
+      "21": 140,
+      "22": 280,
+      "3": 650,
+      "4": 400,
+      "5": 510,
+      "6": 780,
+      "7": 540,
+      "8": 460,
+      "9": 440
+    },
+    "config": "complex_traits",
+    "dataset": "songlab/TraitGym",
+    "expected_row_count_match": true,
+    "expected_traitgym_rows": 11400,
+    "label_summary": {
+      "both_classes_present": true,
+      "negative": 10260,
+      "positive": 1140
+    },
+    "minimum_usable_rows_passed": true,
+    "observed_score_rows": 11400,
+    "observed_traitgym_rows": 11400,
+    "row_count_match": true,
+    "row_order_status": "assumed_by_traitgym_matched_slice_artifact_layout",
+    "score_column": "score",
+    "score_id": "Borzoi_L2_L2.plus.all",
+    "score_semantics": "TraitGym-native row-aligned Borzoi L2 score; teacher-derived score, not ground truth.",
+    "score_summary": {
+      "finite_scores": 11400,
+      "max": 388.5757141113281,
+      "mean": 13.421279713720606,
+      "min": 0.8960618376731873,
+      "non_numeric_or_non_finite_scores": 0,
+      "null_scores": 0,
+      "p50": 8.508103847503662
+    },
+    "split": "test",
+    "split_summary": {
+      "holdout_chromosomes": [
+        "11",
+        "14",
+        "16",
+        "17",
+        "20",
+        "3"
+      ],
+      "holdout_negative": 3051,
+      "holdout_positive": 339,
+      "holdout_rows": 3390,
+      "split_has_both_classes": true,
+      "train_negative": 7209,
+      "train_positive": 801,
+      "train_rows": 8010
+    },
+    "usable_rows": 11400,
+    "variant_key_summary": {
+      "duplicate_key_count": 0,
+      "duplicate_key_passed": true,
+      "unique_keys": 11400
+    }
+  }
+}

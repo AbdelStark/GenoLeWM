@@ -112,6 +112,13 @@ table overlap.
 
 If this fails, stop and publish the overlap no-go report.
 
+Current outcome: the source-controlled
+[Borzoi alignment and overlap report](fx-borzoi-overlap-report.md)
+records a go decision for the TraitGym-native row-aligned path with
+11,400 usable rows. The exact fipip table join was not run because the
+large table was not staged, so the report makes no exact fipip overlap
+claim.
+
 ### Stage 2 - Score Cache
 
 Materialize only the matched precomputed score columns and metadata
