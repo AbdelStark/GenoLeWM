@@ -96,14 +96,20 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
         sample_count=24,
         final_loss=0.3,
         step_results=results,
+        elapsed_seconds=3.0,
         collapse_alert_count=1,
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         resume_checkpoint_path=None,
     )
-    metrics = json.loads(path.read_text(encoding="utf-8"))["metrics"]
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    metrics = payload["metrics"]
     assert metrics["nan_loss_count"] == 1
     assert metrics["collapse_var_min"]["value"] == pytest.approx(0.2)
     assert metrics["collapse_alert_count"] == 1
+    assert payload["elapsed_seconds"] == pytest.approx(3.0)
+    assert payload["samples_per_second"] == pytest.approx(8.0)
+    assert metrics["elapsed_seconds"]["value"] == pytest.approx(3.0)
+    assert metrics["samples_per_second"]["value"] == pytest.approx(8.0)
 
 
 def test_write_training_metadata_records_artifact_identities(tmp_path: Path) -> None:

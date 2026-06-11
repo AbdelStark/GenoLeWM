@@ -14,6 +14,7 @@ import json
 import math
 import platform
 import shutil
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -201,6 +202,7 @@ def run_carbon_training(
         local_files_only=True,
         trust_remote_code=config.encoder.trust_remote_code,
     )
+    training_started_at = time.perf_counter()
     first_items = _next_batch(iterator, config.data.batch_size)
     first_batch = _encode_items(encoder, first_items, device=device)
     observed_d_state = int(first_batch.state.shape[1])
@@ -319,6 +321,7 @@ def run_carbon_training(
                     + "\n"
                 )
         log.write(json.dumps({"event": "train.end", "steps_completed": steps}) + "\n")
+    elapsed_seconds = max(time.perf_counter() - training_started_at, 1e-9)
 
     final = step_results[-1]
     _write_metrics(
@@ -329,6 +332,7 @@ def run_carbon_training(
         sample_count=sample_count,
         final_loss=final.loss,
         step_results=step_results,
+        elapsed_seconds=elapsed_seconds,
         collapse_alert_count=collapse_alert_count,
         dataset_snapshot_id=dataset_snapshot_id,
         resume_checkpoint_path=resume_from,
@@ -641,10 +645,13 @@ def _write_metrics(
     sample_count: int,
     final_loss: float,
     step_results: Sequence[Any],
+    elapsed_seconds: float,
     collapse_alert_count: int,
     dataset_snapshot_id: str,
     resume_checkpoint_path: Path | None,
 ) -> None:
+    new_sample_count = sample_count - (resumed_from_step * config.data.batch_size)
+    samples_per_second = new_sample_count / max(elapsed_seconds, 1e-9)
     payload = {
         "schema_version": _SCHEMA_VERSION,
         "run_id": config.run_id,
@@ -655,12 +662,19 @@ def _write_metrics(
         if resume_checkpoint_path is None
         else _public_resume_path(resume_checkpoint_path),
         "sample_count": sample_count,
-        "new_sample_count": sample_count - (resumed_from_step * config.data.batch_size),
+        "new_sample_count": new_sample_count,
+        "elapsed_seconds": elapsed_seconds,
+        "samples_per_second": samples_per_second,
         "train_loss": final_loss,
         "metrics": {
             "train_loss": final_loss,
             "sample_count": sample_count,
-            "new_sample_count": sample_count - (resumed_from_step * config.data.batch_size),
+            "new_sample_count": new_sample_count,
+            "elapsed_seconds": {"value": elapsed_seconds, "unit": "s"},
+            "samples_per_second": {
+                "value": samples_per_second,
+                "unit": "samples/s",
+            },
             "resumed_from_step": resumed_from_step,
             "nan_loss_count": _nan_loss_count(step_results),
             "collapse_var_min": {"value": _collapse_var_min(step_results)},
