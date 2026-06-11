@@ -3,14 +3,15 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0001
 - **Supersedes:** —
 - **Implementation status:** Implemented for the v1 typed exception
   surface: stable error-code registry, typed subclasses, structured
-  details/remediation payloads, and CLI exit-code mapping exist with
-  unit/API coverage. Error-code docs generation and lookup helpers remain
-  future work.
+  details/remediation payloads, CLI exit-code mapping, and docs-build
+  generation of `api/error-codes.md` exist with unit, API, lint, and
+  docs-generation coverage. Error-code lookup CLI and programmatic
+  remediation helpers remain future work.
 
 ---
 
@@ -175,8 +176,6 @@ versions; v1 ships typed exceptions.
 
 ## 6. Future work
 
-- Auto-generated docs from `ERROR_CODES` into
-  [`docs/api/error-codes.md`](../docs/api/error-codes.md).
 - A `geno-lewm errors lookup CODE` CLI for fast diagnostic lookup.
 - Programmatic remediation: each leaf may expose a `try_fix()` method
   that attempts a documented recovery (e.g., `CacheCorruptError.try_fix()`
@@ -184,6 +183,8 @@ versions; v1 ships typed exceptions.
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for generated error-code
+  docs and kept lookup/remediation helpers as future work.
 - 2026-06-02 — Updated implementation status for the v1 typed error
   hierarchy and CLI exit-code mapping.
 - 2026-05-20 — Initial draft.
