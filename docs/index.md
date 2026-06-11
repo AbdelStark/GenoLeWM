@@ -16,6 +16,8 @@ model-quality evidence is mixed or negative versus Carbon.
 - [Architecture](architecture.md)
 - [Public API contract](api/public-surface.md)
 - [API reference](reference/index.md)
+- [GenoLeWM-FX contract](research/fx-experiment-contract.md)
+- [GenoLeWM-FX feasibility report](research/fx-feasibility-report.md)
 
 ## Public Artifacts
 
@@ -46,5 +48,7 @@ for Carbon-backed training paths.
 - No broad model-quality claim.
 - No K=20 rollout-speed closure.
 - No useful-planning claim from the current planning demo.
+- No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
+  feasibility gate.
 - No runtime or privacy assurance beyond local execution contracts and
   checksum provenance.

@@ -90,6 +90,10 @@ findings. The strongest current claim is that the repository can train,
 package, evaluate, benchmark, and replay a genomic-edit world-model
 pipeline with content-addressed evidence.
 
+The GenoLeWM-FX pivot is documented as a killed feasibility experiment:
+public TraitGym labels are available, but no reproducible 10k-50k
+teacher-delta cache is locked under the experiment contract.
+
 ## Quickstart
 
 ```python
@@ -316,6 +320,8 @@ jobs. Fixture outputs are test evidence, not model results.
 - The K=20 AR rollout speed target remains open.
 - The released planning demo exercises the model path but does not show
   useful planning behavior.
+- No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
+  feasibility gate.
 - No clinical utility claim; the public model evidence is not clinical
   evidence.
 - Personal-genome workflows are local-first, but local execution is not

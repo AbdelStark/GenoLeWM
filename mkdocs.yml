@@ -140,6 +140,10 @@ nav:
       - Glossary: glossary.md
       - FAQ: faq.md
       - Maintainers: maintainers.md
+  - Research:
+      - GenoLeWM-FX contract: research/fx-experiment-contract.md
+      - GenoLeWM-FX feasibility report: research/fx-feasibility-report.md
+      - GenoLeWM-FX decision package: research/fx-decision-package.md
   - Blog:
       - What does this edit do? (explainer): blogposts/genolewm_explainer.md
   - Release:

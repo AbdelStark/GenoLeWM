@@ -1,0 +1,204 @@
+{
+  "schema_version": "1.0.0",
+  "epic_issue": 257,
+  "contract_issue": 258,
+  "probe_issue": 259,
+  "sample_window": {
+    "min_examples": 10000,
+    "max_examples": 50000
+  },
+  "source_probe": {
+    "dataset": "songlab/TraitGym",
+    "config": "complex_traits",
+    "split": "test",
+    "holdout_chromosomes": [
+      "3",
+      "11",
+      "14",
+      "16",
+      "17",
+      "20"
+    ],
+    "bootstrap_samples": 200,
+    "bootstrap_seed": 257,
+    "score_columns": [
+      {
+        "id": "maf_source_only",
+        "column": "maf",
+        "direction": "positive",
+        "description": "Minor-allele-frequency metadata score."
+      },
+      {
+        "id": "ld_score_source_only",
+        "column": "ld_score",
+        "direction": "positive",
+        "description": "LD-score metadata score."
+      },
+      {
+        "id": "tss_distance_source_only",
+        "column": "tss_dist",
+        "direction": "negative_abs",
+        "description": "Distance-to-TSS metadata score, closer variants ranked higher."
+      }
+    ]
+  },
+  "candidate_sources": [
+    {
+      "id": "traitgym_complex_traits",
+      "name": "TraitGym complex_traits",
+      "url": "https://github.com/songlab-cal/TraitGym",
+      "dataset_ref": "songlab/TraitGym:complex_traits:test",
+      "public_labels": true,
+      "observed_examples": 11400,
+      "within_probe_scale": true,
+      "teacher_delta_cache": "missing",
+      "admissible_for_fx_probe": false,
+      "blocking_reasons": [
+        "Variant labels are public and load through Hugging Face datasets, but the source does not provide a GenoLeWM-FX ref/alt teacher-delta cache.",
+        "The loaded columns expose variant metadata and binary labels, not signed teacher residuals or teacher feature tensors."
+      ]
+    },
+    {
+      "id": "traitgym_mendelian_traits",
+      "name": "TraitGym mendelian_traits",
+      "url": "https://github.com/songlab-cal/TraitGym",
+      "dataset_ref": "songlab/TraitGym:mendelian_traits:test",
+      "public_labels": true,
+      "observed_examples": 3380,
+      "within_probe_scale": false,
+      "teacher_delta_cache": "missing",
+      "admissible_for_fx_probe": false,
+      "blocking_reasons": [
+        "The public split is below the 10k cheap-probe floor.",
+        "The source does not provide ref/alt teacher deltas or teacher feature tensors."
+      ]
+    },
+    {
+      "id": "mave_mpra_qtl_candidate_slices",
+      "name": "MAVE, MPRA, and QTL candidate slices",
+      "url": "https://www.mavedb.org/",
+      "dataset_ref": "not_locked",
+      "public_labels": "mixed",
+      "observed_examples": null,
+      "within_probe_scale": false,
+      "teacher_delta_cache": "missing",
+      "admissible_for_fx_probe": false,
+      "blocking_reasons": [
+        "No exact assay, genome build, windowing rule, split manifest, and teacher-cache manifest is locked in this repo.",
+        "Using these sources now would require new curation before the probe can be reproduced."
+      ]
+    }
+  ],
+  "candidate_teachers": [
+    {
+      "id": "alphagenome_api",
+      "name": "AlphaGenome API",
+      "url": "https://github.com/google-deepmind/alphagenome",
+      "role_allowed_by_contract": "sampled calibration/API baseline",
+      "bulk_training_admissible": false,
+      "local_runtime_available": false,
+      "blocking_reasons": [
+        "The contract permits AlphaGenome only as a bounded sampled calibration/API baseline unless terms and rates support larger use.",
+        "The local run has no AlphaGenome API key or package, and the public API is not a checksum-addressed 10k-50k teacher cache."
+      ]
+    },
+    {
+      "id": "alphagenome_weights",
+      "name": "AlphaGenome released weights",
+      "url": "https://github.com/google-deepmind/alphagenome_research",
+      "role_allowed_by_contract": "future heavyweight local teacher if terms, hardware, and artifacts are locked",
+      "bulk_training_admissible": false,
+      "local_runtime_available": false,
+      "blocking_reasons": [
+        "Weights require accepting model terms and the upstream docs recommend H100-class hardware for model inference.",
+        "No accepted-terms receipt, model revision, hardware receipt, or ref/alt teacher-cache artifact is available in this repo."
+      ]
+    },
+    {
+      "id": "borzoi",
+      "name": "Borzoi",
+      "url": "https://github.com/calico/borzoi",
+      "role_allowed_by_contract": "candidate local teacher",
+      "bulk_training_admissible": false,
+      "local_runtime_available": false,
+      "blocking_reasons": [
+        "The model is public, but the local run does not have the TensorFlow teacher stack or downloaded model weights.",
+        "The upstream large training data is requester-pays; no compact public ref/alt cache is locked for GenoLeWM-FX."
+      ]
+    },
+    {
+      "id": "enformer",
+      "name": "Enformer",
+      "url": "https://www.nature.com/articles/s41592-021-01252-x",
+      "role_allowed_by_contract": "candidate local teacher",
+      "bulk_training_admissible": false,
+      "local_runtime_available": false,
+      "blocking_reasons": [
+        "No TensorFlow teacher stack, model revision, input window manifest, or ref/alt output cache is present in this repo.",
+        "Using Enformer now would make the probe depend on ad hoc setup rather than a public GenoLeWM-FX cache manifest."
+      ]
+    },
+    {
+      "id": "chrombpnet",
+      "name": "ChromBPNet",
+      "url": "https://github.com/kundajelab/chrombpnet",
+      "role_allowed_by_contract": "candidate task-specific teacher",
+      "bulk_training_admissible": false,
+      "local_runtime_available": false,
+      "blocking_reasons": [
+        "The repository provides model/training tooling, but no selected cell-type model, peaks, genome, or ref/alt cache is locked here.",
+        "No GPU/Docker teacher runtime receipt or checksum-addressed GenoLeWM-FX cache is present."
+      ]
+    }
+  ],
+  "required_baselines": [
+    "zero-delta/no-edit",
+    "source-only/label-prior",
+    "Carbon likelihood/log-odds where applicable",
+    "direct teacher ref-alt score",
+    "linear/logistic probe on teacher features",
+    "available public model predictions when feasible"
+  ],
+  "recommended_issue_actions": [
+    {
+      "issue": 258,
+      "action": "close-completed",
+      "reason": "The source-controlled contract is locked in docs/research/fx-experiment-contract.md."
+    },
+    {
+      "issue": 259,
+      "action": "close-kill",
+      "reason": "The feasibility gate found no reproducible 10k-50k public teacher-delta slice under the contract."
+    },
+    {
+      "issue": 260,
+      "action": "close-not-planned",
+      "reason": "Teacher adapters and caches should not be built until a source/teacher pair passes the feasibility gate."
+    },
+    {
+      "issue": 261,
+      "action": "close-not-planned",
+      "reason": "The residual model path should not be implemented without a selected target and teacher cache."
+    },
+    {
+      "issue": 262,
+      "action": "close-not-planned",
+      "reason": "No staged Hugging Face jobs should launch without the #259 go decision."
+    },
+    {
+      "issue": 263,
+      "action": "close-not-planned",
+      "reason": "The locked benchmark gate is unreachable because the experiment stops at feasibility."
+    },
+    {
+      "issue": 264,
+      "action": "close-completed",
+      "reason": "The public output is the kill report, not a model artifact release."
+    },
+    {
+      "issue": 265,
+      "action": "close-completed",
+      "reason": "The final paper/demo decision is no FX paper update and no demo because evidence is insufficient."
+    }
+  ]
+}

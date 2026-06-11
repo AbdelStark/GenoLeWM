@@ -1,0 +1,372 @@
+{
+  "blockers": [
+    {
+      "code": "no_public_teacher_delta_cache",
+      "message": "No candidate source provides a public, checksum-addressed ref/alt teacher-delta cache for the required 10k-50k probe."
+    },
+    {
+      "code": "no_bulk_admissible_teacher",
+      "message": "No teacher is currently admissible for bulk training-cache use under the contract and local artifact state."
+    },
+    {
+      "code": "local_teacher_runtime_missing",
+      "message": "The local runtime has no AlphaGenome credential/package and no TensorFlow or AlphaGenome Research teacher stack."
+    }
+  ],
+  "candidate_sources": [
+    {
+      "admissible_for_fx_probe": false,
+      "blocking_reasons": [
+        "Variant labels are public and load through Hugging Face datasets, but the source does not provide a GenoLeWM-FX ref/alt teacher-delta cache.",
+        "The loaded columns expose variant metadata and binary labels, not signed teacher residuals or teacher feature tensors."
+      ],
+      "dataset_ref": "songlab/TraitGym:complex_traits:test",
+      "id": "traitgym_complex_traits",
+      "name": "TraitGym complex_traits",
+      "observed_examples": 11400,
+      "public_labels": true,
+      "teacher_delta_cache": "missing",
+      "url": "https://github.com/songlab-cal/TraitGym",
+      "within_probe_scale": true
+    },
+    {
+      "admissible_for_fx_probe": false,
+      "blocking_reasons": [
+        "The public split is below the 10k cheap-probe floor.",
+        "The source does not provide ref/alt teacher deltas or teacher feature tensors."
+      ],
+      "dataset_ref": "songlab/TraitGym:mendelian_traits:test",
+      "id": "traitgym_mendelian_traits",
+      "name": "TraitGym mendelian_traits",
+      "observed_examples": 3380,
+      "public_labels": true,
+      "teacher_delta_cache": "missing",
+      "url": "https://github.com/songlab-cal/TraitGym",
+      "within_probe_scale": false
+    },
+    {
+      "admissible_for_fx_probe": false,
+      "blocking_reasons": [
+        "No exact assay, genome build, windowing rule, split manifest, and teacher-cache manifest is locked in this repo.",
+        "Using these sources now would require new curation before the probe can be reproduced."
+      ],
+      "dataset_ref": "not_locked",
+      "id": "mave_mpra_qtl_candidate_slices",
+      "name": "MAVE, MPRA, and QTL candidate slices",
+      "observed_examples": null,
+      "public_labels": "mixed",
+      "teacher_delta_cache": "missing",
+      "url": "https://www.mavedb.org/",
+      "within_probe_scale": false
+    }
+  ],
+  "candidate_teachers": [
+    {
+      "blocking_reasons": [
+        "The contract permits AlphaGenome only as a bounded sampled calibration/API baseline unless terms and rates support larger use.",
+        "The local run has no AlphaGenome API key or package, and the public API is not a checksum-addressed 10k-50k teacher cache."
+      ],
+      "bulk_training_admissible": false,
+      "id": "alphagenome_api",
+      "local_runtime_available": false,
+      "name": "AlphaGenome API",
+      "role_allowed_by_contract": "sampled calibration/API baseline",
+      "url": "https://github.com/google-deepmind/alphagenome"
+    },
+    {
+      "blocking_reasons": [
+        "Weights require accepting model terms and the upstream docs recommend H100-class hardware for model inference.",
+        "No accepted-terms receipt, model revision, hardware receipt, or ref/alt teacher-cache artifact is available in this repo."
+      ],
+      "bulk_training_admissible": false,
+      "id": "alphagenome_weights",
+      "local_runtime_available": false,
+      "name": "AlphaGenome released weights",
+      "role_allowed_by_contract": "future heavyweight local teacher if terms, hardware, and artifacts are locked",
+      "url": "https://github.com/google-deepmind/alphagenome_research"
+    },
+    {
+      "blocking_reasons": [
+        "The model is public, but the local run does not have the TensorFlow teacher stack or downloaded model weights.",
+        "The upstream large training data is requester-pays; no compact public ref/alt cache is locked for GenoLeWM-FX."
+      ],
+      "bulk_training_admissible": false,
+      "id": "borzoi",
+      "local_runtime_available": false,
+      "name": "Borzoi",
+      "role_allowed_by_contract": "candidate local teacher",
+      "url": "https://github.com/calico/borzoi"
+    },
+    {
+      "blocking_reasons": [
+        "No TensorFlow teacher stack, model revision, input window manifest, or ref/alt output cache is present in this repo.",
+        "Using Enformer now would make the probe depend on ad hoc setup rather than a public GenoLeWM-FX cache manifest."
+      ],
+      "bulk_training_admissible": false,
+      "id": "enformer",
+      "local_runtime_available": false,
+      "name": "Enformer",
+      "role_allowed_by_contract": "candidate local teacher",
+      "url": "https://www.nature.com/articles/s41592-021-01252-x"
+    },
+    {
+      "blocking_reasons": [
+        "The repository provides model/training tooling, but no selected cell-type model, peaks, genome, or ref/alt cache is locked here.",
+        "No GPU/Docker teacher runtime receipt or checksum-addressed GenoLeWM-FX cache is present."
+      ],
+      "bulk_training_admissible": false,
+      "id": "chrombpnet",
+      "local_runtime_available": false,
+      "name": "ChromBPNet",
+      "role_allowed_by_contract": "candidate task-specific teacher",
+      "url": "https://github.com/kundajelab/chrombpnet"
+    }
+  ],
+  "claim_boundary": "The FX pivot has no model-quality claim, no clinical utility claim, no broad variant-effect prediction claim, and no useful-planning claim. The public output is a kill report unless a future source/teacher cache passes this contract.",
+  "contract_issue": 258,
+  "decision": "kill",
+  "epic_issue": 257,
+  "generated_at": "2026-06-11T10:00:00Z",
+  "generated_by": "tools.research.fx_feasibility",
+  "manifest": {
+    "path": "configs/fx/feasibility_sources.json",
+    "sha256": "sha256:b866f8cbc70667774fa9121babc279e27df71fcd7dbdf15bd28ec583b3adfcfd"
+  },
+  "ok_to_continue": false,
+  "probe_issue": 259,
+  "recommended_issue_actions": [
+    {
+      "action": "close-completed",
+      "issue": 258,
+      "reason": "The source-controlled contract is locked in docs/research/fx-experiment-contract.md."
+    },
+    {
+      "action": "close-kill",
+      "issue": 259,
+      "reason": "The feasibility gate found no reproducible 10k-50k public teacher-delta slice under the contract."
+    },
+    {
+      "action": "close-not-planned",
+      "issue": 260,
+      "reason": "Teacher adapters and caches should not be built until a source/teacher pair passes the feasibility gate."
+    },
+    {
+      "action": "close-not-planned",
+      "issue": 261,
+      "reason": "The residual model path should not be implemented without a selected target and teacher cache."
+    },
+    {
+      "action": "close-not-planned",
+      "issue": 262,
+      "reason": "No staged Hugging Face jobs should launch without the #259 go decision."
+    },
+    {
+      "action": "close-not-planned",
+      "issue": 263,
+      "reason": "The locked benchmark gate is unreachable because the experiment stops at feasibility."
+    },
+    {
+      "action": "close-completed",
+      "issue": 264,
+      "reason": "The public output is the kill report, not a model artifact release."
+    },
+    {
+      "action": "close-completed",
+      "issue": 265,
+      "reason": "The final paper/demo decision is no FX paper update and no demo because evidence is insufficient."
+    }
+  ],
+  "required_baselines": [
+    "zero-delta/no-edit",
+    "source-only/label-prior",
+    "Carbon likelihood/log-odds where applicable",
+    "direct teacher ref-alt score",
+    "linear/logistic probe on teacher features",
+    "available public model predictions when feasible"
+  ],
+  "runtime_checks": {
+    "alphagenome_api_key_present": false,
+    "alphagenome_importable": false,
+    "alphagenome_research_importable": false,
+    "datasets_importable": true,
+    "jax_importable": false,
+    "nvidia_smi_available": false,
+    "tensorflow_importable": false,
+    "torch_importable": true
+  },
+  "sample_window": {
+    "max_examples": 50000,
+    "min_examples": 10000
+  },
+  "schema_version": "1.0.0",
+  "source_probe_rows": [
+    {
+      "baseline_id": "label_prior_no_teacher",
+      "dataset": "songlab/TraitGym:complex_traits:test",
+      "description": "No-teacher label-prior baseline.",
+      "eval_rows": 3390,
+      "holdout_chromosomes": [
+        "11",
+        "14",
+        "16",
+        "17",
+        "20",
+        "3"
+      ],
+      "metrics": [
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "auroc",
+          "value": 0.5
+        },
+        {
+          "ci95": [
+            0.1,
+            0.1
+          ],
+          "name": "average_precision",
+          "value": 0.1
+        },
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5
+        }
+      ],
+      "target_kind": "variant_label_not_teacher_delta",
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "maf_source_only",
+      "dataset": "songlab/TraitGym:complex_traits:test",
+      "description": "Minor-allele-frequency metadata score.",
+      "eval_rows": 3390,
+      "holdout_chromosomes": [
+        "11",
+        "14",
+        "16",
+        "17",
+        "20",
+        "3"
+      ],
+      "metrics": [
+        {
+          "ci95": [
+            0.4785140816931048,
+            0.5324305872811412
+          ],
+          "name": "auroc",
+          "value": 0.505679263726096
+        },
+        {
+          "ci95": [
+            0.0892097132596478,
+            0.11839278879285925
+          ],
+          "name": "average_precision",
+          "value": 0.10238259917649947
+        },
+        {
+          "ci95": [
+            0.4853133560724309,
+            0.5152946997504786
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.49868895444116684
+        }
+      ],
+      "target_kind": "variant_label_not_teacher_delta",
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "ld_score_source_only",
+      "dataset": "songlab/TraitGym:complex_traits:test",
+      "description": "LD-score metadata score.",
+      "eval_rows": 3390,
+      "holdout_chromosomes": [
+        "11",
+        "14",
+        "16",
+        "17",
+        "20",
+        "3"
+      ],
+      "metrics": [
+        {
+          "ci95": [
+            0.46456844956055804,
+            0.5248647673125842
+          ],
+          "name": "auroc",
+          "value": 0.4923309635894803
+        },
+        {
+          "ci95": [
+            0.08768301784726945,
+            0.11220413576161543
+          ],
+          "name": "average_precision",
+          "value": 0.09967361219717137
+        },
+        {
+          "ci95": [
+            0.4854934478486086,
+            0.5167521494829699
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5018026876433956
+        }
+      ],
+      "target_kind": "variant_label_not_teacher_delta",
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "tss_distance_source_only",
+      "dataset": "songlab/TraitGym:complex_traits:test",
+      "description": "Distance-to-TSS metadata score, closer variants ranked higher.",
+      "eval_rows": 3390,
+      "holdout_chromosomes": [
+        "11",
+        "14",
+        "16",
+        "17",
+        "20",
+        "3"
+      ],
+      "metrics": [
+        {
+          "ci95": [
+            0.47798962438804976,
+            0.5391616693401479
+          ],
+          "name": "auroc",
+          "value": 0.5088833971936277
+        },
+        {
+          "ci95": [
+            0.09106007163172769,
+            0.12488259864829933
+          ],
+          "name": "average_precision",
+          "value": 0.10907921673083246
+        },
+        {
+          "ci95": [
+            0.4969891544229653,
+            0.5439867576911435
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5188462799082268
+        }
+      ],
+      "target_kind": "variant_label_not_teacher_delta",
+      "train_rows": 8010
+    }
+  ]
+}
