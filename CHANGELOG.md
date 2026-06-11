@@ -13,6 +13,14 @@ or incompatible command changes require an explicit compatibility note.
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as
   fixture smoke coverage, not model-quality evidence.
+- Added a fixture-scale BRCA2 saturation mechanics notebook with tests,
+  keeping published-data Spearman evidence explicitly open.
+- Added release and CI reports for paper PDF/TeX builds, coverage-gate
+  JSON output, tuple-throughput persistence, training reproducibility,
+  dataset-integrity region checks, shard-prep artifact identities, and
+  desktop signing preflight.
+- Added desktop scaffold contracts for a persistent research-use safety
+  banner and local VCF/FASTA file picker controls.
 
 ### Changed
 
@@ -26,6 +34,14 @@ or incompatible command changes require an explicit compatibility note.
 - Added pure-Python data/evaluation coverage for shard preparation and
   evaluation edge cases, raising global `fail_under` and the changed-file
   coverage gate from 83% to 84%.
+- Recorded deterministic trace and artifact identities across planning,
+  rollout, cache maintenance, data preparation, Carbon windows, fixture
+  training, Carbon-backed training, real-training throughput, and model
+  export paths.
+- Clarified example-notebook blockers, FAQ release evidence, and planning
+  package status without expanding the measured evidence boundary.
+- Made unsupported export targets fail closed until a backed runtime
+  implementation exists.
 
 ## [0.2.1] - 2026-06-09
 
