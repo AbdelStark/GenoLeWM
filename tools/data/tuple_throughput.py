@@ -21,6 +21,7 @@ from geno_lewm.data import (
     variant_provider,
 )
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
+from geno_lewm.provenance import sha256_file
 from geno_lewm.training.real import (
     _dataset_fallback_sources,
     _dataset_files,
@@ -30,6 +31,7 @@ from geno_lewm.training.real import (
     _load_windows,
 )
 
+SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.data.tuple_throughput"
 
 
@@ -41,7 +43,9 @@ def measure_tuple_throughput(
 ) -> dict[str, object]:
     """Measure pure tuple-builder throughput for a packaged release dataset."""
     _require_positive_int("samples", samples)
+    manifest_path = dataset_dir / "dataset_manifest.json"
     manifest = _load_dataset_manifest(dataset_dir)
+    dataset_snapshot_id = _required_text(manifest, "snapshot_id")
     files = _dataset_files(manifest)
     windows = tuple(_load_windows(dataset_dir, files))
     if not windows:
@@ -77,8 +81,12 @@ def measure_tuple_throughput(
         observed += 1
     elapsed = max(time.perf_counter() - start, 1e-9)
     return {
+        "schema_version": SCHEMA_VERSION,
         "generated_by": GENERATED_BY,
         "dataset_dir": dataset_dir.name,
+        "dataset_snapshot_id": dataset_snapshot_id,
+        "dataset_manifest": _file_identity(manifest_path, label="dataset_manifest.json"),
+        "seed": seed,
         "samples": observed,
         "elapsed_seconds": elapsed,
         "tuples_per_second": observed / elapsed,
@@ -86,6 +94,21 @@ def measure_tuple_throughput(
         "gnomad_edits": len(gnomad_edits),
         "clinvar_edits": len(clinvar_edits),
     }
+
+
+def _file_identity(path: Path, *, label: str) -> dict[str, object]:
+    return {
+        "path": label,
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _required_text(payload: dict[str, object], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        raise InputError(f"dataset manifest {key} must be a non-empty string")
+    return value
 
 
 def _require_positive_int(name: str, value: int) -> None:

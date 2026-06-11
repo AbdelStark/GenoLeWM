@@ -10,7 +10,10 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added dataset snapshot and manifest hash identity to tuple-throughput
+  reports so cache-throughput evidence can be tied to a packaged dataset.
 
 ## [0.2.1] - 2026-06-09
 
