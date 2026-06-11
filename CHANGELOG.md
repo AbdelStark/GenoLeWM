@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added a desktop signing preflight report that checks Tauri bundle
+  metadata and macOS, Linux AppImage, and Windows signing credential
+  completeness without claiming signed desktop releases exist.
 
 ## [0.2.1] - 2026-06-09
 

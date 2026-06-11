@@ -37,5 +37,33 @@ and recorded in the release tracker. This page exists so
   with `git tag -v vX.Y.Z` after importing the lead's GPG key.
 - Release assets should also verify with the GitHub CLI
   build-provenance verification command for the published artifact.
+- Desktop release candidates should run
+  `python -m tools.release.desktop_signing_preflight --require-secrets`
+  before invoking Tauri's bundle publisher. The preflight checks only
+  bundle metadata and credential completeness; it does not sign,
+  notarize, staple, publish, or verify a desktop binary.
+
+## Desktop signing prerequisites
+
+The desktop app follows the Tauri v2 signing surfaces for macOS,
+Linux AppImage, and Windows installers:
+
+- macOS CI signing needs `APPLE_CERTIFICATE`,
+  `APPLE_CERTIFICATE_PASSWORD`, and `KEYCHAIN_PASSWORD`. Notarization
+  then needs either App Store Connect API credentials
+  (`APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH`) or Apple
+  ID credentials (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`).
+- Linux AppImage signing needs `SIGN=1`, `SIGN_KEY`,
+  `APPIMAGETOOL_SIGN_PASSPHRASE`, and `APPIMAGETOOL_FORCE_SIGN=1`.
+  The force flag is required so CI fails if AppImage signing fails.
+- Windows signing needs either a PFX certificate pair
+  (`WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD`) or Azure
+  signing credentials (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+  `AZURE_TENANT_ID`) plus the matching Tauri `signCommand` in a future
+  release workflow.
+
+References: [Tauri macOS signing](https://v2.tauri.app/distribute/sign/macos/),
+[Tauri Linux signing](https://v2.tauri.app/distribute/sign/linux/), and
+[Tauri Windows signing](https://v2.tauri.app/distribute/sign/windows/).
 
 See also: [SECURITY](../security.md), [supply-chain notes](../privacy.md).
