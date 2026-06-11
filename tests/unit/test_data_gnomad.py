@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import geno_lewm.data.gnomad as gnomad_mod
 from geno_lewm.data import (
     GNOMAD_SCHEMA_VERSION,
     GnomadVariant,
@@ -14,7 +15,7 @@ from geno_lewm.data import (
     prepare_gnomad_shard,
 )
 from geno_lewm.data.gnomad import _optional_float
-from geno_lewm.errors import InputError
+from geno_lewm.errors import InputError, RuntimeSetupError
 
 
 def test_prepare_gnomad_shard_filters_common_pass_variants(tmp_path: Path) -> None:
@@ -54,6 +55,58 @@ def test_prepare_gnomad_shard_is_idempotent_without_overwrite(tmp_path: Path) ->
     assert second.records_read == 0
     assert second.records_written == 2
     assert second.size_bytes == first.size_bytes
+    assert second.to_dict()["already_exists"] is True
+
+
+def test_prepare_gnomad_shard_flushes_multiple_small_batches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    monkeypatch.setattr(gnomad_mod, "_PARQUET_BATCH_ROWS", 1)
+    vcf_path = _write_gnomad_vcf(tmp_path / "gnomad.vcf")
+
+    report = prepare_gnomad_shard(vcf_path, tmp_path, release="v4.1", min_af=0.01)
+
+    assert report.records_written == 2
+    assert len(list(iter_gnomad_shard(report.output_path))) == 2
+
+
+def test_prepare_gnomad_shard_cleans_tmp_file_on_write_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    vcf_path = _write_gnomad_vcf(tmp_path / "gnomad.vcf")
+
+    def fail_write_batch(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("synthetic parquet write failure")
+
+    monkeypatch.setattr(gnomad_mod, "_write_batch", fail_write_batch)
+
+    with pytest.raises(RuntimeError, match="synthetic parquet write failure"):
+        prepare_gnomad_shard(vcf_path, tmp_path, release="v4.1", min_af=0.01)
+
+    target = tmp_path / "gnomad" / "v4.1" / "variants.parquet"
+    assert not target.exists()
+    assert not target.with_name(target.name + ".tmp").exists()
+
+
+def test_gnomad_pyarrow_dependency_error_is_typed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import = gnomad_mod.importlib.import_module
+
+    def fake_import_module(name: str) -> object:
+        if name == "pyarrow":
+            raise ImportError("missing pyarrow")
+        return original_import(name)
+
+    monkeypatch.setattr(gnomad_mod.importlib, "import_module", fake_import_module)
+
+    with pytest.raises(RuntimeSetupError, match="requires pyarrow"):
+        list(iter_gnomad_shard(tmp_path / "missing.parquet"))
 
 
 def test_iter_gnomad_vcf_variants_filters_and_validates_inputs(tmp_path: Path) -> None:

@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Added pure-Python data/evaluation coverage for shard preparation and
+  evaluation edge cases, raising global `fail_under` and the changed-file
+  coverage gate from 83% to 84%.
 
 ## [0.2.1] - 2026-06-09
 
