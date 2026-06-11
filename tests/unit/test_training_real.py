@@ -18,6 +18,8 @@ from geno_lewm.data import (
     synthetic_snv_provider,
 )
 from geno_lewm.errors import InputError
+from geno_lewm.provenance import sha256_file
+from geno_lewm.training.preflight import REPORT_NAME, AcceleratorProbe, TrainingPreflightReport
 from geno_lewm.training.real import (
     _collapse_var_min,
     _dataset_fallback_sources,
@@ -32,6 +34,7 @@ from geno_lewm.training.real import (
     _validate_resume_checkpoint_payload,
     _write_checkpoint,
     _write_metrics,
+    _write_training_metadata,
 )
 from geno_lewm.training.trainer import TorchTrainerStepResult, TrainerSeeds
 from tests.unit.test_training_preflight import _write_release_dataset, _write_training_config
@@ -101,6 +104,53 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
     assert metrics["nan_loss_count"] == 1
     assert metrics["collapse_var_min"]["value"] == pytest.approx(0.2)
     assert metrics["collapse_alert_count"] == 1
+
+
+def test_write_training_metadata_records_artifact_identities(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    artifacts = {
+        "dataset_manifest": "dataset_manifest.json",
+        "training_config": "training_config.effective.yaml",
+        "metrics": "metrics.json",
+        "logs": ["train.log"],
+        "checkpoint_files": ["predictor_checkpoint.pt"],
+    }
+    for name in (
+        "dataset_manifest.json",
+        "training_config.effective.yaml",
+        "metrics.json",
+        "train.log",
+        "predictor_checkpoint.pt",
+        REPORT_NAME,
+    ):
+        (tmp_path / name).write_text(f"{name}\n", encoding="utf-8")
+
+    metadata_path = tmp_path / "training_run.json"
+    _write_training_metadata(
+        metadata_path,
+        config=config,
+        command="geno-lewm-train --carbon-train",
+        commit_sha="abcdef123456",
+        package_version="0.1.0.dev0",
+        dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+        seeds=seeds,
+        determinism={"deterministic": True},
+        artifacts=artifacts,
+        preflight_report=_preflight_report(),
+        final_loss=0.5,
+        sample_count=4,
+        resumed_from_step=0,
+        resume_checkpoint_path=None,
+    )
+
+    identities = json.loads(metadata_path.read_text(encoding="utf-8"))["artifact_identities"]
+    assert identities["dataset_manifest"] == _identity(tmp_path, "dataset_manifest.json")
+    assert identities["training_config"] == _identity(tmp_path, "training_config.effective.yaml")
+    assert identities["metrics"] == _identity(tmp_path, "metrics.json")
+    assert identities["logs"] == [_identity(tmp_path, "train.log")]
+    assert identities["checkpoint_files"] == [_identity(tmp_path, "predictor_checkpoint.pt")]
+    assert identities["training_preflight_report"] == _identity(tmp_path, REPORT_NAME)
 
 
 def test_training_device_uses_runtime_config_device(tmp_path: Path) -> None:
@@ -320,3 +370,38 @@ class _DeviceModule:
     def to(self, device: str) -> _DeviceModule:
         self.devices.append(device)
         return self
+
+
+def _identity(root: Path, name: str) -> dict[str, object]:
+    path = root / name
+    return {
+        "path": name,
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _preflight_report() -> TrainingPreflightReport:
+    return TrainingPreflightReport(
+        schema_version="1.0.0",
+        generated_by="test",
+        generated_at="2026-06-11T00:00:00Z",
+        ok=True,
+        dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+        training_config={},
+        run_dir={},
+        dataset={},
+        carbon={},
+        accelerator=AcceleratorProbe(
+            requested_device=None,
+            required=False,
+            available=True,
+            device_count=0,
+            device_name=None,
+            total_memory_bytes=None,
+            min_memory_bytes=0,
+            reason="not required",
+        ),
+        dependencies=(),
+        issues=(),
+    )
