@@ -3,8 +3,12 @@
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
 The receipt-verification notebook is implemented. Scoring notebooks now
 wait for the first released checkpoint and dataset snapshot so their
-outputs do not present fixtures as model results; planning notebooks
-remain planned until the planner is implemented.
+outputs do not present fixtures as model results. Rollout and planning
+notebooks remain blocked until measured release evidence exists: #97
+requires rollout-fidelity rows with documented cosine-similarity targets,
+and #98 requires planner latency and useful-planning boundary evidence.
+Fixture smoke outputs are test evidence, not model results, and are not
+used as substitutes for those notebooks.
 
 ---
 
@@ -27,14 +31,20 @@ in their own). Demonstrates the batched throughput path and the
 per-variant receipt aggregation.
 
 ### `04_multi_edit_rollout.ipynb`
-Phase 2. Roll out a phased multi-edit haplotype from gnomAD, compare
-predicted vs encoder ground truth latent at each step, plot the
-divergence curve. Demonstrates the world-model claim.
+Phase 2. Blocked on #97. This notebook should roll out a phased
+multi-edit haplotype from gnomAD, compare predicted vs encoder
+ground-truth latent at each step, and plot the divergence curve. It
+lands only after release-backed rollout-state examples, measured
+encoder-ground-truth comparisons, and documented cosine-similarity
+targets are available.
 
 ### `05_planning_minimal_edits.ipynb`
-Phase 2. Given a pathogenic variant and a "benign latent neighborhood"
-target, run CEM to find the minimal compensatory edit set. Demonstrates
-the planner.
+Phase 2. Blocked on #98. This notebook should run CEM from an initial
+variant state toward a target latent neighborhood and visualize the edit
+sequence. It lands only after planner latency evidence and the
+useful-planning boundary are documented; the current released planning
+demo exercises the manifest-backed path but does not prove useful
+planning behavior.
 
 ### `06_on_device_desktop.md` (not a notebook)
 Phase 3. Walkthrough of installing the desktop app, dropping in a VCF,

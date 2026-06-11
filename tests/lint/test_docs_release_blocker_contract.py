@@ -14,6 +14,7 @@ IMPLEMENTATION_TRACKER = REPO_ROOT / "docs" / "roadmap" / "IMPLEMENTATION.md"
 DOCS_INDEX = REPO_ROOT / "docs" / "index.md"
 DOCS_QUICKSTART = REPO_ROOT / "docs" / "quickstart.md"
 DOCS_FAQ = REPO_ROOT / "docs" / "faq.md"
+EXAMPLES_README = REPO_ROOT / "examples" / "README.md"
 RELEASE_SIGNING_KEYS = REPO_ROOT / "docs" / "release" / "signing-keys.md"
 HF_MODEL_CARD = REPO_ROOT / "docs" / "release" / "huggingface-model-card.md"
 RELEASE_SPEC = REPO_ROOT / "docs" / "spec" / "09-release-and-versioning.md"
@@ -193,6 +194,32 @@ def test_ci_fixture_gates_keep_claim_boundaries() -> None:
     assert "fixture smoke" in combined
     assert "not model-quality evidence" in combined or "not model results" in combined
     assert "real model quality" not in combined
+
+
+def test_examples_readme_names_rollout_and_planning_notebook_blockers() -> None:
+    text = EXAMPLES_README.read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
+    required = (
+        "Rollout and planning notebooks remain blocked until measured release evidence exists",
+        "#97 requires rollout-fidelity rows with documented cosine-similarity targets",
+        "#98 requires planner latency and useful-planning boundary evidence",
+        "Fixture smoke outputs are test evidence, not model results",
+        "`04_multi_edit_rollout.ipynb`",
+        "release-backed rollout-state examples",
+        "encoder-ground-truth comparisons",
+        "`05_planning_minimal_edits.ipynb`",
+        "does not prove useful planning behavior",
+    )
+    forbidden = (
+        "planning notebooks remain planned until the planner is implemented",
+        "Demonstrates the world-model claim",
+        "Demonstrates the planner",
+    )
+
+    for fragment in required:
+        assert fragment in normalized
+    for fragment in forbidden:
+        assert fragment not in normalized
 
 
 def test_package_metadata_preserves_research_boundary() -> None:

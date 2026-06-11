@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Clarified the examples README blockers for rollout and planning
+  notebooks so #97 and #98 remain tied to measured release evidence
+  rather than fixture or planner-scaffold output.
 
 ## [0.2.1] - 2026-06-09
 
