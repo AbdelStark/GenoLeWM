@@ -144,6 +144,13 @@ TraitGym-native Borzoi score, and linear/logistic probe baselines. The
 path continues only if the task is not saturated and the Borzoi-derived
 target has enough signal to make a residual model meaningful.
 
+Current outcome: the source-controlled
+[Borzoi baseline and saturation report](fx-borzoi-baseline-report.md)
+records a go decision for the residual-model gate. The strongest simple
+baseline is a Borzoi-plus-source logistic probe with holdout AUPRC
+0.2225 and AUROC 0.6494, below the saturation thresholds of AUPRC 0.8
+and AUROC 0.9. This is a gate result only, not a model-quality claim.
+
 ### Stage 4 - Residual Model And Locked Eval
 
 Only after Stages 1-3 pass, train a minimal residual model and evaluate

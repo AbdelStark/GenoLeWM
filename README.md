@@ -324,8 +324,8 @@ jobs. Fixture outputs are test evidence, not model results.
   useful planning behavior.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
-- The precomputed-Borzoi rescue path has a TraitGym-native row-aligned
-  score cache; a full fipip table join is optional staged provenance,
+- The precomputed-Borzoi rescue path has passed a TraitGym-native
+  baseline gate; a full fipip table join is optional staged provenance,
   and no training or benchmark claim is open.
 - No clinical utility claim; the public model evidence is not clinical
   evidence.

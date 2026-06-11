@@ -15,6 +15,7 @@ Authoritative artifacts:
 - [Borzoi rescue plan](fx-borzoi-rescue-plan.md)
 - [Borzoi alignment and overlap report](fx-borzoi-overlap-report.md)
 - [Borzoi score cache report](fx-borzoi-cache-report.md)
+- [Borzoi baseline and saturation report](fx-borzoi-baseline-report.md)
 
 ## Decision
 
@@ -81,6 +82,13 @@ TraitGym-native Borzoi score, source metadata columns needed for the
 baseline gate, and explicit fipip exact-join status. That cache opens
 the #270 baseline/saturation gate; it still does not open a model-quality
 or training claim.
+
+The third follow-up gate has a source-controlled outcome:
+[GenoLeWM-FX Borzoi baseline and saturation report](fx-borzoi-baseline-report.md).
+It records that the strongest simple baseline is not saturated on the
+locked holdout split and that #271 may proceed. The reported baseline
+numbers are gate evidence only; they are not a trained GenoLeWM-FX model
+result and do not support public model-quality claims.
 
 ## Child Issue Resolution
 

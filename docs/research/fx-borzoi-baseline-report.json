@@ -1,0 +1,759 @@
+{
+  "baseline_issue": 270,
+  "baselines": [
+    {
+      "baseline_id": "constant_negative",
+      "family": "constant",
+      "features": [],
+      "holdout_metrics": [
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "auroc",
+          "value": 0.5
+        },
+        {
+          "ci95": [
+            0.0878967586309396,
+            0.11732278776602828
+          ],
+          "name": "average_precision",
+          "value": 0.09711645830159216
+        },
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5
+        }
+      ],
+      "holdout_rows": 3390,
+      "selected_direction": "constant",
+      "threshold": 0.0,
+      "train_metrics": [
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "auroc",
+          "value": 0.5
+        },
+        {
+          "ci95": [
+            0.10008615561676856,
+            0.10008615561676856
+          ],
+          "name": "average_precision",
+          "value": 0.10008615561676856
+        },
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5
+        }
+      ],
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "label_prior_constant",
+      "family": "label_prior",
+      "features": [],
+      "holdout_metrics": [
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "auroc",
+          "value": 0.5
+        },
+        {
+          "ci95": [
+            0.0878967586309396,
+            0.11732278776602828
+          ],
+          "name": "average_precision",
+          "value": 0.09711645830159216
+        },
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5
+        }
+      ],
+      "holdout_rows": 3390,
+      "selected_direction": "constant",
+      "threshold": 0.1,
+      "train_metrics": [
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "auroc",
+          "value": 0.5
+        },
+        {
+          "ci95": [
+            0.10008615561676856,
+            0.10008615561676856
+          ],
+          "name": "average_precision",
+          "value": 0.10008615561676856
+        },
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5
+        }
+      ],
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "maf_source_only",
+      "family": "source_only",
+      "features": [
+        "maf"
+      ],
+      "holdout_metrics": [
+        {
+          "ci95": [
+            0.4731464028455562,
+            0.5381588543835771
+          ],
+          "name": "auroc",
+          "value": 0.505679263726096
+        },
+        {
+          "ci95": [
+            0.08951094404190417,
+            0.12004951945854364
+          ],
+          "name": "average_precision",
+          "value": 0.10238259917649947
+        },
+        {
+          "ci95": [
+            0.48506896234667085,
+            0.5128472203576593
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.49868895444116684
+        }
+      ],
+      "holdout_rows": 3390,
+      "selected_direction": "positive",
+      "threshold": 0.43005,
+      "train_metrics": [
+        {
+          "ci95": [
+            0.5041754922451804,
+            0.5041754922451804
+          ],
+          "name": "auroc",
+          "value": 0.5041754922451804
+        },
+        {
+          "ci95": [
+            0.10125234249532197,
+            0.10125234249532197
+          ],
+          "name": "average_precision",
+          "value": 0.10125234249532197
+        },
+        {
+          "ci95": [
+            0.49993064225273964,
+            0.49993064225273964
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.49993064225273964
+        }
+      ],
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "ld_score_source_only",
+      "family": "source_only",
+      "features": [
+        "ld_score"
+      ],
+      "holdout_metrics": [
+        {
+          "ci95": [
+            0.47607951911863017,
+            0.5417366518768001
+          ],
+          "name": "auroc",
+          "value": 0.5076690364105196
+        },
+        {
+          "ci95": [
+            0.08943593154690196,
+            0.11955200357886864
+          ],
+          "name": "average_precision",
+          "value": 0.1025570642571744
+        },
+        {
+          "ci95": [
+            0.4829962176295964,
+            0.5201457865678654
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5013110455588332
+        }
+      ],
+      "holdout_rows": 3390,
+      "selected_direction": "negative",
+      "threshold": -14.86,
+      "train_metrics": [
+        {
+          "ci95": [
+            0.5116374680075485,
+            0.5116374680075485
+          ],
+          "name": "auroc",
+          "value": 0.5116374680075485
+        },
+        {
+          "ci95": [
+            0.10529046723989412,
+            0.10529046723989412
+          ],
+          "name": "average_precision",
+          "value": 0.10529046723989412
+        },
+        {
+          "ci95": [
+            0.501317797197947,
+            0.501317797197947
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.501317797197947
+        }
+      ],
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "tss_dist_source_only",
+      "family": "source_only",
+      "features": [
+        "tss_dist"
+      ],
+      "holdout_metrics": [
+        {
+          "ci95": [
+            0.4775741422366398,
+            0.5401160798079878
+          ],
+          "name": "auroc",
+          "value": 0.5088833971936277
+        },
+        {
+          "ci95": [
+            0.09191532953505854,
+            0.12636936803219723
+          ],
+          "name": "average_precision",
+          "value": 0.10907921673083246
+        },
+        {
+          "ci95": [
+            0.4998822925435975,
+            0.5390914203262805
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5188462799082268
+        }
+      ],
+      "holdout_rows": 3390,
+      "selected_direction": "negative",
+      "threshold": -725.0,
+      "train_metrics": [
+        {
+          "ci95": [
+            0.502219361323384,
+            0.502219361323384
+          ],
+          "name": "auroc",
+          "value": 0.502219361323384
+        },
+        {
+          "ci95": [
+            0.10336161751754755,
+            0.10336161751754755
+          ],
+          "name": "average_precision",
+          "value": 0.10336161751754755
+        },
+        {
+          "ci95": [
+            0.5027049521431544,
+            0.5027049521431544
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5027049521431544
+        }
+      ],
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "direct_traitgym_native_borzoi",
+      "family": "direct_borzoi",
+      "features": [
+        "borzoi_score"
+      ],
+      "holdout_metrics": [
+        {
+          "ci95": [
+            0.608166918891345,
+            0.6786897387200743
+          ],
+          "name": "auroc",
+          "value": 0.6446380073654462
+        },
+        {
+          "ci95": [
+            0.17943976937550182,
+            0.2640719088784513
+          ],
+          "name": "average_precision",
+          "value": 0.2213743948035639
+        },
+        {
+          "ci95": [
+            0.5540389937997994,
+            0.6005375613338952
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5789904949196985
+        }
+      ],
+      "holdout_rows": 3390,
+      "selected_direction": "positive",
+      "threshold": 26.49095916748047,
+      "train_metrics": [
+        {
+          "ci95": [
+            0.6453825837414703,
+            0.6453825837414703
+          ],
+          "name": "auroc",
+          "value": 0.6453825837414703
+        },
+        {
+          "ci95": [
+            0.21645986654070518,
+            0.21645986654070518
+          ],
+          "name": "average_precision",
+          "value": 0.21645986654070518
+        },
+        {
+          "ci95": [
+            0.6032736856706894,
+            0.6032736856706894
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.6032736856706894
+        }
+      ],
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "source_logistic_probe",
+      "family": "source_probe",
+      "features": [
+        "maf",
+        "ld_score",
+        "tss_dist"
+      ],
+      "holdout_metrics": [
+        {
+          "ci95": [
+            0.4735925302675608,
+            0.5415496282067285
+          ],
+          "name": "auroc",
+          "value": 0.5093905088423062
+        },
+        {
+          "ci95": [
+            0.09122582482004839,
+            0.12310435346112567
+          ],
+          "name": "average_precision",
+          "value": 0.10457176928978472
+        },
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5
+        }
+      ],
+      "holdout_rows": 3390,
+      "selected_direction": "fit_on_train",
+      "threshold": 0.5,
+      "train_metrics": [
+        {
+          "ci95": [
+            0.5111213978781205,
+            0.5111213978781205
+          ],
+          "name": "auroc",
+          "value": 0.5111213978781205
+        },
+        {
+          "ci95": [
+            0.10476784530316627,
+            0.10476784530316627
+          ],
+          "name": "average_precision",
+          "value": 0.10476784530316627
+        },
+        {
+          "ci95": [
+            0.5,
+            0.5
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5
+        }
+      ],
+      "train_rows": 8010
+    },
+    {
+      "baseline_id": "borzoi_plus_source_logistic_probe",
+      "family": "borzoi_probe",
+      "features": [
+        "borzoi_score",
+        "maf",
+        "ld_score",
+        "tss_dist"
+      ],
+      "holdout_metrics": [
+        {
+          "ci95": [
+            0.6144029191243308,
+            0.6821100969844257
+          ],
+          "name": "auroc",
+          "value": 0.6494374396324432
+        },
+        {
+          "ci95": [
+            0.1799612237853904,
+            0.26741550737792813
+          ],
+          "name": "average_precision",
+          "value": 0.2225262018025548
+        },
+        {
+          "ci95": [
+            0.5013650958851011,
+            0.5152777906689212
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5080301540478531
+        }
+      ],
+      "holdout_rows": 3390,
+      "selected_direction": "fit_on_train",
+      "threshold": 0.5,
+      "train_metrics": [
+        {
+          "ci95": [
+            0.6438785337166106,
+            0.6438785337166106
+          ],
+          "name": "auroc",
+          "value": 0.6438785337166106
+        },
+        {
+          "ci95": [
+            0.21687975113010652,
+            0.21687975113010652
+          ],
+          "name": "average_precision",
+          "value": 0.21687975113010652
+        },
+        {
+          "ci95": [
+            0.5144957691774171,
+            0.5144957691774171
+          ],
+          "name": "balanced_accuracy",
+          "value": 0.5144957691774171
+        }
+      ],
+      "train_rows": 8010
+    }
+  ],
+  "blockers": [],
+  "cache_manifest": {
+    "cache_artifact": {
+      "path": "docs/research/fx-borzoi-score-cache.parquet",
+      "rows": 11400,
+      "sha256": "sha256:74695a87dfd0045e6d3ad161167f765497dbb00d99b396ab9490c7d8ade7b76f",
+      "size_bytes": 533055
+    },
+    "path": "docs/research/fx-borzoi-cache-manifest.json",
+    "sha256": "sha256:0d06742aacb9c07043cf2dc4b080c18b2846dc71d3358497e356ebbd30317a24"
+  },
+  "carbon_baseline_status": "not_applicable_no_carbon_scores_in_cache",
+  "claim_boundary": "This report is a baseline and saturation gate only. It is not a model-quality result, clinical result, deployment-readiness result, broad VEP superiority claim, broad Carbon comparison, useful-planning claim, ground-truth biology claim, or exact fipip overlap claim.",
+  "decision": "go_residual_model",
+  "epic_issue": 266,
+  "fipip_exact_join_status": "not_run_full_table_not_staged",
+  "gate": {
+    "bootstrap_samples": 500,
+    "bootstrap_seed": 270,
+    "holdout_split": "holdout",
+    "minimum_direct_borzoi_ap_delta_vs_prior": 0.02,
+    "primary_metric": "average_precision",
+    "saturation_auroc": 0.9,
+    "saturation_average_precision": 0.8
+  },
+  "generated_at": "2026-06-11T13:00:00Z",
+  "generated_by": "tools.research.fx_borzoi_baselines",
+  "leakage_audit": {
+    "consequence_counts_top": {
+      "3_prime_UTR_variant": 520,
+      "5_prime_UTR_variant": 420,
+      "CTCF-only_flank": 80,
+      "PLS": 320,
+      "PLS_flank": 150,
+      "dELS": 3140,
+      "dELS_flank": 1670,
+      "intergenic_variant": 1030,
+      "intron_variant": 1900,
+      "non_coding_transcript_exon_variant": 690,
+      "pELS": 1010,
+      "pELS_flank": 340
+    },
+    "duplicate_variant_keys": 0,
+    "holdout_chromosomes": [
+      "3",
+      "11",
+      "14",
+      "16",
+      "17",
+      "20"
+    ],
+    "train_chromosomes": [
+      "1",
+      "2",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "12",
+      "13",
+      "15",
+      "18",
+      "19",
+      "21",
+      "22"
+    ],
+    "train_holdout_key_overlap": 0,
+    "trait_counts_top": {
+      "": 10260,
+      "ALP": 23,
+      "Eosino": 28,
+      "FEV1FVC": 29,
+      "HbA1c": 23,
+      "Height": 70,
+      "IGF1": 28,
+      "Lym": 28,
+      "MCH,MCV": 27,
+      "Mono": 39,
+      "Plt": 54,
+      "eBMD": 60
+    }
+  },
+  "model_issue": 271,
+  "ok_to_train_residual_model": true,
+  "paired_comparisons": [
+    {
+      "comparison_id": "strongest_vs_label_prior",
+      "left": "borzoi_plus_source_logistic_probe",
+      "metrics": [
+        {
+          "ci95": [
+            0.11982414369332395,
+            0.17950390727417295
+          ],
+          "delta": 0.14943743963244316,
+          "name": "auroc"
+        },
+        {
+          "ci95": [
+            0.08374249864649874,
+            0.1621392869323911
+          ],
+          "delta": 0.12540974350096265,
+          "name": "average_precision"
+        }
+      ],
+      "right": "label_prior_constant"
+    },
+    {
+      "comparison_id": "strongest_vs_direct_borzoi",
+      "left": "borzoi_plus_source_logistic_probe",
+      "metrics": [
+        {
+          "ci95": [
+            -0.007858751598811428,
+            0.018405185230988406
+          ],
+          "delta": 0.0047994322669969725,
+          "name": "auroc"
+        },
+        {
+          "ci95": [
+            -0.0028953845338253884,
+            0.005472658413273101
+          ],
+          "delta": 0.0011518069989908952,
+          "name": "average_precision"
+        }
+      ],
+      "right": "direct_traitgym_native_borzoi"
+    },
+    {
+      "comparison_id": "direct_borzoi_vs_label_prior",
+      "left": "direct_traitgym_native_borzoi",
+      "metrics": [
+        {
+          "ci95": [
+            0.11238496889890592,
+            0.1761152834419466
+          ],
+          "delta": 0.1446380073654462,
+          "name": "auroc"
+        },
+        {
+          "ci95": [
+            0.08292374659220711,
+            0.16038285501933236
+          ],
+          "delta": 0.12425793650197176,
+          "name": "average_precision"
+        }
+      ],
+      "right": "label_prior_constant"
+    }
+  ],
+  "recommended_issue_actions": [
+    {
+      "action": "close-completed",
+      "issue": 270,
+      "reason": "The baseline gate is not saturated and direct Borzoi has holdout signal."
+    },
+    {
+      "action": "open-next",
+      "issue": 271,
+      "reason": "A residual model may proceed against the strongest simple baseline."
+    }
+  ],
+  "schema_version": "1.0.0",
+  "source_manifest": {
+    "path": "configs/fx/borzoi_rescue_sources.json",
+    "sha256": "sha256:59cbdd6176d48192b25127c02eceb41c3cc2867413f095e7d505cbc7c226355f"
+  },
+  "split_summary": {
+    "holdout_negative": 3051,
+    "holdout_positive": 339,
+    "holdout_rows": 3390,
+    "train_negative": 7209,
+    "train_positive": 801,
+    "train_rows": 8010
+  },
+  "strongest_simple_baseline": {
+    "baseline_id": "borzoi_plus_source_logistic_probe",
+    "family": "borzoi_probe",
+    "features": [
+      "borzoi_score",
+      "maf",
+      "ld_score",
+      "tss_dist"
+    ],
+    "holdout_metrics": [
+      {
+        "ci95": [
+          0.6144029191243308,
+          0.6821100969844257
+        ],
+        "name": "auroc",
+        "value": 0.6494374396324432
+      },
+      {
+        "ci95": [
+          0.1799612237853904,
+          0.26741550737792813
+        ],
+        "name": "average_precision",
+        "value": 0.2225262018025548
+      },
+      {
+        "ci95": [
+          0.5013650958851011,
+          0.5152777906689212
+        ],
+        "name": "balanced_accuracy",
+        "value": 0.5080301540478531
+      }
+    ],
+    "holdout_rows": 3390,
+    "selected_direction": "fit_on_train",
+    "threshold": 0.5,
+    "train_metrics": [
+      {
+        "ci95": [
+          0.6438785337166106,
+          0.6438785337166106
+        ],
+        "name": "auroc",
+        "value": 0.6438785337166106
+      },
+      {
+        "ci95": [
+          0.21687975113010652,
+          0.21687975113010652
+        ],
+        "name": "average_precision",
+        "value": 0.21687975113010652
+      },
+      {
+        "ci95": [
+          0.5144957691774171,
+          0.5144957691774171
+        ],
+        "name": "balanced_accuracy",
+        "value": 0.5144957691774171
+      }
+    ],
+    "train_rows": 8010
+  }
+}

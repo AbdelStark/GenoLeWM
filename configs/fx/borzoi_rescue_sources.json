@@ -48,5 +48,14 @@
     "score_kind": "Borzoi PCA-derived annotations for autosomal SNPs and indels.",
     "exact_join_default": "not_run_full_table_not_staged"
   },
+  "baseline_gate": {
+    "primary_metric": "average_precision",
+    "bootstrap_samples": 500,
+    "bootstrap_seed": 270,
+    "saturation_auroc": 0.9,
+    "saturation_average_precision": 0.8,
+    "minimum_direct_borzoi_ap_delta_vs_prior": 0.02,
+    "holdout_split": "holdout"
+  },
   "claim_boundary": "The Borzoi rescue overlap audit is an alignment and feasibility artifact only. It is not a model-quality result, clinical result, deployment-readiness result, broad VEP superiority claim, broad Carbon comparison, useful-planning claim, ground-truth biology claim, or exact fipip overlap claim unless the exact fipip table join is actually run."
 }
