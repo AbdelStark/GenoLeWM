@@ -7,7 +7,7 @@ import importlib
 import time
 from collections.abc import Iterable, Iterator
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -69,23 +69,23 @@ class ClinvarPrepareReport:
     """Summary emitted by ``geno-lewm-prepare-clinvar``."""
 
     output_path: Path
-    input_path: Path
     release: str
     records_read: int
     allele_records_seen: int
     records_written: int
     skipped_allele: int
-    input_sha256: str
-    output_sha256: str
-    input_size_bytes: int
     size_bytes: int
-    elapsed_seconds: float
     already_exists: bool = False
+    input_path: Path | None = field(default=None, init=False)
+    input_sha256: str | None = field(default=None, init=False)
+    output_sha256: str | None = field(default=None, init=False)
+    input_size_bytes: int | None = field(default=None, init=False)
+    elapsed_seconds: float = field(default=0.0, init=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "output_path": str(self.output_path),
-            "input_path": str(self.input_path),
+            "input_path": None if self.input_path is None else str(self.input_path),
             "release": self.release,
             "records_read": self.records_read,
             "allele_records_seen": self.allele_records_seen,
@@ -115,20 +115,22 @@ def prepare_clinvar_shard(
     input_path, input_sha256, input_size_bytes = _input_file_identity(input_vcf)
     target = Path(output_dir) / "clinvar" / release / "variants.parquet"
     if target.exists() and not overwrite:
-        return ClinvarPrepareReport(
-            output_path=target,
+        return _with_prepare_identity(
+            ClinvarPrepareReport(
+                output_path=target,
+                release=release,
+                records_read=0,
+                allele_records_seen=0,
+                records_written=_parquet_num_rows(target),
+                skipped_allele=0,
+                size_bytes=target.stat().st_size,
+                already_exists=True,
+            ),
             input_path=input_path,
-            release=release,
-            records_read=0,
-            allele_records_seen=0,
-            records_written=_parquet_num_rows(target),
-            skipped_allele=0,
             input_sha256=input_sha256,
             output_sha256=sha256_file(target),
             input_size_bytes=input_size_bytes,
-            size_bytes=target.stat().st_size,
             elapsed_seconds=max(time.perf_counter() - started_at, 0.0),
-            already_exists=True,
         )
 
     records_read = 0
@@ -158,18 +160,20 @@ def prepare_clinvar_shard(
                 )
 
     records_written = _write_parquet(_selected_rows(), target)
-    return ClinvarPrepareReport(
-        output_path=target,
+    return _with_prepare_identity(
+        ClinvarPrepareReport(
+            output_path=target,
+            release=release,
+            records_read=records_read,
+            allele_records_seen=allele_records_seen,
+            records_written=records_written,
+            skipped_allele=skipped_allele,
+            size_bytes=target.stat().st_size,
+        ),
         input_path=input_path,
-        release=release,
-        records_read=records_read,
-        allele_records_seen=allele_records_seen,
-        records_written=records_written,
-        skipped_allele=skipped_allele,
         input_sha256=input_sha256,
         output_sha256=sha256_file(target),
         input_size_bytes=input_size_bytes,
-        size_bytes=target.stat().st_size,
         elapsed_seconds=max(time.perf_counter() - started_at, 1e-9),
     )
 
@@ -339,6 +343,23 @@ def _parquet_schema(pa: Any) -> Any:
 def _parquet_num_rows(path: Path) -> int:
     _pa, pq = _require_pyarrow()
     return int(pq.ParquetFile(path).metadata.num_rows)
+
+
+def _with_prepare_identity(
+    report: ClinvarPrepareReport,
+    *,
+    input_path: Path,
+    input_sha256: str,
+    output_sha256: str,
+    input_size_bytes: int,
+    elapsed_seconds: float,
+) -> ClinvarPrepareReport:
+    object.__setattr__(report, "input_path", input_path)
+    object.__setattr__(report, "input_sha256", input_sha256)
+    object.__setattr__(report, "output_sha256", output_sha256)
+    object.__setattr__(report, "input_size_bytes", input_size_bytes)
+    object.__setattr__(report, "elapsed_seconds", elapsed_seconds)
+    return report
 
 
 def _input_file_identity(path: str | Path) -> tuple[Path, str, int]:
