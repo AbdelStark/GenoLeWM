@@ -26,6 +26,7 @@ from geno_lewm.data import (
     variant_provider,
 )
 from geno_lewm.errors import InputError
+from geno_lewm.provenance import canonical_json_sha256
 
 
 def test_builder_maintains_rfc_source_mix_when_sources_are_available() -> None:
@@ -141,6 +142,26 @@ def test_holdout_policy_excludes_chr_window_and_intersecting_edits() -> None:
             mix=mix,
             holdouts=HoldoutPolicy(edit_keys=("1:121:A:C",)),
         )
+
+
+def test_holdout_policy_has_stable_serialized_identity() -> None:
+    policy = HoldoutPolicy(
+        holdout_chroms=("21",),
+        intervals=(HoldoutInterval("1", 118, 122),),
+        edit_keys=("1:121:A:C",),
+        record_ids=("clinvar-1",),
+    )
+    payload = policy.to_dict()
+
+    assert payload == {
+        "schema_version": "1.0.0",
+        "holdout_chroms": ["21"],
+        "intervals": [{"chrom": "1", "start_bp": 118, "end_bp": 122}],
+        "edit_keys": ["1:121:A:C"],
+        "record_ids": ["clinvar-1"],
+    }
+    assert policy.identity() == canonical_json_sha256(payload)
+    assert policy.identity().startswith("sha256:")
 
 
 def test_variant_provider_filters_by_window_coordinates_and_is_deterministic() -> None:

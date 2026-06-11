@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added JSON serialization and canonical SHA-256 identities for
+  `HoldoutPolicy` and `HoldoutInterval` so split-integrity evidence can
+  reference stable holdout policy payloads.
 
 ## [0.2.1] - 2026-06-09
 
