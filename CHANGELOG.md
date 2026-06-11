@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added source-window output identities and windowing parameters to the
+  Carbon corpus window export summary so future cache-build evidence can
+  bind the selected corpus-window input artifact.
 
 ## [0.2.1] - 2026-06-09
 

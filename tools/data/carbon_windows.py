@@ -31,6 +31,7 @@ from geno_lewm.data.corpus import (
 )
 from geno_lewm.encoder.windowing import DEFAULT_WINDOW_BP
 from geno_lewm.errors import GenoLeWMError, exit_code_for
+from geno_lewm.provenance import sha256_file
 
 GENERATED_BY = "tools.data.carbon_windows"
 
@@ -103,9 +104,17 @@ def export_carbon_windows(
         "revision": revision,
         "split": split,
         "subset_fraction": subset_fraction,
+        "subset_seed": subset_seed,
+        "window_bp": window_bp,
+        "max_windows": max_windows,
         "records": records,
         "windows": windows,
         "sources": dict(sorted(sources.items())),
+        "output_identity": {
+            "path": str(output),
+            "sha256": sha256_file(output),
+            "size_bytes": output.stat().st_size,
+        },
     }
 
 
