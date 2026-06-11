@@ -440,6 +440,11 @@ trusted only after their hashes match the fetched manifest.
     `eval_config.effective.yaml`, `eval_report.md`,
     `efficiency_report.json`, and the terminal demo evidence, using
     package-local artifact names rather than build-machine root paths.
+    A typeset PDF may be built as an optional packaging artifact with
+    `python -m tools.release.paper_pdf --paper-md ... --output-pdf ... --report-json ...`;
+    its report must record Markdown/PDF checksums and a public-safe
+    Pandoc command, but it does not replace byte-exact Markdown
+    verification.
 19. For model/demo releases: run
     `python -m tools.release.paper_package --model-dir ... --dataset-dir ... --demo-dir ... --paper-path ...`.
     The verifier re-renders the paper draft from the current model,

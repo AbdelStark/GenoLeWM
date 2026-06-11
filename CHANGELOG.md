@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added `tools.release.paper_pdf`, an optional Pandoc-backed helper for
+  converting generated paper Markdown into a PDF with Markdown/PDF
+  checksums and a public-safe build report.
 
 ## [0.2.1] - 2026-06-09
 

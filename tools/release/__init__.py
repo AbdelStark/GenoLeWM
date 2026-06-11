@@ -68,6 +68,9 @@ Two mechanical helpers used by the release checklist in
   publishing a terminal-demo transcript.
 * :mod:`tools.release.paper_draft` generates a first-experiment paper
   draft from the release artifact set.
+* :mod:`tools.release.paper_pdf` optionally converts a generated paper
+  Markdown file to PDF with Pandoc and records Markdown/PDF checksums in
+  a public-safe provenance report.
 * :mod:`tools.release.serious_completion_paper` generates and verifies the
   v0.2 serious-completion paper from benchmark-suite/readiness artifacts
   plus the released planning-demo manifest, preserving negative-results

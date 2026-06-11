@@ -39,6 +39,7 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "tools/release/model_package.py",
     "tools/release/paper_draft.py",
     "tools/release/paper_package.py",
+    "tools/release/paper_pdf.py",
     "tools/release/publication_assets.py",
     "tools/release/publication_report.py",
     "tools/release/release_candidate.py",
