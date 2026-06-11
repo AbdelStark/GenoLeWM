@@ -19,6 +19,8 @@ or incompatible command changes require an explicit compatibility note.
   JSON output, tuple-throughput persistence, training reproducibility,
   dataset-integrity region checks, shard-prep artifact identities, and
   desktop signing preflight.
+- Added a required CI paper job that builds the checked TeX paper PDF,
+  writes `paper_tex_build_report.json`, and uploads both artifacts.
 - Added desktop scaffold contracts for a persistent research-use safety
   banner and local VCF/FASTA file picker controls.
 

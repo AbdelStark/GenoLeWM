@@ -57,7 +57,7 @@ def test_ci_workflow_runs_dedicated_ml_smoke_gate() -> None:
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[dev]"' in text
     assert "pytest tests/ml -q --tb=long --durations=10" in text
-    assert "needs: [lint, types, gates, tests, ml-smoke, eval-smoke, build, docs]" in text
+    assert "needs: [lint, types, gates, tests, ml-smoke, eval-smoke, build, docs, paper]" in text
     assert "needs.ml-smoke.result != 'success'" in text
 
 
@@ -71,8 +71,23 @@ def test_ci_workflow_runs_dedicated_eval_smoke_gate() -> None:
     assert "--work-dir .eval-smoke" in text
     assert "--summary-json .eval-smoke/eval_smoke_summary.json" in text
     assert "name: eval-smoke-summary" in text
-    assert "needs: [lint, types, gates, tests, ml-smoke, eval-smoke, build, docs]" in text
+    assert "needs: [lint, types, gates, tests, ml-smoke, eval-smoke, build, docs, paper]" in text
     assert "needs.eval-smoke.result != 'success'" in text
+
+
+def test_ci_workflow_builds_checked_paper_pdf_artifact() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "  paper:" in text
+    assert "name: Paper PDF (tectonic)" in text
+    assert "sudo apt-get install -y tectonic" in text
+    assert "make -C paper" in text
+    assert "python -m tools.release.paper_tex" in text
+    assert "--output paper/paper_tex_build_report.json" in text
+    assert "name: paper-pdf" in text
+    assert "paper/main.pdf" in text
+    assert "paper/paper_tex_build_report.json" in text
+    assert "needs.paper.result != 'success'" in text
 
 
 def test_release_pypi_workflow_uses_oidc_publish_and_sigstore_build_provenance() -> None:

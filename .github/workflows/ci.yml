@@ -9,6 +9,7 @@
 #   gates      — custom AST linters + public-API snapshot
 #   build      — package build smoke test (sdist + wheel)
 #   docs       — mkdocs strict build
+#   paper      — checked TeX paper PDF build artifact
 #   ci-required — required-check fan-in
 #
 # All jobs run on every PR and on pushes to main. The matrix is
@@ -278,12 +279,44 @@ jobs:
           path: site/
           retention-days: 14
 
+  paper:
+    name: Paper PDF (tectonic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Install Tectonic
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tectonic
+      - name: Build checked paper PDF
+        run: make -C paper
+      - name: Write paper build report
+        run: >-
+          python -m tools.release.paper_tex
+          --paper-dir paper
+          --output paper/paper_tex_build_report.json
+      - name: Upload paper artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: paper-pdf
+          path: |
+            paper/main.pdf
+            paper/paper_tex_build_report.json
+          retention-days: 14
+
   # Single required check that fans-in all the matrix jobs above.
   # Branch protection just needs to require this one.
   ci-required:
     name: CI required
     if: always()
-    needs: [lint, types, gates, tests, ml-smoke, eval-smoke, build, docs]
+    needs: [lint, types, gates, tests, ml-smoke, eval-smoke, build, docs, paper]
     runs-on: ubuntu-latest
     steps:
       - name: Check jobs
@@ -295,7 +328,8 @@ jobs:
           needs.ml-smoke.result != 'success' ||
           needs.eval-smoke.result != 'success' ||
           needs.build.result != 'success' ||
-          needs.docs.result != 'success'
+          needs.docs.result != 'success' ||
+          needs.paper.result != 'success'
         run: |
           echo "One or more required CI jobs failed; see job logs above."
           exit 1
