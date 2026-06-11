@@ -7,6 +7,13 @@ or incompatible command changes require an explicit compatibility note.
 
 ## [Unreleased]
 
+### Added
+
+- Added fixture-backed scoring tutorial notebooks for a single
+  ClinVar-like SNV and a one-row VCF, including checksum receipt
+  validation and notebook execution tests. These examples are scoped as
+  fixture smoke coverage, not model-quality evidence.
+
 ### Changed
 
 - Removed obsolete public planning/specification scaffolding from the
