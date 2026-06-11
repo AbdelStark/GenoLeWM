@@ -46,6 +46,20 @@ def test_public_api_docs_point_to_snapshot_as_exhaustive_contract() -> None:
     assert "exhaustive enforced symbol list" in rfc
 
 
+def test_public_api_rfc_status_tracks_current_guardrails() -> None:
+    rfc = PUBLIC_API_RFC.read_text(encoding="utf-8")
+    required = (
+        "- **Updated:** 2026-06-11",
+        "current public module-map docs",
+        "duplicate-free `__all__` checks",
+        "guards keeping planning solver\n  types out of stable top-level exports",
+        "Full release-process\n  automation for compatibility notes remains open",
+    )
+
+    for fragment in required:
+        assert fragment in rfc
+
+
 def test_cli_scaffold_helpers_are_not_public_api() -> None:
     spec = PUBLIC_API_SPEC.read_text(encoding="utf-8")
     snapshot = PUBLIC_API_SNAPSHOT.read_text(encoding="utf-8")

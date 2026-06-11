@@ -3,13 +3,15 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0001, RFC-0002, RFC-0003, RFC-0004, RFC-0008, RFC-0009, RFC-0010, RFC-0011
 - **Supersedes:** —
 - **Implementation status:** Partial — public API snapshot testing,
-  `@experimental` / `@deprecated` decorators, public-surface pruning for
-  `geno_lewm.provenance`, and duplicate-free `__all__` checks exist.
-  Full release-process automation for compatibility notes remains open.
+  current public module-map docs, `@experimental` / `@deprecated`
+  decorators, public-surface pruning for `geno_lewm.provenance`,
+  duplicate-free `__all__` checks, and guards keeping planning solver
+  types out of stable top-level exports exist. Full release-process
+  automation for compatibility notes remains open.
 
 ---
 
@@ -171,6 +173,8 @@ it. The snapshot file is enforced in CI.
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for module-map docs and
+  planning solver top-level export guards.
 - 2026-06-02 — Updated implementation status for API snapshot tests,
   lifecycle decorators, and public namespace pruning.
 - 2026-05-20 — Initial draft.
