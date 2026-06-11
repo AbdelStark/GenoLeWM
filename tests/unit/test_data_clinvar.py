@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import geno_lewm.data.clinvar as clinvar_mod
 from geno_lewm.data import (
     CLINVAR_SCHEMA_VERSION,
     ClinvarVariant,
@@ -14,7 +15,7 @@ from geno_lewm.data import (
     label_set,
     prepare_clinvar_shard,
 )
-from geno_lewm.errors import InputError
+from geno_lewm.errors import InputError, RuntimeSetupError
 
 
 def test_prepare_clinvar_shard_preserves_vus_but_excludes_from_labels(tmp_path: Path) -> None:
@@ -49,6 +50,58 @@ def test_prepare_clinvar_shard_is_idempotent_without_overwrite(tmp_path: Path) -
     assert second.records_read == 0
     assert second.records_written == 6
     assert second.size_bytes == first.size_bytes
+    assert second.to_dict()["already_exists"] is True
+
+
+def test_prepare_clinvar_shard_flushes_multiple_small_batches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    monkeypatch.setattr(clinvar_mod, "_PARQUET_BATCH_ROWS", 1)
+    vcf_path = _write_clinvar_vcf(tmp_path / "clinvar.vcf")
+
+    report = prepare_clinvar_shard(vcf_path, tmp_path, release="2026-04-15")
+
+    assert report.records_written == 6
+    assert len(list(iter_clinvar_shard(report.output_path))) == 6
+
+
+def test_prepare_clinvar_shard_cleans_tmp_file_on_write_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    vcf_path = _write_clinvar_vcf(tmp_path / "clinvar.vcf")
+
+    def fail_write_batch(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("synthetic parquet write failure")
+
+    monkeypatch.setattr(clinvar_mod, "_write_batch", fail_write_batch)
+
+    with pytest.raises(RuntimeError, match="synthetic parquet write failure"):
+        prepare_clinvar_shard(vcf_path, tmp_path, release="2026-04-15")
+
+    target = tmp_path / "clinvar" / "2026-04-15" / "variants.parquet"
+    assert not target.exists()
+    assert not target.with_name(target.name + ".tmp").exists()
+
+
+def test_clinvar_pyarrow_dependency_error_is_typed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import = clinvar_mod.importlib.import_module
+
+    def fake_import_module(name: str) -> object:
+        if name == "pyarrow":
+            raise ImportError("missing pyarrow")
+        return original_import(name)
+
+    monkeypatch.setattr(clinvar_mod.importlib, "import_module", fake_import_module)
+
+    with pytest.raises(RuntimeSetupError, match="requires pyarrow"):
+        list(iter_clinvar_shard(tmp_path / "missing.parquet"))
 
 
 def test_iter_clinvar_vcf_variants_maps_labels_and_fallback_ids(tmp_path: Path) -> None:

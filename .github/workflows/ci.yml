@@ -183,7 +183,7 @@ jobs:
           python -m tools.ci.coverage_gate \
             --coverage-xml coverage.xml \
             --base "origin/${{ github.base_ref }}" \
-            --threshold 0.83
+            --threshold 0.84
         shell: bash
 
   ml-smoke:
