@@ -3,15 +3,19 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0002, RFC-0003
 - **Supersedes:** —
 - **Implementation status:** Partial — Carbon corpus source-mix sampling,
   reference-window sampling, local gnomAD/ClinVar VCF-to-Parquet
   builders, a dependency-free training tuple builder, holdout checks,
   absolute variant providers, `GenoLeWMDataset`, and dataset
-  snapshot/package/integrity tooling exist. Published real shards,
-  warm-cache throughput evidence, and public split artifacts remain open.
+  snapshot/package/integrity tooling exist. The public
+  `abdelstark/geno-lewm-data` dataset package, `dataset_manifest.json`,
+  `split_integrity.json`, and release dataset tuple-throughput
+  measurement helper exist. Broader published real-shard coverage,
+  target-hardware warm-cache throughput evidence, and expanded held-out
+  data snapshots remain open.
 
 ---
 
@@ -309,6 +313,9 @@ signal for a downstream supervised head, which is out of v1 scope.
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for the public dataset
+  package, split-integrity artifacts, tuple-throughput measurement, and
+  remaining broader shard/throughput gaps.
 - 2026-06-02 — Updated implementation status for local shard builders,
   tuple streaming, holdout policy, and dataset release tooling.
 - 2026-05-20 — Initial draft.
