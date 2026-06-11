@@ -3,14 +3,20 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0007, RFC-0010, RFC-0015
 - **Supersedes:** —
 - **Implementation status:** Partial — `bench.inference` can emit a
   validated release-efficiency report with latency, throughput, peak
-  memory, command, hardware/runtime notes, and input identities. Public
-  real-model efficiency reports, regression dashboards, and benchmark
-  CI gates remain open.
+  memory, command, hardware/runtime notes, and input identities;
+  `bench.rollout` emits K=5/K=20 AR speed reports with target checks;
+  `bench.planning` emits CEM-loop and deterministic default-config
+  planning reports with named-hardware target profiles; and
+  `tools.ci.perf_regression` plus the nightly performance workflow can
+  compare harness or pytest-benchmark outputs against baselines. Public
+  warm-cache, target-hardware real-model reports, historical dashboards,
+  automated regression issue filing, and required per-PR benchmark gates
+  remain open.
 
 ---
 
@@ -70,7 +76,10 @@ budgets on the documented benchmark machine.
 
 - `bench/inference.py`: latency / throughput / memory benchmarks.
 - `bench/training.py`: training-step timing on synthetic data.
-- `bench/planning.py`: CEM-call latency.
+- `bench/rollout.py`: K=5/K=20 AR rollout speedup benchmarks and
+  optional target enforcement.
+- `bench/planning.py`: CEM-loop and deterministic planning performance
+  reports.
 - `bench/profile.py`: profiler entry points (py-spy, torch.profiler).
 
 Each benchmark writes a structured result to `bench/results/<machine>/<benchmark>.json`
@@ -155,6 +164,9 @@ requires switching to dedicated runners.
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for rollout/planning
+  benchmark reports, baseline regression detection, and remaining public
+  performance evidence and CI-gate gaps.
 - 2026-06-02 — Updated implementation status for release-efficiency
   report generation and remaining public benchmark gaps.
 - 2026-05-20 — Initial draft.
