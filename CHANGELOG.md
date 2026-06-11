@@ -94,6 +94,9 @@ No unreleased changes.
     normalized `dataset_package.json`, `dataset_manifest.json`,
     `split_integrity.json`, and `SHA256SUMS` from release metadata and
     already-produced dataset shard files.
+  - `tools/data/tuple_throughput.py` now records dataset-manifest
+    identity, seed, requested sample count, and threshold pass/fail
+    status, and can persist the tuple-throughput report with `--output`.
   - `tools/release/dataset_snapshot.py` now writes
     `dataset_snapshot_report.json` with the checked snapshot-spec hash,
     upstream source file hashes, staged file identities, and
