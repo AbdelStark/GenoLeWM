@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added a persistent, non-dismissible safety-banner contract to the
+  desktop scaffold and static checks that keep it visible while the
+  workflow scrolls.
 
 ## [0.2.1] - 2026-06-09
 
