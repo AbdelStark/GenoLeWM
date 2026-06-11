@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Canonicalized tensor ordering for deploy safetensors exports so identical
+  checkpoint tensors produce stable exported artifact hashes independent of
+  `state_dict` mapping order.
 
 ## [0.2.1] - 2026-06-09
 

@@ -146,7 +146,7 @@ def _load_checkpoint(path: Path) -> dict[str, Any]:
 
 def _save_safetensors(state_dict: dict[str, Any], destination: Path) -> None:
     save_file = _import_safetensors_save()
-    tensors = {name: _contiguous_cpu(name, tensor) for name, tensor in state_dict.items()}
+    tensors = {name: _contiguous_cpu(name, state_dict[name]) for name in sorted(state_dict)}
     try:
         save_file(tensors, str(destination))
     except Exception as exc:  # surface any safetensors write failure uniformly
