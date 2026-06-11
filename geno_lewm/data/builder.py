@@ -19,6 +19,7 @@ from typing import Any, cast
 from geno_lewm.action import EditSpec, RelEdit, apply_edit, indel, uniform_snv
 from geno_lewm.encoder.windowing import canonicalize_dna, window_sha256
 from geno_lewm.errors import InputError
+from geno_lewm.provenance import canonical_json_sha256
 
 __all__ = [
     "DEFAULT_EDIT_SOURCE_COUNTS",
@@ -157,6 +158,14 @@ class HoldoutInterval:
             return False
         return start_bp < self.end_bp and self.start_bp < end_bp
 
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable holdout interval payload."""
+        return {
+            "chrom": self.chrom,
+            "start_bp": self.start_bp,
+            "end_bp": self.end_bp,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class HoldoutPolicy:
@@ -219,6 +228,20 @@ class HoldoutPolicy:
         return _edit_key(window.chrom, edit_start + 1, edit.ref_bases, edit.alt_bases) in set(
             self.edit_keys
         )
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable holdout policy payload."""
+        return {
+            "schema_version": "1.0.0",
+            "holdout_chroms": list(self.holdout_chroms),
+            "intervals": [interval.to_dict() for interval in self.intervals],
+            "edit_keys": list(self.edit_keys),
+            "record_ids": list(self.record_ids),
+        }
+
+    def identity(self) -> str:
+        """Return the canonical SHA-256 identity of this holdout policy."""
+        return canonical_json_sha256(self.to_dict())
 
 
 @dataclass(frozen=True, slots=True)
