@@ -3,13 +3,14 @@
 - **Status:** Accepted
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0001, RFC-0002
 - **Supersedes:** —
 - **Implementation status:** Implemented for the v1 short-edit surface:
   `EditSpec` / `RelEdit` / `EditType`, right-to-left edit application,
   `ActionEncoder`, and synthetic SNV / indel / MNV samplers are present
-  with unit and API-snapshot coverage. SV adapters remain future work.
+  with typed InputError-family failures, unit tests, and API-snapshot
+  coverage. SV adapters remain future work.
 
 ---
 
@@ -61,7 +62,12 @@ class EditSpec:
     def relative_to(self, window_start_bp: int, window_end_bp: int) -> "RelEdit": ...
 ```
 
-Validation rules (raised as `ValueError`):
+Validation rules raise typed `InputError` subclasses from RFC-0012:
+malformed edit fields raise `InvalidEditError`, edits longer than the v1
+short-edit bound raise `UnsupportedEditError`, and window-relative
+conversion outside the supplied window raises `OutOfWindowError`.
+
+Rules:
 - `chrom` non-empty.
 - `pos >= 1`.
 - `ref` and `alt` non-empty, uppercase, only in `{A, C, G, T}`.
@@ -335,6 +341,8 @@ ship it as a constant.
 
 ## 7. Changelog
 
+- 2026-06-11 — Aligned validation-error wording with the implemented
+  typed error taxonomy.
 - 2026-06-02 — Accepted after the v1 short-edit action surface landed
   in code and tests.
 - 2026-05-20 — Initial draft.
