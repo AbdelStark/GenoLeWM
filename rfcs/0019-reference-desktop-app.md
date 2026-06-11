@@ -3,11 +3,16 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0010, RFC-0011, RFC-0013, RFC-0018
 - **Supersedes:** —
-- **Implementation status:** Scaffolded in `desktop/` (issue #80);
-  scoring UI pending #81; signing pending #82
+- **Implementation status:** Partial scaffold in `desktop/`: Tauri 2
+  layout, default-deny network capability/CSP wiring, Rust/PyO3
+  `runtime_probe`, static VCF/FASTA drop targets, and a permanent
+  safety banner are present with static scaffold tests. Local scoring
+  execution, result table/detail views, receipt export, richer file
+  picker workflow, and signed/notarized release artifacts remain open
+  under #81 and #82.
 
 ---
 
@@ -195,4 +200,7 @@ Beauty is downstream.
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for the current Tauri
+  scaffold, runtime probe, network policy, drop targets, and safety
+  banner; scoring and signed releases remain open.
 - 2026-05-20 — Initial draft.
