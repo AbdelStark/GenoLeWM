@@ -3,13 +3,18 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0001, RFC-0012, RFC-0013, RFC-0018
 - **Supersedes:** —
 - **Implementation status:** Partial — closed dataclass/YAML config
-  schema, defaults, strict unknown-key rejection, resolved-config
-  writing, and first-experiment train/eval configs exist. Hydra-style
-  sweeps, config diffing, and editor schema export remain open.
+  schema, command defaults for `train`, `score`, `eval`, and `plan`,
+  strict unknown top-level and sub-field rejection, canonical
+  resolved-config writing, shared `--print-config` /
+  `--print-config-tree` discovery, and `describe_field` / `--explain`
+  discovery exist. Train/eval paths apply `--set` overrides for
+  effective config artifacts. Hydra defaults-block composition,
+  multi-run sweeps, config diffing, and editor schema export remain
+  open.
 
 ---
 
@@ -214,9 +219,8 @@ Hydra otherwise silently swallows typos in top-level keys (e.g.,
 
 ## 5. Unresolved questions
 
-- Whether to use Pydantic v2 vs dataclasses + omegaconf-structured. The
-  field set is identical; implementation choice deferred to the first
-  config PR.
+- Whether to layer Hydra/OmegaConf defaults-block composition over the
+  current closed dataclass/YAML loader or keep composition explicit.
 - Whether to support env-var interpolation in YAML values (e.g.,
   `cache_dir: ${env:GENO_LEWM_CACHE}`). Hydra supports it; we may
   enable selectively.
@@ -232,6 +236,9 @@ Hydra otherwise silently swallows typos in top-level keys (e.g.,
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for command defaults,
+  discovery flags, `--set` override paths, and the closed dataclass
+  loader boundary.
 - 2026-06-02 — Updated implementation status for the current closed
   schema loader, defaults, resolved-config writing, and first-experiment
   configs.
