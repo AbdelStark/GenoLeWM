@@ -14,6 +14,7 @@ Authoritative artifacts:
 - [Machine-readable feasibility report](fx-feasibility-report.json)
 - [Borzoi rescue plan](fx-borzoi-rescue-plan.md)
 - [Borzoi alignment and overlap report](fx-borzoi-overlap-report.md)
+- [Borzoi score cache report](fx-borzoi-cache-report.md)
 
 ## Decision
 
@@ -72,6 +73,14 @@ Borzoi score path, with 11,400 usable rows and no #268 blockers. That is
 an alignment/cache-feasibility result only; it is not a model-quality
 claim and it does not claim exact fipip overlap because the full fipip
 table was not staged for that run.
+
+The second follow-up gate also has a source-controlled outcome:
+[GenoLeWM-FX Borzoi score cache report](fx-borzoi-cache-report.md). It
+records a manifest-backed 11,400-row cache with the direct
+TraitGym-native Borzoi score, source metadata columns needed for the
+baseline gate, and explicit fipip exact-join status. That cache opens
+the #270 baseline/saturation gate; it still does not open a model-quality
+or training claim.
 
 ## Child Issue Resolution
 

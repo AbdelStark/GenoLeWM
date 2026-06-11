@@ -20,6 +20,7 @@ model-quality evidence is mixed or negative versus Carbon.
 - [GenoLeWM-FX feasibility report](research/fx-feasibility-report.md)
 - [GenoLeWM-FX Borzoi rescue plan](research/fx-borzoi-rescue-plan.md)
 - [GenoLeWM-FX Borzoi alignment report](research/fx-borzoi-overlap-report.md)
+- [GenoLeWM-FX Borzoi cache report](research/fx-borzoi-cache-report.md)
 
 ## Public Artifacts
 
@@ -52,8 +53,8 @@ for Carbon-backed training paths.
 - No useful-planning claim from the current planning demo.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
-- The active FX follow-up has passed a narrow TraitGym-native
-  precomputed-Borzoi row-alignment gate; a full fipip table join is
+- The active FX follow-up has a narrow TraitGym-native
+  precomputed-Borzoi row-aligned score cache; a full fipip table join is
   optional staged provenance, and no model-quality claim is open.
 - No runtime or privacy assurance beyond local execution contracts and
   checksum provenance.

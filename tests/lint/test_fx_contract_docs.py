@@ -13,6 +13,8 @@ DECISION = REPO_ROOT / "docs" / "research" / "fx-decision-package.md"
 RESCUE = REPO_ROOT / "docs" / "research" / "fx-borzoi-rescue-plan.md"
 OVERLAP = REPO_ROOT / "docs" / "research" / "fx-borzoi-overlap-report.md"
 OVERLAP_JSON = REPO_ROOT / "docs" / "research" / "fx-borzoi-overlap-report.json"
+CACHE = REPO_ROOT / "docs" / "research" / "fx-borzoi-cache-report.md"
+CACHE_MANIFEST = REPO_ROOT / "docs" / "research" / "fx-borzoi-cache-manifest.json"
 INDEX = REPO_ROOT / "docs" / "index.md"
 README = REPO_ROOT / "README.md"
 MKDOCS = REPO_ROOT / "mkdocs.yml"
@@ -56,7 +58,9 @@ def test_fx_report_and_decision_package_publish_kill_path() -> None:
     assert "no Stage B or Stage C job should launch" in decision
     assert "Borzoi rescue plan" in decision
     assert "Borzoi alignment and overlap report" in decision
+    assert "Borzoi score cache report" in decision
     assert "not a model-quality claim" in normalized_decision
+    assert "does not open a model-quality or training claim" in normalized_decision
 
 
 def test_public_docs_link_fx_research_without_success_language() -> None:
@@ -68,10 +72,11 @@ def test_public_docs_link_fx_research_without_success_language() -> None:
     assert "research/fx-decision-package.md" in combined
     assert "research/fx-borzoi-rescue-plan.md" in combined
     assert "research/fx-borzoi-overlap-report.md" in combined
+    assert "research/fx-borzoi-cache-report.md" in combined
     assert "FX pivot" in combined
     assert "No GenoLeWM-FX model or demo ships" in combined
     assert "precomputed-Borzoi" in normalized
-    assert "row-alignment gate" in normalized
+    assert "row-aligned score cache" in normalized
     assert "full fipip table join is optional staged provenance" in normalized
     assert "GenoLeWM-FX improves" not in combined
     assert "GenoLeWM-FX outperforms" not in combined
@@ -90,6 +95,7 @@ def test_fx_borzoi_rescue_plan_is_overlap_first_and_claim_bounded() -> None:
         "based on hg19",
         "at least 10,000 matched variants",
         "records a go decision for the TraitGym-native row-aligned path",
+        "manifest-backed cache with 11,400 rows",
         "If this fails, stop and publish the overlap no-go report",
         "Use #266 rather than reopening #257",
         "#267 - lock rescue contract and coordinate rules",
@@ -119,4 +125,20 @@ def test_fx_borzoi_overlap_report_is_go_and_claim_bounded() -> None:
     assert payload["fipip_exact_join"]["status"] == "not_run_full_table_not_staged"
     assert "Decision: **go_traitgym_native_borzoi**." in text
     assert "makes no exact fipip overlap claim" in text
+    assert "not a model-quality result" in text
+
+
+def test_fx_borzoi_cache_manifest_is_manifest_backed_and_claim_bounded() -> None:
+    text = CACHE.read_text(encoding="utf-8")
+    payload = json.loads(CACHE_MANIFEST.read_text(encoding="utf-8"))
+
+    assert payload["row_count"] == 11400
+    assert payload["cache_artifact"]["rows"] == 11400
+    assert payload["cache_artifact"]["sha256"].startswith("sha256:")
+    assert payload["target_kind"] == "teacher_derived_traitgym_native_borzoi_score"
+    assert payload["fipip_exact_join_status"] == "not_run_full_table_not_staged"
+    assert payload["excluded_rows"] == 0
+    assert payload["unmatched_rows"] == 0
+    assert payload["duplicate_variant_keys"] == 0
+    assert "teacher-derived targets" in text
     assert "not a model-quality result" in text

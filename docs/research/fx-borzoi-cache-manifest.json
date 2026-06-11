@@ -1,0 +1,101 @@
+{
+  "cache_artifact": {
+    "path": "docs/research/fx-borzoi-score-cache.parquet",
+    "rows": 11400,
+    "sha256": "sha256:74695a87dfd0045e6d3ad161167f765497dbb00d99b396ab9490c7d8ade7b76f",
+    "size_bytes": 533055
+  },
+  "cache_issue": 269,
+  "claim_boundary": "The Borzoi rescue overlap audit is an alignment and feasibility artifact only. It is not a model-quality result, clinical result, deployment-readiness result, broad VEP superiority claim, broad Carbon comparison, useful-planning claim, ground-truth biology claim, or exact fipip overlap claim unless the exact fipip table join is actually run.",
+  "columns": [
+    "row_index",
+    "chrom",
+    "pos",
+    "ref",
+    "alt",
+    "label",
+    "split",
+    "trait",
+    "consequence",
+    "match_group",
+    "maf",
+    "ld_score",
+    "tss_dist",
+    "borzoi_score",
+    "borzoi_score_id",
+    "target_kind"
+  ],
+  "contract_issue": 267,
+  "duplicate_variant_keys": 0,
+  "epic_issue": 266,
+  "excluded_rows": 0,
+  "fipip_exact_join_status": "not_run_full_table_not_staged",
+  "generated_at": "2026-06-11T12:30:00Z",
+  "generated_by": "tools.research.fx_borzoi_cache",
+  "genome_build_decision": "No liftover or fipip exact join was performed for this cache.",
+  "label_summary": {
+    "negative": 10260,
+    "positive": 1140
+  },
+  "overlap_alignment_rows": 11400,
+  "overlap_issue": 268,
+  "overlap_report": {
+    "decision": "go_traitgym_native_borzoi",
+    "path": "docs/research/fx-borzoi-overlap-report.json",
+    "sha256": "sha256:e8beb45ccc8ab255ca5e1881fa4244a20dc17e5545a3e6e481ffb79e005db012"
+  },
+  "row_alignment_method": "traitgym_native_matched_slice_row_order",
+  "row_count": 11400,
+  "schema_version": "1.0.0",
+  "score_column": "borzoi_score",
+  "score_id": "Borzoi_L2_L2.plus.all",
+  "source_inputs": {
+    "fipip_borzoi_source": {
+      "bucket": "seqnn-share",
+      "crc32c": "DPBpaA==",
+      "expected_rows": 19534182,
+      "generation": "1750977790216459",
+      "genome_build": "hg19",
+      "md5_hash": "KmaNYQ9EEH+5MQvOfCOaZQ==",
+      "object": "sniff/borzoi_102_annotation_set/sniff_102_annotations.gz",
+      "repository": "https://github.com/statgen/fipip",
+      "score_kind": "Borzoi PCA-derived annotations for autosomal SNPs and indels.",
+      "size_bytes": 18670353280,
+      "updated": "2025-06-26T22:43:10.246Z"
+    },
+    "traitgym_borzoi_score": {
+      "path": "complex_traits_matched_9/preds/all/Borzoi_L2_L2.plus.all.parquet",
+      "repo_id": "songlab/TraitGym",
+      "repo_type": "dataset",
+      "revision": "1fde19555fe8c0a55b1382bdf4c6f7082209f566",
+      "sha256": "sha256:04ecf61997bad7f84c36021cd2ca2d30d6781b2f56d3a22e65e6742b0cac2a3f",
+      "size_bytes": 66797
+    },
+    "traitgym_slice": {
+      "path": "complex_traits_matched_9/test.parquet",
+      "repo_id": "songlab/TraitGym",
+      "repo_type": "dataset",
+      "revision": "1fde19555fe8c0a55b1382bdf4c6f7082209f566",
+      "sha256": "sha256:068940684e1e6f735a25a1a4418fb65390628023a96188af7f1a15dd17de7036",
+      "size_bytes": 411336
+    }
+  },
+  "source_manifest": {
+    "path": "configs/fx/borzoi_rescue_sources.json",
+    "sha256": "sha256:a1a7eb0dfcd06aca753f13279465f9bfb035c71dd1ffd5379862c38ddeea6e99"
+  },
+  "split_summary": {
+    "holdout_chromosomes": [
+      "3",
+      "11",
+      "14",
+      "16",
+      "17",
+      "20"
+    ],
+    "holdout_rows": 3390,
+    "train_rows": 8010
+  },
+  "target_kind": "teacher_derived_traitgym_native_borzoi_score",
+  "unmatched_rows": 0
+}

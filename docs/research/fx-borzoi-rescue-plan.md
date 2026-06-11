@@ -131,6 +131,12 @@ The cache must include source revision, checksum, genome-build handling
 where applicable, matched/unmatched counts, split identity, and
 redaction-safe commands.
 
+Current outcome: the source-controlled
+[Borzoi score cache report](fx-borzoi-cache-report.md) records a
+manifest-backed cache with 11,400 rows, zero excluded rows, zero
+unmatched rows, zero duplicate variant keys, and
+`fipip_exact_join_status=not_run_full_table_not_staged`.
+
 ### Stage 3 - Baseline Gate
 
 Run source-only, label-prior, Carbon where applicable, direct
