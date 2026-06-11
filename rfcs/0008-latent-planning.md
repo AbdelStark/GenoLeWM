@@ -3,14 +3,19 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-08
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004
 - **Supersedes:** —
 - **Implementation status:** Partial; cost functions, the factored
   `ActionSampler`, numeric distance helpers, an evaluator-first CEM
-  solver core, runtime-backed `GenoLeWMRuntime.predict`, and the
-  `geno-lewm-plan` alpha CLI are implemented. Released-artifact planning
-  showcase evidence and runtime performance acceptance are not complete.
+  solver core, runtime-backed `GenoLeWMRuntime.predict`, manifest-runtime
+  `geno-lewm-plan`, explicit sequence-proxy smoke mode, and
+  `bench.planning` deterministic pure-solver performance reporting are
+  implemented. The v0.2.1 planning demo ran the released manifest-backed
+  path, recorded `best_distance=23.656930390534644` after 384 evaluations,
+  and stopped by patience; it is execution evidence, not proof of useful
+  planning behavior. Named target-hardware performance acceptance and
+  planning-quality evidence remain open.
 
 ---
 
@@ -244,35 +249,43 @@ class PlanningConfig:
     n_iterations: int = 5
     n_samples: int = 1024
     n_elite: int = 64
-    distance: str = "l2"
-    cost: str = "count"
     cost_weight: float = 0.0
     stopping_eps: float = 0.05
     patience: int = 2
     seed: int | None = None
+    smoothing: float = 0.1
+
+@dataclass
+class CandidateEvaluation:
+    distance: float
+    predicted_state: Any | None = None
 
 @dataclass
 class PlanningResult:
-    best_edits: list[RelEdit]
+    best_edits: tuple[RelEdit, ...]
     best_distance: float
-    best_predicted_state: Tensor
-    n_predictor_calls: int
-    iterations: list[CEMIterationLog]
+    best_cost: float
+    best_objective: float
+    best_predicted_state: Any | None
+    n_evaluations: int
+    iterations: tuple[CEMIterationLog, ...]
     elapsed_seconds: float
+    stopped_reason: str
 
 def plan(
-    initial_state: Tensor,
-    target_state: Tensor,
-    predictor: Predictor,
-    action_encoder: ActionEncoder,
-    sampler: ActionSampler | None = None,
+    evaluate: Callable[[Sequence[RelEdit]], float | CandidateEvaluation],
+    sampler: ActionSampler,
+    *,
     config: PlanningConfig | None = None,
+    cost_fn: Callable[[Sequence[RelEdit]], float] | None = None,
 ) -> PlanningResult:
     ...
 ```
 
-The function is pure (deterministic given a seed) and side-effect-free
-on the predictor.
+The shipped CEM core is deterministic given a seed and deterministic
+`evaluate` callback, clones the caller's sampler before refitting the
+proposal, and leaves predictor/runtime integration at the evaluator
+boundary.
 
 ### 3.9 CLI
 
@@ -293,6 +306,24 @@ users who have constructed targets in latent space directly). For tests
 and local smoke runs without model artifacts, `--allow-sequence-proxy`
 enables a labeled FASTA-to-FASTA sequence proxy; that mode is not
 learned predictor evidence.
+
+`geno-lewm-plan` writes a `plan.json` payload with the evaluation mode,
+input artifact identities, runtime backend/model labels when present,
+configuration, target-state summary, best edit sequence, distance/cost
+objective values, evaluation count, elapsed time, stop reason, and CEM
+iteration summaries. Manifest-runtime output is released-artifact
+execution evidence. Sequence-proxy output is a local smoke path only.
+
+### 3.10 Planning benchmark report
+
+`bench.planning` records the pure CEM solver loop, sampler refitting,
+and edit-cost integration without measuring Carbon encoding or learned
+model quality. Its aggregate `planning.performance.json` report includes
+per-horizon CEM iteration timing, a deterministic repeat of the default
+planning call, detected CPU/GPU identity, optional named target profiles
+(`m3-max`, `h100`), and target pass/fail status when those profiles are
+requested. Hardware target rows are valid only when the report was
+generated on the named hardware.
 
 ## 4. Rationale and alternatives
 
