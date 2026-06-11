@@ -30,6 +30,53 @@ def test_export_cli_requires_output_dir(tmp_path: Path) -> None:
     assert rc != 0
 
 
+def test_export_cli_rejects_unimplemented_target_before_checkpoint_io(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--checkpoint",
+            str(tmp_path / "missing.pt"),
+            "--output-dir",
+            str(tmp_path / "model"),
+            "--target",
+            "onnx",
+            "--no-banner",
+            "--quiet",
+        ],
+    )
+
+    assert rc != 0
+    assert "export target is not implemented yet" in capsys.readouterr().err
+
+
+def test_export_cli_rejects_quantization_before_checkpoint_io(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    checkpoint = tmp_path / "predictor_checkpoint.pt"
+    checkpoint.write_bytes(b"placeholder")
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--checkpoint",
+            str(checkpoint),
+            "--output-dir",
+            str(tmp_path / "model"),
+            "--quantization",
+            "int8",
+            "--no-banner",
+            "--quiet",
+        ],
+    )
+
+    assert rc != 0
+    assert "export quantization is not implemented yet" in capsys.readouterr().err
+
+
 def test_export_cli_writes_artifacts(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     pytest.importorskip("torch")
     import torch
@@ -47,7 +94,18 @@ def test_export_cli_writes_artifacts(tmp_path: Path, capsys: pytest.CaptureFixtu
     out = tmp_path / "model"
     rc = _dispatch.run_app(
         app,
-        argv=["--checkpoint", str(checkpoint), "--output-dir", str(out), "--no-banner", "--quiet"],
+        argv=[
+            "--checkpoint",
+            str(checkpoint),
+            "--output-dir",
+            str(out),
+            "--target",
+            "safetensors",
+            "--quantization",
+            "none",
+            "--no-banner",
+            "--quiet",
+        ],
     )
     assert rc == 0
     assert (out / "predictor.safetensors").is_file()

@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added fail-closed `geno-lewm-export --target` and `--quantization`
+  request validation so ONNX, Core ML, GGUF, int8, and int4 requests
+  error explicitly until their target-specific implementations land.
 
 ## [0.2.1] - 2026-06-09
 
