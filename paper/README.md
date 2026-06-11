@@ -17,6 +17,9 @@ diagnosed as a *latent-residual baseline trap* structural to the frozen-encoder 
 make            # tectonic, two passes -> main.pdf
 # or directly:
 tectonic --keep-intermediates main.tex && tectonic --keep-intermediates main.tex
+
+# release evidence report:
+python -m tools.release.paper_tex --paper-dir paper --output paper/paper_tex_build_report.json
 ```
 
 Requires [`tectonic`](https://tectonic-typesetting.github.io/) (self-contained; downloads TeX packages

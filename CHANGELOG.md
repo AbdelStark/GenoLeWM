@@ -10,7 +10,10 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added a TeX paper build report helper that runs the checked Tectonic
+  paper build and records source/PDF artifact identities.
 
 ## [0.2.1] - 2026-06-09
 
