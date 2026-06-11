@@ -3,14 +3,16 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0006, RFC-0007, RFC-0010, RFC-0011, RFC-0012, RFC-0013, RFC-0017
 - **Supersedes:** —
 - **Implementation status:** Partial — dispatcher/shared flags,
   `verify`, `update`, data prep, score, fixture/carbon-preflight/train
-  launch, Carbon baseline, eval, eval-all, and release-supporting CLI
-  paths exist. Planning, rollout, export, and full real-artifact demo
-  command validation remain open.
+  launch, Carbon baseline, eval, eval-all, rollout aggregation,
+  manifest-backed planning, safetensors export, and release/demo support
+  paths exist. Target-specific ONNX / Core ML / GGUF export,
+  quantization, full cache-build mode, and future runtime command
+  validation remain open.
 
 ---
 
