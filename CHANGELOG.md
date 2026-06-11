@@ -94,6 +94,8 @@ No unreleased changes.
     normalized `dataset_package.json`, `dataset_manifest.json`,
     `split_integrity.json`, and `SHA256SUMS` from release metadata and
     already-produced dataset shard files.
+  - `bench.planning` now accepts `--output` as an alias for
+    `--output-json`, matching the README planning benchmark command.
   - `tools/release/dataset_snapshot.py` now writes
     `dataset_snapshot_report.json` with the checked snapshot-spec hash,
     upstream source file hashes, staged file identities, and
