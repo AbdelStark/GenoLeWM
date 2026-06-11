@@ -3,15 +3,17 @@
 - **Status:** Accepted
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0001, RFC-0012
 - **Supersedes:** —
 - **Implementation status:** Implemented for the v1 local/opt-in sink
   surface: structured JSONL logging, event and metric registries, strict
   redaction, Prometheus textfile metrics, trace-context propagation,
-  opt-in wandb sink, and event/metric registry linting are present with
-  unit, integration, and lint coverage. OpenTelemetry export remains a
-  future optional sink.
+  opt-in wandb sink, event/metric registry linting, docs-build
+  generation of `api/log-events.md`, and the checked-in
+  `docs/api/metrics.md` registry reference are present with unit,
+  integration, and lint coverage. OpenTelemetry export remains a future
+  optional sink.
 
 ---
 
@@ -160,9 +162,8 @@ analysis pipeline. The stability cost is worth it.
 
 ## 6. Future work
 
-- Auto-generated registries (`EVENTS`, `METRICS`) into
-  [`docs/api/log-events.md`](../docs/api/log-events.md) and
-  [`docs/api/metrics.md`](../docs/api/metrics.md).
+- Pre-rendered registry snapshots for offline docs consumers that do
+  not run the MkDocs generation pipeline.
 - A `geno-lewm logs explain <event-name>` CLI for fast diagnostic
   reference.
 - An audit-log mode that records every observability emission to a
@@ -171,6 +172,8 @@ analysis pipeline. The stability cost is worth it.
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for generated event
+  registry docs and the metrics API reference page.
 - 2026-06-02 — Accepted after the v1 observability surface landed in
   code and tests; OpenTelemetry export remains future optional work.
 - 2026-05-20 — Initial draft.
