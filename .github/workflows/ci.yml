@@ -121,11 +121,18 @@ jobs:
           # Fetch enough history for the changed-files coverage gate to
           # diff against the PR base branch (`origin/<base_ref>`).
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - name: Set up Python
+        if: runner.os != 'Windows'
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Set up Python (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
       - name: Install
         # Install the torch-backed extras on the canonical coverage combo
         # (ubuntu-latest / 3.12) so ML paths are exercised and counted by the
