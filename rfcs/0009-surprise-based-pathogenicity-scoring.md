@@ -3,15 +3,16 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0002, RFC-0003, RFC-0004, RFC-0005, RFC-0007
 - **Supersedes:** —
 - **Implementation status:** Partial — context stratification,
   calibration table helpers, raw surprise scoring, local `score_variant`
   / `score_vcf`, `geno-lewm-score`, manifest-backed runtime loading,
-  and single-variant plus VCF receipt emission exist. Validation against
-  released model/data artifacts and the clean-machine score transcript
-  remain open.
+  single-variant plus VCF receipt emission, public model/data artifact
+  scoring evidence, and released terminal-demo replay evidence exist.
+  Broader scoring quality, population-stratified calibration, and new
+  runtime surfaces still need artifact-backed validation.
 
 ---
 
