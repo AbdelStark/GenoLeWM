@@ -64,7 +64,8 @@ def test_public_docs_link_fx_research_without_success_language() -> None:
     assert "FX pivot" in combined
     assert "No GenoLeWM-FX model or demo ships" in combined
     assert "precomputed-Borzoi" in normalized
-    assert "overlap audit" in normalized
+    assert "row-alignment audit" in normalized
+    assert "full fipip table join is optional staged provenance" in normalized
     assert "GenoLeWM-FX improves" not in combined
     assert "GenoLeWM-FX outperforms" not in combined
 
@@ -75,6 +76,9 @@ def test_fx_borzoi_rescue_plan_is_overlap_first_and_claim_bounded() -> None:
     required = (
         "This plan does not reverse the #257 kill decision",
         "precomputed Borzoi scores",
+        "TraitGym-native, row-aligned precomputed Borzoi score artifacts",
+        "full fipip table exact join remains an optional",
+        "must not claim exact fipip table overlap",
         "more than 19 million common and low-frequency variants",
         "based on hg19",
         "at least 10,000 matched variants",

@@ -44,11 +44,22 @@ target was not reproducible under the contract.
 ## Follow-Up Trajectory
 
 The #257 kill decision remains correct for the teacher-inference path.
-A separate follow-up trajectory can test whether precomputed Borzoi
-scores from statgen/fipip rescue the idea without running a teacher. The
-follow-up must start with an overlap audit against TraitGym variant
-identities and must stop quickly if there is not a reproducible,
-public, checksum-backed 10k-50k matched slice.
+A separate follow-up trajectory can test whether public precomputed
+Borzoi-derived scores rescue the idea without running a teacher. The
+trajectory now has two explicit lanes:
+
+- the default executable lane uses TraitGym's row-aligned
+  `Borzoi_L2_L2.plus.all` score artifact for the matched complex-trait
+  slice;
+- the optional provenance lane joins against the large statgen/fipip
+  Borzoi table only when that table is explicitly staged locally.
+
+The follow-up must start with an alignment and artifact-receipt audit
+against TraitGym identities, labels, splits, and the row-aligned Borzoi
+score vector. It must stop quickly if there is not a reproducible,
+public, checksum-backed 10k-50k matched slice. If the optional full
+fipip table join is not run, reports must say that directly and must not
+claim exact fipip table overlap.
 
 That follow-up is tracked in #266 and documented in
 [GenoLeWM-FX Borzoi rescue plan](fx-borzoi-rescue-plan.md).

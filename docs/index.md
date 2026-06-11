@@ -51,7 +51,8 @@ for Carbon-backed training paths.
 - No useful-planning claim from the current planning demo.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
-- The only active FX follow-up is a narrow precomputed-Borzoi overlap
-  audit, not a model-quality claim.
+- The only active FX follow-up is a narrow TraitGym-native
+  precomputed-Borzoi row-alignment audit; a full fipip table join is
+  optional staged provenance, not a model-quality claim.
 - No runtime or privacy assurance beyond local execution contracts and
   checksum provenance.
