@@ -3,16 +3,20 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0001, RFC-0002, RFC-0003, RFC-0004, RFC-0005, RFC-0006
 - **Supersedes:** —
 - **Implementation status:** Partial — artifact-level `geno-lewm-eval`,
   deterministic bootstrap CIs, measured-baseline deltas,
   `geno-lewm-carbon-baseline`, `geno-lewm-eval-all`, generated
-  `eval_report.md`, recorded `eval_config.effective.yaml`, and
-  release-efficiency report generation exist. Real ClinVar split runs,
-  held-out Carbon baseline evidence, rollout-fidelity benchmarks, and
-  the first paper-ready report remain open.
+  `eval_report.md`, recorded `eval_config.effective.yaml`,
+  release-efficiency report generation, v0.2 benchmark-suite
+  orchestration, rollout-fidelity metrics, and the v0.2.1 generated
+  paper/readiness artifact chain exist. The current public evidence is
+  mixed or negative versus Carbon and does not satisfy the broader
+  model-quality, K=20 rollout-speed, or planning-quality goals; future
+  work is stronger held-out evidence, broader snapshots, and target
+  hardware performance.
 
 ---
 
