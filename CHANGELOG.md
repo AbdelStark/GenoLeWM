@@ -10,7 +10,12 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added fixture-backed scoring tutorial notebooks for a single
+  ClinVar-like SNV and a one-row VCF, including checksum receipt
+  validation and notebook execution tests. These examples are scoped as
+  fixture smoke coverage, not model-quality evidence.
 
 ## [0.2.1] - 2026-06-09
 

@@ -1,30 +1,41 @@
 # Examples
 
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
-The receipt-verification notebook is implemented. Scoring notebooks now
-wait for the first released checkpoint and dataset snapshot so their
-outputs do not present fixtures as model results; planning notebooks
-remain planned until the planner is implemented.
+The fixture-backed scoring notebooks and the receipt-verification
+notebook are implemented. Broader benchmark, BRCA2, rollout, and
+planning notebooks remain planned until their measured evidence is
+available.
 
 ---
 
-## Planned notebooks
+## Implemented notebooks
 
 ### `01_score_single_variant.ipynb`
-Phase 1. Score a single ClinVar variant end-to-end, showing the
-prediction, the surprise score, and the receipt. Smallest possible
-demo; the "hello world" of GenoLeWM.
+Scores a single ClinVar-like SNV through the local runtime API with a
+tiny deterministic fixture scorer, writes a checksum receipt, and
+validates that receipt. This is a fixture smoke tutorial, not learned
+model evidence.
+
+### `03_score_vcf.ipynb`
+Batch-scores a one-row fixture VCF against a local FASTA, writes one
+score JSONL row and one checksum receipt JSONL row, and validates the
+first receipt. This is a fixture smoke tutorial, not throughput or
+model-quality evidence.
+
+### `07_verify_receipt.ipynb`
+Verifies a committed checksum-only fixture receipt against its manifest,
+recomputes the input commitment from the original edit and reference
+window, and recomputes the output commitment. This does not rerun
+scoring and does not claim model-quality assurance beyond checksum
+provenance.
+
+## Planned notebooks
 
 ### `02_score_brca2_saturation.ipynb`
 Phase 1. Score every possible SNV across a BRCA2 exon (saturation
 mutagenesis), produce a heatmap of calibrated surprise, and compare to
 the published Findlay et al. functional scores. The headline visual
 demo.
-
-### `03_score_vcf.ipynb`
-Phase 1. Batch-score a VCF (we provide a small toy VCF; users can swap
-in their own). Demonstrates the batched throughput path and the
-per-variant receipt aggregation.
 
 ### `04_multi_edit_rollout.ipynb`
 Phase 2. Roll out a phased multi-edit haplotype from gnomAD, compare
@@ -40,13 +51,6 @@ the planner.
 Phase 3. Walkthrough of installing the desktop app, dropping in a VCF,
 viewing scored variants, exporting a receipt. Demonstrates the
 freedom-tech flow.
-
-### `07_verify_receipt.ipynb`
-Implemented. Verifies a committed checksum-only fixture receipt against
-its manifest, recomputes the input commitment from the original edit and
-reference window, and recomputes the output commitment. This does not
-rerun scoring and does not claim model-quality assurance beyond checksum
-provenance.
 
 ---
 
