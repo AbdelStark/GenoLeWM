@@ -113,6 +113,9 @@ h2 {
 }
 
 .drop-target {
+  display: grid;
+  align-content: start;
+  gap: 0.8rem;
   min-height: 9.5rem;
   border: 2px dashed #9ca8a0;
   border-radius: 8px;
@@ -120,9 +123,15 @@ h2 {
   background: #ffffff;
 }
 
+.drop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .drop-label {
   display: inline-block;
-  margin-bottom: 2.8rem;
   border-radius: 999px;
   padding: 0.25rem 0.55rem;
   color: #245b46;
@@ -131,10 +140,22 @@ h2 {
   font-weight: 800;
 }
 
+.file-button {
+  min-width: auto;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.84rem;
+}
+
 .drop-target strong {
   display: block;
   overflow-wrap: anywhere;
   font-size: 1.08rem;
+}
+
+.drop-help {
+  margin: 0;
+  color: #59615d;
+  font-size: 0.9rem;
 }
 
 .panel,

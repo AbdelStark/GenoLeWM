@@ -53,6 +53,31 @@ def test_desktop_tauri_config_csp_mirrors_allowed_hosts() -> None:
     assert "http://*" not in csp
 
 
+def test_desktop_scaffold_exposes_local_file_pickers() -> None:
+    html = (DESKTOP / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="vcf-input"' in html
+    assert 'accept=".vcf,.vcf.gz"' in html
+    assert 'data-picker="vcf-input"' in html
+    assert 'id="vcf-filename"' in html
+    assert 'id="fasta-input"' in html
+    assert 'accept=".fa,.fasta,.fna,.fa.gz,.fasta.gz,.fna.gz"' in html
+    assert 'data-picker="fasta-input"' in html
+    assert 'id="fasta-filename"' in html
+    assert 'id="queue-status"' in html
+    assert 'id="score-button" disabled' in html
+
+
+def test_desktop_frontend_binds_drop_targets_and_file_pickers() -> None:
+    script = (DESKTOP / "src" / "main.ts").read_text(encoding="utf-8")
+
+    assert "FILE_SLOTS" in script
+    assert 'input?.addEventListener("change"' in script
+    assert 'picker?.addEventListener("click", () => input?.click())' in script
+    assert 'drop?.addEventListener("drop", (event) => markDropTarget(event, slot))' in script
+    assert "Scoring action is pending runtime wiring." in script
+
+
 def test_desktop_rust_host_registers_pyo3_runtime_probe() -> None:
     cargo_toml = (DESKTOP / "src-tauri" / "Cargo.toml").read_text(encoding="utf-8")
     lib_rs = (DESKTOP / "src-tauri" / "src" / "lib.rs").read_text(encoding="utf-8")

@@ -25,13 +25,42 @@
 
       <section class="workspace" aria-label="Desktop workflow">
         <div class="drop-grid">
-          <div class="drop-target" id="vcf-drop">
-            <span class="drop-label">VCF</span>
-            <strong>No VCF selected</strong>
+          <div
+            class="drop-target"
+            id="vcf-drop"
+            aria-labelledby="vcf-label"
+            aria-describedby="vcf-help"
+          >
+            <div class="drop-header">
+              <span class="drop-label" id="vcf-label">VCF</span>
+              <button class="file-button" type="button" data-picker="vcf-input">Choose</button>
+            </div>
+            <strong id="vcf-filename">No VCF selected</strong>
+            <p class="drop-help" id="vcf-help">
+              Drop a .vcf or .vcf.gz file, or choose one locally.
+            </p>
+            <input id="vcf-input" type="file" accept=".vcf,.vcf.gz" hidden />
           </div>
-          <div class="drop-target" id="fasta-drop">
-            <span class="drop-label">FASTA</span>
-            <strong>No FASTA selected</strong>
+          <div
+            class="drop-target"
+            id="fasta-drop"
+            aria-labelledby="fasta-label"
+            aria-describedby="fasta-help"
+          >
+            <div class="drop-header">
+              <span class="drop-label" id="fasta-label">FASTA</span>
+              <button class="file-button" type="button" data-picker="fasta-input">Choose</button>
+            </div>
+            <strong id="fasta-filename">No FASTA selected</strong>
+            <p class="drop-help" id="fasta-help">
+              Drop a .fa, .fasta, or .fna file, or choose one locally.
+            </p>
+            <input
+              id="fasta-input"
+              type="file"
+              accept=".fa,.fasta,.fna,.fa.gz,.fasta.gz,.fna.gz"
+              hidden
+            />
           </div>
         </div>
 
@@ -65,9 +94,11 @@
         <section class="queue" aria-label="Scoring queue">
           <div>
             <h2>Scoring Queue</h2>
-            <p>Waiting for local inputs.</p>
+            <p id="queue-status">Waiting for local inputs.</p>
           </div>
-          <button type="button" disabled>Score</button>
+          <button type="button" id="score-button" disabled title="Scoring action is pending runtime wiring">
+            Score
+          </button>
         </section>
       </section>
     </main>

@@ -10,7 +10,10 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added local VCF and FASTA file-picker controls to the desktop scaffold
+  while keeping scoring disabled until the runtime action is wired.
 
 ## [0.2.1] - 2026-06-09
 
