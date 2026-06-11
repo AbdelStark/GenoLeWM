@@ -4,6 +4,7 @@ main.bbl
 main.blg
 main.log
 main.out
+paper_tex_build_report.json
 *.synctex.gz
 
 # toolchain scratch tests (not part of the deliverable)
