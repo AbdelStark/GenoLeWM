@@ -85,17 +85,16 @@ both surface this prominently.
 
 ### What benchmarks does GenoLeWM target?
 
-The v0.1 release reports a narrow chr21 ClinVar slice: 3,000 variants,
-AUROC `0.5191596847727398`, AP `0.1651739690365932`, and balanced
-accuracy `0.5`. The June 8 v0.2 readiness run adds measured
-GenoLeWM-vs-Carbon evidence for ClinVar coding, ClinVar non-coding,
-BRCA2 (Findlay et al. saturation editing), and TraitGym Mendelian, with
-exact evaluated variant identities and negative findings. The June 9
-#203 rerun applied that suite to the #202 checkpoint lineage and still
-supports a negative-results/systems framing rather than an
-improved-results claim. Those results are benchmark evidence, not
-clinical utility claims or a public v0.2 model release. The generated
-#205 serious-completion paper package records that framing in
+The public evidence has two tiers. The v0.1 release reports a narrow
+chr21 ClinVar slice: 3,000 variants, AUROC `0.5191596847727398`, AP
+`0.1651739690365932`, and balanced accuracy `0.5`. The v0.2.1
+benchmark/readiness tree adds measured GenoLeWM-vs-Carbon evidence for
+ClinVar coding, ClinVar non-coding, BRCA2 (Findlay et al. saturation
+editing), and TraitGym Mendelian, with exact evaluated variant
+identities and negative findings. Those results support a
+negative-results/systems framing rather than an improved-results claim.
+They are benchmark evidence, not clinical utility claims. The generated
+serious-completion paper package records that framing in
 [`paper.serious-completion.md`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md),
 with an `ok=true`
 [`paper_package_report.json`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper_package_report.json).
@@ -112,17 +111,17 @@ the observed retained/excluded variant counts.
 
 ### What populations is the calibration valid for?
 
-The v0.1 model package includes a public `calibration.parquet`, but the
-release does not establish population-stratified calibration validity.
-Treat the calibration as part of the released scorer artifact, not as a
-population-general reliability claim. Per-population calibration is a
-v0.2 workstream and must remain an explicit limitation until measured.
+The public model package includes a `calibration.parquet`, but the
+release evidence does not establish population-stratified calibration
+validity. Treat the calibration as part of the released scorer artifact,
+not as a population-general reliability claim. Per-population
+calibration must remain an explicit limitation until measured.
 
 ### Can I score a whole VCF?
 
-Yes, with local model artifacts. The v0.1 terminal demo scored a public
-32-row chr21 VCF and recorded score/receipt JSONL hashes. The local-only
-form is
+Yes, with local model artifacts. The released terminal-demo path scores
+VCF inputs and records score/receipt JSONL hashes for replay. The
+local-only form is
 `geno-lewm-score --model-dir ./model --vcf my.vcf --fasta GRCh38.fa --output scores.jsonl`.
 Add `--receipt receipts.jsonl` to write one checksum receipt per scored
 alternate.
@@ -134,18 +133,19 @@ Different signal. CADD aggregates many features; AlphaMissense is
 trained on protein-structure context; Carbon's likelihood is the
 log-probability difference of `alt` vs `ref` under an autoregressive DNA
 model. Surprise is the predictor's residual: how much the predicted
-post-edit latent differs from the actual post-edit latent. The v0.1
-release reports near-chance first-release metrics, not a robust
-comparison against those scorers. v0.2 should report correlations,
-baselines, and negative findings before making comparison claims.
+post-edit latent differs from the actual post-edit latent. The current
+public evidence is near-chance, mixed, or negative depending on the
+slice, not a robust win against those scorers. Future releases should
+keep reporting correlations, baselines, and negative findings before
+making comparison claims.
 
 ### Does the model know about non-coding variants?
 
 The architecture is designed to use Carbon's non-coding sequence
 representations, and the GenoLeWM training mix (RFC-0006) draws from the
-full corpus. The v0.1 release does not establish separate non-coding
-performance; the June 8 and June 9 v0.2 readiness runs report coding
-and non-coding ClinVar splits separately so non-coding performance is
+full corpus. The v0.1 release did not establish separate non-coding
+performance; the v0.2.1 readiness artifacts report coding and
+non-coding ClinVar splits separately so non-coding performance is
 visible, with the non-coding row preserved as a negative finding.
 
 ### Why centered-mean pooling around the edit?
@@ -170,9 +170,9 @@ yeast benchmarks is planned for v2.
 
 The intended release path is local-only: scoring should run on your
 device and fail closed if an inference path attempts a network call.
-The v0.1 terminal demo records runtime-preflight and network-guard
-evidence for the released demo path. That is artifact replay evidence,
-not a general privacy assurance for every future runtime. See
+The released demo/replay evidence records runtime-preflight and
+artifact-identity checks for the demo path. That is artifact replay
+evidence, not a general privacy assurance for every future runtime. See
 [RFC-0010 §3.7](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Does Anthropic / Hugging Face / anyone see what I score?
@@ -180,35 +180,35 @@ not a general privacy assurance for every future runtime. See
 The project does not provide a hosted scoring service or telemetry
 pipeline. The intended release contract keeps scoring local; network use
 is limited to explicit setup/update actions such as downloading model
-artifacts. The v0.1 demo records this behavior for the released demo
+artifacts. The released demo/replay evidence covers the published demo
 path; new runtime paths must preserve the same boundary before docs can
 extend the claim.
 
 ### Can I run this on a laptop?
 
 That remains a target, not a broad published benchmark result. The v0.1
-release includes an `efficiency_report.json` for the first artifact set,
-but the Apple Silicon and quantized local runtime targets still need
-dedicated measurement before users should treat RFC-0010 budget numbers
-as achieved. See
+release and v0.2.1 run tree include artifact-specific efficiency
+reports, but the Apple Silicon and quantized local runtime targets still
+need dedicated measurement before users should treat RFC-0010 budget
+numbers as achieved. See
 [RFC-0010 §3.5](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Can I run it on Windows / Linux?
 
 The planned v1 runtime targets Apple Silicon and CUDA workstations
 (RTX 4090-class). CPU-only is an accessibility fallback target. Public
-support should be judged from the v0.1 release demo and measured
-efficiency report for the published artifact set, plus future v0.2
-platform-specific benchmarks.
+support should be judged from the released demos and measured efficiency
+reports for the published artifact sets, plus future platform-specific
+benchmarks.
 
 ### What if a new GenoLeWM version gives different scores?
 
 By design, users should be able to roll back. Updates are explicit, and
 previous model versions are intended to remain side-by-side installs.
-The public v0.1 checkpoint has a manifest identity and checksum receipt
-stream for the terminal demo. Reproducible replay beyond the released
-demo inputs should be validated with the same manifest and receipt
-contracts. See
+The public model packages have manifest identities and checksum receipt
+streams for the terminal demos. Reproducible replay beyond released demo
+inputs should be validated with the same manifest and receipt contracts.
+See
 [RFC-0010 §3.8](rfcs/0010-on-device-personal-genome-deployment.md).
 
 ### Can someone check that my score matches the released artifacts?
