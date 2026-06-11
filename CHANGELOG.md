@@ -10,7 +10,12 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added `examples/02_score_brca2_saturation.ipynb`, a fixture-scale
+  BRCA2 saturation mechanics notebook that enumerates SNVs and renders a
+  calibrated-surprise heatmap without claiming the published Findlay
+  comparison benchmark.
 
 ## [0.2.1] - 2026-06-09
 

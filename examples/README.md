@@ -1,10 +1,11 @@
 # Examples
 
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
-The receipt-verification notebook is implemented. Scoring notebooks now
-wait for the first released checkpoint and dataset snapshot so their
-outputs do not present fixtures as model results; planning notebooks
-remain planned until the planner is implemented.
+The receipt-verification notebook is implemented. The BRCA2 saturation
+notebook now has a fixture-scale mechanics version; remaining scoring
+notebooks wait for the first released checkpoint and dataset snapshot so
+their outputs do not present fixtures as model results. Planning
+notebooks remain planned until the planner is implemented.
 
 ---
 
@@ -16,10 +17,11 @@ prediction, the surprise score, and the receipt. Smallest possible
 demo; the "hello world" of GenoLeWM.
 
 ### `02_score_brca2_saturation.ipynb`
-Phase 1. Score every possible SNV across a BRCA2 exon (saturation
-mutagenesis), produce a heatmap of calibrated surprise, and compare to
-the published Findlay et al. functional scores. The headline visual
-demo.
+Partial. Enumerates every possible SNV across a small BRCA2 exon-scale
+fixture, produces a calibrated-surprise heatmap, and compares against a
+deterministic fixture functional-score column. It does not use the
+released scorer or Findlay et al. rows, so the published-data Spearman
+acceptance criterion remains open.
 
 ### `03_score_vcf.ipynb`
 Phase 1. Batch-score a VCF (we provide a small toy VCF; users can swap
