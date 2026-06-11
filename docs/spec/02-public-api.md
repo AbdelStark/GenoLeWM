@@ -912,9 +912,9 @@ components, optional local checkpoint-to-component loading for native
 PyTorch/Transformers/safetensors artifacts, VCF scoring from local FASTA,
 single-variant checksum receipt writing, per-row VCF receipt JSONL
 sidecars, and the fail-closed network guard are implemented.
-The v0.1 clean-machine demo replayed the released checkpoint and Carbon
-artifact path for the public terminal demo; new runtime surfaces still
-need artifact-backed validation before docs can extend that claim.
+Released clean-machine demos replay the published checkpoint and Carbon
+artifact paths for their exact terminal-demo inputs; new runtime surfaces
+still need artifact-backed validation before docs can extend that claim.
 Encoding / prediction methods still fail fast with `RuntimeSetupError`
 unless local scorer components are available.
 Defined by [RFC-0010 §3.4](../rfcs/0010-on-device-personal-genome-deployment.md#34-runtime-contract)

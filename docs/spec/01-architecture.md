@@ -153,8 +153,10 @@ search amortizes one Carbon call across thousands of predictor rollouts.
 
 These hold across all subsystems. Violations are bugs, not features.
 Release-dependent invariants describe required behavior for published
-inference paths; until the first real terminal demo ships, they remain
-implementation and release gates rather than public artifact evidence.
+inference paths. The released terminal-demo paths are public artifact
+evidence for their exact model/input/runtime surfaces; new inference
+paths remain implementation and release gates until they receive the
+same artifact-backed validation.
 
 | ID | Invariant | Enforced by |
 |----|-----------|-------------|
