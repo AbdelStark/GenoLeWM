@@ -6,7 +6,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from tools.research.fx_borzoi_baselines import build_baseline_report, render_markdown
+
+pytest.importorskip("sklearn")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_MANIFEST = REPO_ROOT / "configs" / "fx" / "borzoi_rescue_sources.json"

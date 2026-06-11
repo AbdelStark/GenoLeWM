@@ -6,7 +6,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from tools.research.fx_borzoi_residual import build_residual_report, render_markdown
+
+pytest.importorskip("numpy")
+pytest.importorskip("sklearn")
 
 
 def test_residual_model_learns_controlled_nonlinear_residual(tmp_path: Path) -> None:

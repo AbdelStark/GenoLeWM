@@ -7,6 +7,8 @@ import gzip
 import json
 from pathlib import Path
 
+import pytest
+
 from tools.research.fx_borzoi_overlap import (
     build_borzoi_overlap_report,
     main,
@@ -61,6 +63,7 @@ def test_borzoi_overlap_reports_row_count_mismatch_as_no_go(tmp_path: Path) -> N
 
 
 def test_borzoi_overlap_optional_fipip_scan_counts_exact_matches(tmp_path: Path) -> None:
+    pytest.importorskip("pandas")
     manifest = _write_manifest(tmp_path, min_usable_rows=2)
     fipip_table = tmp_path / "fipip.tsv.gz"
     with gzip.open(fipip_table, "wt", encoding="utf-8") as handle:
