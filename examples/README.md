@@ -1,10 +1,10 @@
 # Examples
 
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
-The fixture-backed scoring notebooks and the receipt-verification
-notebook are implemented. Broader benchmark, BRCA2, rollout, and
-planning notebooks remain planned until their measured evidence is
-available.
+The fixture-backed scoring notebooks, BRCA2 fixture mechanics notebook,
+and receipt-verification notebook are implemented. Broader benchmark,
+rollout, and planning notebooks remain planned until their measured
+evidence is available.
 
 ---
 
@@ -15,6 +15,13 @@ Scores a single ClinVar-like SNV through the local runtime API with a
 tiny deterministic fixture scorer, writes a checksum receipt, and
 validates that receipt. This is a fixture smoke tutorial, not learned
 model evidence.
+
+### `02_score_brca2_saturation.ipynb`
+Partial. Enumerates every possible SNV across a small BRCA2 exon-scale
+fixture, produces a calibrated-surprise heatmap, and compares against a
+deterministic fixture functional-score column. It does not use the
+released scorer or Findlay et al. rows, so the published-data Spearman
+acceptance criterion remains open.
 
 ### `03_score_vcf.ipynb`
 Batch-scores a one-row fixture VCF against a local FASTA, writes one
@@ -30,12 +37,6 @@ scoring and does not claim model-quality assurance beyond checksum
 provenance.
 
 ## Planned notebooks
-
-### `02_score_brca2_saturation.ipynb`
-Phase 1. Score every possible SNV across a BRCA2 exon (saturation
-mutagenesis), produce a heatmap of calibrated surprise, and compare to
-the published Findlay et al. functional scores. The headline visual
-demo.
 
 ### `04_multi_edit_rollout.ipynb`
 Phase 2. Roll out a phased multi-edit haplotype from gnomAD, compare
