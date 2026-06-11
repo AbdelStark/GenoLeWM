@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-01
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0002, RFC-0004, RFC-0009, RFC-0010
 - **Supersedes:** the original RFC-0011 scope that included runtime
   assurance mechanisms beyond checksum provenance.
@@ -142,18 +142,27 @@ Implemented:
   local scorer components;
 - per-row VCF receipt JSONL sidecars using the same v1 single-output
   receipt schema;
+- `tools.release.batch_receipt_report` verification for score/receipt
+  JSONL streams;
+- terminal-demo runtime preflight and release-package checks that bind
+  manifest identity, score/receipt artifacts, batch receipt summaries,
+  and portable command inputs;
 - tutorial fixture and tests.
 
 Open:
 
-- validate downstream docs and examples against `geno_lewm.provenance`
-  as the only active public import path; the legacy import package and
-  receipt JSON field have been removed;
-- validate receipt emission against the first published checkpoint and
-  actual Carbon runtime artifacts.
+- keep downstream docs and examples aligned with `geno_lewm.provenance`
+  as public artifacts evolve;
+- keep validating receipt emission for each new published checkpoint and
+  terminal-demo artifact set;
+- runtime-assurance modes beyond checksum provenance remain out of
+  scope unless a separate RFC reintroduces them with evidence.
 
 ## 9. Changelog
 
+- 2026-06-11: updated implementation status for batch receipt reports,
+  terminal-demo runtime preflight binding, and repeated per-release
+  receipt-validation work.
 - 2026-06-01: narrowed RFC-0011 to artifact provenance and checksum
   receipts; removed unsupported runtime assurance modes from the active
   schema and roadmap.
