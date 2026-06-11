@@ -186,9 +186,12 @@ trusted only after their hashes match the fetched manifest.
     `dataset_package.json`, and it must reject `split_integrity.json`
     whose `generated_by` header is not
     `tools.release.dataset_integrity` or whose train/eval leakage
-    evidence lacks comparable keys. `split_integrity.json` must record
-    observed label/class balance, and `data_card.md` must render that
-    generated split-level class-balance summary.
+    evidence lacks comparable keys, except for explicit holdout splits
+    with genomic-region evidence. It must also reject train/holdout
+    genomic-region intersections.
+    `split_integrity.json` must record observed label/class balance, and
+    `data_card.md` must render that generated split-level class-balance
+    summary.
 12. For model/demo releases: preflight the real training inputs with
     `geno-lewm-train --carbon-preflight --dataset-dir ... --carbon-model-dir ... --training-config ... --run-dir ...`
     before launching the Carbon-backed trainer. The first-experiment

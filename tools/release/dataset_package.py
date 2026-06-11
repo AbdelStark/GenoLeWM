@@ -295,7 +295,7 @@ def render_data_card(
             "",
             "## Leakage Checks",
             "",
-            "The generated `split_integrity.json` records split counts, file hashes, and comparable-key leakage checks.",
+            "The generated `split_integrity.json` records split counts, file hashes, comparable-key leakage checks, and genomic-region holdout checks.",
         ]
     )
     lines.extend(f"- {item}" for item in package.leakage_checks)

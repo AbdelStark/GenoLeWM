@@ -51,8 +51,9 @@ Two mechanical helpers used by the release checklist in
   normalized metadata, manifest, split-integrity report, and checksum
   file from release metadata plus shard files.
 * :mod:`tools.release.dataset_integrity` recomputes dataset file
-  identities, split record counts, Parquet variant-key counts, and
-  train/eval comparable-key leakage checks from ``dataset_manifest.json``.
+  identities, split record counts, Parquet variant-key counts, genomic
+  region counts, train/eval comparable-key leakage checks, and
+  train/holdout region intersections from ``dataset_manifest.json``.
 * :mod:`tools.release.training_run` renders ``training_run_manifest.json``,
   ``training_run_card.md``, and ``training_run_SHA256SUMS`` for a
   completed training run, including the Carbon training preflight report

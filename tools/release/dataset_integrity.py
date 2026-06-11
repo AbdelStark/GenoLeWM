@@ -47,6 +47,7 @@ class IntegrityFile:
     sha256: str
     size_bytes: int
     comparable_keys: int
+    genomic_regions: int
     label_counts: dict[str, int]
 
     def to_dict(self) -> dict[str, object]:
@@ -57,6 +58,7 @@ class IntegrityFile:
             "sha256": self.sha256,
             "size_bytes": self.size_bytes,
             "comparable_keys": self.comparable_keys,
+            "genomic_regions": self.genomic_regions,
             "label_counts": dict(sorted(self.label_counts.items())),
         }
 
@@ -87,6 +89,25 @@ class SplitIntegrityReport:
         }
 
 
+@dataclass(frozen=True, order=True, slots=True)
+class _GenomicRegion:
+    """0-based half-open genomic region used for split leakage checks."""
+
+    chrom: str
+    start_bp: int
+    end_bp: int
+
+    def intersects(self, other: _GenomicRegion) -> bool:
+        return (
+            self.chrom == other.chrom
+            and self.start_bp < other.end_bp
+            and other.start_bp < self.end_bp
+        )
+
+    def label(self) -> str:
+        return f"{self.chrom}:{self.start_bp}-{self.end_bp}"
+
+
 def build_dataset_integrity_report(
     dataset_dir: Path,
     manifest_path: Path | None = None,
@@ -110,13 +131,14 @@ def build_dataset_integrity_report(
     files: list[IntegrityFile] = []
     split_counts: dict[str, int] = dict.fromkeys(split_specs, 0)
     split_keys: dict[str, set[str]] = {split: set() for split in split_specs}
+    split_regions: dict[str, set[_GenomicRegion]] = {split: set() for split in split_specs}
     split_label_counts: dict[str, dict[str, int]] = {split: {} for split in split_specs}
     for index, item in enumerate(raw_files):
         if not isinstance(item, dict):
             raise InputError(
                 "dataset manifest file entries must be objects", details={"index": index}
             )
-        file_report, keys = _inspect_file(
+        file_report, keys, regions = _inspect_file(
             dataset_dir, item, index=index, splits=frozenset(split_specs)
         )
         files.append(file_report)
@@ -124,6 +146,7 @@ def build_dataset_integrity_report(
             split_counts.get(file_report.split, 0) + file_report.records
         )
         split_keys.setdefault(file_report.split, set()).update(keys)
+        split_regions.setdefault(file_report.split, set()).update(regions)
         _merge_counts(
             split_label_counts.setdefault(file_report.split, {}), file_report.label_counts
         )
@@ -141,6 +164,8 @@ def build_dataset_integrity_report(
             "declared_records": declared,
             "observed_records": observed,
             "files": [file.path for file in files if file.split == split],
+            "comparable_keys": len(split_keys.get(split, set())),
+            "genomic_regions": len(split_regions.get(split, set())),
             "label_counts": dict(sorted(split_label_counts.get(split, {}).items())),
             "labelled_records": sum(split_label_counts.get(split, {}).values()),
             "unlabelled_records": max(
@@ -151,7 +176,7 @@ def build_dataset_integrity_report(
         if isinstance(description, str):
             splits[split]["description"] = description
 
-    leakage_checks = _build_leakage_checks(split_keys)
+    leakage_checks = _build_leakage_checks(split_keys, split_regions)
     for check in leakage_checks:
         if check["status"] != "passed":
             raise InputError(
@@ -163,8 +188,12 @@ def build_dataset_integrity_report(
                     "failure_reason": check["failure_reason"],
                     "split_a_comparable_keys": check["split_a_comparable_keys"],
                     "split_b_comparable_keys": check["split_b_comparable_keys"],
+                    "split_a_genomic_regions": check["split_a_genomic_regions"],
+                    "split_b_genomic_regions": check["split_b_genomic_regions"],
                     "overlap_count": check["overlap_count"],
+                    "region_overlap_count": check["region_overlap_count"],
                     "examples": check["examples"],
+                    "region_examples": check["region_examples"],
                 },
             )
 
@@ -275,7 +304,7 @@ def _inspect_file(
     *,
     index: int,
     splits: frozenset[str],
-) -> tuple[IntegrityFile, set[str]]:
+) -> tuple[IntegrityFile, set[str], set[_GenomicRegion]]:
     relative = _required_text(raw_file, "path", prefix=f"files[{index}].")
     split = _required_text(raw_file, "split", prefix=f"files[{index}].")
     if split not in splits:
@@ -305,7 +334,7 @@ def _inspect_file(
             "dataset file size mismatch",
             details={"path": relative, "expected": size_bytes, "observed": observed_size},
         )
-    observed_records, keys, label_counts = _read_records(path)
+    observed_records, keys, regions, label_counts = _read_records(path)
     declared_records = raw_file.get("records")
     if declared_records is not None:
         if (
@@ -341,13 +370,17 @@ def _inspect_file(
             sha256=observed_hash,
             size_bytes=observed_size,
             comparable_keys=len(keys),
+            genomic_regions=len(regions),
             label_counts=label_counts,
         ),
         keys,
+        regions,
     )
 
 
-def _read_records(path: Path) -> tuple[int | None, set[str], dict[str, int]]:
+def _read_records(
+    path: Path,
+) -> tuple[int | None, set[str], set[_GenomicRegion], dict[str, int]]:
     name = path.name.lower()
     if name.endswith(".jsonl"):
         return _read_jsonl_records(path)
@@ -357,10 +390,10 @@ def _read_records(path: Path) -> tuple[int | None, set[str], dict[str, int]]:
         return _read_parquet_records(path)
     if name.endswith((".txt", ".tsv", ".csv")):
         return _read_line_records(path)
-    return None, set(), {}
+    return None, set(), set(), {}
 
 
-def _read_parquet_records(path: Path) -> tuple[int, set[str], dict[str, int]]:
+def _read_parquet_records(path: Path) -> tuple[int, set[str], set[_GenomicRegion], dict[str, int]]:
     pq = _require_pyarrow_parquet()
     try:
         parquet_file = pq.ParquetFile(path)
@@ -371,14 +404,20 @@ def _read_parquet_records(path: Path) -> tuple[int, set[str], dict[str, int]]:
     names = set(schema.names)
     variant_columns = ("chrom", "pos", "ref", "alt")
     has_variant_columns = set(variant_columns) <= names
+    region_columns = _region_column_pair(names)
     label_columns = tuple(
         column for column in ("clinical_significance", "label", "clnsig") if column in names
     )
-    if not has_variant_columns and not label_columns:
-        return records, set(), {}
+    if not has_variant_columns and region_columns is None and not label_columns:
+        return records, set(), set(), {}
     keys: set[str] = set()
+    regions: set[_GenomicRegion] = set()
     label_counts: dict[str, int] = {}
     columns = [*variant_columns] if has_variant_columns else []
+    if region_columns is not None:
+        for column in ("chrom", *region_columns):
+            if column not in columns:
+                columns.append(column)
     columns.extend(column for column in label_columns if column not in columns)
     try:
         batches = parquet_file.iter_batches(columns=columns, batch_size=100_000)
@@ -392,16 +431,29 @@ def _read_parquet_records(path: Path) -> tuple[int, set[str], dict[str, int]]:
                     alt = values["alt"][index]
                     if None not in (chrom, pos, ref, alt):
                         keys.add(_variant_key(str(chrom), str(pos), str(ref), str(alt)))
+                        region = _variant_region(chrom, pos, ref)
+                        if region is not None:
+                            regions.add(region)
+                if region_columns is not None:
+                    start_column, end_column = region_columns
+                    region = _region_from_values(
+                        values["chrom"][index],
+                        values[start_column][index],
+                        values[end_column][index],
+                    )
+                    if region is not None:
+                        regions.add(region)
                 _add_label_count(label_counts, _first_label_value(values, label_columns, index))
     except Exception as exc:
         raise InputError(
             "failed to inspect dataset Parquet variant keys", details={"path": str(path)}
         ) from exc
-    return records, keys, label_counts
+    return records, keys, regions, label_counts
 
 
-def _read_jsonl_records(path: Path) -> tuple[int, set[str], dict[str, int]]:
+def _read_jsonl_records(path: Path) -> tuple[int, set[str], set[_GenomicRegion], dict[str, int]]:
     keys: set[str] = set()
+    regions: set[_GenomicRegion] = set()
     label_counts: dict[str, int] = {}
     records = 0
     with path.open("r", encoding="utf-8") as handle:
@@ -421,12 +473,16 @@ def _read_jsonl_records(path: Path) -> tuple[int, set[str], dict[str, int]]:
                 key = _key_from_mapping(row)
                 if key is not None:
                     keys.add(key)
+                region = _region_from_mapping(row)
+                if region is not None:
+                    regions.add(region)
                 _add_label_count(label_counts, _label_from_mapping(row))
-    return records, keys, label_counts
+    return records, keys, regions, label_counts
 
 
-def _read_vcf_records(path: Path) -> tuple[int, set[str], dict[str, int]]:
+def _read_vcf_records(path: Path) -> tuple[int, set[str], set[_GenomicRegion], dict[str, int]]:
     keys: set[str] = set()
+    regions: set[_GenomicRegion] = set()
     label_counts: dict[str, int] = {}
     records = 0
     with _open_text(path) as handle:
@@ -446,21 +502,24 @@ def _read_vcf_records(path: Path) -> tuple[int, set[str], dict[str, int]]:
             records += max(1, len(alt_values))
             for alt_index, alt in enumerate(alt_values):
                 keys.add(_variant_key(chrom, pos, ref, alt))
+                region = _variant_region(chrom, pos, ref)
+                if region is not None:
+                    regions.add(region)
                 _add_label_count(
                     label_counts,
                     _info_value_for_alt(info, ("CLNSIG", "CLNSIGCONF", "label"), alt_index),
                 )
-    return records, keys, label_counts
+    return records, keys, regions, label_counts
 
 
-def _read_line_records(path: Path) -> tuple[int, set[str], dict[str, int]]:
+def _read_line_records(path: Path) -> tuple[int, set[str], set[_GenomicRegion], dict[str, int]]:
     records = 0
     with path.open("r", encoding="utf-8") as handle:
         for raw_line in handle:
             line = raw_line.strip()
             if line and not line.startswith("#"):
                 records += 1
-    return records, set(), {}
+    return records, set(), set(), {}
 
 
 def _open_text(path: Path) -> TextIO:
@@ -483,6 +542,77 @@ def _key_from_mapping(row: dict[str, Any]) -> str | None:
     record_id = row.get("record_id")
     if isinstance(record_id, str) and record_id:
         return "record:" + record_id
+    return None
+
+
+def _region_from_mapping(row: dict[str, Any]) -> _GenomicRegion | None:
+    chrom = row.get("chrom")
+    for start_key, end_key in (
+        ("start_bp", "end_bp"),
+        ("window_start_bp", "window_end_bp"),
+    ):
+        region = _region_from_values(chrom, row.get(start_key), row.get(end_key))
+        if region is not None:
+            return region
+    if all(key in row for key in ("chrom", "pos", "ref")):
+        return _variant_region(chrom, row.get("pos"), row.get("ref"))
+    return None
+
+
+def _region_column_pair(names: set[str]) -> tuple[str, str] | None:
+    for start, end in (("start_bp", "end_bp"), ("window_start_bp", "window_end_bp")):
+        if {"chrom", start, end} <= names:
+            return start, end
+    return None
+
+
+def _region_from_values(
+    chrom: object,
+    start_bp: object,
+    end_bp: object,
+) -> _GenomicRegion | None:
+    chrom_text = _chrom_text(chrom)
+    start = _int_value(start_bp)
+    end = _int_value(end_bp)
+    if chrom_text is None or start is None or end is None or end <= start:
+        return None
+    return _GenomicRegion(chrom_text, start, end)
+
+
+def _variant_region(chrom: object, pos: object, ref: object) -> _GenomicRegion | None:
+    chrom_text = _chrom_text(chrom)
+    position = _int_value(pos)
+    if chrom_text is None or position is None or position <= 0:
+        return None
+    ref_text = str(ref).strip().upper() if ref is not None else ""
+    if not ref_text:
+        return None
+    start = position - 1
+    return _GenomicRegion(chrom_text, start, start + len(ref_text))
+
+
+def _chrom_text(value: object) -> str | None:
+    if not isinstance(value, str | int):
+        return None
+    chrom = str(value).strip()
+    if not chrom:
+        return None
+    lowered = chrom.lower()
+    if lowered.startswith("chr") and len(chrom) > 3:
+        chrom = chrom[3:]
+    upper = chrom.upper()
+    return upper if upper in {"X", "Y", "XY", "MT"} else chrom
+
+
+def _int_value(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text and re.fullmatch(r"[0-9]+", text):
+            return int(text)
     return None
 
 
@@ -586,7 +716,10 @@ def _merge_counts(target: dict[str, int], source: dict[str, int]) -> None:
         target[label] = target.get(label, 0) + count
 
 
-def _build_leakage_checks(split_keys: dict[str, set[str]]) -> tuple[dict[str, object], ...]:
+def _build_leakage_checks(
+    split_keys: dict[str, set[str]],
+    split_regions: dict[str, set[_GenomicRegion]],
+) -> tuple[dict[str, object], ...]:
     train_splits = [split for split in split_keys if split.lower().startswith("train")]
     eval_splits = [
         split
@@ -598,22 +731,37 @@ def _build_leakage_checks(split_keys: dict[str, set[str]]) -> tuple[dict[str, ob
         for eval_split in eval_splits:
             train_keys = split_keys[train_split]
             eval_keys = split_keys[eval_split]
+            train_regions = split_regions.get(train_split, set())
+            eval_regions = split_regions.get(eval_split, set())
             overlap = sorted(train_keys & eval_keys)
-            missing_comparable_keys = not train_keys or not eval_keys
-            status = "failed" if missing_comparable_keys or overlap else "passed"
+            check_regions = _is_holdout_split(eval_split)
+            region_overlap_count, region_examples = _region_overlap_report(
+                train_regions,
+                eval_regions if check_regions else set(),
+            )
+            has_key_evidence = bool(train_keys and eval_keys)
+            has_region_evidence = check_regions and bool(train_regions and eval_regions)
+            failure_reason = _leakage_failure_reason(
+                key_overlap_count=len(overlap),
+                region_overlap_count=region_overlap_count,
+                has_key_evidence=has_key_evidence,
+                has_region_evidence=has_region_evidence,
+            )
             checks.append(
                 {
                     "name": "no_shared_comparable_keys_between_train_and_eval",
                     "split_a": train_split,
                     "split_b": eval_split,
-                    "status": status,
-                    "failure_reason": (
-                        "missing_comparable_keys" if missing_comparable_keys else ""
-                    ),
+                    "status": "failed" if failure_reason else "passed",
+                    "failure_reason": failure_reason,
                     "split_a_comparable_keys": len(train_keys),
                     "split_b_comparable_keys": len(eval_keys),
+                    "split_a_genomic_regions": len(train_regions),
+                    "split_b_genomic_regions": len(eval_regions),
                     "overlap_count": len(overlap),
+                    "region_overlap_count": region_overlap_count,
                     "examples": overlap[:20],
+                    "region_examples": region_examples,
                 }
             )
     if not checks:
@@ -626,11 +774,64 @@ def _build_leakage_checks(split_keys: dict[str, set[str]]) -> tuple[dict[str, ob
                 "failure_reason": "missing_train_or_eval_split",
                 "split_a_comparable_keys": 0,
                 "split_b_comparable_keys": 0,
+                "split_a_genomic_regions": 0,
+                "split_b_genomic_regions": 0,
                 "overlap_count": 0,
+                "region_overlap_count": 0,
                 "examples": [],
+                "region_examples": [],
             }
         )
     return tuple(checks)
+
+
+def _is_holdout_split(split: str) -> bool:
+    return "holdout" in split.lower()
+
+
+def _leakage_failure_reason(
+    *,
+    key_overlap_count: int,
+    region_overlap_count: int,
+    has_key_evidence: bool,
+    has_region_evidence: bool,
+) -> str:
+    if key_overlap_count:
+        return "shared_comparable_keys"
+    if region_overlap_count:
+        return "intersecting_genomic_regions"
+    if not has_key_evidence and not has_region_evidence:
+        return "missing_comparable_keys_and_genomic_regions"
+    return ""
+
+
+def _region_overlap_report(
+    train_regions: set[_GenomicRegion],
+    eval_regions: set[_GenomicRegion],
+) -> tuple[int, list[str]]:
+    by_chrom: dict[str, list[_GenomicRegion]] = {}
+    for region in eval_regions:
+        by_chrom.setdefault(region.chrom, []).append(region)
+    for regions in by_chrom.values():
+        regions.sort()
+
+    count = 0
+    examples: list[str] = []
+    for train_region in sorted(train_regions):
+        candidates = by_chrom.get(train_region.chrom, [])
+        if not candidates:
+            continue
+        index = 0
+        while index < len(candidates) and candidates[index].end_bp <= train_region.start_bp:
+            index += 1
+        while index < len(candidates) and candidates[index].start_bp < train_region.end_bp:
+            eval_region = candidates[index]
+            if train_region.intersects(eval_region):
+                count += 1
+                if len(examples) < 20:
+                    examples.append(f"{train_region.label()} intersects {eval_region.label()}")
+            index += 1
+    return count, examples
 
 
 def _variant_key(chrom: str, pos: str, ref: str, alt: str) -> str:

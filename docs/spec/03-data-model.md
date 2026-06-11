@@ -222,7 +222,12 @@ and Parquet files, records observed label/class balance from
 comparable keys from JSONL `locus_key`, `variant_key`,
 variant-coordinate, or `record_id` rows, from VCF alternate rows, and
 from Parquet rows that expose `chrom`, `pos`, `ref`, and `alt` columns.
-It fails when no train/eval comparable-key comparison can be made. It
+It also counts genomic regions from JSONL or Parquet `chrom` with
+`start_bp`/`end_bp` or `window_start_bp`/`window_end_bp`, plus variant
+spans from VCF and variant-coordinate rows, and rejects train/holdout
+region intersections when explicit holdout splits are packaged. It
+fails when a train/eval pair lacks comparable-key evidence and is not
+an explicit train/holdout pair with genomic-region evidence. It
 also records `generated_by: tools.release.dataset_integrity`; the
 paper/demo verifier rejects reports with a missing or mismatched source
 header. The generated `data_card.md` renders the same split-level class

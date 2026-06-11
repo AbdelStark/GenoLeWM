@@ -110,6 +110,9 @@ No unreleased changes.
   - `tools/release/dataset_integrity.py` recomputes dataset file
     identities, split record counts, and train/eval comparable-key
     leakage checks from `dataset_manifest.json`.
+  - Split-integrity checks now count genomic regions from window and
+    variant rows and reject train/holdout region intersections for
+    published holdout membership files.
   - Split-integrity checks now inspect Parquet row counts and variant
     keys when shard files expose `chrom`, `pos`, `ref`, and `alt`.
   - `tools/release/training_run.py` builds `training_run_manifest.json`,
