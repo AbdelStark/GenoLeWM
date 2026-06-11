@@ -16,6 +16,7 @@ from geno_lewm.data import (
 )
 from geno_lewm.data.gnomad import _optional_float
 from geno_lewm.errors import InputError, RuntimeSetupError
+from geno_lewm.provenance import sha256_file
 
 
 def test_prepare_gnomad_shard_filters_common_pass_variants(tmp_path: Path) -> None:
@@ -31,7 +32,13 @@ def test_prepare_gnomad_shard_filters_common_pass_variants(tmp_path: Path) -> No
     assert report.skipped_filter == 1
     assert report.skipped_af == 1
     assert report.skipped_allele == 1
+    assert report.input_path == vcf_path
+    assert report.input_sha256 == sha256_file(vcf_path)
+    assert report.output_sha256 == sha256_file(report.output_path)
+    assert report.input_size_bytes == vcf_path.stat().st_size
     assert report.size_bytes > 0
+    assert report.elapsed_seconds > 0
+    assert report.to_dict()["input_sha256"] == report.input_sha256
 
     rows = list(iter_gnomad_shard(report.output_path))
     assert [(row.chrom, row.pos, row.ref, row.alt) for row in rows] == [
@@ -54,8 +61,11 @@ def test_prepare_gnomad_shard_is_idempotent_without_overwrite(tmp_path: Path) ->
     assert second.already_exists is True
     assert second.records_read == 0
     assert second.records_written == 2
+    assert second.input_sha256 == first.input_sha256
+    assert second.output_sha256 == first.output_sha256
     assert second.size_bytes == first.size_bytes
     assert second.to_dict()["already_exists"] is True
+    assert second.elapsed_seconds >= 0
 
 
 def test_prepare_gnomad_shard_flushes_multiple_small_batches(
