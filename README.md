@@ -324,10 +324,9 @@ jobs. Fixture outputs are test evidence, not model results.
   useful planning behavior.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
-- The precomputed-Borzoi rescue path has an experimental residual model
-  with a small, non-significant lift over the strongest simple baseline;
-  no training or benchmark claim is open, and a full fipip table join is
-  optional staged provenance.
+- The precomputed-Borzoi rescue is complete as a no-positive-claim
+  result: the residual lift is small and non-significant, no training or
+  benchmark claim is open, and exact fipip overlap is not claimed.
 - No clinical utility claim; the public model evidence is not clinical
   evidence.
 - Personal-genome workflows are local-first, but local execution is not

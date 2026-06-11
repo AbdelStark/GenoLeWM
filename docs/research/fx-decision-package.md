@@ -17,6 +17,7 @@ Authoritative artifacts:
 - [Borzoi score cache report](fx-borzoi-cache-report.md)
 - [Borzoi baseline and saturation report](fx-borzoi-baseline-report.md)
 - [Borzoi residual model report](fx-borzoi-residual-report.md)
+- [Borzoi final outcome report](fx-borzoi-final-report.md)
 
 ## Decision
 
@@ -97,6 +98,13 @@ It records a small positive mean lift over the strongest simple baseline,
 but the paired confidence intervals cross zero. That completes the
 implementation experiment for #271, but it does not support a positive
 locked-result claim for #272.
+
+The follow-up trajectory is now complete:
+[GenoLeWM-FX Borzoi final outcome report](fx-borzoi-final-report.md).
+It publishes `no_positive_claim_fragile_lift` as the final outcome. The
+precomputed-Borzoi path produced source-controlled overlap, cache,
+baseline, and residual artifacts, but it does not ship an FX demo,
+paper-positive result, or public model-quality claim.
 
 ## Child Issue Resolution
 

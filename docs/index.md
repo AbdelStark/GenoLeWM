@@ -23,6 +23,7 @@ model-quality evidence is mixed or negative versus Carbon.
 - [GenoLeWM-FX Borzoi cache report](research/fx-borzoi-cache-report.md)
 - [GenoLeWM-FX Borzoi baseline report](research/fx-borzoi-baseline-report.md)
 - [GenoLeWM-FX Borzoi residual report](research/fx-borzoi-residual-report.md)
+- [GenoLeWM-FX Borzoi final report](research/fx-borzoi-final-report.md)
 
 ## Public Artifacts
 
@@ -55,9 +56,8 @@ for Carbon-backed training paths.
 - No useful-planning claim from the current planning demo.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
-- The active FX follow-up has an experimental residual model with a
-  small, non-significant lift over the strongest simple baseline; no
-  model-quality claim is open, and a full fipip table join is
-  optional staged provenance.
+- The FX precomputed-Borzoi rescue is complete as a no-positive-claim
+  result: the residual lift is small and non-significant, no
+  model-quality claim is open, and exact fipip overlap is not claimed.
 - No runtime or privacy assurance beyond local execution contracts and
   checksum provenance.

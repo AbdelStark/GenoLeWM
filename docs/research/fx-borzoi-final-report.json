@@ -1,0 +1,168 @@
+{
+  "artifact_receipts": {
+    "baseline_report": {
+      "generated_by": "tools.research.fx_borzoi_baselines",
+      "path": "docs/research/fx-borzoi-baseline-report.json",
+      "schema_version": "1.0.0",
+      "sha256": "sha256:8e3dd5f5916dd5c8b97d17139484595693a4be423d26e8cf08c07c05942f0b7a"
+    },
+    "cache_artifact": {
+      "path": "docs/research/fx-borzoi-score-cache.parquet",
+      "rows": 11400,
+      "sha256": "sha256:74695a87dfd0045e6d3ad161167f765497dbb00d99b396ab9490c7d8ade7b76f",
+      "size_bytes": 533055
+    },
+    "cache_manifest": {
+      "generated_by": "tools.research.fx_borzoi_cache",
+      "path": "docs/research/fx-borzoi-cache-manifest.json",
+      "schema_version": "1.0.0",
+      "sha256": "sha256:0d06742aacb9c07043cf2dc4b080c18b2846dc71d3358497e356ebbd30317a24"
+    },
+    "overlap_report": {
+      "generated_by": "tools.research.fx_borzoi_overlap",
+      "path": "docs/research/fx-borzoi-overlap-report.json",
+      "schema_version": "1.0.0",
+      "sha256": "sha256:e8beb45ccc8ab255ca5e1881fa4244a20dc17e5545a3e6e481ffb79e005db012"
+    },
+    "residual_prediction_artifact": {
+      "path": "docs/research/fx-borzoi-residual-predictions.parquet",
+      "rows": 3390,
+      "sha256": "sha256:968ba05757c563b1d13dfcdaed0f0df7c9511a570c35f81da62515cc604fb978",
+      "size_bytes": 144460
+    },
+    "residual_report": {
+      "generated_by": "tools.research.fx_borzoi_residual",
+      "path": "docs/research/fx-borzoi-residual-report.json",
+      "schema_version": "1.0.0",
+      "sha256": "sha256:564baea9a1d3d0e87abc492f439a97aa3e3cc465c4dc6615b4c589433f2b1b86"
+    }
+  },
+  "baseline_summary": {
+    "strongest_simple_baseline": "borzoi_plus_source_logistic_probe",
+    "strongest_simple_baseline_metrics": [
+      {
+        "ci95": [
+          0.6144029191243308,
+          0.6821100969844257
+        ],
+        "name": "auroc",
+        "value": 0.6494374396324432
+      },
+      {
+        "ci95": [
+          0.1799612237853904,
+          0.26741550737792813
+        ],
+        "name": "average_precision",
+        "value": 0.2225262018025548
+      },
+      {
+        "ci95": [
+          0.5013650958851011,
+          0.5152777906689212
+        ],
+        "name": "balanced_accuracy",
+        "value": 0.5080301540478531
+      }
+    ]
+  },
+  "claim_boundary": "This final report is a no-positive-claim FX rescue outcome. It is not a clinical result, deployment-readiness result, broad VEP superiority claim, broad Carbon comparison, useful-planning claim, ground-truth biology claim, or exact fipip overlap claim.",
+  "epic_issue": 266,
+  "final_issue": 272,
+  "gate_summary": {
+    "baseline_decision": "go_residual_model",
+    "cache_rows": 11400,
+    "overlap_decision": "go_traitgym_native_borzoi",
+    "residual_decision": "residual_lift_candidate",
+    "usable_rows": 11400
+  },
+  "generated_at": "2026-06-11T15:00:00Z",
+  "generated_by": "tools.research.fx_borzoi_final",
+  "negative_findings": [
+    "The full fipip table exact join was not run; exact fipip overlap is not claimed.",
+    "The residual ensemble's paired AUPRC and AUROC confidence intervals cross zero.",
+    "No trained GenoLeWM-FX positive model-quality claim is supported.",
+    "No FX demo or paper-positive result should ship from this trajectory."
+  ],
+  "outcome": "no_positive_claim_fragile_lift",
+  "positive_claim_allowed": false,
+  "recommended_issue_actions": [
+    {
+      "action": "close-completed",
+      "issue": 272,
+      "reason": "The final no-positive-claim outcome is source-controlled and claim-bounded."
+    },
+    {
+      "action": "close-completed",
+      "issue": 266,
+      "reason": "All child gates completed and the final outcome is published."
+    }
+  ],
+  "residual_summary": {
+    "final_positive_claim_supported": false,
+    "paired_deltas_vs_strongest_simple_baseline": [
+      {
+        "ci95": [
+          -0.0035465356467575815,
+          0.0236768730362187
+        ],
+        "delta": 0.009940161792303726,
+        "name": "auroc"
+      },
+      {
+        "ci95": [
+          -0.0028686904812142834,
+          0.019804861384548605
+        ],
+        "delta": 0.00752221961116159,
+        "name": "average_precision"
+      }
+    ],
+    "residual_ensemble_metrics": [
+      {
+        "name": "auroc",
+        "value": 0.6593776014247469
+      },
+      {
+        "name": "average_precision",
+        "value": 0.2300484214137164
+      },
+      {
+        "name": "balanced_accuracy",
+        "value": 0.5026220911176663
+      }
+    ],
+    "seed_variance": {
+      "auroc_max": 0.6603715209192015,
+      "auroc_mean": 0.6587958491292086,
+      "auroc_min": 0.6569546809450744,
+      "auroc_std": 0.0011120881155525799,
+      "average_precision_max": 0.23220547737652755,
+      "average_precision_mean": 0.2297709814836358,
+      "average_precision_min": 0.2266879913345575,
+      "average_precision_std": 0.0014479880800466664,
+      "seeds": [
+        271,
+        272,
+        273,
+        274,
+        275,
+        276,
+        277,
+        278,
+        279,
+        280
+      ]
+    }
+  },
+  "schema_version": "1.0.0",
+  "task": {
+    "config": "complex_traits",
+    "dataset": "songlab/TraitGym",
+    "fipip_exact_join_status": "not_run_full_table_not_staged",
+    "score_column": "borzoi_score",
+    "score_id": "Borzoi_L2_L2.plus.all",
+    "split": "test",
+    "target_kind": "teacher_derived_traitgym_native_borzoi_score"
+  }
+}

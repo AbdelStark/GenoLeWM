@@ -19,6 +19,8 @@ BASELINE = REPO_ROOT / "docs" / "research" / "fx-borzoi-baseline-report.md"
 BASELINE_JSON = REPO_ROOT / "docs" / "research" / "fx-borzoi-baseline-report.json"
 RESIDUAL = REPO_ROOT / "docs" / "research" / "fx-borzoi-residual-report.md"
 RESIDUAL_JSON = REPO_ROOT / "docs" / "research" / "fx-borzoi-residual-report.json"
+FINAL = REPO_ROOT / "docs" / "research" / "fx-borzoi-final-report.md"
+FINAL_JSON = REPO_ROOT / "docs" / "research" / "fx-borzoi-final-report.json"
 INDEX = REPO_ROOT / "docs" / "index.md"
 README = REPO_ROOT / "README.md"
 MKDOCS = REPO_ROOT / "mkdocs.yml"
@@ -65,10 +67,12 @@ def test_fx_report_and_decision_package_publish_kill_path() -> None:
     assert "Borzoi score cache report" in decision
     assert "Borzoi baseline and saturation report" in decision
     assert "Borzoi residual model report" in decision
+    assert "Borzoi final outcome report" in decision
     assert "not a model-quality claim" in normalized_decision
     assert "does not open a model-quality or training claim" in normalized_decision
     assert "not a trained GenoLeWM-FX model result" in normalized_decision
     assert "does not support a positive locked-result claim" in normalized_decision
+    assert "does not ship an FX demo" in normalized_decision
 
 
 def test_public_docs_link_fx_research_without_success_language() -> None:
@@ -83,11 +87,12 @@ def test_public_docs_link_fx_research_without_success_language() -> None:
     assert "research/fx-borzoi-cache-report.md" in combined
     assert "research/fx-borzoi-baseline-report.md" in combined
     assert "research/fx-borzoi-residual-report.md" in combined
+    assert "research/fx-borzoi-final-report.md" in combined
     assert "FX pivot" in combined
     assert "No GenoLeWM-FX model or demo ships" in combined
     assert "precomputed-Borzoi" in normalized
-    assert "small, non-significant lift" in normalized
-    assert "full fipip table join is optional staged provenance" in normalized
+    assert "small and non-significant" in normalized
+    assert "exact fipip overlap is not claimed" in normalized
     assert "GenoLeWM-FX improves" not in combined
     assert "GenoLeWM-FX outperforms" not in combined
 
@@ -108,6 +113,7 @@ def test_fx_borzoi_rescue_plan_is_overlap_first_and_claim_bounded() -> None:
         "manifest-backed cache with 11,400 rows",
         "records a go decision for the residual-model gate",
         "paired confidence intervals cross zero",
+        "no_positive_claim_fragile_lift",
         "If this fails, stop and publish the overlap no-go report",
         "Use #266 rather than reopening #257",
         "#267 - lock rescue contract and coordinate rules",
@@ -191,3 +197,20 @@ def test_fx_borzoi_residual_report_is_non_positive_claim_bounded() -> None:
     assert "Final positive claim supported: **False**." in text
     assert "paired confidence interval crosses zero" in text
     assert "not a final GenoLeWM-FX model-quality result" in text
+
+
+def test_fx_borzoi_final_report_publishes_no_positive_claim() -> None:
+    text = FINAL.read_text(encoding="utf-8")
+    payload = json.loads(FINAL_JSON.read_text(encoding="utf-8"))
+
+    assert payload["outcome"] == "no_positive_claim_fragile_lift"
+    assert payload["positive_claim_allowed"] is False
+    assert payload["task"]["score_id"] == "Borzoi_L2_L2.plus.all"
+    assert payload["task"]["fipip_exact_join_status"] == "not_run_full_table_not_staged"
+    assert (
+        "No trained GenoLeWM-FX positive model-quality claim is supported."
+        in payload["negative_findings"]
+    )
+    assert "Outcome: **no_positive_claim_fragile_lift**." in text
+    assert "Positive claim allowed: **False**." in text
+    assert "exact fipip overlap is not claimed" in text

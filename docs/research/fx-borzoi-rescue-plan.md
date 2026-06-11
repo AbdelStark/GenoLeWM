@@ -1,6 +1,6 @@
 # GenoLeWM-FX Borzoi rescue plan
 
-Status: follow-up trajectory #266 after issue #257.
+Status: completed follow-up trajectory #266 after issue #257.
 
 This plan does not reverse the #257 kill decision. It defines one narrow
 way to reopen the FX question without running expensive teacher
@@ -164,6 +164,13 @@ simple baseline, but paired confidence intervals cross zero. The report
 therefore supports #271 implementation completion but does not support a
 positive locked-result claim for #272.
 
+Final outcome: the source-controlled
+[Borzoi final outcome report](fx-borzoi-final-report.md) publishes the
+completed rescue decision as `no_positive_claim_fragile_lift`. The
+trajectory produced useful overlap/cache/baseline artifacts, but no
+FX model-quality, demo, clinical, deployment, broad VEP, broad Carbon,
+useful-planning, or exact fipip-overlap claim.
+
 ## Issue Trajectory
 
 Use #266 rather than reopening #257. The #257 artifacts remain the
@@ -180,4 +187,5 @@ children are:
 - #271 - train a residual model only after the baseline gate;
 - #272 - publish the locked result or overlap kill report.
 
-#266 should be closed quickly if the overlap audit fails.
+#266 closes with the final no-positive-claim report rather than a
+positive FX result.
