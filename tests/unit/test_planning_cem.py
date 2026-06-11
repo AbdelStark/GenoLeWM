@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -39,9 +40,17 @@ def test_plan_is_deterministic_with_seed_and_finds_best_region() -> None:
     assert first.best_edits == second.best_edits
     assert first.best_distance == second.best_distance == 0.0
     assert first.best_predicted_state == second.best_predicted_state == {"best_pos": 17}
+    assert first.reproducibility_payload() == second.reproducibility_payload()
+    assert first.reproducibility_sha256 == second.reproducibility_sha256
+    assert first.reproducibility_sha256.startswith("sha256:")
+    assert first.reproducibility_payload()["schema_version"] == "1.0.0"
     assert first.stopped_reason == "distance_threshold"
     assert first.n_predictor_calls == first.n_evaluations
     assert all(log.n_candidates == config.n_samples for log in first.iterations)
+
+    later_elapsed = replace(first, elapsed_seconds=first.elapsed_seconds + 10.0)
+    assert later_elapsed.reproducibility_payload() == first.reproducibility_payload()
+    assert later_elapsed.reproducibility_sha256 == first.reproducibility_sha256
 
 
 def test_plan_stops_after_patience_without_improvement() -> None:

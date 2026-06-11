@@ -30,6 +30,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Check signing preflight contract
+        run: python -m tools.release.desktop_signing_preflight --output desktop-signing-preflight.json
+
       - uses: pnpm/action-setup@v6
         with:
           version: 10.31.0

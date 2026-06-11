@@ -7,7 +7,7 @@ all: $(PAPER).pdf
 
 # Two passes so forward references to floats (figures/tables) resolve,
 # with intermediates kept between passes.
-$(PAPER).pdf: $(PAPER).tex figures.tex tables.tex refs.bib
+$(PAPER).pdf: $(PAPER).tex figures.tex tables.tex refs.bib neurips.sty
 	tectonic --keep-intermediates $(PAPER).tex
 	tectonic --keep-intermediates $(PAPER).tex
 

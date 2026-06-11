@@ -12,6 +12,8 @@ from geno_lewm.errors import InputError
 from geno_lewm.evaluation import (
     BinaryEvalResult,
     VariantKey,
+    _continuous_bootstrap_intervals,
+    _quantile,
     _require_score_jsonl_generated_by,
     build_continuous_eval_report_payload,
     build_eval_report_payload,
@@ -158,6 +160,62 @@ def test_continuous_eval_report_payload_matches_release_report_schema(
         parsed.metrics[0].baseline_evaluated_variant_keys_sha256
     )
     assert "spearman_rho=1" in payload["conclusions"][1]
+    assert result.to_summary_dict()["spearman_rho_ci"] == [1.0, 1.0]
+
+
+def test_eval_report_payloads_allow_missing_baseline(tmp_path: Path) -> None:
+    scores, labels = _write_score_label_artifacts(tmp_path)
+    result = evaluate_score_labels(scores, labels, bootstrap_resamples=0)
+
+    payload = build_eval_report_payload(
+        result,
+        model_id="sha256:" + "a" * 64,
+        model_release="geno-lewm-v0.1.0-r1",
+        dataset_snapshot="geno-lewm-data-v0.1.0-r1",
+        commit="abcdef1234567890",
+        hardware="local CPU eval fixture",
+        checkpoint="model/predictor.safetensors",
+        config="model/train_config.yaml",
+        dataset_manifest="dataset/dataset_manifest.json",
+        eval_config="eval_config.effective.yaml",
+        efficiency_report="model/efficiency_report.json",
+        scores=scores,
+        labels=labels,
+        generated_at="2026-06-01T00:00:00Z",
+    )
+
+    assert "baseline" not in payload["metrics"][0]
+    assert "Compared with" not in payload["conclusions"][1]
+
+    continuous_scores, continuous_labels, _baseline_scores = (
+        _write_continuous_score_label_artifacts(tmp_path)
+    )
+    continuous_result = evaluate_continuous_score_labels(
+        continuous_scores,
+        continuous_labels,
+        label_field="functional_score",
+        bootstrap_resamples=0,
+    )
+    continuous_payload = build_continuous_eval_report_payload(
+        continuous_result,
+        model_id="sha256:" + "a" * 64,
+        model_release="geno-lewm-v0.2.0-r1",
+        dataset_snapshot="geno-lewm-data-v0.2.0-r1",
+        commit="abcdef1234567890",
+        hardware="local CPU eval fixture",
+        checkpoint="model/predictor.safetensors",
+        config="model/train_config.yaml",
+        dataset_manifest="dataset/dataset_manifest.json",
+        eval_config="eval_config.effective.yaml",
+        efficiency_report="model/efficiency_report.json",
+        scores=continuous_scores,
+        labels=continuous_labels,
+        generated_at="2026-06-01T00:00:00Z",
+    )
+
+    assert "baseline" not in continuous_payload["metrics"][0]
+    assert "Compared with" not in continuous_payload["conclusions"][1]
+    assert continuous_result.to_summary_dict()["spearman_rho_ci"] is None
 
 
 def test_eval_report_payload_rejects_baseline_on_different_variant_keys(
@@ -299,6 +357,92 @@ def test_evaluate_continuous_score_labels_rejects_degenerate_inputs(tmp_path: Pa
             label_field="functional_score",
             bootstrap_resamples=0,
         )
+
+
+def test_evaluate_continuous_score_labels_validates_options_and_inputs(
+    tmp_path: Path,
+) -> None:
+    scores, labels, _baseline_scores = _write_continuous_score_label_artifacts(tmp_path)
+
+    with pytest.raises(InputError, match="score_field must be a non-empty string"):
+        evaluate_continuous_score_labels(scores, labels, score_field="")
+    with pytest.raises(InputError, match="label_field must be a non-empty string"):
+        evaluate_continuous_score_labels(scores, labels, label_field="")
+    with pytest.raises(InputError, match="split must be a non-empty string"):
+        evaluate_continuous_score_labels(scores, labels, split=" ")
+
+    missing_scores = tmp_path / "continuous_missing_scores.jsonl"
+    _write_jsonl(
+        missing_scores,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.1},
+            {"chrom": "1", "pos": 20, "ref": "G", "alt": "A", "sigma_calibrated": 0.2},
+        ],
+    )
+    with pytest.raises(InputError, match="missing labelled variants"):
+        evaluate_continuous_score_labels(
+            missing_scores,
+            labels,
+            label_field="functional_score",
+        )
+
+    one_score = tmp_path / "continuous_one_score.jsonl"
+    one_label = tmp_path / "continuous_one_label.jsonl"
+    _write_jsonl(
+        one_score,
+        [{"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "sigma_calibrated": 0.1}],
+    )
+    _write_jsonl(
+        one_label,
+        [{"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "functional_score": 0.1}],
+    )
+    with pytest.raises(InputError, match="at least two matched variants"):
+        evaluate_continuous_score_labels(
+            one_score,
+            one_label,
+            label_field="functional_score",
+        )
+
+
+def test_evaluate_continuous_score_labels_rejects_jsonl_shape_errors(
+    tmp_path: Path,
+) -> None:
+    scores, _labels, _baseline_scores = _write_continuous_score_label_artifacts(tmp_path)
+    labels = tmp_path / "bad_continuous_labels.jsonl"
+
+    _write_jsonl(
+        labels,
+        [
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "functional_score": 0.1},
+            {"chrom": "1", "pos": 10, "ref": "A", "alt": "T", "functional_score": 0.2},
+        ],
+    )
+    with pytest.raises(InputError, match="duplicate variant keys"):
+        evaluate_continuous_score_labels(scores, labels, label_field="functional_score")
+
+    _write_jsonl(labels, [{"chrom": "1", "pos": 10, "ref": "A", "alt": "T"}])
+    with pytest.raises(InputError, match="functional_score must be a finite number"):
+        evaluate_continuous_score_labels(scores, labels, label_field="functional_score")
+
+    labels.write_text("\n\n", encoding="utf-8")
+    with pytest.raises(InputError, match="contains no records"):
+        evaluate_continuous_score_labels(scores, labels, label_field="functional_score")
+
+
+def test_continuous_bootstrap_and_quantile_edge_cases() -> None:
+    with pytest.raises(InputError, match="no non-degenerate samples"):
+        _continuous_bootstrap_intervals(
+            [1.0, 1.0],
+            [0.5, 0.5],
+            resamples=3,
+            seed=0,
+            ci_level=0.95,
+        )
+
+    with pytest.raises(InputError, match="empty sample"):
+        _quantile([], 0.5)
+    assert _quantile([0.25], 0.5) == 0.25
+    assert _quantile([0.0, 0.5, 1.0], 0.5) == 0.5
 
 
 def test_evaluate_score_labels_rejects_missing_labelled_scores(tmp_path: Path) -> None:

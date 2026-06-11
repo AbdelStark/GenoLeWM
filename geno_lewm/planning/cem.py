@@ -20,6 +20,7 @@ from geno_lewm.action import EditType, RelEdit
 from geno_lewm.errors import InputError
 from geno_lewm.planning.costs import count_cost
 from geno_lewm.planning.sampling import ActionSampler
+from geno_lewm.provenance import canonical_json_sha256
 from geno_lewm.training import EditTypeWeight
 
 __all__ = [
@@ -42,6 +43,7 @@ _ALL_V1_EDIT_TYPES: tuple[EditType, ...] = (
     EditType.INDEL,
 )
 _DEFAULT_SMOOTHING = 0.1
+_REPRODUCIBILITY_SCHEMA_VERSION = "1.0.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +184,35 @@ class PlanningResult:
     def n_predictor_calls(self) -> int:
         """Compatibility alias for the final predictor-backed API shape."""
         return self.n_evaluations
+
+    def reproducibility_payload(self) -> dict[str, object]:
+        """Return a deterministic, elapsed-time-free trace for seeded comparisons."""
+        return {
+            "schema_version": _REPRODUCIBILITY_SCHEMA_VERSION,
+            "best_edits": [_edit_trace_payload(edit) for edit in self.best_edits],
+            "best_distance": self.best_distance,
+            "best_cost": self.best_cost,
+            "best_objective": self.best_objective,
+            "n_evaluations": self.n_evaluations,
+            "stopped_reason": self.stopped_reason,
+            "iterations": [
+                {
+                    "iteration": item.iteration,
+                    "best_distance": item.best_distance,
+                    "best_cost": item.best_cost,
+                    "best_objective": item.best_objective,
+                    "elite_mean_distance": item.elite_mean_distance,
+                    "elite_mean_objective": item.elite_mean_objective,
+                    "n_candidates": item.n_candidates,
+                }
+                for item in self.iterations
+            ],
+        }
+
+    @property
+    def reproducibility_sha256(self) -> str:
+        """Return a canonical hash of :meth:`reproducibility_payload`."""
+        return canonical_json_sha256(self.reproducibility_payload())
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,6 +374,16 @@ def projection_distance(
         sum(weight * value for weight, value in zip(row, right, strict=True)) for row in rows
     )
     return l2_distance(projected_left, projected_right)
+
+
+def _edit_trace_payload(edit: RelEdit) -> dict[str, int | str]:
+    return {
+        "rel_pos": edit.rel_pos,
+        "edit_type": int(edit.edit_type),
+        "edit_type_name": edit.edit_type.name,
+        "ref_bases": edit.ref_bases,
+        "alt_bases": edit.alt_bases,
+    }
 
 
 def _score_candidate(

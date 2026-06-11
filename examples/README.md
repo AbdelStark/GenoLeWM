@@ -1,52 +1,66 @@
 # Examples
 
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
-The receipt-verification notebook is implemented. Scoring notebooks now
-wait for the first released checkpoint and dataset snapshot so their
-outputs do not present fixtures as model results; planning notebooks
-remain planned until the planner is implemented.
+The fixture-backed scoring notebooks, BRCA2 fixture mechanics notebook,
+and receipt-verification notebook are implemented. Rollout and planning
+notebooks remain blocked until measured release evidence exists: #97
+requires rollout-fidelity rows with documented cosine-similarity targets,
+and #98 requires planner latency and useful-planning boundary evidence.
+Fixture smoke outputs are test evidence, not model results, and are not
+used as substitutes for those notebooks.
 
 ---
 
-## Planned notebooks
+## Implemented notebooks
 
 ### `01_score_single_variant.ipynb`
-Phase 1. Score a single ClinVar variant end-to-end, showing the
-prediction, the surprise score, and the receipt. Smallest possible
-demo; the "hello world" of GenoLeWM.
+Scores a single ClinVar-like SNV through the local runtime API with a
+tiny deterministic fixture scorer, writes a checksum receipt, and
+validates that receipt. This is a fixture smoke tutorial, not learned
+model evidence.
 
 ### `02_score_brca2_saturation.ipynb`
-Phase 1. Score every possible SNV across a BRCA2 exon (saturation
-mutagenesis), produce a heatmap of calibrated surprise, and compare to
-the published Findlay et al. functional scores. The headline visual
-demo.
+Partial. Enumerates every possible SNV across a small BRCA2 exon-scale
+fixture, produces a calibrated-surprise heatmap, and compares against a
+deterministic fixture functional-score column. It does not use the
+released scorer or Findlay et al. rows, so the published-data Spearman
+acceptance criterion remains open.
 
 ### `03_score_vcf.ipynb`
-Phase 1. Batch-score a VCF (we provide a small toy VCF; users can swap
-in their own). Demonstrates the batched throughput path and the
-per-variant receipt aggregation.
+Batch-scores a one-row fixture VCF against a local FASTA, writes one
+score JSONL row and one checksum receipt JSONL row, and validates the
+first receipt. This is a fixture smoke tutorial, not throughput or
+model-quality evidence.
+
+### `07_verify_receipt.ipynb`
+Verifies a committed checksum-only fixture receipt against its manifest,
+recomputes the input commitment from the original edit and reference
+window, and recomputes the output commitment. This does not rerun
+scoring and does not claim model-quality assurance beyond checksum
+provenance.
+
+## Planned notebooks
 
 ### `04_multi_edit_rollout.ipynb`
-Phase 2. Roll out a phased multi-edit haplotype from gnomAD, compare
-predicted vs encoder ground truth latent at each step, plot the
-divergence curve. Demonstrates the world-model claim.
+Phase 2. Blocked on #97. This notebook should roll out a phased
+multi-edit haplotype from gnomAD, compare predicted vs encoder
+ground-truth latent at each step, and plot the divergence curve. It
+lands only after release-backed rollout-state examples, measured
+encoder-ground-truth comparisons, and documented cosine-similarity
+targets are available.
 
 ### `05_planning_minimal_edits.ipynb`
-Phase 2. Given a pathogenic variant and a "benign latent neighborhood"
-target, run CEM to find the minimal compensatory edit set. Demonstrates
-the planner.
+Phase 2. Blocked on #98. This notebook should run CEM from an initial
+variant state toward a target latent neighborhood and visualize the edit
+sequence. It lands only after planner latency evidence and the
+useful-planning boundary are documented; the current released planning
+demo exercises the manifest-backed path but does not prove useful
+planning behavior.
 
 ### `06_on_device_desktop.md` (not a notebook)
 Phase 3. Walkthrough of installing the desktop app, dropping in a VCF,
 viewing scored variants, exporting a receipt. Demonstrates the
 freedom-tech flow.
-
-### `07_verify_receipt.ipynb`
-Implemented. Verifies a committed checksum-only fixture receipt against
-its manifest, recomputes the input commitment from the original edit and
-reference window, and recomputes the output commitment. This does not
-rerun scoring and does not claim model-quality assurance beyond checksum
-provenance.
 
 ---
 

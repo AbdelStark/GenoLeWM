@@ -25,9 +25,11 @@ from bench._harness import (
     time_callable,
 )
 from geno_lewm.errors import InputError
+from geno_lewm.provenance import canonical_json_sha256
 
 GENERATED_BY = "bench.rollout"
 SCHEMA_VERSION = "1.0.0"
+BENCHMARK_RESULT_SCHEMA_VERSION = "1.0.0"
 DEFAULT_HORIZONS = (5, 20)
 
 
@@ -137,7 +139,7 @@ def _build_rollout_speed_report(
         )
         rows.append(summarize_speed_row(horizon=horizon, naive=naive, cached=cached))
 
-    return {
+    payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "generated_by": GENERATED_BY,
         "generated_at": _utc_now(),
@@ -152,6 +154,29 @@ def _build_rollout_speed_report(
             "model-quality, clinical, privacy, or release-readiness evidence."
         ),
     }
+    payload["benchmark_result_sha256"] = rollout_benchmark_result_sha256(payload)
+    return payload
+
+
+def rollout_benchmark_result_payload(payload: dict[str, object]) -> dict[str, object]:
+    """Return the timing-result identity payload, excluding run metadata."""
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        raise InputError("rollout benchmark report rows must be a list")
+    return {
+        "schema_version": BENCHMARK_RESULT_SCHEMA_VERSION,
+        "generated_by": _required_report_text(payload, "generated_by"),
+        "config": payload.get("config"),
+        "command": payload.get("command"),
+        "ok": payload.get("ok"),
+        "claim_boundary": _required_report_text(payload, "claim_boundary"),
+        "rows": [_rollout_row_identity(row) for row in rows],
+    }
+
+
+def rollout_benchmark_result_sha256(payload: dict[str, object]) -> str:
+    """Hash the timing-result identity payload with canonical JSON."""
+    return canonical_json_sha256(rollout_benchmark_result_payload(payload))
 
 
 def summarize_speed_row(
@@ -173,6 +198,42 @@ def summarize_speed_row(
         "cached": cached.to_json(),
         "naive": naive.to_json(),
     }
+
+
+def _rollout_row_identity(row: object) -> dict[str, object]:
+    if not isinstance(row, dict):
+        raise InputError("rollout benchmark rows must be objects")
+    return {
+        "horizon": row.get("horizon"),
+        "target_speedup": row.get("target_speedup"),
+        "measured_speedup": row.get("measured_speedup"),
+        "target_met": row.get("target_met"),
+        "cached": _bench_result_identity(row.get("cached")),
+        "naive": _bench_result_identity(row.get("naive")),
+    }
+
+
+def _bench_result_identity(raw: object) -> dict[str, object]:
+    if not isinstance(raw, dict):
+        raise InputError("rollout benchmark row cached/naive entries must be objects")
+    return {
+        "schema_version": raw.get("schema_version"),
+        "name": raw.get("name"),
+        "iters": raw.get("iters"),
+        "warmup": raw.get("warmup"),
+        "samples_ns": raw.get("samples_ns"),
+        "median_ns": raw.get("median_ns"),
+        "p25_ns": raw.get("p25_ns"),
+        "p75_ns": raw.get("p75_ns"),
+        "iqr_ns": raw.get("iqr_ns"),
+    }
+
+
+def _required_report_text(payload: dict[str, object], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        raise InputError(f"rollout benchmark report {key} must be a non-empty string")
+    return value
 
 
 def target_speedup_for_horizon(horizon: int) -> float:

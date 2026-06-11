@@ -18,6 +18,7 @@ from pathlib import Path
 
 from geno_lewm.config import GenoLeWMConfig, write_resolved_config
 from geno_lewm.errors import InputError
+from geno_lewm.provenance import sha256_file
 
 __all__ = [
     "FIXTURE_CHECKPOINT_NAME",
@@ -139,6 +140,11 @@ def run_fixture_training(
         command=command,
         commit_sha=commit_sha,
         package_version=package_version,
+        checkpoint_path=checkpoint_path,
+        metrics_path=metrics_path,
+        log_path=log_path,
+        config_path=config_path,
+        dataset_manifest_path=dataset_manifest_path,
     )
     return FixtureTrainingReport(
         run_id=config.run_id,
@@ -249,6 +255,11 @@ def _write_training_metadata(
     command: str,
     commit_sha: str,
     package_version: str,
+    checkpoint_path: Path,
+    metrics_path: Path,
+    log_path: Path,
+    config_path: Path,
+    dataset_manifest_path: Path,
 ) -> None:
     payload = {
         "schema_version": _SCHEMA_VERSION,
@@ -264,6 +275,16 @@ def _write_training_metadata(
         "metrics": FIXTURE_METRICS_NAME,
         "logs": [FIXTURE_LOG_NAME],
         "checkpoint_files": [FIXTURE_CHECKPOINT_NAME],
+        "artifact_identities": {
+            "dataset_manifest": _file_identity(
+                dataset_manifest_path,
+                label=FIXTURE_DATASET_MANIFEST_NAME,
+            ),
+            "training_config": _file_identity(config_path, label="config.resolved.yaml"),
+            "metrics": _file_identity(metrics_path, label=FIXTURE_METRICS_NAME),
+            "log": _file_identity(log_path, label=FIXTURE_LOG_NAME),
+            "checkpoint": _file_identity(checkpoint_path, label=FIXTURE_CHECKPOINT_NAME),
+        },
         "status": "completed",
         "hardware": ["Fixture smoke run; no accelerator required."],
         "runtime": ["Python stdlib fixture backend; Carbon and torch are not loaded."],
@@ -283,6 +304,14 @@ def _write_training_metadata(
         ],
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _file_identity(path: Path, *, label: str) -> dict[str, object]:
+    return {
+        "path": label,
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
 
 
 def _load_checkpoint(path: Path, *, expected_seed: int) -> _FixtureState:

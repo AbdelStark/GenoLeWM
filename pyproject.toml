@@ -348,10 +348,9 @@ exclude_lines = [
 # Realistic floor for the integrated codebase: torch-integration paths
 # (training/real.py, deploy/runtime.py, encoder/carbon.py, surprise/score.py,
 # …) are validated by real runs and the ml-smoke job rather than torch-less
-# unit coverage. The first pure-Python ratchet lifted local torch-less total
-# coverage to 83.18%; continue raising toward 95% per #178 as runtime coverage
-# lands.
-fail_under = 83
+# unit coverage. Pure-Python ratchets lifted local torch-less total coverage to
+# 84.20%; continue raising toward 95% per #178 as runtime coverage lands.
+fail_under = 84
 
 [tool.coverage.html]
 directory = "htmlcov"

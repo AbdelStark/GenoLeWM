@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from geno_lewm.cli._dispatch import SharedOptions, finalize_shared, run_app, shared_option_decls
+from geno_lewm.cli._prepare_report import augment_prepare_report
 from geno_lewm.data import prepare_clinvar_shard
 from geno_lewm.errors import InputError
 
@@ -93,6 +95,7 @@ def main(
         raise InputError("prepare-clinvar requires --output")
     if release is None:
         raise InputError("prepare-clinvar requires --release")
+    started = time.perf_counter()
     report = prepare_clinvar_shard(
         input_vcf,
         output,
@@ -100,7 +103,44 @@ def main(
         max_allele_len=max_allele_len,
         overwrite=overwrite,
     )
-    typer.echo(json.dumps(report.to_dict(), sort_keys=True))
+    payload = augment_prepare_report(
+        report.to_dict(),
+        command="geno-lewm-prepare-clinvar",
+        args=_command_args(
+            input_vcf=input_vcf,
+            output=output,
+            release=release,
+            max_allele_len=max_allele_len,
+            overwrite=overwrite,
+        ),
+        input_vcf=input_vcf,
+        output_path=report.output_path,
+        elapsed_seconds=time.perf_counter() - started,
+    )
+    typer.echo(json.dumps(payload, sort_keys=True))
+
+
+def _command_args(
+    *,
+    input_vcf: Path,
+    output: Path,
+    release: str,
+    max_allele_len: int,
+    overwrite: bool,
+) -> list[str]:
+    args = [
+        "--input-vcf",
+        str(input_vcf),
+        "--output",
+        str(output),
+        "--release",
+        release,
+        "--max-allele-len",
+        str(max_allele_len),
+    ]
+    if overwrite:
+        args.append("--overwrite")
+    return args
 
 
 def cli_main() -> int:

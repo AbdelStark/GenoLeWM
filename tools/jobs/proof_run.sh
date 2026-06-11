@@ -185,7 +185,8 @@ log "tuple-builder throughput gate"
 python -m tools.data.tuple_throughput \
   --dataset-dir "$WORK/dataset" \
   --samples "$TUPLE_THROUGHPUT_SAMPLES" \
-  --min-tuples-per-second "$MIN_TUPLES_PER_SECOND"
+  --min-tuples-per-second "$MIN_TUPLES_PER_SECOND" \
+  --output "$WORK/tuple_throughput_report.json"
 
 log "carbon preflight"
 geno-lewm-train --carbon-preflight \

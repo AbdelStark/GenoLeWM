@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.data.corpus import CarbonCorpusConfig, CarbonRecord, load_hf_carbon_records
+from geno_lewm.provenance import sha256_file
 from tools.data import carbon_windows
 
 
@@ -48,6 +49,14 @@ def test_export_carbon_windows_writes_jsonl(
     assert summary["revision"] == "cb4c13a"
     assert summary["records"] == 2
     assert set(summary["sources"]) <= {"mrna", "gtdb"}
+    assert summary["subset_seed"] == 0
+    assert summary["window_bp"] == 128
+    assert summary["max_windows"] is None
+    assert summary["output_identity"] == {
+        "path": str(out),
+        "sha256": sha256_file(out),
+        "size_bytes": out.stat().st_size,
+    }
 
 
 def test_export_carbon_windows_respects_max_windows(
@@ -59,6 +68,7 @@ def test_export_carbon_windows_respects_max_windows(
         output=out, window_bp=128, subset_fraction=1.0, max_windows=1
     )
     assert summary["windows"] == 1
+    assert summary["max_windows"] == 1
     assert len(out.read_text(encoding="utf-8").splitlines()) == 1
 
 

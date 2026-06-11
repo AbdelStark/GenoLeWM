@@ -634,7 +634,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Override the default-call elapsed-time target in seconds.",
     )
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_RESULTS_DIR)
-    parser.add_argument("--output-json", type=Path)
+    parser.add_argument("--output-json", "--output", dest="output_json", type=Path)
     parser.add_argument("--no-write", action="store_true")
     parser.add_argument(
         "--require-targets",

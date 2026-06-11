@@ -86,6 +86,45 @@ def test_export_checkpoint_writes_artifacts_and_report(tmp_path: Path) -> None:
     assert json.loads((out / EXPORT_REPORT_NAME).read_text(encoding="utf-8")) == report
 
 
+def test_export_checkpoint_is_reproducible_across_runs(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("safetensors")
+    checkpoint = tmp_path / "predictor_checkpoint.pt"
+    _write_checkpoint(checkpoint)
+
+    first = export_checkpoint(checkpoint, tmp_path / "first")
+    second = export_checkpoint(checkpoint, tmp_path / "second")
+
+    assert first == second
+
+
+def test_export_checkpoint_canonicalizes_state_dict_order(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("safetensors")
+    import torch
+
+    checkpoint = tmp_path / "predictor_checkpoint.pt"
+    predictor, action_encoder = _write_checkpoint(checkpoint)
+    reordered_checkpoint = tmp_path / "predictor_checkpoint_reordered.pt"
+    torch.save(
+        {
+            "schema_version": "1.0.0",
+            "run_id": "run-test",
+            "dataset_snapshot_id": "geno-lewm-data-v0.1.0-r1",
+            "steps_completed": 3,
+            "predictor": dict(reversed(list(predictor.state_dict().items()))),
+            "action_encoder": dict(reversed(list(action_encoder.state_dict().items()))),
+            "optimizer": {},
+        },
+        str(reordered_checkpoint),
+    )
+
+    original = export_checkpoint(checkpoint, tmp_path / "original")
+    reordered = export_checkpoint(reordered_checkpoint, tmp_path / "reordered")
+
+    assert _artifact_hashes(original) == _artifact_hashes(reordered)
+
+
 def test_exported_safetensors_reload_strict(tmp_path: Path) -> None:
     pytest.importorskip("torch")
     import torch
@@ -136,3 +175,7 @@ def test_export_rejects_unreadable_checkpoint(tmp_path: Path) -> None:
     out = tmp_path / "model"
     with pytest.raises(ExportFormatError, match="could not load training checkpoint"):
         export_checkpoint(checkpoint, out)
+
+
+def _artifact_hashes(report: dict[str, Any]) -> dict[str, str]:
+    return {str(artifact["component"]): str(artifact["sha256"]) for artifact in report["artifacts"]}

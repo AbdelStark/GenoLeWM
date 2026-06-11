@@ -34,7 +34,9 @@ def test_build_dataset_integrity_report_checks_counts_hashes_and_leakage(tmp_pat
     assert report.splits["eval_clinvar_coding"]["labelled_records"] == 1
     assert report.splits["eval_clinvar_coding"]["unlabelled_records"] == 0
     assert report.files[0].comparable_keys == 1
+    assert report.files[0].genomic_regions == 0
     assert report.files[0].label_counts == {}
+    assert report.files[1].genomic_regions == 1
     assert report.files[1].label_counts == {"P": 1}
     assert report.leakage_checks[0]["status"] == "passed"
 
@@ -230,6 +232,93 @@ def test_build_dataset_integrity_report_rejects_missing_comparable_keys(
 
     with pytest.raises(InputError, match="dataset split leakage check failed"):
         build_dataset_integrity_report(tmp_path)
+
+
+def test_build_dataset_integrity_report_accepts_region_separated_holdout(
+    tmp_path: Path,
+) -> None:
+    train_path = tmp_path / "train_windows.jsonl"
+    holdout_path = tmp_path / "holdout_chr.jsonl"
+    train_path.write_text('{"chrom":"1","start_bp":0,"end_bp":100}\n', encoding="utf-8")
+    holdout_path.write_text(
+        '{"chrom":"chr1","start_bp":200,"end_bp":300}\n',
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema_version": "1.0.0",
+        "snapshot_id": "snapshot",
+        "splits": {
+            "train": {"records": 1},
+            "holdout_chr": {"records": 1},
+        },
+        "files": [
+            {
+                "path": "train_windows.jsonl",
+                "split": "train",
+                "records": 1,
+                "sha256": sha256_file(train_path),
+                "size_bytes": train_path.stat().st_size,
+            },
+            {
+                "path": "holdout_chr.jsonl",
+                "split": "holdout_chr",
+                "records": 1,
+                "sha256": sha256_file(holdout_path),
+                "size_bytes": holdout_path.stat().st_size,
+            },
+        ],
+    }
+    (tmp_path / "dataset_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = build_dataset_integrity_report(tmp_path)
+
+    assert [file.comparable_keys for file in report.files] == [0, 0]
+    assert [file.genomic_regions for file in report.files] == [1, 1]
+    assert report.splits["train"]["genomic_regions"] == 1
+    assert report.splits["holdout_chr"]["genomic_regions"] == 1
+    assert report.leakage_checks[0]["status"] == "passed"
+    assert report.leakage_checks[0]["failure_reason"] == ""
+
+
+def test_build_dataset_integrity_report_rejects_region_holdout_intersection(
+    tmp_path: Path,
+) -> None:
+    train_path = tmp_path / "train_windows.jsonl"
+    holdout_path = tmp_path / "holdout_chr.jsonl"
+    train_path.write_text('{"chrom":"1","start_bp":100,"end_bp":250}\n', encoding="utf-8")
+    holdout_path.write_text('{"chrom":"1","start_bp":200,"end_bp":300}\n', encoding="utf-8")
+    manifest = {
+        "schema_version": "1.0.0",
+        "snapshot_id": "snapshot",
+        "splits": {
+            "train": {"records": 1},
+            "holdout_chr": {"records": 1},
+        },
+        "files": [
+            {
+                "path": "train_windows.jsonl",
+                "split": "train",
+                "records": 1,
+                "sha256": sha256_file(train_path),
+                "size_bytes": train_path.stat().st_size,
+            },
+            {
+                "path": "holdout_chr.jsonl",
+                "split": "holdout_chr",
+                "records": 1,
+                "sha256": sha256_file(holdout_path),
+                "size_bytes": holdout_path.stat().st_size,
+            },
+        ],
+    }
+    (tmp_path / "dataset_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(InputError, match="dataset split leakage check failed") as excinfo:
+        build_dataset_integrity_report(tmp_path)
+
+    assert excinfo.value.details["failure_reason"] == "intersecting_genomic_regions"
+    assert excinfo.value.details["region_overlap_count"] == 1
+    assert excinfo.value.details["region_examples"] == ["1:100-250 intersects 1:200-300"]
 
 
 def test_build_dataset_integrity_report_rejects_missing_train_eval_comparison(

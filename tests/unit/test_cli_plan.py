@@ -103,6 +103,7 @@ def test_plan_writes_sequence_proxy_plan_json_from_fixture_fasta(
     assert "not learned predictor evidence" in payload["negative_findings"][0]
     assert "clinical" in payload["claim_boundary"]
     assert payload["result"]["best_distance"] == 0.0
+    assert payload["result"]["reproducibility_sha256"].startswith("sha256:")
     assert payload["result"]["best_edits"] == [
         {
             "alt_bases": "T",
