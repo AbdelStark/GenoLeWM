@@ -10,7 +10,10 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- gnomAD and ClinVar shard-prep reports now include input/output
+  checksums, input size, and elapsed runtime for release evidence.
 
 ## [0.2.1] - 2026-06-09
 

@@ -15,6 +15,7 @@ from geno_lewm.data import (
     prepare_clinvar_shard,
 )
 from geno_lewm.errors import InputError
+from geno_lewm.provenance import sha256_file
 
 
 def test_prepare_clinvar_shard_preserves_vus_but_excludes_from_labels(tmp_path: Path) -> None:
@@ -28,6 +29,13 @@ def test_prepare_clinvar_shard_preserves_vus_but_excludes_from_labels(tmp_path: 
     assert report.allele_records_seen == 7
     assert report.records_written == 6
     assert report.skipped_allele == 1
+    assert report.input_path == vcf_path
+    assert report.input_sha256 == sha256_file(vcf_path)
+    assert report.output_sha256 == sha256_file(report.output_path)
+    assert report.input_size_bytes == vcf_path.stat().st_size
+    assert report.size_bytes > 0
+    assert report.elapsed_seconds > 0
+    assert report.to_dict()["output_sha256"] == report.output_sha256
 
     rows = list(iter_clinvar_shard(report.output_path))
     assert [row.clinical_significance for row in rows] == ["P", "VUS", "B", "OTHER", "LP", "LB"]
@@ -48,7 +56,10 @@ def test_prepare_clinvar_shard_is_idempotent_without_overwrite(tmp_path: Path) -
     assert second.already_exists is True
     assert second.records_read == 0
     assert second.records_written == 6
+    assert second.input_sha256 == first.input_sha256
+    assert second.output_sha256 == first.output_sha256
     assert second.size_bytes == first.size_bytes
+    assert second.elapsed_seconds >= 0
 
 
 def test_iter_clinvar_vcf_variants_maps_labels_and_fallback_ids(tmp_path: Path) -> None:

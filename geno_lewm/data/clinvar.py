@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib
+import time
 from collections.abc import Iterable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from geno_lewm.data._vcf import (
     parse_int,
 )
 from geno_lewm.errors import InputError, RuntimeSetupError
+from geno_lewm.provenance import sha256_file
 
 __all__ = [
     "CLINVAR_LABELLED_CLASSES",
@@ -67,23 +69,33 @@ class ClinvarPrepareReport:
     """Summary emitted by ``geno-lewm-prepare-clinvar``."""
 
     output_path: Path
+    input_path: Path
     release: str
     records_read: int
     allele_records_seen: int
     records_written: int
     skipped_allele: int
+    input_sha256: str
+    output_sha256: str
+    input_size_bytes: int
     size_bytes: int
+    elapsed_seconds: float
     already_exists: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
             "output_path": str(self.output_path),
+            "input_path": str(self.input_path),
             "release": self.release,
             "records_read": self.records_read,
             "allele_records_seen": self.allele_records_seen,
             "records_written": self.records_written,
             "skipped_allele": self.skipped_allele,
+            "input_sha256": self.input_sha256,
+            "output_sha256": self.output_sha256,
+            "input_size_bytes": self.input_size_bytes,
             "size_bytes": self.size_bytes,
+            "elapsed_seconds": self.elapsed_seconds,
             "already_exists": self.already_exists,
         }
 
@@ -99,16 +111,23 @@ def prepare_clinvar_shard(
     """Normalize a local ClinVar VCF/VCF.gz into the release shard schema."""
     _require_release(release)
     _require_positive_int("max_allele_len", max_allele_len)
+    started_at = time.perf_counter()
+    input_path, input_sha256, input_size_bytes = _input_file_identity(input_vcf)
     target = Path(output_dir) / "clinvar" / release / "variants.parquet"
     if target.exists() and not overwrite:
         return ClinvarPrepareReport(
             output_path=target,
+            input_path=input_path,
             release=release,
             records_read=0,
             allele_records_seen=0,
             records_written=_parquet_num_rows(target),
             skipped_allele=0,
+            input_sha256=input_sha256,
+            output_sha256=sha256_file(target),
+            input_size_bytes=input_size_bytes,
             size_bytes=target.stat().st_size,
+            elapsed_seconds=max(time.perf_counter() - started_at, 0.0),
             already_exists=True,
         )
 
@@ -141,12 +160,17 @@ def prepare_clinvar_shard(
     records_written = _write_parquet(_selected_rows(), target)
     return ClinvarPrepareReport(
         output_path=target,
+        input_path=input_path,
         release=release,
         records_read=records_read,
         allele_records_seen=allele_records_seen,
         records_written=records_written,
         skipped_allele=skipped_allele,
+        input_sha256=input_sha256,
+        output_sha256=sha256_file(target),
+        input_size_bytes=input_size_bytes,
         size_bytes=target.stat().st_size,
+        elapsed_seconds=max(time.perf_counter() - started_at, 1e-9),
     )
 
 
@@ -315,6 +339,21 @@ def _parquet_schema(pa: Any) -> Any:
 def _parquet_num_rows(path: Path) -> int:
     _pa, pq = _require_pyarrow()
     return int(pq.ParquetFile(path).metadata.num_rows)
+
+
+def _input_file_identity(path: str | Path) -> tuple[Path, str, int]:
+    input_path = Path(path)
+    try:
+        stat = input_path.stat()
+        digest = sha256_file(input_path)
+    except OSError as exc:
+        raise InputError(
+            "failed to read input VCF identity",
+            details={"path": str(input_path)},
+        ) from exc
+    if not input_path.is_file():
+        raise InputError("input VCF must be a file", details={"path": str(input_path)})
+    return input_path, digest, stat.st_size
 
 
 def _require_pyarrow() -> tuple[Any, Any]:
