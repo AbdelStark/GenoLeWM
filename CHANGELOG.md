@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Real Carbon training metrics now record elapsed training seconds and
+  samples/second throughput so deterministic runs can carry comparable
+  throughput evidence.
 
 ## [0.2.1] - 2026-06-09
 
