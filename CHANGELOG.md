@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added command, input/output SHA-256 identities, elapsed time, and
+  process-level peak RSS notes to `geno-lewm-prepare-gnomad` and
+  `geno-lewm-prepare-clinvar` JSON reports.
 
 ## [0.2.1] - 2026-06-09
 

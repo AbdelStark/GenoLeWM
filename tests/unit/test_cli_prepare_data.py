@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.cli import _dispatch, prepare_clinvar, prepare_gnomad
+from geno_lewm.provenance import sha256_file
 
 
 def test_prepare_gnomad_requires_input(
@@ -45,8 +46,26 @@ def test_prepare_gnomad_cli_writes_json_report(
 
     assert rc == 0
     payload = json.loads(captured.out)
+    output_path = tmp_path / "gnomad" / "v4.1" / "variants.parquet"
     assert payload["records_written"] == 1
-    assert payload["output_path"] == str(tmp_path / "gnomad" / "v4.1" / "variants.parquet")
+    assert payload["output_path"] == str(output_path)
+    assert payload["command"].startswith("geno-lewm-prepare-gnomad --input-vcf ")
+    assert payload["input_vcf"] == {
+        "path": str(vcf_path),
+        "sha256": sha256_file(vcf_path),
+        "size_bytes": vcf_path.stat().st_size,
+    }
+    assert payload["output_parquet"] == {
+        "path": str(output_path),
+        "sha256": sha256_file(output_path),
+        "size_bytes": output_path.stat().st_size,
+    }
+    assert payload["runtime"]["elapsed_seconds"] >= 0.0
+    assert (
+        payload["runtime"]["process_peak_rss_bytes"] is None
+        or payload["runtime"]["process_peak_rss_bytes"] > 0
+    )
+    assert "ru_maxrss" in payload["runtime"]["peak_memory_note"]
 
 
 def test_prepare_clinvar_requires_release_after_input_and_output(
@@ -89,8 +108,26 @@ def test_prepare_clinvar_cli_writes_json_report(
 
     assert rc == 0
     payload = json.loads(captured.out)
+    output_path = tmp_path / "clinvar" / "2026-04-15" / "variants.parquet"
     assert payload["records_written"] == 1
-    assert payload["output_path"] == str(tmp_path / "clinvar" / "2026-04-15" / "variants.parquet")
+    assert payload["output_path"] == str(output_path)
+    assert payload["command"].startswith("geno-lewm-prepare-clinvar --input-vcf ")
+    assert payload["input_vcf"] == {
+        "path": str(vcf_path),
+        "sha256": sha256_file(vcf_path),
+        "size_bytes": vcf_path.stat().st_size,
+    }
+    assert payload["output_parquet"] == {
+        "path": str(output_path),
+        "sha256": sha256_file(output_path),
+        "size_bytes": output_path.stat().st_size,
+    }
+    assert payload["runtime"]["elapsed_seconds"] >= 0.0
+    assert (
+        payload["runtime"]["process_peak_rss_bytes"] is None
+        or payload["runtime"]["process_peak_rss_bytes"] > 0
+    )
+    assert "ru_maxrss" in payload["runtime"]["peak_memory_note"]
 
 
 def _write_gnomad_vcf(path: Path) -> Path:
