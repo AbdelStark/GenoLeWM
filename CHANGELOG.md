@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added artifact identities to Carbon-backed `training_run.json` metadata so
+  real training configs, metrics, logs, checkpoints, dataset manifests, and
+  preflight reports can be byte-checked from the run archive.
 
 ## [0.2.1] - 2026-06-09
 
