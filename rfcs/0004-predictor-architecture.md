@@ -3,12 +3,17 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0001, RFC-0002, RFC-0003
 - **Supersedes:** —
 - **Implementation status:** Partial — base cross-attention `Predictor`,
-  `ARPredictor` rollout wrapper, and predictor losses are implemented;
-  attention KV-cache speedups, released-artifact validation, and full
+  `ARPredictor` rollout wrapper, predictor losses, optional torch smoke
+  coverage, manifest-backed rollout-state row generation, and
+  `bench.rollout` / `tools.release.rollout_speed_scope` reporting are
+  implemented. The v0.2.1-r1 evidence records K=5 speedup meeting the
+  local 2x target and K=20 speedup missing the RFC 5x target, with #42
+  still open; attention KV-cache speedups that meet the original K=20
+  target, broader released-artifact validation, and full
   trainer/evaluator integration remain open.
 
 ---
@@ -150,6 +155,13 @@ class ARPredictor(nn.Module):
 This is logically equivalent to repeated `forward` calls but with KV
 cache reuse, giving ~2× speedup at K=5 and ~5× at K=20.
 
+As of the v0.2.1-r1 readiness run, `bench.rollout` and
+`tools.release.rollout_speed_scope` publish measured K=5/K=20 rollout
+speedups and bind an accepted scope decision when the K=20 target is
+missed. The reported measurements were 2.41x at K=5 and 2.47x at K=20
+on the benchmarked toy-dimension path; the K=20 target remains open in
+#42.
+
 The rollout method is what the planner (RFC-0008) calls in its inner
 loop. It is also what is used for inference-time multi-edit haplotype
 prediction.
@@ -267,4 +279,7 @@ phase at the end.
 
 ## 7. Changelog
 
+- 2026-06-11 — Updated implementation status for rollout-speed
+  reporting, v0.2.1-r1 K=5/K=20 measured evidence, and remaining #42
+  K=20 target gap.
 - 2026-05-20 — Initial draft.
