@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added `geno-lewm-cache-windows --json-report` for repair and reindex
+  operations, recording cache index/shard hashes, quarantine identities, and
+  indexed-row throughput notes for release evidence.
 
 ## [0.2.1] - 2026-06-09
 
