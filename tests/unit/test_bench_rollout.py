@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,8 @@ from bench._harness import BenchMetadata, BenchResult
 from bench.rollout import (
     RolloutBenchmarkConfig,
     _command_from_args,
+    rollout_benchmark_result_payload,
+    rollout_benchmark_result_sha256,
     summarize_speed_row,
     target_speedup_for_horizon,
     write_rollout_speed_report,
@@ -53,6 +56,25 @@ def test_summarize_speed_row_rejects_non_positive_medians() -> None:
             naive=_bench_result("naive", 2_000),
             cached=_bench_result("cached", 0),
         )
+
+
+def test_rollout_benchmark_result_hash_excludes_run_metadata() -> None:
+    payload = _rollout_payload()
+    rerun = deepcopy(payload)
+    rerun["generated_at"] = "2026-06-07T00:00:00+00:00"
+    rerun["commit"] = "different"
+    rerun["machine"] = "different-host"
+    rerun["rows"][0]["cached"]["metadata"]["timestamp"] = "2026-06-07T00:00:00+00:00"
+    rerun["rows"][0]["cached"]["metadata"]["machine"] = "different-host"
+    rerun["rows"][0]["naive"]["metadata"]["commit"] = "different"
+
+    assert rollout_benchmark_result_payload(payload)["schema_version"] == "1.0.0"
+    assert rollout_benchmark_result_sha256(payload).startswith("sha256:")
+    assert rollout_benchmark_result_sha256(payload) == rollout_benchmark_result_sha256(rerun)
+
+    changed = _rollout_payload()
+    changed["rows"][0]["cached"]["median_ns"] = 900
+    assert rollout_benchmark_result_sha256(changed) != rollout_benchmark_result_sha256(payload)
 
 
 def test_write_rollout_speed_report(tmp_path: Path) -> None:
@@ -125,3 +147,27 @@ def _bench_result(name: str, median_ns: int) -> BenchResult:
             extra={},
         ),
     )
+
+
+def _rollout_payload() -> dict[str, object]:
+    return {
+        "schema_version": "1.0.0",
+        "generated_by": "bench.rollout",
+        "generated_at": "2026-06-06T00:00:00+00:00",
+        "commit": "abc1234",
+        "machine": "unit",
+        "command": ["python", "-m", "bench.rollout"],
+        "config": {"horizons": [5], "dtype": "fp32"},
+        "rows": [
+            summarize_speed_row(
+                horizon=5,
+                naive=_bench_result("naive", 2_000),
+                cached=_bench_result("cached", 1_000),
+            )
+        ],
+        "ok": True,
+        "claim_boundary": (
+            "This benchmark measures local predictor rollout speed only; it is not "
+            "model-quality, clinical, privacy, or release-readiness evidence."
+        ),
+    }
