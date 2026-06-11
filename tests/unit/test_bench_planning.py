@@ -13,6 +13,7 @@ from bench.planning import (
     _command_from_args,
     _target_profile_match,
     build_planning_report,
+    main,
     target_seconds_for_profile,
     write_planning_benchmarks,
     write_planning_report,
@@ -147,3 +148,48 @@ def test_planning_command_records_explicit_invocation() -> None:
     assert "m3-max" in command
     assert "--output-json" in command
     assert "--require-targets" in command
+
+
+def test_planning_main_accepts_readme_output_alias(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output = tmp_path / "planning.performance.json"
+
+    rc = main(
+        [
+            "--k",
+            "1",
+            "--samples",
+            "4",
+            "--elite",
+            "1",
+            "--iters",
+            "1",
+            "--warmup",
+            "0",
+            "--window-bp",
+            "128",
+            "--edge-margin",
+            "4",
+            "--default-horizon",
+            "1",
+            "--default-iterations",
+            "1",
+            "--default-samples",
+            "4",
+            "--default-elite",
+            "1",
+            "--output",
+            str(output),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    assert output.is_file()
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["generated_by"] == "bench.planning"
+    assert "--output-json" in payload["command"]
+    assert str(output) in payload["command"]
+    assert f"[bench] wrote {output}" in captured.out
