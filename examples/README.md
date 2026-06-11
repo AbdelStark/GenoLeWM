@@ -2,9 +2,12 @@
 
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
 The fixture-backed scoring notebooks, BRCA2 fixture mechanics notebook,
-and receipt-verification notebook are implemented. Broader benchmark,
-rollout, and planning notebooks remain planned until their measured
-evidence is available.
+and receipt-verification notebook are implemented. Rollout and planning
+notebooks remain blocked until measured release evidence exists: #97
+requires rollout-fidelity rows with documented cosine-similarity targets,
+and #98 requires planner latency and useful-planning boundary evidence.
+Fixture smoke outputs are test evidence, not model results, and are not
+used as substitutes for those notebooks.
 
 ---
 
@@ -39,14 +42,20 @@ provenance.
 ## Planned notebooks
 
 ### `04_multi_edit_rollout.ipynb`
-Phase 2. Roll out a phased multi-edit haplotype from gnomAD, compare
-predicted vs encoder ground truth latent at each step, plot the
-divergence curve. Demonstrates the world-model claim.
+Phase 2. Blocked on #97. This notebook should roll out a phased
+multi-edit haplotype from gnomAD, compare predicted vs encoder
+ground-truth latent at each step, and plot the divergence curve. It
+lands only after release-backed rollout-state examples, measured
+encoder-ground-truth comparisons, and documented cosine-similarity
+targets are available.
 
 ### `05_planning_minimal_edits.ipynb`
-Phase 2. Given a pathogenic variant and a "benign latent neighborhood"
-target, run CEM to find the minimal compensatory edit set. Demonstrates
-the planner.
+Phase 2. Blocked on #98. This notebook should run CEM from an initial
+variant state toward a target latent neighborhood and visualize the edit
+sequence. It lands only after planner latency evidence and the
+useful-planning boundary are documented; the current released planning
+demo exercises the manifest-backed path but does not prove useful
+planning behavior.
 
 ### `06_on_device_desktop.md` (not a notebook)
 Phase 3. Walkthrough of installing the desktop app, dropping in a VCF,
