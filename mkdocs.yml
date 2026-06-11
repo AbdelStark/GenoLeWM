@@ -144,6 +144,7 @@ nav:
       - GenoLeWM-FX contract: research/fx-experiment-contract.md
       - GenoLeWM-FX feasibility report: research/fx-feasibility-report.md
       - GenoLeWM-FX decision package: research/fx-decision-package.md
+      - GenoLeWM-FX Borzoi rescue plan: research/fx-borzoi-rescue-plan.md
   - Blog:
       - What does this edit do? (explainer): blogposts/genolewm_explainer.md
   - Release:

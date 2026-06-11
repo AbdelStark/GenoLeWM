@@ -18,6 +18,7 @@ model-quality evidence is mixed or negative versus Carbon.
 - [API reference](reference/index.md)
 - [GenoLeWM-FX contract](research/fx-experiment-contract.md)
 - [GenoLeWM-FX feasibility report](research/fx-feasibility-report.md)
+- [GenoLeWM-FX Borzoi rescue plan](research/fx-borzoi-rescue-plan.md)
 
 ## Public Artifacts
 
@@ -50,5 +51,7 @@ for Carbon-backed training paths.
 - No useful-planning claim from the current planning demo.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
+- The only active FX follow-up is a narrow precomputed-Borzoi overlap
+  audit, not a model-quality claim.
 - No runtime or privacy assurance beyond local execution contracts and
   checksum provenance.

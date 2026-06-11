@@ -12,6 +12,7 @@ Authoritative artifacts:
 - [FX experiment contract](fx-experiment-contract.md)
 - [FX feasibility and kill report](fx-feasibility-report.md)
 - [Machine-readable feasibility report](fx-feasibility-report.json)
+- [Borzoi rescue plan](fx-borzoi-rescue-plan.md)
 
 ## Decision
 
@@ -39,6 +40,18 @@ No FX positive-result paper section is added. If referenced in future
 paper-facing text, this path should be described as a killed feasibility
 probe: public labels were available, but the required teacher-delta
 target was not reproducible under the contract.
+
+## Follow-Up Trajectory
+
+The #257 kill decision remains correct for the teacher-inference path.
+A separate follow-up trajectory can test whether precomputed Borzoi
+scores from statgen/fipip rescue the idea without running a teacher. The
+follow-up must start with an overlap audit against TraitGym variant
+identities and must stop quickly if there is not a reproducible,
+public, checksum-backed 10k-50k matched slice.
+
+That follow-up is tracked in #266 and documented in
+[GenoLeWM-FX Borzoi rescue plan](fx-borzoi-rescue-plan.md).
 
 ## Child Issue Resolution
 

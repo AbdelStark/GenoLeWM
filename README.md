@@ -93,6 +93,8 @@ pipeline with content-addressed evidence.
 The GenoLeWM-FX pivot is documented as a killed feasibility experiment:
 public TraitGym labels are available, but no reproducible 10k-50k
 teacher-delta cache is locked under the experiment contract.
+The only follow-up trajectory is a narrow precomputed-Borzoi overlap
+audit; it is not a model-quality claim.
 
 ## Quickstart
 
@@ -322,6 +324,8 @@ jobs. Fixture outputs are test evidence, not model results.
   useful planning behavior.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
+- The precomputed-Borzoi rescue path is an overlap audit first, not a
+  training or benchmark claim.
 - No clinical utility claim; the public model evidence is not clinical
   evidence.
 - Personal-genome workflows are local-first, but local execution is not
