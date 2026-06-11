@@ -10,7 +10,12 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added a training reproducibility report gate that compares two
+  deterministic training-run archives for matching run identity,
+  bit-exact checkpoint/config/dataset artifact hashes, and
+  deterministic-throughput drop against a baseline run.
 
 ## [0.2.1] - 2026-06-09
 
