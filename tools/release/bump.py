@@ -4,8 +4,8 @@
 ``geno_lewm/__init__.py`` carries the canonical ``__version__``
 assignment; ``pyproject.toml`` consumes it via Hatch's
 ``regex_commit`` source so the runtime constant and the package
-metadata cannot drift (RFC-0017; see also
-``docs/spec/09-release-and-versioning.md``). This module rewrites that
+metadata cannot drift (configuration contract; see also
+``CONTRIBUTING.md``). This module rewrites that
 single assignment after validating the new version against PEP 440 and
 the project's pre-1.0 ordering policy.
 

@@ -36,7 +36,7 @@ def test_forbidden_imports_flagged(tmp_path: Path, src: str) -> None:
     v = linter.check_file(f)
     assert len(v) == 1
     assert "network_confined" not in v[0].message  # message itself doesn't repeat the check name
-    assert "RFC-0010" in v[0].message
+    assert "runtime contract" in v[0].message
 
 
 def test_unrelated_imports_pass(tmp_path: Path) -> None:

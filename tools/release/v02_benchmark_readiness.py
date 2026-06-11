@@ -3,7 +3,7 @@
 
 This tool does not run private-data benchmarks and does not turn fixture
 smokes into model-quality claims. It validates measured artifact inputs
-that already exist, enumerates the RFC-0007/#197 suite coverage, and
+that already exist, enumerates the v0.2 benchmark-suite coverage, and
 records missing or failed rows explicitly.
 """
 
@@ -181,7 +181,7 @@ def build_readiness_report(
     missing_or_failed = [
         str(row["benchmark_id"])
         for row in rows
-        if str(row.get("status")) not in {"pass", "rescoped"}
+        if str(row.get("status")) not in {"pass", "documented_limitation"}
     ]
     readiness = _readiness_items(rows)
     blockers = _readiness_blockers(rows)
@@ -533,7 +533,7 @@ def _rollout_speed_row(
             observed_values=observed,
             failed_targets=failed_target_rows,
         )
-        status = "rescoped"
+        status = "documented_limitation"
     row_payload: dict[str, object] = {
         "benchmark_id": "ar_rollout_speed",
         "track": "rollout_performance",
@@ -1353,19 +1353,19 @@ def _metric_conclusions(rows: list[dict[str, object]]) -> list[str]:
             if variant_identities:
                 conclusion += f" Evaluated variant-key identities: {variant_identities}."
             conclusions.append(conclusion)
-        elif status == "rescoped":
+        elif status == "documented_limitation":
             context = _format_row_context(row)
             values = _format_metric_values(row.get("observed_values"))
             failed_targets = _format_text_list(row.get("failed_targets"))
             scope_decision = _format_scope_decision(row.get("scope_decision"))
-            conclusion = f"{benchmark} was explicitly rescoped after failed measured targets"
+            conclusion = f"{benchmark} is a documented limitation after failed measured targets"
             if context:
                 conclusion += f" ({context})"
             conclusion += f": {values}." if values else "."
             if failed_targets:
                 conclusion += f" Failed targets: {failed_targets}."
             if scope_decision:
-                conclusion += f" Accepted re-scope: {scope_decision}."
+                conclusion += f" Accepted limitation: {scope_decision}."
             conclusions.append(conclusion)
         else:
             context = _format_row_context(row)
@@ -1392,16 +1392,17 @@ def _readiness_items(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     for row in rows:
         benchmark = str(row["benchmark_id"])
         status = str(row["status"])
+        display_status = status.replace("_", " ")
         blockers = _row_blocker_codes(row)
         evidence = _row_evidence(row)
-        message = f"{benchmark} is {status}"
+        message = f"{benchmark} is {display_status}"
         details = _format_nonpassing_details(row)
         if details:
             message += f": {details}"
         items.append(
             {
                 "code": benchmark,
-                "ok": status in {"pass", "rescoped"},
+                "ok": status in {"pass", "documented_limitation"},
                 "status": status,
                 "message": message,
                 "evidence": evidence,
@@ -1431,7 +1432,7 @@ def _readiness_blockers(rows: list[dict[str, object]]) -> list[dict[str, object]
 
 def _row_blocker_codes(row: dict[str, object]) -> list[str]:
     status = str(row["status"])
-    if status in {"pass", "rescoped"}:
+    if status in {"pass", "documented_limitation"}:
         return []
     return [f"benchmark.{row['benchmark_id']}.{status}"]
 
@@ -1527,7 +1528,7 @@ def _format_checked_artifacts(raw: object) -> str:
 def _scope_decisions(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     decisions: list[dict[str, object]] = []
     for row in rows:
-        if row.get("status") != "rescoped":
+        if row.get("status") != "documented_limitation":
             continue
         raw = row.get("scope_decision")
         if isinstance(raw, dict):
@@ -1682,7 +1683,7 @@ def _negative_findings(
         ]
         if scope_decisions:
             findings.append(
-                "At least one benchmark target was explicitly rescoped; original failed "
+                "At least one benchmark target is documented as a limitation; original failed "
                 "measurements remain recorded and are not passing speed evidence."
             )
         return findings
@@ -1855,17 +1856,17 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--rollout-speed-report",
         type=Path,
-        help="Optional bench.rollout report JSON for RFC-0004 speed gates.",
+        help="Optional bench.rollout report JSON for rollout-speed gates.",
     )
     parser.add_argument(
         "--rollout-speed-scope-report",
         type=Path,
-        help="Optional accepted rollout-speed scope report for explicit #42 re-scope decisions.",
+        help="Optional accepted rollout-speed limitation report for the #42 target miss.",
     )
     parser.add_argument(
         "--efficiency-report",
         type=Path,
-        help="Optional validated efficiency_report.json for RFC-0007 efficiency coverage.",
+        help="Optional validated efficiency_report.json for efficiency coverage.",
     )
     parser.add_argument(
         "--suite-report",

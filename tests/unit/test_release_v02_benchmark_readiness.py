@@ -328,7 +328,7 @@ def test_readiness_report_can_pass_with_all_required_artifacts(tmp_path: Path) -
     assert "batched_throughput_variants_per_s=50" in conclusions
 
 
-def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) -> None:
+def test_readiness_can_pass_with_accepted_rollout_speed_limitation(tmp_path: Path) -> None:
     metrics = tmp_path / "eval_metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
     scope = tmp_path / "rollout_speed_scope.json"
@@ -359,7 +359,7 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -377,16 +377,16 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
     assert report["blockers"] == []
     readiness = _readiness_by_code(report)
     assert readiness["ar_rollout_speed"]["ok"] is True
-    assert readiness["ar_rollout_speed"]["status"] == "rescoped"
+    assert readiness["ar_rollout_speed"]["status"] == "documented_limitation"
     assert any(
         evidence.startswith("scope_decision=")
         for evidence in readiness["ar_rollout_speed"]["evidence"]
     )
     rows = _rows_by_id(report)
-    assert rows["ar_rollout_speed"]["status"] == "rescoped"
+    assert rows["ar_rollout_speed"]["status"] == "documented_limitation"
     assert rows["ar_rollout_speed"]["failed_targets"]
     assert rows["ar_rollout_speed"]["scope_decision"]["decision"] == (
-        "rescope_rfc0004_speed_target"
+        "document_rollout_speed_target_miss"
     )
     scope_decision = rows["ar_rollout_speed"]["scope_decision"]
     assert scope_decision["generated_at"].endswith("Z")
@@ -394,31 +394,31 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
         {
             "benchmark_id": "ar_rollout_speed",
             "report": scope_decision["report"],
-            "decision": "rescope_rfc0004_speed_target",
+            "decision": "document_rollout_speed_target_miss",
             "status": "accepted",
             "generated_at": scope_decision["generated_at"],
             "accepted_by": "maintainer",
             "accepted_at": "2026-06-06T12:00:00Z",
             "decision_url": "https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-            "rationale": "The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+            "rationale": "The current recurrent rollout benchmark missed the original speed target.",
             "replacement_target": "Report measured rollout speed until #42 accepts a new target.",
             "issue_refs": ["#42", "#197"],
         }
     ]
     assert "not passing speed evidence" in "\n".join(report["negative_findings"])
     conclusions = "\n".join(str(item) for item in report["metric_conclusions"])
-    assert "ar_rollout_speed was explicitly rescoped" in conclusions
+    assert "ar_rollout_speed is a documented limitation" in conclusions
     assert "track=rollout_performance" in conclusions
     assert "k5_speedup=1.8" in conclusions
     assert "Failed targets: K=5: 1.8x < 2x; K=20: 1.9x < 5x; report ok=false" in conclusions
-    assert "decision=rescope_rfc0004_speed_target" in conclusions
+    assert "decision=document_rollout_speed_target_miss" in conclusions
     assert "accepted_by=maintainer" in conclusions
     assert (
         "decision_url=https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1"
         in conclusions
     )
     assert (
-        "rationale=The current recurrent rollout benchmark missed the RFC-0004 speed target."
+        "rationale=The current recurrent rollout benchmark missed the original speed target."
         in conclusions
     )
     assert (
@@ -428,7 +428,7 @@ def test_readiness_can_pass_with_accepted_rollout_speed_rescope(tmp_path: Path) 
     assert "issue_refs=#42,#197" in conclusions
 
 
-def test_readiness_rejects_stale_rollout_speed_rescope(tmp_path: Path) -> None:
+def test_readiness_rejects_stale_rollout_speed_limitation(tmp_path: Path) -> None:
     rollout = tmp_path / "rollout.ar_speed.json"
     scope = tmp_path / "rollout_speed_scope.json"
     rollout.write_text(json.dumps(_failing_rollout_payload()), encoding="utf-8")
@@ -438,7 +438,7 @@ def test_readiness_rejects_stale_rollout_speed_rescope(tmp_path: Path) -> None:
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -465,7 +465,7 @@ def test_readiness_rejects_scope_report_with_stale_rollout_speed_path(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -492,7 +492,7 @@ def test_readiness_rejects_scope_report_with_absolute_scope_command_paths(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -541,7 +541,7 @@ def test_readiness_rejects_scope_report_with_stale_rollout_summary_command(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -568,7 +568,7 @@ def test_readiness_rejects_scope_report_with_malformed_accepted_at(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -595,7 +595,7 @@ def test_readiness_rejects_scope_report_with_malformed_decision_url(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -622,7 +622,7 @@ def test_readiness_rejects_scope_report_with_malformed_issue_refs(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -649,7 +649,7 @@ def test_readiness_rejects_scope_report_with_weakened_negative_findings(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
@@ -676,12 +676,12 @@ def test_readiness_rejects_scope_report_with_weakened_claim_boundary(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )
     scope_payload = json.loads(scope.read_text(encoding="utf-8"))
-    scope_payload["claim_boundary"] = "This report records an accepted scope decision."
+    scope_payload["claim_boundary"] = "This report records an accepted limitation."
     scope.write_text(json.dumps(scope_payload), encoding="utf-8")
 
     with pytest.raises(InputError, match="claim_boundary must preserve"):
@@ -703,7 +703,7 @@ def test_readiness_rejects_scope_report_with_malformed_generated_at(
         accepted_by="maintainer",
         accepted_at="2026-06-06T12:00:00Z",
         decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
-        rationale="The current recurrent rollout benchmark missed the RFC-0004 speed target.",
+        rationale="The current recurrent rollout benchmark missed the original speed target.",
         replacement_target="Report measured rollout speed until #42 accepts a new target.",
         command=_scope_report_command(rollout, scope),
     )

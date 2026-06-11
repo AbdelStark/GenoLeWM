@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Edit-sequence cost functions for RFC-0008 planning."""
+"""Edit-sequence cost functions for planning contract planning."""
 
 from __future__ import annotations
 

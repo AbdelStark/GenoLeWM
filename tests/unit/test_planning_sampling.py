@@ -1,4 +1,4 @@
-"""Unit tests for the RFC-0008 planning ``ActionSampler``."""
+"""Unit tests for the planning contract planning ``ActionSampler``."""
 
 from __future__ import annotations
 

@@ -45,7 +45,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
     class ARPredictor(nn.Module):  # type: ignore[no-redef,misc]
         """Inference-time autoregressive rollout over a base ``Predictor``.
 
-        The wrapper defines the public RFC-0004 rollout contract: each
+        The wrapper defines the public predictor contract rollout contract: each
         action is scored against the state predicted by the previous
         action, producing ``[s_hat[t+1], ..., s_hat[t+K]]``. When the
         wrapped predictor exposes rollout-cache hooks, static action
@@ -212,7 +212,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             action_sequence: Tensor | Sequence[Tensor],
             action_mask: Tensor | None = None,
         ) -> tuple[Tensor, ...]:
-            """Alias for :meth:`rollout` matching RFC-0004 terminology."""
+            """Alias for :meth:`rollout` matching predictor contract terminology."""
             return self.rollout(state, action_sequence, action_mask)
 
         @_INFERENCE_MODE

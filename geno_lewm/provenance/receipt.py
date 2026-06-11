@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Receipt writer / reader (RFC-0011).
+"""Receipt writer / reader (artifact-provenance contract).
 
 Receipt schema v1.0.0. The on-disk format is canonical JSON so two
 identical Python ``Receipt`` objects produce byte-stable disk content;
@@ -110,7 +110,7 @@ class ReceiptProvenance:
 
 @dataclass(frozen=True, slots=True)
 class Receipt:
-    """Top-level receipt (RFC-0011 §3.3)."""
+    """Top-level receipt (artifact-provenance contract)."""
 
     schema_version: str
     model_id: str

@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """GenoLeWM metrics registry and minimal Prometheus textfile exporter.
 
-Defined by RFC-0013 §3.3 / 4 and ``docs/spec/05-observability.md``.
 Provides:
 
 - :data:`METRICS` — immutable registry of ``MetricSpec(name, kind,
@@ -108,8 +107,7 @@ DEFAULT_HISTOGRAM_BUCKETS_BYTES: tuple[float, ...] = (
 )
 
 
-#: Canonical metrics for v0.1. Order matches
-#: ``docs/spec/05-observability.md``.
+#: Canonical public metrics.
 METRICS: tuple[MetricSpec, ...] = (
     MetricSpec("geno_lewm.training.step.duration", "histogram", "ms", "per training step"),
     MetricSpec("geno_lewm.training.loss.pred", "gauge", "unitless", "last logged pred loss"),

@@ -1,4 +1,4 @@
-# Nightly performance benchmarks (RFC-0016).
+# Nightly performance benchmarks.
 #
 # Runs the bench harness scripts under ``bench/`` plus the
 # ``tests/benchmark/`` microbench suite, then diffs both against the
@@ -6,9 +6,8 @@
 # the 5 % threshold fails the job; the result artifacts are uploaded
 # so an engineer can bisect.
 #
-# This job is *not* gated on PRs — RFC-0016 §3.7 says PR-noise is too
-# high on shared runners to make the gate trustworthy. The signal is
-# the historical nightly trend.
+# This job is not gated on PRs because shared-runner timings are too
+# noisy for a pull-request gate. The signal is the historical nightly trend.
 name: Perf nightly
 
 on:

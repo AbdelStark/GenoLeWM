@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Shared benchmark harness library (RFC-0016 §3.4).
+"""Shared benchmark harness library (performance budget).
 
 A benchmark is a callable timed over ``iters`` iterations after ``warmup``
 warmups. The result captures median + IQR (P25/P75) in nanoseconds plus

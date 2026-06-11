@@ -1,7 +1,7 @@
 # Stability decorators
 
 The `geno_lewm.api` module provides the two decorators that govern
-public-surface lifetime per [RFC-0014](../rfcs/0014-public-api-and-stability.md).
+public-surface lifetime during the alpha period.
 
 ::: geno_lewm.api
     options:
@@ -34,5 +34,5 @@ The warnings module sees the project-defined filters (`pyproject.toml
 - **`@deprecated`** — symbols scheduled for removal in the next MAJOR.
   Pair with a removal target in the CHANGELOG.
 
-See the [public-API spec](../spec/02-public-api.md) for stability
-classes.
+See the [public API contract](public-surface.md) for the enforced
+snapshot.

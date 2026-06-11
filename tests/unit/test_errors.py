@@ -1,6 +1,6 @@
 """Tests for ``geno_lewm.errors``.
 
-These tests pin the contract documented in ``docs/spec/04-error-model.md``:
+These tests pin the contract documented in ``public API contract``:
 every leaf class exists, is registered, carries a registered ``code`` prefix,
 and round-trips through ``to_dict`` / ``to_json``.
 """
@@ -14,7 +14,7 @@ import pytest
 from geno_lewm import errors as err
 
 # Every leaf class declared in the spec hierarchy. The order matches
-# docs/spec/04-error-model.md so the test diff stays grep-friendly.
+# public API contract so the test diff stays grep-friendly.
 LEAF_CLASSES: tuple[tuple[type[err.GenoLeWMError], str], ...] = (
     # Config
     (err.SchemaCompatError, "CONFIG.SCHEMA_INCOMPAT"),

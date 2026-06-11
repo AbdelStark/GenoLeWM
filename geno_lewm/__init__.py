@@ -5,13 +5,12 @@ GenoLeWM treats genetic edits as first-class actions and learns latent
 transitions on top of a frozen DNA foundation model. The package today
 ships the production infrastructure layer (typed errors, structured
 observability with privacy redaction, content-addressed provenance
-receipts, canonical edit specs, the verify CLI). The training, predictor, and
-deployment surfaces land incrementally — see ``ROADMAP.md`` and the
-``rfcs/`` corpus.
+receipts, canonical edit specs, the verify CLI) plus alpha training,
+prediction, rollout, planning, evaluation, and deployment helpers.
 
 The public Python surface is enumerated below in ``__all__``. Every
-symbol's stability is governed by ``RFC-0014`` (api stability) and the
-``tests/api/public_surface.json`` snapshot is the binding contract.
+symbol's stability is governed by the ``tests/api/public_surface.json``
+snapshot.
 """
 
 from __future__ import annotations

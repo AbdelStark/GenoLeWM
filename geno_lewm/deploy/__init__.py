@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Deployment runtime contract for RFC-0010."""
+"""Deployment runtime helpers."""
 
 from geno_lewm.deploy.runtime import (
     BACKEND_AUTO,

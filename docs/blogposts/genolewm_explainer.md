@@ -460,5 +460,5 @@ That is not the result I wanted, but it is a result worth keeping.
 [1]: https://github.com/AbdelStark/GenoLeWM "GitHub - AbdelStark/GenoLeWM: An action-conditioned JEPA world model for DNA, built on top of Carbon. · GitHub"
 [2]: https://huggingface.co/HuggingFaceBio/Carbon-500M "HuggingFaceBio/Carbon-500M · Hugging Face"
 [3]: https://raw.githubusercontent.com/AbdelStark/GenoLeWM/main/README.md "raw.githubusercontent.com"
-[4]: https://raw.githubusercontent.com/AbdelStark/GenoLeWM/main/rfcs/0005-training-objective.md "raw.githubusercontent.com"
-[5]: https://raw.githubusercontent.com/AbdelStark/GenoLeWM/main/rfcs/0011-artifact-provenance-receipts.md "raw.githubusercontent.com"
+[4]: https://raw.githubusercontent.com/AbdelStark/GenoLeWM/main/ARCHITECTURE.md "raw.githubusercontent.com"
+[5]: https://raw.githubusercontent.com/AbdelStark/GenoLeWM/main/PRIVACY.md "raw.githubusercontent.com"

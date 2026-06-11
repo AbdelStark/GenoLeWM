@@ -4,16 +4,13 @@
 
 <!-- One paragraph. What does this PR change and why? -->
 
-## Linked issue / RFC
+## Linked issue
 
 - Closes: #NN
-- RFC: rfcs/NNNN-<slug>.md (if applicable)
-- Spec section: docs/spec/NN-<section>.md (if applicable)
 
 ## Type
 
-- [ ] Documentation / spec
-- [ ] RFC
+- [ ] Documentation
 - [ ] Feature
 - [ ] Bug fix
 - [ ] Test
@@ -27,7 +24,7 @@
 - [ ] Unit / property tests added or updated
 - [ ] Integration tests added or updated (where applicable)
 - [ ] CHANGELOG.md updated under `[Unreleased]`
-- [ ] RFCs / spec sections updated where this change locks a decision
+- [ ] Public docs updated where behavior changed
 - [ ] Public API snapshot updated if the public surface changed
 - [ ] No real personal data added to fixtures
 - [ ] No new network call introduced outside the documented allowlist

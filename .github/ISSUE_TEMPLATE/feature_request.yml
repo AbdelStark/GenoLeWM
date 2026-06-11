@@ -1,25 +1,25 @@
 name: Feature request
-description: Propose a feature (will likely need an RFC)
+description: Propose a feature
 title: "feature: "
 labels: ["type:feature", "triage:reviewed"]
 body:
   - type: markdown
     attributes:
       value: |
-        Most feature requests of meaningful scope require an RFC. See
-        [`CONTRIBUTING.md`](../../CONTRIBUTING.md#rfc-discipline) for the bar.
+        Keep proposals tied to user workflows, reproducible artifacts,
+        or measured benchmark gaps.
   - type: textarea
     id: motivation
     attributes:
       label: Motivation
-      description: What problem does this solve? Reference a spec or RFC where applicable.
+      description: What problem does this solve? Link relevant docs or artifacts where applicable.
     validations:
       required: true
   - type: textarea
     id: design
     attributes:
       label: Proposed design
-      description: A short sketch; the full design will live in an RFC.
+      description: A short implementation sketch.
     validations:
       required: true
   - type: textarea
@@ -33,10 +33,11 @@ body:
     attributes:
       label: Scope
       options:
-        - First paper/demo release
-        - Post-paper data/model hardening
-        - Post-paper planner/runtime expansion
-        - Post-paper desktop/release polish
-        - Post-1.0
+        - Data or benchmark evidence
+        - Training or evaluation
+        - Runtime or scoring
+        - Planning or rollout
+        - Documentation or release artifact
+        - Other
     validations:
       required: true

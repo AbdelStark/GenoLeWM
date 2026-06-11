@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""End-to-end evaluation smoke tests (RFC-0015 §3.1).
+"""End-to-end evaluation smoke tests (testing contract).
 
 Tests in this package exercise the hosted fixture-backed eval smoke gate.
 They generate public score/label artifacts, run the ``geno-lewm-eval``

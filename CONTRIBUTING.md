@@ -4,8 +4,9 @@ GenoLeWM is an alpha Python ML research project. The v0.1 paper/demo
 publication is complete with public model, dataset, demo, paper, and
 final publication evidence artifacts.
 
-The most valuable contributions now are narrow, tested changes that move
-the repository toward v0.2 benchmark and rollout readiness.
+The most valuable contributions now are narrow, tested changes that
+improve benchmark evidence, runtime reliability, reproducibility, and
+public documentation.
 
 ## High-Value Work
 
@@ -13,9 +14,9 @@ the repository toward v0.2 benchmark and rollout readiness.
   deterministic smoke fixtures.
 - Trainer and evaluation paths that emit stronger publishable artifacts
   without weakening the v0.1 release evidence contract.
-- AR rollout speed work and benchmark gates for the RFC-0004 target.
+- AR rollout speed work and benchmark gates for the K=20 target.
 - Planning API/CLI work backed by measured predictor and eval evidence.
-- Release automation for future evidence packages and the first PyPI tag.
+- Release automation for future evidence packages.
 - Documentation that keeps public claims aligned with measured behavior.
 
 ## Code of Conduct
@@ -105,14 +106,11 @@ Data-related PRs must document:
   PR body.
 - Source files: Apache-2.0 SPDX header.
 
-## RFCs and Specs
+## Design Notes
 
-Write or amend an RFC when a change locks a load-bearing design decision
-that affects multiple subsystems. Routine bug fixes and narrow
-implementation work do not need new RFCs.
-
-When implementation diverges from an old RFC, update the RFC or mark it
-retired instead of letting stale design text survive.
+Keep design discussion close to the code, tests, and public docs it
+changes. Large architecture changes should update `ARCHITECTURE.md`, the
+affected doc page, and the relevant tests in the same PR.
 
 ## Review Expectations
 
@@ -126,13 +124,13 @@ Reviewers should:
 
 - check scope against the linked issue;
 - focus on correctness, reproducibility, privacy, and API stability;
-- cite files, tests, specs, or RFCs in feedback.
+- cite files, tests, docs, or artifacts in feedback.
 
 ## Communication
 
 - Bugs and feature work: GitHub issues.
 - Security: GitHub Security Advisories; see [SECURITY.md](SECURITY.md).
-- Design: RFC PRs or GitHub Discussions.
+- Design: GitHub issues, pull requests, or Discussions.
 
 There is no required chat channel. The written record is the source of
 truth.

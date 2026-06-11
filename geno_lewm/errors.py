@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """GenoLeWM exception hierarchy and error-code registry.
 
-This module is the single source of truth for the runtime error model
-defined in `docs/spec/04-error-model.md` and RFC-0012. Every other
-subsystem raises typed exceptions from this hierarchy.
+This module is the single source of truth for the runtime error model.
+Every other subsystem raises typed exceptions from this hierarchy.
 
-Discipline (summary; see the spec for the full table):
+Discipline:
 
 - Caller-supplied invalid data       -> ``InputError`` family
 - Misconfiguration / missing fields  -> ``ConfigError`` family
@@ -169,7 +168,7 @@ class InvalidEditError(InputError):
 
 
 class UnsupportedEditError(InputError):
-    """An edit's type or length is outside the v1 scope (RFC-0003)."""
+    """An edit's type or length is outside the v1 scope (edit contract)."""
 
     code = "INPUT.UNSUPPORTED_EDIT"
 
@@ -246,7 +245,7 @@ class RuntimeSetupError(ResourceError):
 class NetworkCallProhibitedError(ResourceError):
     """A post-setup network call was attempted under fail-closed policy.
 
-    See RFC-0010 §3.7 ("on-device fail-closed").
+    See runtime contract ("on-device fail-closed").
     """
 
     code = "RESOURCE.NETWORK_PROHIBITED"
@@ -263,7 +262,7 @@ class TrainingError(GenoLeWMError):
 
 
 class CollapseDetectedError(TrainingError):
-    """A representation-collapse alert tripped (RFC-0005)."""
+    """A representation-collapse alert tripped (training contract)."""
 
     code = "TRAINING.COLLAPSE_DETECTED"
 
@@ -335,7 +334,7 @@ class BackendUnsupportedError(DeployError):
 
 
 class ProvenanceError(GenoLeWMError):
-    """Receipt or artifact-provenance failure (RFC-0011)."""
+    """Receipt or artifact-provenance failure (artifact-provenance contract)."""
 
     code = "PROVENANCE.GENERIC"
 
@@ -524,11 +523,8 @@ if len(_CODE_TO_ENTRY) != len(ERROR_CODES):  # pragma: no cover - tested explici
 
 
 # ---------------------------------------------------------------------------
-# Exit codes — see docs/spec/04-error-model.md
-#
-# The mapping below is consumed by the CLI dispatcher (RFC-0018 §"exit
-# codes"). Tooling that wraps the CLI relies on these values; bumping any
-# is a MAJOR change.
+# Exit codes consumed by the CLI dispatcher. Tooling that wraps the CLI
+# relies on these values; changing any value is a breaking public contract.
 _EXIT_CODE_BY_FAMILY: tuple[tuple[type[GenoLeWMError], int], ...] = (
     # Order matters: most specific first. ``InternalError`` is a
     # ``GenoLeWMError`` subclass, so it must be checked before the generic

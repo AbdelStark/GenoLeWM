@@ -2,7 +2,7 @@
 """Download pinned upstream genomic source files (ClinVar / gnomAD VCFs).
 
 Operator-initiated acquisition tool. Lives under ``tools/`` so it may use the
-network, unlike the fail-closed ``geno_lewm`` runtime (RFC-0010 §3.7). Fetches
+network, unlike the fail-closed ``geno_lewm`` runtime (runtime contract). Fetches
 a URL (https/ftp) to a local path — typically under
 ``configs/first_experiment/inputs/`` — verifying an expected SHA-256 when one is
 given and always recording the realized digest + size. Run as::

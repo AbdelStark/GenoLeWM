@@ -40,7 +40,7 @@ venv/
 .agents/
 .claude/
 
-# GenoLeWM caches and outputs (per docs/spec/05-observability.md)
+# GenoLeWM caches and outputs
 .geno-lewm-cache/
 .geno-lewm-logs/
 runs/

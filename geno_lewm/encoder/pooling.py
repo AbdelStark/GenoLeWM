@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Pooling strategies for Carbon hidden states.
 
-Defined by RFC-0002 §3.4. This module is intentionally independent of
+Defined by encoder contract This module is intentionally independent of
 torch so the pooling contract, cache metadata, and downstream schema
 behavior can be validated before the Carbon runtime wrapper lands.
 """
@@ -95,7 +95,7 @@ def pool_hidden_states(
     """Pool token-level hidden states into a state vector.
 
     ``edit_locus`` is a 0-based base-pair offset within the encoder
-    window. When it is absent, RFC-0002 requires a global-mean fallback
+    window. When it is absent, encoder contract requires a global-mean fallback
     tagged as ``untargeted=True`` so cache consumers do not mix arbitrary
     reference-window embeddings with edit-local embeddings.
     """

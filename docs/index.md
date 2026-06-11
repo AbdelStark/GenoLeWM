@@ -13,10 +13,9 @@ model-quality evidence is mixed or negative versus Carbon.
 ## Start Here
 
 - [Quickstart](quickstart.md)
-- [Architecture](spec/01-architecture.md)
+- [Architecture](architecture.md)
+- [Public API contract](api/public-surface.md)
 - [API reference](reference/index.md)
-- [Implementation tracker](roadmap/IMPLEMENTATION.md)
-- [Roadmap](https://github.com/AbdelStark/GenoLeWM/blob/main/ROADMAP.md)
 
 ## Public Artifacts
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Cross-module integration tests (RFC-0015 §3.1).
+"""Cross-module integration tests (testing contract).
 
 Tests in this package exercise multiple subsystems together (e.g., the
 verify CLI driving the provenance + action layers end-to-end). They

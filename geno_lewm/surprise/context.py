@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Context stratification labels for RFC-0009 calibration buckets."""
+"""Context stratification labels for surprise-scoring contract calibration buckets."""
 
 from __future__ import annotations
 
@@ -44,10 +44,10 @@ REGION_CLASSES: tuple[str, ...] = (
     "intergenic",
     "other",
 )
-"""Canonical RFC-0009 ``region_class`` values."""
+"""Canonical surprise-scoring contract ``region_class`` values."""
 
 GC_BINS: tuple[str, ...] = ("low", "mid", "high")
-"""Canonical RFC-0009 ``gc_bin`` values."""
+"""Canonical surprise-scoring contract ``gc_bin`` values."""
 
 REPEAT_CLASSES: tuple[str, ...] = (
     "none",
@@ -56,7 +56,7 @@ REPEAT_CLASSES: tuple[str, ...] = (
     "transposon",
     "segmental_dup",
 )
-"""Canonical RFC-0009 ``repeat_class`` values."""
+"""Canonical surprise-scoring contract ``repeat_class`` values."""
 
 UNKNOWN_BUCKET_ID = "*"
 """Catch-all calibration bucket reached after every parent bucket is sparse."""
@@ -68,7 +68,7 @@ DEFAULT_GC_HIGH_CUTOFF: float = 2.0 / 3.0
 """Inclusive upper-tercile GC cutoff used when no fitted cutpoints are supplied."""
 
 DEFAULT_MIN_BUCKET_SIZE = 1_000
-"""RFC-0009 default threshold for a well-populated calibration bucket."""
+"""surprise-scoring contract default threshold for a well-populated calibration bucket."""
 
 _REGION_ALIAS_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -197,7 +197,7 @@ _GC_BASES = frozenset("GC")
 
 @dataclass(frozen=True, slots=True)
 class ContextLabel:
-    """Canonical RFC-0009 context tuple for a single variant locus."""
+    """Canonical surprise-scoring contract context tuple for a single variant locus."""
 
     region_class: str
     gc_bin: str

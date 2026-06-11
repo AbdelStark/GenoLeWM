@@ -27,7 +27,7 @@
   description: Internal change, no user-visible behaviour delta.
   color: cfd3d7
 - name: "type:docs"
-  description: Documentation, spec, or RFC.
+  description: Documentation.
   color: 0075ca
 - name: "type:ci"
   description: CI / build / release tooling.
@@ -38,9 +38,6 @@
 - name: "type:test"
   description: Test changes only.
   color: bfd4f2
-- name: "type:rfc"
-  description: An RFC PR or RFC-process change.
-  color: 7057ff
 - name: "type:performance"
   description: Latency, throughput, or memory budget.
   color: e99695

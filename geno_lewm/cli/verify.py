@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""``geno-lewm-verify`` CLI — checksum-mode receipt verifier (RFC-0011).
+"""``geno-lewm-verify`` CLI — checksum-mode receipt verifier (artifact-provenance contract).
 
 The CLI takes a receipt JSON path and validates the receipt against a
 local manifest. Three checks compose the v1 protocol:
@@ -25,7 +25,7 @@ local manifest. Three checks compose the v1 protocol:
    the receipt describes output the model actually produces, not merely
    that the receipt is internally self-consistent.
 
-Exit codes follow RFC-0012 / ``docs/spec/04-error-model.md``:
+Exit codes follow error taxonomy / ``public API contract``:
 
 - 0 — verification passed.
 - 2 — `InputError` (bad CLI args).

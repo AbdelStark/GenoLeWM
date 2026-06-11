@@ -377,9 +377,12 @@ def _readiness_payload() -> dict[str, object]:
         },
         {
             "benchmark_id": "ar_rollout_speed",
-            "status": "rescoped",
+            "status": "documented_limitation",
             "observed_values": {"k5_speedup": 2.413859489667916, "k20_speedup": 2.4732225135799566},
-            "scope_decision": {"status": "accepted", "decision": "rescope_rfc0004_speed_target"},
+            "scope_decision": {
+                "status": "accepted",
+                "decision": "document_rollout_speed_target_miss",
+            },
             "issue_refs": ["#42", "#197"],
         },
         {"benchmark_id": "release_inputs", "status": "pass", "issue_refs": ["#197"]},
@@ -452,14 +455,14 @@ def _rollout_speed_scope_payload(rollout_path: Path) -> dict[str, object]:
         "generated_at": "2026-06-09T02:05:00Z",
         "ok": True,
         "status": "accepted",
-        "decision": "rescope_rfc0004_speed_target",
+        "decision": "document_rollout_speed_target_miss",
         "issue_refs": ["#42", "#197"],
         "rollout_speed_report": {
             "path": "bench/rollout.ar_speed.json",
             "sha256": sha256_file(rollout_path),
             "size_bytes": rollout_path.stat().st_size,
         },
-        "negative_findings": ["The RFC-0004 K20 target was not met."],
+        "negative_findings": ["The original K20 target was not met."],
         "claim_boundary": "This report is not clinical, privacy, runtime, or model-quality evidence.",
     }
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for the config schema + loader (RFC-0017; issue #28)."""
+"""Tests for the config schema + loader (configuration contract; issue #28)."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def test_load_default_unknown_name_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unknown-key rejection (RFC-0017 §3.3)
+# Unknown-key rejection (configuration contract)
 # ---------------------------------------------------------------------------
 
 

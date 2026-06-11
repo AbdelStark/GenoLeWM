@@ -1,19 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Synthetic edit samplers (RFC-0003 §3.8).
+"""Synthetic edit samplers (edit contract).
 
 These samplers produce :class:`RelEdit` objects keyed to an existing
-window string. Used by the training data pipeline (RFC-0006 §3.4) to
+window string. Used by the training data pipeline (data-pipeline contract) to
 ensure uniform action-space coverage when natural variants are sparse
 in a given region.
 
 All samplers are deterministic with respect to a seeded
 :class:`random.Random` instance (passed in as ``rng``), so training
-runs are reproducible end-to-end (RFC-0005 §3.6).
+runs are reproducible end-to-end (training contract).
 
 A minimum distance from each window edge is enforced (``edge_margin``,
 default 64 bp). This guarantees the pooling step has enough context on
 both sides of the edit, matching the encoder's pooling assumptions
-(RFC-0002 §3.4).
+(encoder contract).
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def _draw_indel_length(
     """Draw an indel length from the configurable distribution.
 
     The default distribution is a truncated geometric over [1, 16] with
-    ``p = 0.5`` (matches the RFC text).
+    ``p = 0.5`` (matches the release contract).
     """
     if length_dist is None:
         # Truncated geometric on [1, V1_MAX_LEN], normalised.
@@ -281,7 +281,7 @@ def mnv(
     """Sample ``n`` MNVs (length-preserving multi-base substitutions).
 
     Length is drawn from ``length_dist`` (default uniform over [2, 8]
-    per RFC text). The alt is guaranteed different from ref at every
+    per release contract). The alt is guaranteed different from ref at every
     base (otherwise constructing a RelEdit with that ref/alt would be
     rejected by EditSpec validation).
     """

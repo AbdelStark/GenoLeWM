@@ -1,12 +1,9 @@
 # Security policy
 
-GenoLeWM operates over personal genome data — permanent, identifying,
+GenoLeWM operates over personal genome data: permanent, identifying,
 family-implicating. This policy is more conservative than typical
-open-source norms; the threat model is in
-[`docs/spec/06-security.md`](docs/spec/06-security.md) and the
-artifact provenance primitives are in
-[`docs/spec/06-security.md`](docs/spec/06-security.md) plus
-[RFC-0011](rfcs/0011-artifact-provenance-receipts.md).
+open-source norms. The runtime is local-first, redacts logs by default,
+and uses checksum receipts for artifact/output identity.
 
 ## Reporting a vulnerability
 
@@ -18,8 +15,7 @@ Please **do not** open public issues for security vulnerabilities.
 
 Include:
 
-- A description of the issue and the affected component (preferably with
-  a link into [`docs/spec/`](docs/spec/) or a specific RFC).
+- A description of the issue and the affected component.
 - A minimal reproducer if you have one. **Do not include personal genome
   data.** Synthetic VCFs and FASTAs are fine; redact any real input.
 - The version, commit, OS, runtime backend, and whether you ran the

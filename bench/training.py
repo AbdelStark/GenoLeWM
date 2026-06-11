@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Training-path benchmarks (RFC-0016 §3.4).
+"""Training-path benchmarks (performance budget).
 
 Phase 1 surfaces today: the **action mutation path** is the only piece
 of the training data pipeline implemented in the package (the encoder,
@@ -74,7 +74,7 @@ def _bench_apply_batch(iters: int, warmup: int, batch_size: int) -> BenchResult:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bench.training",
-        description="Training-path benchmarks (RFC-0016 §3.4).",
+        description="Training-path benchmarks (performance budget).",
     )
     parser.add_argument("--iters", type=int, default=200)
     parser.add_argument("--warmup", type=int, default=20)

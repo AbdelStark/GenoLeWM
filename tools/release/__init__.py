@@ -2,7 +2,7 @@
 """Maintainer-side release tooling.
 
 Two mechanical helpers used by the release checklist in
-``docs/spec/09-release-and-versioning.md#release-process``:
+``CONTRIBUTING.md#release-process``:
 
 * :mod:`tools.release.bump` updates the single source of truth for
   the package version (``__version__`` in :mod:`geno_lewm`) and

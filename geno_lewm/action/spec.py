@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Canonical edit types — ``EditSpec``, ``EditType``, ``RelEdit``.
 
-Defined by RFC-0003 §3.1–§3.3 and ``docs/spec/03-data-model.md#editspec``.
+Defined by the edit contract and the public API contract.
 
 Every downstream subsystem (encoder, predictor, planner, scorer)
 consumes these types. They are intentionally tiny dataclasses with
 hard validation — no ``Optional`` fields, no string-typed kinds, no
 post-construction mutation.
 
-Validation maps to the typed error hierarchy from RFC-0012:
+Validation maps to the typed error hierarchy from error taxonomy:
 
 - malformed input (bad bases, ``ref == alt``, ``pos < 1``, etc.) →
   :class:`geno_lewm.errors.InvalidEditError`.
@@ -31,12 +31,12 @@ __all__ = ["V1_MAX_LEN", "EditSpec", "EditType", "RelEdit"]
 
 #: Maximum ``ref`` / ``alt`` length in v1. Edits longer than this are
 #: structural variants and are routed through the SV adapter in v2
-#: (RFC-0003 §3.5).
+#: (edit contract).
 V1_MAX_LEN: int = 16
 
 
 class EditType(IntEnum):
-    """The six v1 edit categories (RFC-0003 §3.2).
+    """The six v1 edit categories (edit contract).
 
     Members are deterministic functions of ``(len(ref), len(alt))`` —
     callers do not pass this value; it is computed during construction.
@@ -93,7 +93,7 @@ def _validate_bases(name: str, value: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class EditSpec:
-    """A canonical, frozen genomic edit (RFC-0003 §3.1).
+    """A canonical, frozen genomic edit (edit contract).
 
     Construct with absolute VCF-style coordinates; the derived
     :attr:`edit_type` is filled in by ``__post_init__``.
@@ -138,7 +138,7 @@ class EditSpec:
         derived = _derive_edit_type(self.ref, self.alt)
         if derived is EditType.SV:
             raise UnsupportedEditError(
-                "edit length exceeds V1_MAX_LEN; structural variants are v2 (RFC-0003 §3.5)",
+                "edit length exceeds V1_MAX_LEN; structural variants are v2 (edit contract)",
                 details={
                     "ref_len": len(self.ref),
                     "alt_len": len(self.alt),
@@ -153,7 +153,7 @@ class EditSpec:
         object.__setattr__(self, "edit_type", derived)
 
     def relative_to(self, window_start_bp: int, window_end_bp: int) -> RelEdit:
-        """Return the window-relative form (RFC-0003 §3.3).
+        """Return the window-relative form (edit contract).
 
         ``window_start_bp`` and ``window_end_bp`` are 0-based inclusive
         coordinates on the same chromosome as :attr:`chrom`. The

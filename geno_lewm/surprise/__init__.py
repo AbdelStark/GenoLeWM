@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Surprise-scoring helpers for RFC-0009."""
+"""Surprise-scoring helpers for surprise-scoring contract."""
 
 from geno_lewm.surprise.calibration import (
     CALIBRATION_SCHEMA_VERSION,

@@ -8,15 +8,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 README = REPO_ROOT / "README.md"
-ROADMAP = REPO_ROOT / "ROADMAP.md"
-AGENT_CONTEXT = REPO_ROOT / "AGENTS.md"
-IMPLEMENTATION_TRACKER = REPO_ROOT / "docs" / "roadmap" / "IMPLEMENTATION.md"
+ARCHITECTURE = REPO_ROOT / "ARCHITECTURE.md"
+CONTRIBUTING = REPO_ROOT / "CONTRIBUTING.md"
 DOCS_INDEX = REPO_ROOT / "docs" / "index.md"
 DOCS_QUICKSTART = REPO_ROOT / "docs" / "quickstart.md"
 DOCS_FAQ = REPO_ROOT / "docs" / "faq.md"
+DOCS_GLOSSARY = REPO_ROOT / "docs" / "glossary.md"
+DOCS_PUBLIC_API = REPO_ROOT / "docs" / "api" / "public-surface.md"
 RELEASE_SIGNING_KEYS = REPO_ROOT / "docs" / "release" / "signing-keys.md"
 HF_MODEL_CARD = REPO_ROOT / "docs" / "release" / "huggingface-model-card.md"
-RELEASE_SPEC = REPO_ROOT / "docs" / "spec" / "09-release-and-versioning.md"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PACKAGE_INIT = REPO_ROOT / "geno_lewm" / "__init__.py"
 
@@ -82,9 +82,9 @@ def test_public_docs_match_published_package_state() -> None:
         DOCS_INDEX,
         DOCS_FAQ,
         DOCS_QUICKSTART,
+        DOCS_PUBLIC_API,
         HF_MODEL_CARD,
         RELEASE_SIGNING_KEYS,
-        RELEASE_SPEC,
     )
     combined = "\n".join(path.read_text(encoding="utf-8") for path in public_docs)
     normalized = " ".join(combined.split())
@@ -101,7 +101,6 @@ def test_public_docs_match_published_package_state() -> None:
 
     assert not _package_version().is_dev
     assert "python -m pip install geno-lewm" in normalized
-    assert "0.2.1 published" in RELEASE_SPEC.read_text(encoding="utf-8")
     for fragment in forbidden:
         assert fragment not in combined
 
@@ -136,39 +135,43 @@ def test_huggingface_model_card_is_model_documentation_not_artifact_listing() ->
         assert fragment.lower() not in lower
 
 
-def test_context_docs_are_current_and_concise() -> None:
-    docs = {
-        "AGENTS.md": AGENT_CONTEXT.read_text(encoding="utf-8"),
-        "ROADMAP.md": ROADMAP.read_text(encoding="utf-8"),
-        "docs/roadmap/IMPLEMENTATION.md": IMPLEMENTATION_TRACKER.read_text(encoding="utf-8"),
-    }
-    for name, text in docs.items():
-        assert "geno-lewm==0.2.1" in text or "0.2.1" in text
-        assert "K=20" in text
-        assert "planning" in text.lower()
-        assert "checksum provenance" in text
-        assert "uv run pytest" in text
-        assert len(text.splitlines()) < 180, name
+def test_public_docs_do_not_reintroduce_agent_spec_or_roadmap_scaffolding() -> None:
+    obsolete_paths = (
+        "AGENTS.md",
+        "ROADMAP.md",
+        "SPEC.md",
+        "SPECIFICATION.md",
+        "rfcs",
+        "docs/spec",
+        "docs/roadmap",
+        "docs/design-decisions.md",
+    )
+    for rel in obsolete_paths:
+        assert not (REPO_ROOT / rel).exists(), rel
 
-    combined = "\n".join(docs.values())
+    public_docs = (
+        README,
+        ARCHITECTURE,
+        DOCS_INDEX,
+        DOCS_FAQ,
+        DOCS_GLOSSARY,
+        DOCS_PUBLIC_API,
+    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in public_docs)
     forbidden = (
-        "Current Direction",
-        "Not Done Yet",
-        "High-Priority Work",
-        "Issue Anchors",
-        "first-publication",
-        "first package-release target",
-        "protected `0.2.1` Python package tag publication",
+        "Implementation tracker",
+        "Project scope and goals",
+        "Phase 0",
+        "Write an RFC",
+        "docs/spec/",
+        "rfcs/",
     )
     for fragment in forbidden:
         assert fragment not in combined
 
 
 def test_release_commands_remain_documented() -> None:
-    combined = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (README, ROADMAP, AGENT_CONTEXT, IMPLEMENTATION_TRACKER)
-    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in (README, CONTRIBUTING))
     required = (
         "python -m tools.release.dataset_snapshot",
         "geno-lewm-train --carbon-preflight",
@@ -185,13 +188,10 @@ def test_release_commands_remain_documented() -> None:
 
 
 def test_ci_fixture_gates_keep_claim_boundaries() -> None:
-    combined = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (README, AGENT_CONTEXT, ROADMAP, IMPLEMENTATION_TRACKER)
-    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in (README, DOCS_QUICKSTART))
     assert "Fixture outputs are test evidence, not model results" in combined
     assert "fixture smoke" in combined
-    assert "not model-quality evidence" in combined or "not model results" in combined
+    assert "not model results" in combined
     assert "real model quality" not in combined
 
 
@@ -207,9 +207,8 @@ def test_package_metadata_preserves_research_boundary() -> None:
     assert "It is not a diagnostic device" in readme
 
 
-def test_sdist_includes_release_contract_assets() -> None:
+def test_sdist_includes_public_release_assets_not_agent_scaffolding() -> None:
     metadata = PYPROJECT.read_text(encoding="utf-8")
-    release_spec = RELEASE_SPEC.read_text(encoding="utf-8")
     sdist_block = metadata.split("[tool.hatch.build.targets.sdist]", maxsplit=1)[1].split(
         "\n[",
         maxsplit=1,
@@ -220,18 +219,24 @@ def test_sdist_includes_release_contract_assets() -> None:
         '"/geno_lewm"',
         '"/tools"',
         '"/docs"',
-        '"/rfcs"',
         '"/examples"',
-        '"/AGENTS.md"',
+        '"/paper"',
+        '"/spaces"',
+        '"/ARCHITECTURE.md"',
         '"/README.md"',
+    )
+    forbidden_fragments = (
+        '"/AGENTS.md"',
         '"/ROADMAP.md"',
+        '"/SPEC.md"',
+        '"/SPECIFICATION.md"',
+        '"/rfcs"',
     )
 
     for fragment in required_fragments:
         assert fragment in sdist_block
-    assert "The source distribution must" in release_spec
-    assert "include the release-critical repo assets" in release_spec
-    assert "`tools.release.check_sdist_assets`" in release_spec
+    for fragment in forbidden_fragments:
+        assert fragment not in sdist_block
     assert "python -m tools.release.check_sdist_assets dist/*.tar.gz" in README.read_text(
         encoding="utf-8"
     )

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Inference-path benchmarks (RFC-0016 §3.4).
+"""Inference-path benchmarks (performance budget).
 
 The default no-argument mode keeps the lightweight commitment
 microbenchmarks used by CI regression checks. Release mode benchmarks the

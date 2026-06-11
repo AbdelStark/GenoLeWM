@@ -2,7 +2,7 @@
 """Latent-planning primitives for GenoLeWM.
 
 This package ships the pure-Python action-cost library and factored
-action sampler from RFC-0008. The evaluator-first CEM core lives in
+action sampler from planning contract. The evaluator-first CEM core lives in
 ``geno_lewm.planning.cem``; predictor-backed planning and the CLI remain
 separate integration work.
 """

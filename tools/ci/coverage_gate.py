@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Changed-files coverage gate (RFC-0015 §3.7).
+"""Changed-files coverage gate (testing contract).
 
 Compute branch-coverage on the lines added or modified in the current
 PR (vs. ``origin/main``) and fail if any touched Python file under
 ``geno_lewm/`` falls below ``--threshold`` (default 90 %).
 
-Why changed-files and not project-wide? RFC-0015 §4.2: a global ratchet
+Why changed-files and not project-wide? testing contract: a global ratchet
 punishes new code that lands in a file whose siblings happen to be
 under-covered. Changed-files coverage is fair and equally tight.
 
@@ -225,7 +225,7 @@ def format_report(results: Iterable[FileResult], threshold: float) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="coverage_gate",
-        description="Changed-files coverage gate (RFC-0015 §3.7).",
+        description="Changed-files coverage gate (testing contract).",
     )
     parser.add_argument(
         "--coverage-xml",

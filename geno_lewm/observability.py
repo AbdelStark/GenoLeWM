@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Structured logging for GenoLeWM.
 
-This module is the single source of truth for the JSONL logging format
-defined in ``docs/spec/05-observability.md`` and RFC-0013.
+This module is the single source of truth for the JSONL logging format.
 
 What it provides:
 
@@ -15,16 +14,8 @@ What it provides:
   sink, emits ``run.start`` / ``run.end`` style book-ends if asked,
   and flushes the buffer on any exception so records survive a crash.
 
-What it does NOT provide (deferred to follow-up issues):
-
-- Redaction filter (#24). The logger currently accepts whatever payload
-  it is given; the filter will plug into :class:`GenoLeWMLogger._emit`.
-- Metrics registry / Prometheus exporter (#25).
-- ``registered_event_name`` AST linter (#27).
-- OpenTelemetry sinks (RFC-0013 §"Sinks").
-
-The interface ships first so dependent subsystems can take a hard
-dependency on the event registry today.
+Payload redaction, metric registration, and event-name linting are
+implemented in this package so public logs stay bounded and stable.
 """
 
 from __future__ import annotations
@@ -72,7 +63,7 @@ class EventSpec:
     """A single row in the :data:`EVENTS` registry.
 
     ``allowed_keys`` lists the ``data`` keys that the per-event redaction
-    allowlist permits (RFC-0013 §3.5). Standardized fields (``step``,
+    allowlist permits. Standardized fields (``step``,
     ``epoch``, ``phase``, ``duration_ms``, ``trace_id``, ``span_id``,
     ``error_code``) are promoted out of ``data`` before redaction and
     are always allowed at the top level — they need not appear here.
@@ -84,8 +75,7 @@ class EventSpec:
     allowed_keys: frozenset[str] = frozenset()
 
 
-#: Canonical events for v0.1. Order matches ``docs/spec/05-observability.md``.
-#:
+#: Canonical public log events.
 #: Each ``allowed_keys`` enumerates the per-event redaction allowlist.
 #: New keys for an existing event are a MINOR change; tightening the set
 #: is MAJOR.
@@ -237,7 +227,7 @@ if len(_EVENTS_BY_NAME) != len(EVENTS):  # pragma: no cover - tested via registr
 
 # ---------------------------------------------------------------------------
 # Trace context — a contextvar pair carrying OTel-shaped IDs.
-# Tracing is optional in v1 (RFC-0013 §"Tracing"); the logger just attaches
+# Tracing is optional in v1; the logger just attaches
 # the IDs to records when they are set so downstream sinks can join.
 
 
@@ -588,7 +578,7 @@ class GenoLeWMLogger:
         raw_data = {k: v for k, v in fields.items() if k not in reserved}
 
         # The redaction filter is the single chokepoint between callers
-        # and the sink (RFC-0013 §3.5, INV-OBS-3). Unknown events get an
+        # and the sink (observability contract, INV-OBS-3). Unknown events get an
         # empty allowlist → every payload key is soft-dropped.
         from geno_lewm._redaction import redact as _redact
 

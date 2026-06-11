@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for ``tools.ci.perf_regression`` (RFC-0016 §3.7)."""
+"""Tests for ``tools.ci.perf_regression`` (performance budget)."""
 
 from __future__ import annotations
 

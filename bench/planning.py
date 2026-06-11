@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Planning-loop benchmarks for the RFC-0008 CEM solver.
+"""Planning-loop benchmarks for the planning contract CEM solver.
 
 This benchmark times the pure CEM loop, ``ActionSampler`` proposal
 sampling/refitting, and edit-cost integration. It also records one
@@ -605,7 +605,7 @@ def _utc_now() -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bench.planning",
-        description="Benchmark the pure RFC-0008 CEM planning loop.",
+        description="Benchmark the pure planning contract CEM planning loop.",
     )
     parser.add_argument("--k", dest="horizons", type=int, action="append")
     parser.add_argument("--samples", type=int, default=256)

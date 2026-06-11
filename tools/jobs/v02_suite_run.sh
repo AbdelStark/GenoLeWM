@@ -48,8 +48,8 @@ SUITE_UPLOAD_SUBPATH="${SUITE_UPLOAD_SUBPATH:-$RUN_NAME/suite}"
 ACCEPTED_BY="${ACCEPTED_BY:-AbdelStark/GenoLeWM maintainer workflow}"
 ACCEPTED_AT="${ACCEPTED_AT:-2026-06-08T08:14:56Z}"
 DECISION_URL="${DECISION_URL:-https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-4646678395}"
-RESCOPE_RATIONALE="${RESCOPE_RATIONALE:-The H200 benchmark at branch head may miss the original K=20 RFC-0004 target at training-shaped dimensions. v0.2 benchmark readiness should publish measured speed values and preserve any K=20 miss as a negative finding instead of blocking VEP and rollout-fidelity evidence.}"
-REPLACEMENT_TARGET="${REPLACEMENT_TARGET:-For v0.2, publish measured K=5 and K=20 autoregressive rollout speedups with any K=20 target miss recorded; retain true KV-cache speed-target closure for a later RFC-0004 implementation.}"
+RESCOPE_RATIONALE="${RESCOPE_RATIONALE:-The H200 benchmark at branch head may miss the original K=20 original target at training-shaped dimensions. v0.2 benchmark readiness should publish measured speed values and preserve any K=20 miss as a negative finding instead of blocking VEP and rollout-fidelity evidence.}"
+REPLACEMENT_TARGET="${REPLACEMENT_TARGET:-For v0.2, publish measured K=5 and K=20 autoregressive rollout speedups with any K=20 target miss recorded; retain true KV-cache speed-target closure for a later rollout-speed implementation.}"
 
 log() { echo "=== $* ==="; }
 fail() { echo "FATAL: $*" >&2; exit 1; }
@@ -260,7 +260,7 @@ ROLLOUT_RC=$?
 set -e
 test -s "$ROOT/bench/rollout.ar_speed.json" || fail "rollout speed report was not written"
 if [ "$ROLLOUT_RC" -ne 0 ]; then
-  log "record accepted #42 rollout-speed scope decision"
+  log "record accepted #42 rollout-speed limitation"
   (
     cd "$ROOT"
     python -m tools.release.rollout_speed_scope \

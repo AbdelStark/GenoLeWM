@@ -679,7 +679,7 @@ def _nan_loss_count(step_results: Sequence[Any]) -> int:
 def _collapse_var_min(step_results: Sequence[Any]) -> float:
     """Minimum observed prediction variance-per-dim across steps (collapse floor).
 
-    Values near zero indicate representation collapse (RFC-0005 §3.6). Returns
+    Values near zero indicate representation collapse (training contract). Returns
     ``0.0`` when no steps ran.
     """
     variances = [float(result.pred_var_per_dim) for result in step_results]

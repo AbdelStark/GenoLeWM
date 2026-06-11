@@ -1,7 +1,7 @@
 """Tests for ``geno_lewm.observability``.
 
 Pins the record shape and required fields from
-``docs/spec/05-observability.md`` (RFC-0013) and verifies that records
+``metrics registry docs`` (observability contract) and verifies that records
 survive a crash via the wrapping ``logged_run`` context manager.
 """
 
@@ -19,7 +19,7 @@ import pytest
 from geno_lewm import observability as obs
 from geno_lewm.errors import InvalidEditError
 
-# The full canonical list from docs/spec/05-observability.md. Editing
+# The full canonical list from metrics registry docs. Editing
 # this set is a public-API change and intentionally locked here.
 CANONICAL_EVENT_NAMES = {
     "training.run.start",

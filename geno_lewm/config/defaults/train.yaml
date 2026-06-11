@@ -1,4 +1,4 @@
-# GenoLeWM training config — Phase 1 default (RFC-0017 §3.3).
+# GenoLeWM training config — Phase 1 default (configuration contract).
 #
 # The fields documented here MUST track ``geno_lewm.config.schema``. The
 # loader rejects any top-level key not in the schema with

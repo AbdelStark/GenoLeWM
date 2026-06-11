@@ -1,17 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Typed configuration schema (RFC-0017 §3.2).
+"""Typed configuration schema.
 
-Frozen dataclasses for every subsystem listed in RFC-0017 §3.3. Each
-field has a default that matches the RFC's documented default; the
-docstring explains the field's purpose so the ``--explain`` flag
-(PR #29) can render it.
+Frozen dataclasses for every subsystem. Each field has a default and a
+docstring explaining the field's purpose so the ``--explain`` flag can
+render it.
 
 The top-level :class:`GenoLeWMConfig` aggregates the subsystem schemas
-and is the single object that every CLI command resolves to (RFC-0018
-§3.2). The loader at :mod:`geno_lewm.config.loader` is responsible for
-constructing it from YAML; the schema itself is pure data.
+and is the single object that every CLI command resolves to. The loader
+at :mod:`geno_lewm.config.loader` is responsible for constructing it
+from YAML; the schema itself is pure data.
 
-Phase 1 stays in lock-step with the RFC field names so the trainer
+Phase 1 stays in lock-step with the configuration field names so the trainer
 (#44) can drop in without reshaping the config. Unimplemented
 subsystems (predictor, action encoder, planner) still carry default
 values here so the schema validates before those modules land.
@@ -45,7 +44,7 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class EncoderConfig:
-    """State encoder configuration (RFC-0002 §3.1, §3.8).
+    """State encoder configuration (encoder contract).
 
     The Phase 1 default is Carbon-500M with bf16 weights, pinned to a
     specific revision so the encoder hash committed to the manifest is
@@ -67,7 +66,7 @@ class EncoderConfig:
 
 @dataclass(frozen=True, slots=True)
 class PredictorConfig:
-    """Action-conditioned predictor (RFC-0004 §3.1)."""
+    """Action-conditioned predictor (predictor contract)."""
 
     architecture: str = "cross_attention"
     n_layers: int = 6
@@ -79,7 +78,7 @@ class PredictorConfig:
 
 @dataclass(frozen=True, slots=True)
 class ActionEncoderConfig:
-    """Action encoder configuration (RFC-0003 §3.4)."""
+    """Action encoder configuration (edit contract)."""
 
     d_action: int = 64
     max_len: int = 16
@@ -102,7 +101,7 @@ class TrainingConfig:
 
 @dataclass(frozen=True, slots=True)
 class OptimizerConfig:
-    """Optimizer + learning-rate schedule (RFC-0005)."""
+    """Optimizer + learning-rate schedule (training contract)."""
 
     name: Literal["adamw", "sgd-momentum"] = "adamw"
     lr: float = 3.0e-4
@@ -116,7 +115,7 @@ class OptimizerConfig:
 
 @dataclass(frozen=True, slots=True)
 class DataConfig:
-    """Data pipeline configuration (RFC-0006)."""
+    """Data pipeline configuration (data-pipeline contract)."""
 
     corpus_id: str = "HuggingFaceBio/carbon-pretraining-corpus"
     corpus_revision: str = "main@cafef00d"
@@ -127,7 +126,7 @@ class DataConfig:
 
 @dataclass(frozen=True, slots=True)
 class EvalConfig:
-    """Evaluation harness (RFC-0007)."""
+    """Evaluation harness (evaluation-suite contract)."""
 
     benchmarks: tuple[str, ...] = (
         "clinvar_coding",
@@ -139,7 +138,7 @@ class EvalConfig:
 
 @dataclass(frozen=True, slots=True)
 class ObservabilityConfig:
-    """Observability sinks (RFC-0013)."""
+    """Observability sinks (observability contract)."""
 
     log_level: Literal["debug", "info", "warn", "error"] = "info"
     redaction_strict: bool = True
@@ -148,14 +147,14 @@ class ObservabilityConfig:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
-    """Runtime / deployment target (RFC-0010)."""
+    """Runtime / deployment target (runtime contract)."""
 
     backend: Literal["onnx", "coreml", "gguf", "torch"] = "torch"
     device: Literal["cpu", "cuda", "mps"] = "cpu"
 
 
 # ---------------------------------------------------------------------------
-# Top-level schema (RFC-0017 §3.2)
+# Top-level schema (configuration contract)
 # ---------------------------------------------------------------------------
 
 
@@ -169,8 +168,8 @@ class GenoLeWMConfig:
     caller does not provide it.
 
     The :data:`schema_version` field tracks the on-disk shape of
-    ``config.resolved.yaml`` — bumps follow RFC-0014's MAJOR/MINOR
-    rules on the config-resolution layer.
+    ``config.resolved.yaml`` — bumps follow the public API contract's
+    MAJOR/MINOR rules on the config-resolution layer.
     """
 
     run_id: str = "default"

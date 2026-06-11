@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Shared CLI dispatch helpers (RFC-0018 §3.2, §3.4, §3.7).
+"""Shared CLI dispatch helpers.
 
 Every console script in :mod:`geno_lewm.cli` that lands as a Typer app
 imports the helpers in this module so that:
 
 * The shared flag set (``--config``, ``--seed``, ``--log-level``, …) is
   defined exactly once.
-* The non-dismissible safety banner (RFC-0018 §3.7) is printed by the
+* The non-dismissible safety banner (CLI contract) is printed by the
   same code path for every command.
 * Exceptions are caught at exactly one place and mapped to the exit
-  codes specified by ``docs/spec/04-error-model.md`` via
+  codes specified by ``public API contract`` via
   :func:`geno_lewm.errors.exit_code_for`.
 
 The verify command predates Typer and keeps its argparse-based
@@ -44,11 +44,11 @@ from geno_lewm import __version__
 from geno_lewm.errors import GenoLeWMError, InputError, InternalError, exit_code_for
 
 # ---------------------------------------------------------------------------
-# Banner (RFC-0018 §3.7)
+# Banner (CLI contract)
 # ---------------------------------------------------------------------------
 
 #: The non-dismissible safety banner. Suppressed only by ``--quiet
-#: --no-banner`` (both required); RFC-0018 §3.7 explains why.
+#: --no-banner`` (both required); CLI contract explains why.
 BANNER: str = f"GenoLeWM v{__version__} — research tool, not a clinical diagnostic"
 
 
@@ -63,7 +63,7 @@ def print_banner(*, quiet: bool, no_banner: bool, stream: IO[str] | None = None)
 
 
 # ---------------------------------------------------------------------------
-# Shared flags (RFC-0018 §3.2)
+# Shared flags (CLI contract)
 # ---------------------------------------------------------------------------
 
 
@@ -90,19 +90,19 @@ class SharedOptions:
 #: Help text for every shared flag, surfaced in tests so the contract
 #: cannot drift between commands.
 SHARED_FLAG_HELP: dict[str, str] = {
-    "config": "Path to a Hydra YAML config (RFC-0017).",
+    "config": "Path to a Hydra YAML config (configuration contract).",
     "set": "Hydra-style key=value override (repeatable).",
     "seed": "Override the resolved config seed.",
-    "deterministic": "Force deterministic backends (RFC-0005).",
+    "deterministic": "Force deterministic backends (training contract).",
     "log_level": "Logging severity (debug, info, warn, error).",
     "log_dir": "Logging sink root (default: $GENO_LEWM_LOG_DIR).",
     "run_id": "Run identifier; also used as the wandb run id when wandb is enabled.",
     "wandb_project": "Enable the wandb sink in the named project.",
     "no_receipt": "Disable receipt writing where applicable.",
-    "print_config": "Print the resolved config and exit (RFC-0017 §3.8).",
+    "print_config": "Print the resolved config and exit (configuration contract).",
     "print_config_tree": "Print the resolved config including each value's source file.",
     "explain": "Print the schema docstring + default + type for a config key.",
-    "quiet": "Silence info-level logs to stderr (RFC-0018 §3.5).",
+    "quiet": "Silence info-level logs to stderr (CLI contract).",
     "no_banner": "Suppress the safety banner (must be combined with --quiet).",
     "version": "Print the package version and exit.",
 }
@@ -110,7 +110,7 @@ SHARED_FLAG_HELP: dict[str, str] = {
 
 VALID_LOG_LEVELS: tuple[str, ...] = ("debug", "info", "warn", "error")
 
-_PANEL = "Shared (RFC-0018 §3.2)"
+_PANEL = "Shared (CLI contract)"
 
 
 def shared_option_decls() -> dict[str, typer.models.OptionInfo]:
@@ -259,7 +259,7 @@ def finalize_shared(
 
 
 # ---------------------------------------------------------------------------
-# Discovery flag implementations (RFC-0017 §3.8)
+# Discovery flag implementations (configuration contract)
 # ---------------------------------------------------------------------------
 
 
@@ -333,7 +333,7 @@ def run_app(app: typer.Typer, argv: Sequence[str] | None = None) -> int:
 
 
 def _emit_error(exc: GenoLeWMError) -> None:
-    """Single-place stderr write for typed errors (RFC-0012)."""
+    """Single-place stderr write for typed errors (error taxonomy)."""
     details = ""
     if exc.details:
         details = " " + ", ".join(f"{k}={v!r}" for k, v in exc.details.items())
@@ -355,7 +355,7 @@ def not_yet_implemented(
 
     Phase 1 stub. The dispatcher's :func:`run_app` catches the error
     and maps it to exit code 9 (``InternalError`` family) per
-    ``docs/spec/04-error-model.md``.
+    ``public API contract``.
     """
     msg = (
         f"geno-lewm {command}: not yet implemented; tracks {issue}."

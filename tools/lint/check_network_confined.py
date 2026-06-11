@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-"""``network_confined`` AST linter (RFC-0015 §3.4).
+"""``network_confined`` AST linter (testing contract).
 
 Restrict network-capable imports to the two files that legitimately
 need them:
 
-- ``geno_lewm/deploy/runtime.py`` — first-run model download (RFC-0010 §3.7).
-- ``geno_lewm/cli/update.py`` — explicit user-initiated update (RFC-0010 §3.3).
+- ``geno_lewm/deploy/runtime.py`` — first-run model download (runtime contract).
+- ``geno_lewm/cli/update.py`` — explicit user-initiated update (runtime contract).
 
 Anywhere else in ``geno_lewm/`` importing ``urllib``, ``urllib3``,
 ``urllib.request``, ``httpx``, ``requests``, ``aiohttp``, ``socket``,
 or similar networking modules is a contract violation: the runtime
 must remain fail-closed off-network by default (INV-OBS-5,
-RFC-0010 §3.7).
+runtime contract).
 
 The check fires on:
 - ``import <forbidden>``
@@ -116,7 +116,7 @@ def check_file(path: Path) -> list[Violation]:
                             message=(
                                 f"import of network-capable module {alias.name!r} "
                                 "is not allowed outside deploy/runtime.py or cli/update.py "
-                                "(RFC-0010 §3.7, INV-OBS-5)."
+                                "(runtime contract, INV-OBS-5)."
                             ),
                         )
                     )
@@ -135,7 +135,7 @@ def check_file(path: Path) -> list[Violation]:
                         message=(
                             f"from-import of network-capable module {mod!r} "
                             "is not allowed outside deploy/runtime.py or cli/update.py "
-                            "(RFC-0010 §3.7, INV-OBS-5)."
+                            "(runtime contract, INV-OBS-5)."
                         ),
                     )
                 )

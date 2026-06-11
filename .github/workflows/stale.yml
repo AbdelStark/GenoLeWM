@@ -2,8 +2,7 @@
 #
 # Conservative defaults: items get a stale label after 90 days of
 # inactivity and a close 30 days later. Anything labelled with a
-# priority, "status:blocked", an RFC, or "good first issue" is exempt
-# so the long-tail design work isn't pruned out.
+# priority, "status:blocked", or "good first issue" is exempt.
 name: Stale
 
 on:
@@ -25,8 +24,8 @@ jobs:
           days-before-close: 30
           stale-issue-label: "status:stale"
           stale-pr-label: "status:stale"
-          exempt-issue-labels: "priority:high,priority:medium,status:blocked,type:rfc,good first issue,help wanted"
-          exempt-pr-labels: "priority:high,priority:medium,status:blocked,type:rfc"
+          exempt-issue-labels: "priority:high,priority:medium,status:blocked,good first issue,help wanted"
+          exempt-pr-labels: "priority:high,priority:medium,status:blocked"
           stale-issue-message: >-
             This issue has been inactive for 90 days. It will be closed in
             30 days unless someone comments or adds a `priority:` label.

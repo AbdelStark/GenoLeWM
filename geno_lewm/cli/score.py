@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""``geno-lewm-score`` — score a single variant or a VCF (RFC-0018 §3.3)."""
+"""``geno-lewm-score`` - score a single variant or a VCF."""
 
 from __future__ import annotations
 

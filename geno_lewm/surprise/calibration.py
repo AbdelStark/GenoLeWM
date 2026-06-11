@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Calibration-table builder and Parquet IO for RFC-0009."""
+"""Calibration-table builder and Parquet IO for surprise-scoring contract."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ DEFAULT_REFERENCE_PER_BUCKET = 10_000
 """Default maximum number of reference variants sampled per bucket."""
 
 LOW_CONFIDENCE_BUCKET_SIZE = 100
-"""Buckets below this size are marked low-confidence by RFC-0009."""
+"""Buckets below this size are marked low-confidence by surprise-scoring contract."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +121,7 @@ class CalibrationBucket:
 
     @property
     def confidence(self) -> float:
-        """Return RFC-0009 confidence from this bucket's row count."""
+        """Return surprise-scoring contract confidence from this bucket's row count."""
         return min(self.n_calibration / DEFAULT_MIN_BUCKET_SIZE, 1.0)
 
     @property

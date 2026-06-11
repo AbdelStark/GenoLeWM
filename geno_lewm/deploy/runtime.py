@@ -318,7 +318,7 @@ class GenoLeWMRuntime:
 
 
 def probe_backends(model_dir: str | Path | None = None) -> tuple[BackendProbe, ...]:
-    """Probe runtime backends in RFC-0010 auto-selection order."""
+    """Probe runtime backends in runtime contract auto-selection order."""
     root = None if model_dir is None else Path(model_dir).expanduser()
     return (
         _probe_coreml(root),

@@ -52,9 +52,10 @@ def main() -> None:
             "Auto-generated from the source docstrings. Every public\n"
             "submodule has its own page; private modules (anything\n"
             "matching ``_*``) are excluded.\n\n"
-            "Stability of each symbol follows RFC-0014. The public\n"
-            "surface is committed at ``tests/api/public_surface.json``\n"
-            "and any change is gated by a CI snapshot.\n"
+            "The public surface is committed at\n"
+            "``tests/api/public_surface.json`` and any change is gated\n"
+            "by a CI snapshot. See ``docs/api/public-surface.md`` for\n"
+            "the compatibility contract.\n"
         )
     nav["Overview"] = "index.md"
 

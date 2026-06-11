@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Window extraction and Carbon tokenizer wrapping.
 
-Defined by RFC-0002 §3.2 and the cache invariant INV-DATA-2. The
+Defined by encoder contract and the cache invariant INV-DATA-2. The
 helpers in this module are deliberately pure Python: they canonicalize
 DNA windows, extract fixed-size windows around an optional edit locus,
 right-pad short source sequence with ``A``, and produce the

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Content-addressing primitives for GenoLeWM artifacts (RFC-0011 §3.1).
+"""Content-addressing primitives for GenoLeWM artifacts (artifact-provenance contract).
 
 Two functions:
 
 - :func:`canonical_json_sha256` — SHA-256 of the canonical JSON
-  serialization of a value. Canonical JSON per RFC-0011 §3.7: keys
+  serialization of a value. Canonical JSON per artifact-provenance contract: keys
   sorted lexicographically, no whitespace, UTF-8, NaN / Infinity
   rejected. Byte-stable across platforms and Python releases.
 - :func:`sha256_file` / :func:`sha256_bytes` — stream-friendly file /
@@ -37,10 +37,10 @@ _CHUNK = 1 << 20  # 1 MiB stream chunks for file hashing
 def _canonical_default(obj: Any) -> Any:
     """Reject obviously-unstable JSON inputs.
 
-    The canonical encoding refuses ``NaN`` / ``Infinity`` (RFC 8785
-    §2) because they have multiple non-stable spellings. We also
-    refuse ``bytes`` — manifests are pure JSON; binary content goes
-    into ``sha256_file`` instead.
+     The canonical encoding refuses ``NaN`` / ``Infinity`` (RFC 8785
+    ) because they have multiple non-stable spellings. We also
+     refuse ``bytes`` — manifests are pure JSON; binary content goes
+     into ``sha256_file`` instead.
     """
     if isinstance(obj, bytes | bytearray | memoryview):
         raise InputError(
@@ -73,7 +73,7 @@ def _check_floats(value: Any) -> None:
 def canonical_json_bytes(value: Any) -> bytes:
     """Return the canonical-JSON byte string of ``value``.
 
-    Canonical form (RFC-0011 §3.7, similar to RFC 8785):
+    Canonical form (artifact-provenance contract, similar to RFC 8785):
 
     - Keys are sorted lexicographically at every level.
     - No whitespace (compact ``separators=(",", ":")``).

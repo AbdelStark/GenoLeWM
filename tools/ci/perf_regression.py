@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Performance regression detector (RFC-0016 §3.7).
+"""Performance regression detector (performance budget).
 
 Diff a current benchmark result tree against the committed baseline at
 ``bench/results/baseline/``. A benchmark *regresses* when its current
 median exceeds the baseline median by more than ``--threshold``
-(default 5 %, per RFC-0016 §3.7).
+(default 5 %, per performance budget).
 
 Two input formats are supported:
 
@@ -189,7 +189,7 @@ def _humanize_ns(ns: float) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="perf_regression",
-        description="Performance regression detector (RFC-0016 §3.7).",
+        description="Performance regression detector (performance budget).",
     )
     parser.add_argument(
         "--current",

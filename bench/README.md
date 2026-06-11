@@ -1,8 +1,7 @@
 # Benchmark harness
 
-Performance benchmarks for GenoLeWM, defined by
-[RFC-0016 §3.4](../rfcs/0016-performance-budget.md). The harness is
-stdlib-only; per-target benchmark scripts may use heavier dependencies,
+Performance benchmarks for GenoLeWM. The shared harness is stdlib-only;
+per-target benchmark scripts may use heavier dependencies,
 but the shared library at [`_harness.py`](_harness.py) does not.
 
 ## Layout
@@ -11,7 +10,7 @@ but the shared library at [`_harness.py`](_harness.py) does not.
 |------|---------------|
 | [`inference.py`](inference.py) | Commitment microbenchmarks by default; release mode benchmarks the real `geno-lewm-score` command and writes `efficiency_report.json`. |
 | [`training.py`](training.py) | `apply_edit` / `apply_edits` batches (data-prep hot path). Full training-step lands with [#44](https://github.com/AbdelStark/GenoLeWM/issues/44). |
-| [`rollout.py`](rollout.py) | AR rollout speed report comparing cached `ARPredictor` rollout with naive repeated one-step `Predictor.forward` calls for the RFC-0004 K=5/K=20 targets. |
+| [`rollout.py`](rollout.py) | AR rollout speed report comparing cached `ARPredictor` rollout with naive repeated one-step `Predictor.forward` calls for the K=5/K=20 targets. |
 | [`planning.py`](planning.py) | Pure CEM solver, `ActionSampler`, and cost-loop timings plus a deterministic default-config planning report for [#59](https://github.com/AbdelStark/GenoLeWM/issues/59). |
 | [`profile.py`](profile.py) | Canonical profiler invocations (py-spy, cProfile, tracemalloc, torch.profiler). |
 | [`_harness.py`](_harness.py) | Shared library: `BenchResult`, `time_callable`, `write_result`, `machine_id`. |
@@ -79,7 +78,7 @@ python -m bench.profile --run-cprofile-on bench.inference
 `bench.rollout` records the normalized command in `rollout.ar_speed.json`
 so release-readiness reports can bind the exact benchmark invocation.
 `bench.rollout --require-targets` exits non-zero unless every requested
-horizon meets the RFC-0004 speedup target (`>=2x` at K=5 and `>=5x` at
+horizon meets the rollout speedup target (`>=2x` at K=5 and `>=5x` at
 K=20). Use that flag for rollout-performance gates once the attention
 KV-cache implementation is expected to satisfy the target.
 
@@ -97,5 +96,5 @@ and does not establish learned-model planning quality.
 [`tools/ci/perf_regression.py`](../tools/ci/perf_regression.py)
 compares the current result set against a committed baseline and fails
 if any tracked benchmark regresses by more than the configured
-threshold (default 5 %, RFC-0016 §3.7). The detector tolerates
+threshold (default 5 %). The detector tolerates
 placeholder entries (`iters=0`).

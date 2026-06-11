@@ -1,4 +1,4 @@
-"""Unit tests for RFC-0008 planning cost functions."""
+"""Unit tests for planning contract planning cost functions."""
 
 from __future__ import annotations
 

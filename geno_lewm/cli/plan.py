@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""``geno-lewm-plan`` - CEM-based latent planning (RFC-0018 section 3.3)."""
+"""``geno-lewm-plan`` - CEM-based latent planning."""
 
 from __future__ import annotations
 

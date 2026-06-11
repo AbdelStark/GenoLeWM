@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Static-typing regression tests (RFC-0015 §3.1).
+"""Static-typing regression tests (testing contract).
 
 This package holds tests that confirm the public type surface stays
 intentional — e.g., asserting that downstream callers can rely on the

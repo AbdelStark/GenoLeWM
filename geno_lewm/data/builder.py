@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Training tuple builder for the RFC-0006 data pipeline.
+"""Training tuple builder for the data-pipeline contract data pipeline.
 
 This module owns the dependency-free boundary between prepared data
 sources and the eventual PyTorch trainer. It does not download gnomAD,
@@ -64,7 +64,7 @@ def _require_nonnegative_int(name: str, value: int) -> None:
 
 @dataclass(frozen=True, slots=True)
 class EditSourceCount:
-    """Number of edits to draw from one RFC-0006 source per window."""
+    """Number of edits to draw from one data-pipeline contract source per window."""
 
     source: str
     count: int
@@ -80,7 +80,7 @@ DEFAULT_EDIT_SOURCE_COUNTS: tuple[EditSourceCount, ...] = (
     EditSourceCount(SOURCE_SYNTHETIC_INDEL, 1),
     EditSourceCount(SOURCE_CLINVAR, 1),
 )
-"""RFC-0006 §3.3 per-window source allocation for ``N_edits = 8``."""
+"""data-pipeline contract per-window source allocation for ``N_edits = 8``."""
 
 DEFAULT_SOURCE_FALLBACKS: dict[str, str] = {
     SOURCE_CLINVAR: SOURCE_SYNTHETIC_SNV,
@@ -223,7 +223,7 @@ class HoldoutPolicy:
 
 @dataclass(frozen=True, slots=True)
 class TrainingTuple:
-    """One RFC-0006 ``(window_id, action, target_window)`` training item."""
+    """One data-pipeline contract ``(window_id, action, target_window)`` training item."""
 
     window_id: str
     source_record_id: str
@@ -353,7 +353,7 @@ def build_training_tuples(
     """Build per-window training tuples with source mix and holdout checks.
 
     ``providers`` map source names to callables returning relative edits
-    for that window. The default mix encodes RFC-0006's 3/3/1/1
+    for that window. The default mix encodes the data-pipeline contract's 3/3/1/1
     gnomAD/synthetic-SNV/synthetic-indel/ClinVar allocation. If a source
     cannot produce enough edits, only explicitly configured fallbacks are
     used; missing gnomAD data therefore fails instead of silently turning
@@ -397,7 +397,7 @@ def build_training_tuples(
 def synthetic_snv_provider(
     window: WindowContext, count: int, rng: random.Random
 ) -> tuple[RelEdit, ...]:
-    """Provider for RFC-0006 uniform synthetic SNVs."""
+    """Provider for data-pipeline contract uniform synthetic SNVs."""
     _require_nonnegative_int("count", count)
     return tuple(uniform_snv(window.sequence, count, rng=rng))
 
@@ -405,7 +405,7 @@ def synthetic_snv_provider(
 def synthetic_indel_provider(
     window: WindowContext, count: int, rng: random.Random
 ) -> tuple[RelEdit, ...]:
-    """Provider for RFC-0006 synthetic indels."""
+    """Provider for data-pipeline contract synthetic indels."""
     _require_nonnegative_int("count", count)
     return tuple(indel(window.sequence, count, rng=rng))
 

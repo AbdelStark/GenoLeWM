@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Action representation for GenoLeWM.
 
-Public surface defined by RFC-0003. The package ships the canonical
+Public surface defined by edit contract. The package ships the canonical
 edit types, pure-Python apply functions, synthetic samplers, and the
 optional PyTorch action encoder.
 """

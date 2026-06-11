@@ -50,7 +50,7 @@ def prediction_loss(
     mask: Tensor | None = None,
     eps: float = 1.0e-8,
 ) -> Tensor:  # pragma: no cover - optional torch runtime is tested separately.
-    """Return RFC-0005 ``alpha * (1 - cos) + beta * MSE / d_state``."""
+    """Return training contract ``alpha * (1 - cos) + beta * MSE / d_state``."""
     _require_torch("prediction_loss")
     _validate_loss_inputs(prediction, target, mask=mask)
     _require_nonnegative("alpha", alpha)

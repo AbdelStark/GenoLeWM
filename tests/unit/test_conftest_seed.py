@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for the shared conftest seed + fixture surface (RFC-0015 §3.6)."""
+"""Tests for the shared conftest seed + fixture surface (testing contract)."""
 
 from __future__ import annotations
 

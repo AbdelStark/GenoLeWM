@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Keep-a-Changelog section generator for the release checklist.
 
-The release flow in ``docs/spec/09-release-and-versioning.md`` requires
+The release flow in ``CONTRIBUTING.md`` requires
 every release to carry a CHANGELOG entry. This helper emits a
 candidate section synthesised from ``git log`` so the maintainer's
 manual curation has a stable starting point.

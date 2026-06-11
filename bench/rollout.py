@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Autoregressive rollout benchmarks for RFC-0004 speed targets.
+"""Autoregressive rollout benchmarks for predictor contract speed targets.
 
 The benchmark compares the current ``ARPredictor`` rollout path against
 the naive repeated one-step ``Predictor.forward`` loop. It records the
 measured speedup for each requested horizon and can optionally fail when
-the RFC-0004 targets are not met.
+the predictor contract targets are not met.
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ def summarize_speed_row(
 
 
 def target_speedup_for_horizon(horizon: int) -> float:
-    """Return the RFC-0004 speedup target for a rollout horizon."""
+    """Return the predictor contract speedup target for a rollout horizon."""
     if horizon >= 20:
         return 5.0
     if horizon >= 5:
@@ -300,7 +300,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--require-targets",
         action="store_true",
-        help="exit non-zero when any requested horizon misses the RFC-0004 speedup target",
+        help="exit non-zero when any requested horizon misses the predictor contract speedup target",
     )
     args = parser.parse_args(argv)
 

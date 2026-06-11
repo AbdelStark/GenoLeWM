@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Enforce the observability contract at PR time.
 
-Two AST checks (RFC-0013 INV-OBS-1/2, RFC-0015 §3.4):
+Two AST checks (observability contract INV-OBS-1/2, testing contract):
 
 1. ``registered_event_name`` — every ``logger.{debug,info,warn,error}(
    "<event>", …)`` call site passes a literal that appears in
@@ -218,7 +218,7 @@ def check_file(
                         message=(
                             f"event name {literal!r} is not in EVENTS. "
                             "Register it in geno_lewm/observability.py::EVENTS "
-                            "(RFC-0013 §3.3, INV-OBS-1)."
+                            "(observability contract, INV-OBS-1)."
                         ),
                     )
                 )
@@ -242,7 +242,7 @@ def check_file(
                         message=(
                             f"metric name {literal!r} is not in METRICS. "
                             "Register it in geno_lewm/observability.py::METRICS "
-                            "(RFC-0013 §4, INV-OBS-2)."
+                            "(observability contract, INV-OBS-2)."
                         ),
                     )
                 )

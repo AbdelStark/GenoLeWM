@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Factored edit sampler for RFC-0008 latent planning."""
+"""Factored edit sampler for planning contract latent planning."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ _OTHER_BASE: dict[str, tuple[str, str, str]] = {
 class ActionSampler:
     """Sample valid ``RelEdit`` actions from a factored proposal.
 
-    The proposal follows RFC-0008 §3.3: edit type is categorical,
+    The proposal follows planning contract: edit type is categorical,
     position is uniform or binned-categorical over the window interior,
     and bases are sampled conditionally on the chosen edit type.
     """

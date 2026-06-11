@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for ``bench._harness`` (RFC-0016 §3.4).
+"""Tests for ``bench._harness`` (performance budget).
 
 Covers the public surface of the benchmark library: result schema,
 percentile helper, ``time_callable`` smoke, machine fingerprinting,

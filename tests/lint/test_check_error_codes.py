@@ -30,7 +30,7 @@ def test_registry_discovery_finds_known_classes() -> None:
     }
     assert expected.issubset(registered), expected - registered
     # The root class is intentionally absent from the registry: raising it
-    # directly is a smell — leaf classes only (RFC-0012).
+    # directly is a smell — leaf classes only (error taxonomy).
     assert "GenoLeWMError" not in registered
 
 

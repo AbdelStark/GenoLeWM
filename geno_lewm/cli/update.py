@@ -77,7 +77,7 @@ class _InstallReport:
 
 app = typer.Typer(
     name="geno-lewm-update",
-    help="Explicit, user-initiated model update (RFC-0010 §3.8 / RFC-0018 §3.3).",
+    help="Explicit, user-initiated model update (runtime contract / CLI contract).",
     no_args_is_help=False,
     add_completion=True,
     pretty_exceptions_enable=False,

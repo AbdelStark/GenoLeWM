@@ -1,4 +1,4 @@
-# Desktop scaffold checks for the RFC-0019 Tauri shell.
+# Desktop scaffold checks for the Tauri shell.
 name: Desktop
 
 on:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Unit tests for RFC-0009 surprise scoring orchestration."""
+"""Unit tests for surprise-scoring contract surprise scoring orchestration."""
 
 from __future__ import annotations
 

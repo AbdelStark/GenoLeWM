@@ -4,34 +4,26 @@ This file lists the GenoLeWM project maintainers. Maintainers are the
 points of contact for code review, security reporting, and conduct
 issues.
 
-## Current maintainers
+## Current Maintainers
 
-- **AbdelStark** — project lead. GitHub: [@AbdelStark](https://github.com/AbdelStark).
+- **AbdelStark** — project lead. GitHub:
+  [@AbdelStark](https://github.com/AbdelStark).
 
-Additional maintainers will be added as the project grows; PRs adding
-a new maintainer require sign-off from at least one existing maintainer.
+## Responsibilities
 
-## Roles
+- Review code, documentation, release, and artifact changes.
+- Keep public claims tied to measured evidence.
+- Triage security and privacy reports through GitHub Security
+  Advisories.
+- Preserve the project boundary: research software, not clinical or
+  deployment-ready software.
 
-- **Project lead.** Final say on RFC acceptance, release approval, and
-  scope disputes. Stewards the overall direction.
-- **Subsystem maintainer.** Owns one of the subsystems listed in
-  [`rfcs/README.md`](rfcs/README.md); reviews PRs in that area.
-- **Security contact.** Receives reports via GitHub Security Advisories
-  or the address in [`SECURITY.md`](security.md).
+## Becoming A Maintainer
 
-## How to become a maintainer
+Maintainer status requires sustained, high-quality contributions,
+careful review judgment, and sponsorship by an existing maintainer.
 
-- Sustained, high-quality contributions (RFC reviews, implementation
-  PRs, eval reports).
-- Demonstrated alignment with the project's privacy / safety frame.
-- Sponsorship by an existing maintainer.
-
-No formal time-on-project requirement, but in practice expect several
-months of substantial contribution before sponsorship.
-
-## Off-boarding
+## Stepping Down
 
 A maintainer may step down at any time. The maintainer list is updated
-in the same PR. There is no "emeritus" tier; the public Git history is
-the record.
+in the same pull request.

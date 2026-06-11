@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""``geno-lewm-export`` — export a trained checkpoint to deployable artifacts (RFC-0018 §3.3).
+"""``geno-lewm-export`` - export a trained checkpoint to deployable artifacts.
 
 Phase 1 writes the ``predictor.safetensors`` + ``action_encoder.safetensors``
 deploy artifacts (plus ``export_report.json``) from a training
@@ -22,7 +22,7 @@ __all__ = ["app", "cli_main"]
 
 app = typer.Typer(
     name="geno-lewm-export",
-    help="Export a trained checkpoint to deployable safetensors artifacts (RFC-0018 §3.3).",
+    help="Export a trained checkpoint to deployable safetensors artifacts (CLI contract).",
     no_args_is_help=False,
     add_completion=True,
     pretty_exceptions_enable=False,

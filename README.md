@@ -82,7 +82,7 @@ model-quality results. Do not cite it as broad superiority over Carbon.
 | TraitGym Mendelian | Spearman rho `-0.02796450759873114` | vs Carbon: `+0.05592901519746229` |
 | Phased-haplotype rollout | cosine mean `0.28886058350550603`, L2 mean `33.319687258878126`, Recall@4 `1.0` | weak vs source-state baseline: cosine `-0.7089701215468133`, L2 `+31.19289051130368` |
 | Synthetic edit-chain rollout | cosine mean `0.30160847029349436`, L2 mean `28.802888778495763`, Recall@4 `1.0` | weak vs source-state baseline: cosine `-0.6896310938123016`, L2 `+25.637059814259455` |
-| AR rollout speed | K=5 speedup `2.413859489667916`; K=20 speedup `2.4732225135799566` | K=5 passes its local target; K=20 remains below the RFC-0004 `5x` target |
+| AR rollout speed | K=5 speedup `2.413859489667916`; K=20 speedup `2.4732225135799566` | K=5 passes its local target; K=20 remains below the original `5x` target |
 | Planning demo | `best_distance=23.656930390534644`, `384` evaluations, patience stop | released-artifact execution evidence, not useful-planning evidence |
 
 The generated paper and readiness report preserve these negative
@@ -278,7 +278,7 @@ bench/          inference, rollout, training, and planning benchmarks
 configs/        checked dataset, training, eval, and benchmark configs
 docs/           public documentation and generated API pages
 examples/       small public examples and receipt fixtures
-rfcs/           design records for stable contracts
+paper/          manuscript source and paper evidence dossier
 tests/          unit, integration, eval, ML smoke, API, and lint gates
 tools/          release, CI, dataset, demo, and documentation tooling
 ```

@@ -1,4 +1,4 @@
-# GenoLeWM scoring config — Phase 1 default (RFC-0017 §3.3).
+# GenoLeWM scoring config — Phase 1 default (configuration contract).
 #
 # Scoring resolves the predictor checkpoint by hash via the manifest;
 # the optimizer block is irrelevant but stays present so the schema

@@ -10,7 +10,7 @@ No signed binaries exist yet. The first package release is `0.2.1`.
 The tag workflow built and validated the release distributions, but PyPI
 rejected the trusted-publisher exchange with `invalid-publisher`; the
 same validated distributions were then published with a maintainer token
-and recorded in the release tracker. This page exists so
+and recorded in the public release notes. This page exists so
 [`SECURITY`](../security.md) can reference a stable URL.
 
 ## Planned posture
@@ -19,12 +19,12 @@ and recorded in the release tracker. This page exists so
   `[Maintainer name] — [PGP fingerprint] — [valid from] — [revoked at]`.
 - Release artifacts on PyPI published via PyPI trusted publishing
   (OIDC) once the account-side publisher mapping is configured; until
-  then, any maintainer-token fallback must be recorded in the release
-  tracker and public release notes.
+  then, any maintainer-token fallback must be recorded in public release
+  notes.
 - Release artifacts on GitHub attached to a signed tag and
   Sigstore-backed build provenance.
-- Hugging Face Hub model weights signed via the `safetensors`
-  manifest; the manifest hash is the trust anchor (RFC-0011 §3.7).
+- Hugging Face Hub model weights are bound by the published manifest;
+  the manifest hash is the release identity anchor.
 
 ## Until then
 

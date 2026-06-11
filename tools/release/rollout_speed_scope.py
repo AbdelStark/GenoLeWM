@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Record an accepted RFC-0004 rollout-speed scope decision.
+"""Record an accepted rollout-speed limitation.
 
 This tool does not turn failed rollout-speed measurements into speed
 evidence. It binds a failing ``bench.rollout`` report to an explicit
-project decision so release readiness can distinguish an accepted target
-re-scope from an unreviewed benchmark miss.
+maintainer-reviewed limitation so release readiness can distinguish a
+documented target miss from an unreviewed benchmark miss.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from geno_lewm.provenance import sha256_file
 
 SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.rollout_speed_scope"
-DECISION: Final = "rescope_rfc0004_speed_target"
+DECISION: Final = "document_rollout_speed_target_miss"
 STATUS: Final = "accepted"
 ROLLOUT_GENERATED_BY: Final = "bench.rollout"
 ROLLOUT_SCHEMA_VERSION: Final = "1.0.0"
@@ -48,11 +48,11 @@ def build_scope_report(
     issue_refs: tuple[str, ...] = REQUIRED_ISSUE_REFS,
     command: tuple[str, ...] = (),
 ) -> dict[str, object]:
-    """Build a machine-readable accepted rollout-speed scope report."""
+    """Build a machine-readable accepted rollout-speed limitation report."""
     payload = _load_rollout_report(rollout_speed_report)
     summary = _rollout_summary(payload)
     if not summary["failed_targets"]:
-        raise InputError("rollout speed scope requires at least one failed target")
+        raise InputError("rollout speed limitation requires at least one failed target")
     _require_issue_refs(issue_refs)
     return {
         "schema_version": SCHEMA_VERSION,
@@ -72,16 +72,13 @@ def build_scope_report(
         "rollout_speed_summary": summary,
         "negative_findings": [
             (
-                "The RFC-0004 rollout-speed target was not met by the bound "
+                "The original rollout-speed target was not met by the bound "
                 "bench.rollout measurement."
             ),
-            (
-                "This report records an accepted scope decision only; it is not "
-                "rollout-speed evidence."
-            ),
+            ("This report records an accepted limitation only; it is not rollout-speed evidence."),
         ],
         "claim_boundary": (
-            "This report records an accepted RFC-0004 scope decision. It does not "
+            "This report records an accepted rollout-speed limitation. It does not "
             "establish model quality, clinical utility, deployment readiness, privacy "
             "assurance, or that the original rollout-speed targets were met."
         ),
@@ -100,7 +97,7 @@ def write_scope_report(
     issue_refs: tuple[str, ...] = REQUIRED_ISSUE_REFS,
     command: tuple[str, ...] = (),
 ) -> dict[str, object]:
-    """Build and write a rollout-speed scope report."""
+    """Build and write a rollout-speed limitation report."""
     report = build_scope_report(
         rollout_speed_report=rollout_speed_report,
         accepted_by=accepted_by,
@@ -254,12 +251,12 @@ def _require_issue_refs(issue_refs: tuple[str, ...]) -> None:
     missing = [ref for ref in REQUIRED_ISSUE_REFS if ref not in issue_refs]
     if missing:
         raise InputError(
-            "rollout speed scope issue_refs must include #42 and #197",
+            "rollout speed limitation issue_refs must include #42 and #197",
             details={"missing_issue_refs": missing},
         )
     for ref in issue_refs:
         if not isinstance(ref, str) or not ref.startswith("#") or not ref[1:].isdigit():
-            raise InputError("rollout speed scope issue_refs must be GitHub issue refs")
+            raise InputError("rollout speed limitation issue_refs must be GitHub issue refs")
 
 
 def _require_list(raw: object, label: str) -> list[object]:
@@ -346,7 +343,7 @@ def _utc_now() -> str:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Record an accepted RFC-0004 rollout-speed scope decision.",
+        description="Record an accepted rollout-speed limitation.",
     )
     parser.add_argument("--rollout-speed-report", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

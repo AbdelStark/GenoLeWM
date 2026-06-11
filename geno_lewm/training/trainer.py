@@ -355,7 +355,7 @@ def wsd_lr_multiplier(
     warmup_steps: int,
     schedule: ScheduleName = "wsd",
 ) -> float:
-    """Return the RFC-0005 WSD learning-rate multiplier for a 1-indexed step."""
+    """Return the training contract WSD learning-rate multiplier for a 1-indexed step."""
     _require_positive_int("step", step)
     _require_positive_int("total_steps", total_steps)
     _require_nonnegative_int("warmup_steps", warmup_steps)
@@ -650,7 +650,7 @@ def _scalar(value: object) -> float:
 def _pred_var_per_dim(prediction: Tensor) -> float:
     """Mean population variance across prediction latent dims (collapse signal).
 
-    Low values flag representation collapse (RFC-0005 §3.6). Matches the
+    Low values flag representation collapse (training contract). Matches the
     ``_mean_variance_per_dim`` semantics in :mod:`geno_lewm.training.collapse`.
     """
     detached = prediction.detach()

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Shared pytest configuration and fixtures (RFC-0015 §3.6).
+"""Shared pytest configuration and fixtures (testing contract).
 
 Two responsibilities:
 

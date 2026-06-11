@@ -82,13 +82,13 @@ jobs:
           cache-dependency-path: pyproject.toml
       - name: Install
         run: python -m pip install -e ".[dev]"
-      - name: check_error_codes (RFC-0012)
+      - name: check_error_codes
         run: python -m tools.lint.check_error_codes
-      - name: check_event_names (RFC-0013)
+      - name: check_event_names
         run: python -m tools.lint.check_event_names
-      - name: check_no_print (RFC-0015)
+      - name: check_no_print
         run: python -m tools.lint.check_no_print
-      - name: check_network_confined (RFC-0010)
+      - name: check_network_confined
         run: python -m tools.lint.check_network_confined
       - name: check_scope_language (project scope)
         run: python -m tools.lint.check_scope_language
@@ -99,7 +99,7 @@ jobs:
           --check-spec
       - name: check_license_headers (SPDX)
         run: python -m tools.lint.check_license_headers
-      - name: public-API snapshot (RFC-0014)
+      - name: public-API snapshot
         run: python -m tools.api.snapshot check
 
   tests:
@@ -165,9 +165,8 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Changed-files coverage gate (PRs only)
-        # RFC-0015 §3.7. Runs on the canonical matrix combo only — one
-        # signal is enough. Skipped on pushes to main / tags because
-        # there is no PR base to diff against.
+        # Runs on the canonical matrix combo only; one signal is enough.
+        # Skipped on pushes to main / tags because there is no PR base to diff against.
         if: >-
           github.event_name == 'pull_request' &&
           matrix.os == 'ubuntu-latest' &&

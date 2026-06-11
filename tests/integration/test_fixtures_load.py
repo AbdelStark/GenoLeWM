@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Integration smoke for the committed fixture corpus (RFC-0015 §3.6).
+"""Integration smoke for the committed fixture corpus (testing contract).
 
 Confirms that the on-disk fixtures under ``tests/fixtures/`` parse
 cleanly through the corresponding public dataclasses. This is the

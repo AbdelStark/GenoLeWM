@@ -1,4 +1,4 @@
-"""Unit tests for RFC-0005 training samplers."""
+"""Unit tests for training contract training samplers."""
 
 from __future__ import annotations
 

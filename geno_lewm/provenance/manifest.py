@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Manifest schema for GenoLeWM artifacts (RFC-0011).
+"""Manifest schema for GenoLeWM artifacts (artifact-provenance contract).
 
 A manifest is the trust anchor: every byte downstream of the model
 file is identified by content hash, and ``model_id = SHA-256(
@@ -41,7 +41,7 @@ __all__ = [
 
 
 #: The manifest schema version. Bumped on MINOR field-add; MAJOR on
-#: removal / rename. See RFC-0011.
+#: removal / rename. See artifact-provenance contract.
 SCHEMA_VERSION: str = "1.0.0"
 
 
@@ -103,7 +103,7 @@ class ManifestTraining:
 
 @dataclass(frozen=True, slots=True)
 class Manifest:
-    """Top-level manifest (RFC-0011 §3.7)."""
+    """Top-level manifest (artifact-provenance contract)."""
 
     schema_version: str
     model_name: str

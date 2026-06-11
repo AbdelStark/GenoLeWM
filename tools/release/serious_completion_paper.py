@@ -627,7 +627,7 @@ def _render_serious_completion_paper(
                 "- AR rollout speed: "
                 f"K5 `{_format_value(_readiness_observed(artifacts, 'ar_rollout_speed', 'k5_speedup'))}`x; "
                 f"K20 `{_format_value(_readiness_observed(artifacts, 'ar_rollout_speed', 'k20_speedup'))}`x. "
-                "The K20 miss is recorded as an accepted v0.2 scope decision, not closure of #42."
+                "The K20 miss is recorded as an accepted v0.2 limitation, not closure of #42."
             ),
             "",
             "## Planning Demo Evidence",
@@ -725,7 +725,7 @@ def _render_serious_completion_paper(
             "",
             "- This paper is not clinical, privacy-assurance, runtime-assurance, deployment-readiness, or broad model-quality evidence.",
             "- The benchmark suite is broader than v0.1 but remains a bounded v0.2 evidence package.",
-            "- The K20 autoregressive rollout-speed target remains open in #42 despite the accepted v0.2 scope decision.",
+            "- The K20 autoregressive rollout-speed target remains open in #42 despite the accepted v0.2 limitation.",
             "- The planning demo uses one deterministic synthetic multi-SNV target window and does not prove useful planning behavior.",
             "",
             "## Conclusions",
@@ -957,7 +957,7 @@ def _validate_readiness_report(payload: dict[str, Any], eval_input: EvalReportIn
         )
     for benchmark in REQUIRED_BENCHMARKS:
         status = rows[benchmark].get("status")
-        expected = "rescoped" if benchmark == "ar_rollout_speed" else "pass"
+        expected = "documented_limitation" if benchmark == "ar_rollout_speed" else "pass"
         if status != expected:
             raise InputError(
                 "readiness benchmark row has unexpected status",
@@ -972,7 +972,7 @@ def _validate_readiness_report(payload: dict[str, Any], eval_input: EvalReportIn
         raise InputError("serious-completion paper expects K20 to remain a recorded #42 miss")
     scope_decision = _required_mapping(rows["ar_rollout_speed"], "scope_decision")
     if scope_decision.get("status") != "accepted":
-        raise InputError("AR rollout-speed scope decision must be accepted")
+        raise InputError("AR rollout-speed limitation must be accepted")
 
 
 def _validate_rollout_speed(payload: dict[str, Any], *, expected_commit: str) -> None:
@@ -1244,7 +1244,7 @@ def _negative_findings(artifacts: _SeriousCompletionArtifacts) -> list[str]:
             f"`{_format_value(_readiness_delta(rows, 'rollout_synthetic_edit_chains', 'cosine_similarity_mean'))}`."
         ),
         (
-            "K20 rollout speed remains below the RFC-0004 target: measured "
+            "K20 rollout speed remains below the original target: measured "
             f"`{_format_value(_readiness_observed(artifacts, 'ar_rollout_speed', 'k20_speedup'))}`x "
             "against a 5.0x target, with #42 still open."
         ),

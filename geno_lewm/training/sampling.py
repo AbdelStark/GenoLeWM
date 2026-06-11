@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""RFC-0005 edit-balanced and rollout-length samplers."""
+"""training contract edit-balanced and rollout-length samplers."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _validate_weight(name: str, value: float) -> None:
 
 @dataclass(frozen=True, slots=True)
 class EditTypeWeight:
-    """One RFC-0005 edit-type sampling weight."""
+    """One training contract edit-type sampling weight."""
 
     edit_type: EditType
     weight: float
@@ -95,7 +95,7 @@ def sample_edit_type(
     *,
     weights: Sequence[EditTypeWeight] = DEFAULT_EDIT_TYPE_WEIGHTS,
 ) -> EditType:
-    """Sample one edit type from the RFC-0005 edit-balanced distribution."""
+    """Sample one edit type from the training contract edit-balanced distribution."""
     return _sample_weighted(rng, _validate_edit_type_weights(weights)).edit_type
 
 
@@ -119,7 +119,7 @@ def sample_rollout_steps(
     *,
     mix: Sequence[RolloutStepWeight] = DEFAULT_ROLLOUT_STEP_MIX,
 ) -> int:
-    """Sample a rollout length ``K`` from the Phase-1 RFC-0005 mix."""
+    """Sample a rollout length ``K`` from the Phase-1 training contract mix."""
     return _sample_weighted(rng, _validate_rollout_mix(mix)).steps
 
 

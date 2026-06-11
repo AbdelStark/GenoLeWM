@@ -3,7 +3,7 @@
 
 Bridges the export step (``predictor.safetensors`` + ``action_encoder.safetensors``
 from :mod:`geno_lewm.deploy.export`) and the deploy runtime / calibration /
-model-package steps, all of which require an RFC-0011 ``manifest.json``. The
+model-package steps, all of which require an artifact-provenance contract ``manifest.json``. The
 manifest commits, by SHA-256: the Carbon encoder identity, the predictor and
 action-encoder artifacts, the training config + data snapshot, and the
 calibration + eval evidence.

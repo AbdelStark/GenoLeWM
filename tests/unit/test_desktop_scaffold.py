@@ -1,4 +1,4 @@
-"""Static checks for the RFC-0019 desktop scaffold."""
+"""Static checks for the desktop scaffold desktop scaffold."""
 
 from __future__ import annotations
 

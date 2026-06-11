@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""``no_print`` AST linter (RFC-0015 §3.4).
+"""``no_print`` AST linter (testing contract).
 
 Disallow bare ``print(...)`` calls in ``geno_lewm/``. Production code
 emits records through :mod:`geno_lewm.observability` and the typed
@@ -89,7 +89,7 @@ def check_file(path: Path) -> list[Violation]:
                     message=(
                         "bare print() is not allowed in geno_lewm/; "
                         "use geno_lewm.observability.get_logger(...) instead "
-                        "(RFC-0013 / RFC-0015 §3.4)."
+                        "(observability contract / testing contract)."
                     ),
                 )
             )

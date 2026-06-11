@@ -26,7 +26,7 @@ body:
         - Python library
         - CLI
         - Desktop app
-        - Documentation / spec / RFC
+        - Documentation
         - Other
     validations:
       required: true
@@ -59,9 +59,9 @@ body:
     validations:
       required: true
   - type: textarea
-    id: spec-link
+    id: related-docs
     attributes:
-      label: Spec / RFC reference
-      description: Which spec section or RFC does this defect relate to?
+      label: Related docs or artifacts
+      description: Link any docs, examples, model artifacts, or benchmark artifacts involved.
     validations:
       required: false

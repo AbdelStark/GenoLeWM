@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""RFC-0005 collapse monitoring for training batches.
+"""training contract collapse monitoring for training batches.
 
 The monitor accepts plain Python nested sequences and common tensor-like
 objects that expose ``detach()``, ``cpu()``, and/or ``tolist()``. Core
@@ -34,7 +34,7 @@ Matrix: TypeAlias = tuple[tuple[float, ...], ...]
 
 @dataclass(frozen=True, slots=True)
 class CollapseMetrics:
-    """Scalar RFC-0005 §3.6 collapse diagnostics for one batch."""
+    """Scalar training contract collapse diagnostics for one batch."""
 
     pred_cos_mean: float
     pred_l2_mean: float
@@ -47,7 +47,7 @@ class CollapseMetrics:
 
 @dataclass(frozen=True, slots=True)
 class CollapseThresholds:
-    """Alert thresholds from RFC-0005 §3.6."""
+    """Alert thresholds from training contract"""
 
     pred_var_to_target_var: float = 0.5
     pairwise_to_initial: float = 0.5
@@ -145,7 +145,7 @@ def compute_collapse_metrics(
     *,
     kl_reg: float,
 ) -> CollapseMetrics:
-    """Compute RFC-0005 §3.6 collapse metrics for one ``[N, D]`` batch."""
+    """Compute training contract collapse metrics for one ``[N, D]`` batch."""
     pred_rows = _as_rows(prediction, "prediction")
     target_rows = _as_rows(target, "target")
     if len(pred_rows) != len(target_rows):
@@ -182,7 +182,7 @@ def detect_collapse(
     thresholds: CollapseThresholds | None = None,
     initial_pairwise_pred_dist_mean: float | None = None,
 ) -> tuple[CollapseAlert, ...]:
-    """Return the RFC-0005 §3.6 alert criteria tripped by ``metrics``."""
+    """Return the training contract alert criteria tripped by ``metrics``."""
     active_thresholds = thresholds if thresholds is not None else CollapseThresholds()
     if initial_pairwise_pred_dist_mean is not None:
         _require_nonnegative_finite(

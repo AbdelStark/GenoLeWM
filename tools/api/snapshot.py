@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Resolve the public surface of ``geno_lewm`` and serialize it.
 
-Defined by RFC-0014 §3.7. The output is a deterministic JSON document
+Defined by the public API contract. The output is a deterministic JSON document
 committed at ``tests/api/public_surface.json``. The CI gate
 ``tests/api/test_public_surface.py`` diffs the committed snapshot
 against a freshly-computed one:

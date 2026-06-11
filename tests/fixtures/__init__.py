@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Committed test fixtures (RFC-0015 §3.6).
+"""Committed test fixtures (testing contract).
 
 The Python module exposes :func:`load_json` for tests that prefer to
 read a fixture by name rather than via the ``fixtures_dir`` pytest

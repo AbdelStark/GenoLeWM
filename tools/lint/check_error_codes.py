@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Enforce the GenoLeWM error contract at PR time.
 
-Two AST checks, both required by RFC-0012 §3.3 and RFC-0015 §3.4:
+Two AST checks, both required by error taxonomy and testing contract:
 
 1. ``raise_geno_lewm_error`` — every ``raise <Class>(...)`` in
    ``geno_lewm/`` raises a ``GenoLeWMError`` subclass (or is a bare
@@ -225,7 +225,7 @@ def check_file(path: Path, registered: set[str]) -> list[Violation]:
                     message=(
                         f"raises {name!r}, which is not a registered GenoLeWMError "
                         "subclass. Add a leaf class to geno_lewm/errors.py and an "
-                        "entry to ERROR_CODES (RFC-0012 §3.3)."
+                        "entry to ERROR_CODES (error taxonomy)."
                     ),
                 )
             )

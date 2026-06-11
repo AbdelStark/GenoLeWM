@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Config loader, validator, and resolved-config writer (RFC-0017).
+"""Config loader, validator, and resolved-config writer (configuration contract).
 
 This module is the bridge between the YAML files under
 :data:`DEFAULTS_DIR` and the dataclass schema in
 :mod:`geno_lewm.config.schema`. Three responsibilities:
 
 1. :func:`load_config` — read a YAML payload, type-check it, reject
-   unknown top-level keys (RFC-0017 §3.3), and return a frozen
+   unknown top-level keys (configuration contract), and return a frozen
    :class:`GenoLeWMConfig`.
 2. :func:`write_resolved_config` — emit a config object as canonical
    YAML (sorted keys, no anchors) so ``${run_id}/config.resolved.yaml``
-   is reproducible (RFC-0017 §3.5).
+   is reproducible (configuration contract).
 3. :func:`describe_field` — schema introspection used by the
    ``--explain`` CLI flag (PR #29).
 

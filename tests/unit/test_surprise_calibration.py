@@ -1,4 +1,4 @@
-"""Unit tests for RFC-0009 calibration table building."""
+"""Unit tests for surprise-scoring contract calibration table building."""
 
 from __future__ import annotations
 

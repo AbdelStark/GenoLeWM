@@ -1,9 +1,8 @@
 # Metrics
 
 GenoLeWM ships a registered metrics registry with a Prometheus
-textfile exporter, defined by
-[RFC-0013](../rfcs/0013-observability.md) §4. The registry is the
-single source of truth: new metrics MUST be added to
+textfile exporter. The registry is the single source of truth: new metrics
+must be added to
 `geno_lewm.metrics.METRICS` and the AST linter
 ([`check_event_names.py`](https://github.com/AbdelStark/GenoLeWM/blob/main/tools/lint/check_event_names.py))
 prevents call-site drift.

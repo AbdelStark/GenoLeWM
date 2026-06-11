@@ -67,10 +67,10 @@ if nn is None:
 else:  # pragma: no cover - optional torch runtime is validated outside base CI.
 
     class Predictor(nn.Module):  # type: ignore[no-redef,misc]
-        """Cross-attention Transformer predictor from RFC-0004.
+        """Cross-attention Transformer predictor.
 
-        The default keeps the RFC-0004 4-cross/2-self topology and
-        Carbon-compatible ``d_state=1024`` output while using the RFC's
+        The default keeps the predictor contract 4-cross/2-self topology and
+        Carbon-compatible ``d_state=1024`` output while using the predictor contract's
         target-size ``d_hidden=768`` variant so the trainable budget is
         close to the documented ~22M target.
         """
@@ -139,7 +139,7 @@ else:  # pragma: no cover - optional torch runtime is validated outside base CI.
             self.reset_parameters()
 
         def reset_parameters(self) -> None:
-            """Initialize layers per RFC-0004 §3.4."""
+            """Initialize layers per predictor contract"""
             for module in self.modules():
                 if isinstance(module, nn.MultiheadAttention):
                     std = math.sqrt(2.0 / float(module.embed_dim))

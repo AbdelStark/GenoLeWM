@@ -1,4 +1,4 @@
-"""Unit tests for RFC-0009 surprise context stratification."""
+"""Unit tests for surprise-scoring contract surprise context stratification."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Typed configuration surface (RFC-0017).
+"""Typed configuration surface (configuration contract).
 
-The schema is declared as nested frozen dataclasses (RFC-0017 §3.2 left
+The schema is declared as nested frozen dataclasses (configuration contract left
 the choice between Pydantic v2 and dataclasses open; we chose
 dataclasses to keep base runtime deps minimal — the package's only new
 runtime dep introduced by this module is :mod:`yaml`).
@@ -17,9 +17,9 @@ Public surface:
   per-subsystem schemas.
 - :func:`load_config` — load YAML + validate; raises
   :class:`UnknownTopLevelKeyError` on unknown top-level keys
-  (RFC-0017 §3.3).
+  (configuration contract).
 - :func:`write_resolved_config` — emit the resolved config as canonical
-  YAML so the run directory is auditable (RFC-0017 §3.5).
+  YAML so the run directory is auditable (configuration contract).
 - :func:`config_to_dict` — pure dict view of a config tree (used by
   the manifest writer and the ``--print-config`` flag in PR #29).
 - :func:`describe_field` — schema introspection for the ``--explain``

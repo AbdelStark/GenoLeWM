@@ -68,7 +68,6 @@ plugins:
       scripts:
         - docs/_gen/build_api_ref.py
         - docs/_gen/build_registry_pages.py
-        - docs/_gen/build_rfcs.py
         - docs/_gen/build_repo_pages.py
   - mkdocstrings:
       default_handler: python
@@ -131,26 +130,16 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
-  - Specification:
-      - Top-level index: spec/index.md
-      - 00. Overview: spec/00-overview.md
-      - 01. Architecture: spec/01-architecture.md
-      - 02. Public API: spec/02-public-api.md
-      - 03. Data model: spec/03-data-model.md
-      - 04. Error model: spec/04-error-model.md
-      - 05. Observability: spec/05-observability.md
-      - 06. Security: spec/06-security.md
-      - 07. Testing strategy: spec/07-testing-strategy.md
-      - 08. Performance budget: spec/08-performance-budget.md
-      - 09. Release & versioning: spec/09-release-and-versioning.md
-      - 10. Glossary: spec/10-glossary.md
-  - API reference: reference/
-  - Design:
-      - Decisions log: design-decisions.md
+  - Architecture: architecture.md
+  - API:
+      - Public API contract: api/public-surface.md
+      - Stability decorators: api/experimental.md
+      - Metrics: api/metrics.md
+      - Reference: reference/
+  - Guides:
       - Glossary: glossary.md
       - FAQ: faq.md
       - Maintainers: maintainers.md
-      - Implementation tracker: roadmap/IMPLEMENTATION.md
   - Blog:
       - What does this edit do? (explainer): blogposts/genolewm_explainer.md
   - Release:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Carbon pretraining corpus records and RFC-0006 window sampling."""
+"""Carbon pretraining corpus records and data-pipeline contract window sampling."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ DEFAULT_SOURCE_ID_FIELD = "id"
 
 @dataclass(frozen=True, slots=True)
 class CarbonSourceMix:
-    """One source bucket in the RFC-0006 Carbon sub-mix."""
+    """One source bucket in the data-pipeline contract Carbon sub-mix."""
 
     source: str
     fraction: float
@@ -155,7 +155,7 @@ _SOURCE_ALIASES: dict[str, str] = {
 
 
 def normalize_source_label(value: object) -> str:
-    """Normalize a Carbon corpus source label to the RFC-0006 source key."""
+    """Normalize a Carbon corpus source label to the data-pipeline contract source key."""
     if not isinstance(value, str) or not value.strip():
         raise InputError(
             "source label must be a non-empty string",
@@ -177,7 +177,7 @@ def sample_source(
     *,
     mix: Sequence[CarbonSourceMix] = CARBON_SUBMIX,
 ) -> str:
-    """Sample one source key from the configured RFC-0006 sub-mix."""
+    """Sample one source key from the configured data-pipeline contract sub-mix."""
     return _sample_source_from_entries(rng, _validate_mix(mix))
 
 
@@ -225,7 +225,7 @@ def iter_window_starts(
     stride_bp: int = DEFAULT_CORPUS_STRIDE_BP,
     rng: random.Random | None = None,
 ) -> Iterator[int]:
-    """Yield RFC-0006 window starts respecting margin and stride constraints."""
+    """Yield data-pipeline contract window starts respecting margin and stride constraints."""
     _require_nonnegative_int("sequence_length", sequence_length)
     _require_positive_int("window_bp", window_bp)
     _require_nonnegative_int("margin_bp", margin_bp)

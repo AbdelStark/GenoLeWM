@@ -113,8 +113,7 @@ all = [
 ]
 
 [project.scripts]
-# Stable identifiers — renaming any of these is a MAJOR change
-# (RFC-0018 §4.1).
+# Stable command identifiers. Renaming any of these is a breaking change.
 geno-lewm-verify = "geno_lewm.cli.verify:main"
 geno-lewm-train = "geno_lewm.cli.train:cli_main"
 geno-lewm-score = "geno_lewm.cli.score:cli_main"
@@ -136,7 +135,7 @@ Documentation = "https://abdelstark.github.io/GenoLeWM/"
 Repository = "https://github.com/AbdelStark/GenoLeWM"
 Issues = "https://github.com/AbdelStark/GenoLeWM/issues"
 Changelog = "https://github.com/AbdelStark/GenoLeWM/blob/main/CHANGELOG.md"
-"Specification" = "https://github.com/AbdelStark/GenoLeWM/blob/main/SPEC.md"
+Architecture = "https://github.com/AbdelStark/GenoLeWM/blob/main/ARCHITECTURE.md"
 
 # ---------------------------------------------------------------------------
 # Hatch build backend
@@ -172,8 +171,8 @@ include = [
     "/desktop/src-tauri/src",
     "/desktop/src-tauri/tauri.conf.json",
     "/spaces",
-    "/rfcs",
     "/examples",
+    "/paper",
     "/README.md",
     "/CHANGELOG.md",
     "/LICENSE",
@@ -181,11 +180,7 @@ include = [
     "/CODE_OF_CONDUCT.md",
     "/CONTRIBUTING.md",
     "/PRIVACY.md",
-    "/SPEC.md",
-    "/SPECIFICATION.md",
-    "/ROADMAP.md",
     "/ARCHITECTURE.md",
-    "/AGENTS.md",
     "/pyproject.toml",
 ]
 
@@ -221,8 +216,8 @@ select = [
 ]
 ignore = [
     "E501",    # line length handled by formatter
-    "N818",    # InvariantViolation is intentional (RFC-0012)
-    "PLR2004", # magic-value-comparison: too noisy in tests/spec code
+    "N818",    # InvariantViolation is intentional public error naming
+    "PLR2004", # magic-value-comparison: too noisy in tests and docs helpers
     "PLR0911", # too many return statements
     "PLR0912", # too many branches
     "PLR0913", # too many arguments
@@ -248,7 +243,6 @@ ignore = [
     "PLC0415",  # imports inside tests
 ]
 "docs/**" = ["ALL"]
-"rfcs/**" = ["ALL"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["geno_lewm", "tools"]
@@ -317,7 +311,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks integration tests",
     "property: marks property-based tests",
-    "bench: pytest-benchmark microbenchmarks (RFC-0016 §3.5; nightly only)",
+    "bench: pytest-benchmark microbenchmarks (nightly only)",
 ]
 xfail_strict = true
 

@@ -1,4 +1,4 @@
-# GenoLeWM evaluation config — Phase 1 default (RFC-0017 §3.3).
+# GenoLeWM evaluation config — Phase 1 default (configuration contract).
 
 run_id: eval-default
 seed: 0

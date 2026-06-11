@@ -4,7 +4,7 @@
 Covers Acceptance Criteria from issue #30:
 
 - Every console script in ``pyproject.toml`` resolves and prints ``--help``.
-- Exit codes match the table in ``docs/spec/04-error-model.md``.
+- Exit codes match the table in ``public API contract``.
 - Banner is suppressed only by ``--quiet --no-banner`` (both required).
 
 The console-script discovery uses ``importlib.metadata`` so the test
@@ -196,7 +196,7 @@ def test_finalize_shared_version_flag_returns_none(
 
 
 # ---------------------------------------------------------------------------
-# run_app — exit-code mapping (RFC-0018 §3.4 / docs/spec/04-error-model.md)
+# run_app — exit-code mapping (CLI contract / public API contract)
 # ---------------------------------------------------------------------------
 
 
@@ -573,7 +573,7 @@ def test_banner_appears_with_single_suppression_flag(
     module: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Either flag alone must NOT suppress the banner (RFC-0018 §3.7)."""
+    """Either flag alone must NOT suppress the banner (CLI contract)."""
     mod = importlib.import_module(module)
     _dispatch.run_app(mod.app, argv=["--quiet"])
     captured = capsys.readouterr()
@@ -581,7 +581,7 @@ def test_banner_appears_with_single_suppression_flag(
 
 
 # ---------------------------------------------------------------------------
-# Discovery flags (#29; RFC-0017 §3.8)
+# Discovery flags (#29; configuration contract)
 # ---------------------------------------------------------------------------
 
 

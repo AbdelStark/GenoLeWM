@@ -1,4 +1,4 @@
-"""Unit tests for the RFC-0010 deploy runtime contract."""
+"""Unit tests for the deploy runtime contract."""
 
 from __future__ import annotations
 

@@ -33,7 +33,7 @@ def build_error_codes() -> None:
         fd.write(
             "Stable error codes raised by GenoLeWM. The table is generated from\n"
             "`geno_lewm.errors.ERROR_CODES` at docs-build time; renaming any\n"
-            "code is a **MAJOR** change per RFC-0012.\n\n"
+            "code is a breaking public contract change.\n\n"
         )
         fd.write("| Code | Exception class | Family | Exit code | Summary |\n")
         fd.write("|------|------------------|--------|-----------|---------|\n")
@@ -64,9 +64,9 @@ def build_log_events() -> None:
         fd.write(
             "Every event accepted by `geno_lewm.observability.GenoLeWMLogger`.\n"
             "Generated from `geno_lewm.observability.EVENTS` at docs-build time;\n"
-            "renaming an event is a **MAJOR** change per RFC-0013.\n\n"
+            "renaming an event is a breaking public contract change.\n\n"
             "Payload keys not in `allowed_keys` are dropped by the redaction\n"
-            "filter (see RFC-0013 §3.5). Standardized fields (`step`, `epoch`,\n"
+            "filter. Standardized fields (`step`, `epoch`,\n"
             "`phase`, `duration_ms`, `trace_id`, `span_id`, `error_code`) are\n"
             "promoted out of `data` and are always allowed at the top level.\n\n"
         )

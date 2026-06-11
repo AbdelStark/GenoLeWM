@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Profiler entry points (RFC-0016 §3.6).
+"""Profiler entry points (performance budget).
 
 This script documents the canonical profiler invocations for the
 package. It does *not* run anything by default — profiling is a
 developer-driven exercise, not a CI gate.
 
-Canonical tools (RFC-0016 §3.6):
+Canonical tools (performance budget):
 
 | Concern   | Tool                                |
 |-----------|-------------------------------------|
@@ -47,13 +47,13 @@ _CANONICAL_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
     (
         "torch.profiler (Phase 2+, GPU)",
-        "python -c 'import torch.profiler; ...'  # see RFC-0016 §3.6",
+        "python -c 'import torch.profiler; ...'  # see performance budget",
     ),
 )
 
 
 def _print_canonical_commands() -> None:
-    print("# Canonical profiler invocations (RFC-0016 §3.6)\n")
+    print("# Canonical profiler invocations (performance budget)\n")
     for label, cmd in _CANONICAL_COMMANDS:
         print(f"## {label}\n  {cmd}\n")
 
@@ -86,7 +86,7 @@ def _print_stats(profiler: cProfile.Profile) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bench.profile",
-        description="Profiler entry points (RFC-0016 §3.6).",
+        description="Profiler entry points (performance budget).",
     )
     parser.add_argument(
         "--run-cprofile-on",

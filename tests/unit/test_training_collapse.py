@@ -1,4 +1,4 @@
-"""Unit tests for RFC-0005 collapse monitoring."""
+"""Unit tests for training contract collapse monitoring."""
 
 from __future__ import annotations
 

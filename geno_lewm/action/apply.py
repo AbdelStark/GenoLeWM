@@ -2,7 +2,7 @@
 """Pure-Python ``apply_edit`` / ``apply_edits`` helpers.
 
 These functions produce the post-edit window string used to encode the
-training target ``s_{t+1}`` (RFC-0003 §3.7). They are pure, importable
+training target ``s_{t+1}`` (edit contract). They are pure, importable
 without torch, and load-bearing for both training and eval.
 
 The multi-edit form applies edits **right-to-left** by descending

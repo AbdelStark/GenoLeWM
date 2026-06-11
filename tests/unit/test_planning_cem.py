@@ -1,4 +1,4 @@
-"""Unit tests for the RFC-0008 CEM planning core."""
+"""Unit tests for the planning contract CEM planning core."""
 
 from __future__ import annotations
 

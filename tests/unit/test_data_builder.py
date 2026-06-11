@@ -1,4 +1,4 @@
-"""Unit tests for the RFC-0006 training tuple builder."""
+"""Unit tests for the data-pipeline contract training tuple builder."""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ def test_absolute_providers_fall_back_to_synthetic_on_unplaced_windows() -> None
     # The synthetic Carbon pretraining corpus yields windows with no genome
     # coordinates (chrom is None). Absolute VCF providers cannot place variants
     # there, so both gnomAD and ClinVar slots fall back to synthetic SNVs and the
-    # window still produces a full RFC-0006 edit tuple.
+    # window still produces a full data-pipeline contract edit tuple.
     unplaced = WindowContext(
         record_id="carbon-1",
         source="eukaryotic_genes",

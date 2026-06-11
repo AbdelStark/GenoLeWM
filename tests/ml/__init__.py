@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""ML-specific smoke tests (RFC-0015 §3.1).
+"""ML-specific smoke tests (testing contract).
 
 Tests in this package are hosted ML smoke gates that catch collapse,
 instability, fixture-training determinism, and optional-runtime predictor

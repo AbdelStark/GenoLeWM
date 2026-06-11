@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Export a trained checkpoint to deployable safetensors weights (RFC-0018 §3.3).
+"""Export a trained checkpoint to deployable safetensors weights.
 
 Phase 1 converts the training-produced ``predictor_checkpoint.pt`` into the
 ``predictor.safetensors`` + ``action_encoder.safetensors`` artifacts that the

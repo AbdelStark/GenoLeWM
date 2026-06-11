@@ -2,7 +2,7 @@
 """Redaction filter for the GenoLeWM structured logger.
 
 Single chokepoint between callers and the JSONL sink. Defined by
-RFC-0013 §3.5 and ``docs/spec/05-observability.md``. The four rules:
+observability contract and ``metrics registry docs``. The four rules:
 
 1. **Per-event allowlist** — keys not listed in
    :attr:`EventSpec.allowed_keys` for the event are dropped and counted
@@ -17,7 +17,7 @@ RFC-0013 §3.5 and ``docs/spec/05-observability.md``. The four rules:
    :data:`PERSONAL_DATA_FIELDS` always drops and, in strict mode, raises.
 
 Strict mode is on by default (``GENO_LEWM_REDACTION_STRICT`` != ``"0"``).
-The metric ``geno_lewm.observability.redacted_keys`` (RFC-0013 §4) is
+The metric ``geno_lewm.observability.redacted_keys`` (observability contract) is
 served by :data:`STATS` and will be wired into the metrics registry by
 #25; today it is observable via :func:`redaction_stats`.
 """
@@ -141,7 +141,7 @@ def _violate(reason: str, *, event: str, key: str, kind: str) -> None:
         details={"event": event, "key": key, "kind": kind},
         remediation=(
             "Hash personal data or restrict the payload to the per-event "
-            "allowlist (see RFC-0013 §3.5)."
+            "allowlist (see observability contract)."
         ),
     )
 

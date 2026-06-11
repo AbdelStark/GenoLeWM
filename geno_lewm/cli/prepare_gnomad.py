@@ -17,7 +17,9 @@ __all__ = ["app", "cli_main"]
 
 app = typer.Typer(
     name="geno-lewm-prepare-gnomad",
-    help=("Build a schema-checked gnomAD Parquet shard from a local VCF/VCF.gz (RFC-0006 §3.4)."),
+    help=(
+        "Build a schema-checked gnomAD Parquet shard from a local VCF/VCF.gz (data-pipeline contract)."
+    ),
     no_args_is_help=False,
     add_completion=True,
     pretty_exceptions_enable=False,

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for ``tools.ci.coverage_gate`` (RFC-0015 §3.7).
+"""Tests for ``tools.ci.coverage_gate`` (testing contract).
 
 Covers Acceptance Criteria from issue #88:
 

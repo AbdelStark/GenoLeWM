@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Parquet window-embedding cache and SQLite index.
 
-Implements the on-disk cache contract from RFC-0002 §3.6 and
-``docs/spec/03-data-model.md#on-disk-window-embedding-cache``.
+Implements the on-disk cache contract from encoder contract and
+``public API contract``.
 Parquet support is intentionally imported lazily so the base package
 keeps its minimal dependency surface; install ``geno-lewm[train]`` or
 the development extra to use this module.

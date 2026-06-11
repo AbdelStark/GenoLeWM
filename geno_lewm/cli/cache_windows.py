@@ -30,7 +30,9 @@ __all__ = [
 
 app = typer.Typer(
     name="geno-lewm-cache-windows",
-    help=("Build, repair, or reindex the window embedding cache (RFC-0002 §3.6 / RFC-0018 §3.3)."),
+    help=(
+        "Build, repair, or reindex the window embedding cache (encoder contract / CLI contract)."
+    ),
     no_args_is_help=False,
     add_completion=True,
     pretty_exceptions_enable=False,

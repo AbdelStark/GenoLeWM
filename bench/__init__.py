@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Performance benchmark harness (RFC-0016 §3.4).
+"""Performance benchmark harness (performance budget).
 
 This package is **not** part of the public ``geno_lewm`` surface. Each
 entry point under ``bench/`` is a standalone script that times a hot

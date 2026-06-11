@@ -31,7 +31,7 @@ def test_scope_report_binds_failed_rollout_speed_report(tmp_path: Path) -> None:
 
     assert report["generated_by"] == "tools.release.rollout_speed_scope"
     assert report["ok"] is True
-    assert report["decision"] == "rescope_rfc0004_speed_target"
+    assert report["decision"] == "document_rollout_speed_target_miss"
     assert report["issue_refs"] == ["#42", "#197"]
     assert report["rollout_speed_report"]["sha256"].startswith("sha256:")
     summary = report["rollout_speed_summary"]
@@ -135,7 +135,7 @@ def test_scope_report_rejects_passing_rollout_speed_report(tmp_path: Path) -> No
             accepted_at="2026-06-06T12:00:00Z",
             decision_url="https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
             rationale="The target was accepted as met.",
-            replacement_target="No re-scope is needed.",
+            replacement_target="No limitation report is needed.",
         )
 
 
@@ -191,7 +191,7 @@ def test_scope_main_writes_report(tmp_path: Path) -> None:
             "--decision-url",
             "https://github.com/AbdelStark/GenoLeWM/issues/42#issuecomment-1",
             "--rationale",
-            "The current measured rollout benchmark missed the RFC-0004 target.",
+            "The current measured rollout benchmark missed the original target.",
             "--replacement-target",
             "Report measured rollout speed until #42 accepts a new target.",
         ]

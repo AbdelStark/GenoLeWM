@@ -4,10 +4,6 @@ GenoLeWM is designed to keep your genome data on your device. This file
 documents the guarantees the runtime makes about your data — what it
 does, what it never does, and how those properties are enforced.
 
-A fuller technical treatment is in
-[`docs/spec/06-security.md`](docs/spec/06-security.md) and in
-[RFC-0010](rfcs/0010-on-device-personal-genome-deployment.md).
-
 ## What we do with your data
 
 - Your VCF / 23andMe / WGS / FASTA inputs stay on your local filesystem.
@@ -77,8 +73,9 @@ format does not embed it.
 
 - **`--per-variant-receipts`** writes one receipt per variant when
   scoring a VCF. This is opt-in because it produces large outputs.
-- **`--audit-log`** (planned post-v1) records every file access during
-  scoring. Useful for reproducibility audits. Off by default.
+- Audit-style release tools can record file identities and hashes for
+  reproducibility reports, but the scoring runtime does not embed raw
+  variant bases in receipts.
 
 ## What you can do
 

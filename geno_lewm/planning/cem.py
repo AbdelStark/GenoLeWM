@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Pure-Python CEM solver core for RFC-0008 planning.
+"""Pure-Python CEM solver core for planning contract planning.
 
 The predictor-backed planner and CLI still need runtime integration and
 benchmark evidence. This module provides the deterministic search loop

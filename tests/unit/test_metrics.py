@@ -11,7 +11,7 @@ import pytest
 from geno_lewm import metrics as m
 from geno_lewm.errors import InputError
 
-# Canonical names from docs/spec/05-observability.md — locking the public
+# Canonical names from metrics registry docs — locking the public
 # contract here. Editing this set is a public-API change.
 CANONICAL_METRIC_NAMES = {
     "geno_lewm.training.step.duration",

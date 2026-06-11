@@ -1,4 +1,4 @@
-"""Public-API snapshot test (RFC-0014 §3.7).
+"""Public-API snapshot test (public API contract).
 
 Diffs ``tests/api/public_surface.json`` against a freshly-computed
 snapshot. Removals or signature changes fail; new symbols pass with a

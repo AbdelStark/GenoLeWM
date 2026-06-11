@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""pytest-benchmark microbenchmarks for the hot paths (RFC-0016 §3.5).
+"""pytest-benchmark microbenchmarks for the hot paths (performance budget).
 
 The suite targets functions that the receipt verifier and the action
 mutation path invoke in tight loops:
@@ -14,7 +14,7 @@ mutation path invoke in tight loops:
 - :class:`geno_lewm.action.spec.EditSpec` validation
 
 Every test carries the ``bench`` marker and is therefore deselected by
-the default ``pytest`` invocation (RFC-0016 §3.5: nightly only). To run
+the default ``pytest`` invocation (performance budget: nightly only). To run
 locally::
 
     pytest tests/benchmark/ -m bench --benchmark-only
