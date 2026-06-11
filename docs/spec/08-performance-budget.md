@@ -7,10 +7,11 @@
 
 Performance is part of the public release contract. Numbers here are
 budgets and targets unless explicitly reported from a measured release
-artifact. The v0.1 release includes a public `efficiency_report.json` for
-the first checkpoint, dataset, and demo artifact set; the broader
-Apple-Silicon, quantized-runtime, and rollout-speed budgets still need
-v0.2 measurement before docs can describe them as achieved.
+artifact. The v0.1 release and v0.2.1 run tree include public
+`efficiency_report.json` artifacts for their published artifact sets; the
+broader Apple-Silicon, quantized-runtime, and K=20 rollout-speed budgets
+still need target-passing measurement before docs can describe them as
+achieved.
 
 ## Reference machines
 

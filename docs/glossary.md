@@ -156,9 +156,10 @@ Globally identifies a specific released checkpoint artifact set.
 
 ## Phases
 
-Current public status: alpha implementation with a completed v0.1
-paper/demo release. Phase names below describe the roadmap, not broader
-model-quality evidence.
+Current public status: alpha implementation with public v0.2.1 package,
+model, dataset, benchmark/planning/paper, and generated-paper artifacts.
+Phase names below describe the roadmap, not broader model-quality
+evidence.
 
 **Phase 0 (Design, complete).** Spec and RFC bootstrap.
 

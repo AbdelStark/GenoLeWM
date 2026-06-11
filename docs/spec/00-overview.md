@@ -23,11 +23,12 @@ Every other system commitment is downstream of that single equation.
 
 ## Goals (v1)
 
-The v0.1 paper/demo release is published, with public checkpoint,
-dataset snapshot, measured chr21 ClinVar evaluation, clean-machine
-real-inference demo, and final publication evidence. The goals below are
-roadmap targets unless explicitly tied to a measured release artifact;
-v0.1 establishes a narrow first baseline, not broad model quality.
+The public artifact set now includes the v0.2.1 package, model and
+dataset artifacts, benchmark/planning/paper tree, and generated paper.
+The goals below are roadmap targets unless explicitly tied to a measured
+release artifact; v0.1 established a narrow first baseline, and v0.2.1
+adds broader but still mixed or negative evidence rather than broad
+model-quality proof.
 
 1. **Per-edit latent prediction** at < 10% of Carbon's per-variant inference
    cost after caching reference embeddings.
@@ -115,8 +116,8 @@ otherwise file a reconciliation PR.
 ## Out-of-scope reminders
 
 - No fabricated benchmarks. Numbers ship only after the full eval suite runs.
-- Existing v0.1 numbers are first-release measured results and negative
-  findings; v0.2 claims need their own measured evidence.
+- Existing public numbers are measured results and negative findings;
+  improved-results claims need their own measured evidence.
 - No `TBD` shipped: every uncertainty is either decided or promoted to
   `OPEN QUESTION` with an owner.
 - No clinical claims. Every UI surface and every CLI banner carries the
