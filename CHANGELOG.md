@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added fixture-training artifact identities to `training_run.json` so
+  deterministic smoke-run checkpoints and inputs can be byte-compared before
+  release packaging.
 
 ## [0.2.1] - 2026-06-09
 
