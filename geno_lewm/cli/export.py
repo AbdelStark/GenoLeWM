@@ -20,6 +20,11 @@ from geno_lewm.errors import InputError
 
 __all__ = ["app", "cli_main"]
 
+_SUPPORTED_TARGETS = frozenset({"safetensors"})
+_KNOWN_TARGETS = ("safetensors", "onnx", "coreml", "gguf")
+_SUPPORTED_QUANTIZATIONS = frozenset({"none"})
+_KNOWN_QUANTIZATIONS = ("none", "int8", "int4")
+
 app = typer.Typer(
     name="geno-lewm-export",
     help="Export a trained checkpoint to deployable safetensors artifacts (CLI contract).",
@@ -49,6 +54,26 @@ def main(
         bool,
         typer.Option("--overwrite", help="Replace existing exported artifacts if present."),
     ] = False,
+    target: Annotated[
+        str,
+        typer.Option(
+            "--target",
+            help=(
+                "Export target. Only safetensors is implemented; ONNX, Core ML, "
+                "and GGUF fail closed until #67-#69 land."
+            ),
+        ),
+    ] = "safetensors",
+    quantization: Annotated[
+        str,
+        typer.Option(
+            "--quantization",
+            help=(
+                "Quantization mode. Only none is implemented; int8/int4 fail closed "
+                "until #70 lands."
+            ),
+        ),
+    ] = "none",
     config: Annotated[str | None, _S["config"]] = None,
     set_overrides: Annotated[list[str] | None, _S["set_overrides"]] = None,
     seed: Annotated[int | None, _S["seed"]] = None,
@@ -88,6 +113,7 @@ def main(
 
     checkpoint_path = _required_path("checkpoint", checkpoint)
     out_dir = _required_path("output-dir", output_dir)
+    _validate_export_request(target=target, quantization=quantization)
     report = export_checkpoint(checkpoint_path, out_dir, overwrite=overwrite)
     typer.echo(json.dumps(report, sort_keys=True))
 
@@ -96,6 +122,44 @@ def _required_path(name: str, value: Path | None) -> Path:
     if value is None:
         raise InputError(f"geno-lewm-export requires --{name}")
     return value
+
+
+def _validate_export_request(*, target: str, quantization: str) -> None:
+    normalized_target = target.strip().lower()
+    normalized_quantization = quantization.strip().lower()
+    if normalized_target not in _KNOWN_TARGETS:
+        raise InputError(
+            "unsupported export target",
+            details={"target": target, "supported_targets": list(_KNOWN_TARGETS)},
+        )
+    if normalized_quantization not in _KNOWN_QUANTIZATIONS:
+        raise InputError(
+            "unsupported export quantization",
+            details={
+                "quantization": quantization,
+                "supported_quantizations": list(_KNOWN_QUANTIZATIONS),
+            },
+        )
+    if normalized_target not in _SUPPORTED_TARGETS:
+        raise InputError(
+            "export target is not implemented yet",
+            details={
+                "target": normalized_target,
+                "implemented_targets": sorted(_SUPPORTED_TARGETS),
+                "tracking_issues": ["#67", "#68", "#69"],
+            },
+            remediation="use --target safetensors or wait for the target-specific export issue",
+        )
+    if normalized_quantization not in _SUPPORTED_QUANTIZATIONS:
+        raise InputError(
+            "export quantization is not implemented yet",
+            details={
+                "quantization": normalized_quantization,
+                "implemented_quantizations": sorted(_SUPPORTED_QUANTIZATIONS),
+                "tracking_issues": ["#70"],
+            },
+            remediation="use --quantization none or wait for the quantization issue",
+        )
 
 
 def cli_main() -> int:
