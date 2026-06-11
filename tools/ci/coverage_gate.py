@@ -16,7 +16,8 @@ Usage::
     python -m tools.ci.coverage_gate \\
         --coverage-xml coverage.xml \\
         --base origin/main \\
-        --threshold 0.9
+        --threshold 0.9 \\
+        --output-json coverage-gate-report.json
 
 Inputs:
 
@@ -27,6 +28,8 @@ Inputs:
 - ``--threshold`` — minimum ratio of covered changed lines per file.
 - ``--prefix`` — only files whose path starts with this prefix are gated
   (default ``geno_lewm/``).
+- ``--output-json`` — optional deterministic machine-readable report for
+  CI artifacts and coverage ratchet reviews.
 
 Exit codes:
 
@@ -39,6 +42,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -222,6 +226,60 @@ def format_report(results: Iterable[FileResult], threshold: float) -> str:
     return "\n".join(out) + "\n"
 
 
+def build_json_report(
+    results: Iterable[FileResult],
+    *,
+    threshold: float,
+    base: str,
+    prefix: str,
+    coverage_xml: Path,
+    diff_file: Path | None,
+) -> dict[str, object]:
+    """Return a deterministic machine-readable changed-files coverage report."""
+    rows = list(results)
+    failing = [r for r in rows if r.ratio < threshold]
+    total_changed = sum(r.total_changed for r in rows)
+    total_covered = sum(r.covered for r in rows)
+    return {
+        "generated_by": "tools.ci.coverage_gate",
+        "base": base,
+        "prefix": prefix,
+        "threshold": threshold,
+        "coverage_xml": str(coverage_xml),
+        "diff_source": str(diff_file) if diff_file is not None else "git",
+        "passed": not failing,
+        "summary": {
+            "measured_files": len(rows),
+            "total_changed_lines": total_changed,
+            "total_covered_lines": total_covered,
+            "overall_changed_line_ratio": (
+                (total_covered / total_changed) if total_changed else None
+            ),
+            "minimum_file_ratio": min((r.ratio for r in rows), default=None),
+            "failing_files": len(failing),
+        },
+        "files": [
+            {
+                "path": r.path,
+                "changed_lines": r.total_changed,
+                "covered_lines": r.covered,
+                "coverage_ratio": r.ratio,
+                "status": "pass" if r.ratio >= threshold else "fail",
+            }
+            for r in rows
+        ],
+    }
+
+
+def write_json_report(report: Mapping[str, object], output: Path) -> None:
+    """Write a stable JSON report, creating parent directories if needed."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="coverage_gate",
@@ -255,6 +313,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=DEFAULT_PREFIX,
         help=f"only gate files whose path starts with this (default: {DEFAULT_PREFIX})",
     )
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        default=None,
+        help="write a deterministic machine-readable report to this path",
+    )
     args = parser.parse_args(argv)
 
     if not args.coverage_xml.is_file():
@@ -286,6 +350,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         prefix=args.prefix,
     )
     sys.stdout.write(format_report(results, args.threshold))
+    if args.output_json is not None:
+        write_json_report(
+            build_json_report(
+                results,
+                threshold=args.threshold,
+                base=args.base,
+                prefix=args.prefix,
+                coverage_xml=args.coverage_xml,
+                diff_file=args.diff_file,
+            ),
+            args.output_json,
+        )
 
     failing = [r for r in results if r.ratio < args.threshold]
     if failing:

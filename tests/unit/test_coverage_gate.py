@@ -12,6 +12,7 @@ gate is exercised without requiring a real git repository.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -211,6 +212,64 @@ def test_format_report_empty_message() -> None:
 
 
 # ---------------------------------------------------------------------------
+# build_json_report
+# ---------------------------------------------------------------------------
+
+
+def test_build_json_report_summarizes_changed_file_coverage(tmp_path: Path) -> None:
+    rows = [
+        coverage_gate.FileResult(path="geno_lewm/a.py", total_changed=10, covered=10),
+        coverage_gate.FileResult(path="geno_lewm/b.py", total_changed=10, covered=5),
+    ]
+
+    report = coverage_gate.build_json_report(
+        rows,
+        threshold=0.9,
+        base="origin/main",
+        prefix="geno_lewm/",
+        coverage_xml=tmp_path / "coverage.xml",
+        diff_file=tmp_path / "diff.patch",
+    )
+
+    assert report["generated_by"] == "tools.ci.coverage_gate"
+    assert report["base"] == "origin/main"
+    assert report["threshold"] == 0.9
+    assert report["passed"] is False
+    assert report["summary"] == {
+        "measured_files": 2,
+        "total_changed_lines": 20,
+        "total_covered_lines": 15,
+        "overall_changed_line_ratio": 0.75,
+        "minimum_file_ratio": 0.5,
+        "failing_files": 1,
+    }
+    assert report["files"] == [
+        {
+            "path": "geno_lewm/a.py",
+            "changed_lines": 10,
+            "covered_lines": 10,
+            "coverage_ratio": 1.0,
+            "status": "pass",
+        },
+        {
+            "path": "geno_lewm/b.py",
+            "changed_lines": 10,
+            "covered_lines": 5,
+            "coverage_ratio": 0.5,
+            "status": "fail",
+        },
+    ]
+
+
+def test_write_json_report_creates_parent_dirs(tmp_path: Path) -> None:
+    output = tmp_path / "nested" / "coverage-gate-report.json"
+
+    coverage_gate.write_json_report({"b": 1, "a": 2}, output)
+
+    assert output.read_text(encoding="utf-8") == '{\n  "a": 2,\n  "b": 1\n}\n'
+
+
+# ---------------------------------------------------------------------------
 # main() — end-to-end with synthetic diff
 # ---------------------------------------------------------------------------
 
@@ -248,6 +307,41 @@ def test_main_fail_case(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert code == 1
     assert "FAIL" in captured.out
     assert "below" in captured.err
+
+
+def test_main_writes_output_json_on_failure(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    xml = tmp_path / "coverage.xml"
+    diff = tmp_path / "diff.patch"
+    output = tmp_path / "reports" / "coverage-gate-report.json"
+    xml.write_text(
+        _coverage_xml({"geno_lewm/foo.py": {1: 1, 2: 0, 3: 0, 4: 0}}),
+        encoding="utf-8",
+    )
+    diff.write_text(_diff({"geno_lewm/foo.py": [1, 2, 3, 4]}), encoding="utf-8")
+
+    code = coverage_gate.main(
+        [
+            "--coverage-xml",
+            str(xml),
+            "--diff-file",
+            str(diff),
+            "--threshold",
+            "0.9",
+            "--output-json",
+            str(output),
+        ]
+    )
+    capsys.readouterr()
+
+    assert code == 1
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["passed"] is False
+    assert report["summary"]["failing_files"] == 1
+    assert report["files"][0]["path"] == "geno_lewm/foo.py"
+    assert report["files"][0]["status"] == "fail"
 
 
 def test_main_missing_coverage_xml(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

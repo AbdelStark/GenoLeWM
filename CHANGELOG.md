@@ -10,7 +10,11 @@ see [`docs/spec/09-release-and-versioning.md`](docs/spec/09-release-and-versioni
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- `tools.ci.coverage_gate` can write a deterministic JSON report via
+  `--output-json`, giving CI artifacts a machine-readable changed-files
+  coverage summary for future #178 ratchets.
 
 ## [0.2.1] - 2026-06-09
 
