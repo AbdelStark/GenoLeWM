@@ -157,6 +157,13 @@ Only after Stages 1-3 pass, train a minimal residual model and evaluate
 against the locked benchmark. A positive result must beat the strongest
 simple baseline, not merely the label prior.
 
+Current outcome: the source-controlled
+[Borzoi residual model report](fx-borzoi-residual-report.md) records an
+experimental residual ensemble with a small mean lift over the strongest
+simple baseline, but paired confidence intervals cross zero. The report
+therefore supports #271 implementation completion but does not support a
+positive locked-result claim for #272.
+
 ## Issue Trajectory
 
 Use #266 rather than reopening #257. The #257 artifacts remain the

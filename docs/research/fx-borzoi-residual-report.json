@@ -1,0 +1,419 @@
+{
+  "baseline_issue": 270,
+  "baseline_report": {
+    "decision": "go_residual_model",
+    "path": "docs/research/fx-borzoi-baseline-report.json",
+    "sha256": "sha256:8e3dd5f5916dd5c8b97d17139484595693a4be423d26e8cf08c07c05942f0b7a",
+    "strongest_simple_baseline": "borzoi_plus_source_logistic_probe"
+  },
+  "cache_manifest": {
+    "path": "docs/research/fx-borzoi-cache-manifest.json",
+    "sha256": "sha256:0d06742aacb9c07043cf2dc4b080c18b2846dc71d3358497e356ebbd30317a24"
+  },
+  "claim_boundary": "This report is an experimental residual-model gate only. It is not a final GenoLeWM-FX model-quality result, clinical result, deployment-readiness result, broad VEP superiority claim, broad Carbon comparison, useful-planning claim, ground-truth biology claim, or exact fipip overlap claim.",
+  "collapse_diagnostics": {
+    "all_predictions_constant": false,
+    "max_abs_adjustment": 0.17090081892737816,
+    "mean_abs_adjustment": 0.01675145945389496,
+    "p95_abs_adjustment": 0.0843212589295008,
+    "residual_probability_std": 0.06226807304158235
+  },
+  "decision": "residual_lift_candidate",
+  "epic_issue": 266,
+  "final_issue": 272,
+  "final_positive_claim_supported": false,
+  "generated_at": "2026-06-11T14:00:00Z",
+  "generated_by": "tools.research.fx_borzoi_residual",
+  "model": {
+    "base_model": "logistic_regression_reproducing_borzoi_plus_source_probe",
+    "features": [
+      "borzoi_score",
+      "maf",
+      "ld_score",
+      "tss_dist"
+    ],
+    "kind": "residual_random_forest_regressor_ensemble",
+    "max_depth": 3,
+    "min_samples_leaf": 50,
+    "n_estimators": 100,
+    "residual_target": "label - strongest_simple_baseline_probability",
+    "seeds": [
+      271,
+      272,
+      273,
+      274,
+      275,
+      276,
+      277,
+      278,
+      279,
+      280
+    ]
+  },
+  "model_issue": 271,
+  "paired_deltas_vs_strongest_baseline": [
+    {
+      "ci95": [
+        -0.0035465356467575815,
+        0.0236768730362187
+      ],
+      "delta": 0.009940161792303726,
+      "name": "auroc"
+    },
+    {
+      "ci95": [
+        -0.0028686904812142834,
+        0.019804861384548605
+      ],
+      "delta": 0.00752221961116159,
+      "name": "average_precision"
+    }
+  ],
+  "prediction_artifact": {
+    "path": "docs/research/fx-borzoi-residual-predictions.parquet",
+    "rows": 3390,
+    "sha256": "sha256:968ba05757c563b1d13dfcdaed0f0df7c9511a570c35f81da62515cc604fb978",
+    "size_bytes": 144460
+  },
+  "recommended_issue_actions": [
+    {
+      "action": "close-completed",
+      "issue": 271,
+      "reason": "The residual model was implemented, trained, and compared to the strongest simple baseline."
+    },
+    {
+      "action": "open-next",
+      "issue": 272,
+      "reason": "Publish the fragile-lift/no-positive-claim outcome."
+    }
+  ],
+  "residual_ensemble_metrics": [
+    {
+      "name": "auroc",
+      "value": 0.6593776014247469
+    },
+    {
+      "name": "average_precision",
+      "value": 0.2300484214137164
+    },
+    {
+      "name": "balanced_accuracy",
+      "value": 0.5026220911176663
+    }
+  ],
+  "schema_version": "1.0.0",
+  "seed_runs": [
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.010934081286758324,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.009679275573972745,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6603715209192015
+        },
+        {
+          "name": "average_precision",
+          "value": 0.23220547737652755
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5040970173713536
+        }
+      ],
+      "seed": 271
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.010315298722117339,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.006865385798961066,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6597527383545605
+        },
+        {
+          "name": "average_precision",
+          "value": 0.22939158760151587
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5024582104228122
+        }
+      ],
+      "seed": 272
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.009457704761435148,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.007921934934546182,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6588951443938783
+        },
+        {
+          "name": "average_precision",
+          "value": 0.230448136737101
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5026220911176663
+        }
+      ],
+      "seed": 273
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.010844164445333981,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.008008614540028464,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6602816040777771
+        },
+        {
+          "name": "average_precision",
+          "value": 0.23053481634258327
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5026220911176663
+        }
+      ],
+      "seed": 274
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.009174418368560477,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.008373863959113215,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6586118580010036
+        },
+        {
+          "name": "average_precision",
+          "value": 0.23090006576166802
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5026220911176663
+        }
+      ],
+      "seed": 275
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.007582020112367083,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.004161789532002691,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6570194597448102
+        },
+        {
+          "name": "average_precision",
+          "value": 0.2266879913345575
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5054080629301868
+        }
+      ],
+      "seed": 276
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.0075172413126312065,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.007259402858907166,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6569546809450744
+        },
+        {
+          "name": "average_precision",
+          "value": 0.22978560466146197
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5026220911176663
+        }
+      ],
+      "seed": 277
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.009230495538480987,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.006058799754286526,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6586679351709241
+        },
+        {
+          "name": "average_precision",
+          "value": 0.22858500155684133
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5039331366764995
+        }
+      ],
+      "seed": 278
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.009527317799957302,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.0061652668225402885,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6589647574324005
+        },
+        {
+          "name": "average_precision",
+          "value": 0.2286914686250951
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5026220911176663
+        }
+      ],
+      "seed": 279
+    },
+    {
+      "deltas_vs_strongest_baseline": [
+        {
+          "delta": 0.009001352620012448,
+          "name": "auroc"
+        },
+        {
+          "delta": 0.007953463036451641,
+          "name": "average_precision"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "auroc",
+          "value": 0.6584387922524556
+        },
+        {
+          "name": "average_precision",
+          "value": 0.23047966483900645
+        },
+        {
+          "name": "balanced_accuracy",
+          "value": 0.5040970173713536
+        }
+      ],
+      "seed": 280
+    }
+  ],
+  "seed_variance": {
+    "auroc_max": 0.6603715209192015,
+    "auroc_mean": 0.6587958491292086,
+    "auroc_min": 0.6569546809450744,
+    "auroc_std": 0.0011120881155525799,
+    "average_precision_max": 0.23220547737652755,
+    "average_precision_mean": 0.2297709814836358,
+    "average_precision_min": 0.2266879913345575,
+    "average_precision_std": 0.0014479880800466664,
+    "seeds": [
+      271,
+      272,
+      273,
+      274,
+      275,
+      276,
+      277,
+      278,
+      279,
+      280
+    ]
+  },
+  "split_summary": {
+    "holdout_negative": 3051,
+    "holdout_positive": 339,
+    "holdout_rows": 3390,
+    "train_rows": 8010
+  },
+  "strongest_simple_baseline_metrics": [
+    {
+      "name": "auroc",
+      "value": 0.6494374396324432
+    },
+    {
+      "name": "average_precision",
+      "value": 0.2225262018025548
+    },
+    {
+      "name": "balanced_accuracy",
+      "value": 0.5080301540478531
+    }
+  ]
+}

@@ -16,6 +16,7 @@ Authoritative artifacts:
 - [Borzoi alignment and overlap report](fx-borzoi-overlap-report.md)
 - [Borzoi score cache report](fx-borzoi-cache-report.md)
 - [Borzoi baseline and saturation report](fx-borzoi-baseline-report.md)
+- [Borzoi residual model report](fx-borzoi-residual-report.md)
 
 ## Decision
 
@@ -89,6 +90,13 @@ It records that the strongest simple baseline is not saturated on the
 locked holdout split and that #271 may proceed. The reported baseline
 numbers are gate evidence only; they are not a trained GenoLeWM-FX model
 result and do not support public model-quality claims.
+
+The residual-model gate now has a source-controlled outcome:
+[GenoLeWM-FX Borzoi residual model report](fx-borzoi-residual-report.md).
+It records a small positive mean lift over the strongest simple baseline,
+but the paired confidence intervals cross zero. That completes the
+implementation experiment for #271, but it does not support a positive
+locked-result claim for #272.
 
 ## Child Issue Resolution
 

@@ -148,6 +148,7 @@ nav:
       - GenoLeWM-FX Borzoi alignment report: research/fx-borzoi-overlap-report.md
       - GenoLeWM-FX Borzoi cache report: research/fx-borzoi-cache-report.md
       - GenoLeWM-FX Borzoi baseline report: research/fx-borzoi-baseline-report.md
+      - GenoLeWM-FX Borzoi residual report: research/fx-borzoi-residual-report.md
   - Blog:
       - What does this edit do? (explainer): blogposts/genolewm_explainer.md
   - Release:
