@@ -3,13 +3,15 @@
 - **Status:** Draft
 - **Author(s):** GenoLeWM Project
 - **Created:** 2026-05-20
-- **Updated:** 2026-06-02
+- **Updated:** 2026-06-11
 - **Depends on:** RFC-0001, RFC-0002, RFC-0004, RFC-0007, RFC-0009
 - **Supersedes:** —
-- **Implementation status:** Partial — `GenoLeWMRuntime`,
-  fail-closed network guarding, personal-genome importers, and the
-  explicit update CLI exist; ONNX / Core ML / GGUF export and
-  quantization remain open.
+- **Implementation status:** Partial — `geno-lewm==0.2.1`,
+  `GenoLeWMRuntime`, fail-closed network guarding, personal-genome
+  importers, the explicit update CLI, public model/dataset artifacts,
+  and terminal-demo replay evidence exist; ONNX / Core ML / GGUF export,
+  quantization, desktop binaries, and target-hardware runtime acceptance
+  remain open.
 
 ---
 
@@ -255,14 +257,14 @@ reference and alternate alleles.
 
 The runtime distribution plan is:
 
-- **Hugging Face Hub model release**: first public checkpoint package
-  with manifest, model card, checksums, eval report, and demo links.
-- **GitHub release**: terminal-demo assets and publication evidence for
-  the first release; desktop binaries remain post-first-demo work.
-- **Source install**: current Python API path until the first PyPI tag is
-  cut.
-- **PyPI**: planned package channel after trusted publishing is
-  configured and the first tag is released.
+- **Hugging Face Hub model release**: public checkpoint package with
+  manifest, model card, checksums, eval report, and demo links.
+- **GitHub release**: source/wheel assets, terminal-demo assets, and
+  publication evidence; desktop binaries remain post-first-demo work.
+- **PyPI**: current Python package channel (`geno-lewm==0.2.1`); trusted
+  publishing through OIDC remains an account-side hardening target.
+- **Source install**: supported developer path from a checkout for
+  contributors and local toolchain work.
 - **Homebrew**: planned post-v1 channel.
 
 ## 4. Rationale and alternatives
