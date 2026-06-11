@@ -38,6 +38,12 @@ def test_space_preserves_claim_boundaries_and_artifact_links() -> None:
         "abdelstark/geno-lewm-runs",
         "geno-lewm-v021-strong-4f36eef-10k-r1",
         "score_single_variant",
+        "How to read the score JSON",
+        "sigma_raw",
+        "not a probability of pathogenicity",
+        "input_preflight",
+        "runtime_note",
+        "reference-match check",
     )
     for fragment in required:
         assert fragment in combined

@@ -130,6 +130,17 @@ CSS = """
   color: var(--muted);
   font-size: 0.92rem;
 }
+.field-guide {
+  border: 1px solid var(--line);
+  background: #fbfcf7;
+  padding: 14px 16px;
+}
+.field-guide h3 {
+  margin-top: 0;
+}
+.field-guide li {
+  margin: 0.35rem 0;
+}
 .link-row a {
   color: var(--accent);
   font-weight: 700;
@@ -212,6 +223,107 @@ loss = distance(s_hat_{t+1}, s_{t+1}) + collapse regularization
 The trained GenoLeWM components are the action encoder and predictor.
 Carbon-500M is frozen and used as the state encoder. Planning amortizes
 Carbon work by searching in latent space with the predictor.
+"""
+
+
+def _checkpoint_intro_markdown() -> str:
+    return """
+### Run the Published Model
+
+This panel exercises the released checkpoint path. It does not train a new
+model and it does not call a private service. On demand, the Space downloads the
+manifest-listed action encoder, predictor, calibration table, and config, then
+loads the frozen Carbon-500M encoder needed to score a reference-matched edit.
+
+The workflow is intentionally split:
+
+1. **Inspect checkpoint** downloads the selected release artifacts and can verify
+   that the action encoder and predictor weights load.
+2. **Score variant** validates the variant/window pair, runs the GenoLeWM
+   surprise scorer, and writes a checksum receipt for the returned output.
+"""
+
+
+def _scoring_inputs_markdown() -> str:
+    return """
+<div class="field-guide">
+<h3>Input guide</h3>
+<ul>
+  <li><strong>Variant</strong>: <code>CHROM:POS:REF:ALT</code>, with
+  <code>POS</code> as a one-based coordinate.</li>
+  <li><strong>Window start bp</strong>: the zero-based coordinate of the first
+  base in the reference window.</li>
+  <li><strong>Reference window</strong>: FASTA bases from the same assembly as
+  the coordinates. The app checks that <code>REF</code> matches this sequence at
+  the implied relative offset before it loads the model.</li>
+  <li><strong>Resolve Carbon-500M</strong>: leave this enabled in the hosted
+  Space; it remaps the release manifest's training-time <code>/carbon</code>
+  mount to the public Hub snapshot.</li>
+</ul>
+</div>
+"""
+
+
+def _score_result_guide_markdown() -> str:
+    return """
+<div class="field-guide">
+<h3>How to read the score JSON</h3>
+<ul>
+  <li><code>sigma_raw</code> is the uncalibrated latent residual. Larger values
+  mean the predicted post-edit state was farther from the Carbon-encoded edited
+  state. Treat it as a research/debug ranking signal; it is not a probability of
+  pathogenicity.</li>
+  <li><code>sigma_calibrated</code> maps that residual through the released
+  calibration table for the selected context bucket. It is bounded between
+  0 and 1; higher means more surprising relative to the calibration background,
+  not a clinical risk score.</li>
+  <li><code>bucket_id</code>, <code>confidence</code>, and
+  <code>low_confidence</code> describe the calibration context. If
+  <code>low_confidence</code> is true, treat the calibrated score as especially
+  tentative.</li>
+  <li><code>input_preflight</code> records the parsed coordinate, relative
+  offset, observed reference base, and window length used for the strict
+  reference-match check.</li>
+  <li><code>runtime_note</code> explains whether the Space used the published
+  manifest paths or remapped Carbon-500M from the Hub. <code>receipt_path</code>
+  points to the checksum receipt for artifact/output identity.</li>
+</ul>
+</div>
+"""
+
+
+def _results_guide_markdown() -> str:
+    return """
+<div class="field-guide">
+<h3>How to read the metrics table</h3>
+<ul>
+  <li><strong>Value</strong> is the measured score from the public v0.2.1 run
+  tree for that split and metric.</li>
+  <li><strong>Baseline comparison</strong> reports the measured delta against
+  the named baseline where one exists. Negative Carbon deltas mean GenoLeWM was
+  below Carbon on that row.</li>
+  <li><strong>N</strong> is the proof-scale row count for the reported slice;
+  it is not a broad population sample.</li>
+  <li>The negative findings below the table are part of the evidence, not a
+  footer. Keep them in view when interpreting any positive row.</li>
+</ul>
+</div>
+"""
+
+
+def _planning_guide_markdown() -> str:
+    return """
+<div class="field-guide">
+<h3>What the planning demo proves</h3>
+<ul>
+  <li>It proves the released manifest-backed planning path can execute against
+  the published artifacts.</li>
+  <li>It does not prove that the selected edits are biologically useful or that
+  the planner improves downstream genomic design.</li>
+  <li>Use the JSON panel to inspect the command output and manifest summary,
+  then compare any planning claim against the generated paper and run tree.</li>
+</ul>
+</div>
 """
 
 
@@ -424,7 +536,7 @@ def score_single_variant(
         payload["receipt_path"] = str(receipt_path)
         payload["runtime_note"] = runtime_note
         payload["input_preflight"] = preflight
-        return "Scored with the trained checkpoint runtime.", payload
+        return _score_success_summary(payload), payload
     except Exception as exc:
         message = (
             "Scoring did not complete. If this is an input error, fix the variant/window "
@@ -506,6 +618,22 @@ def _parse_variant_text(raw: str) -> tuple[str, int, str, str]:
     return chrom, int(pos_text), ref.upper(), alt.upper()
 
 
+def _score_success_summary(payload: Mapping[str, Any]) -> str:
+    sigma_raw = payload.get("sigma_raw", "unavailable")
+    sigma_calibrated = payload.get("sigma_calibrated", "unavailable")
+    low_confidence = payload.get("low_confidence", "unavailable")
+    bucket_id = payload.get("bucket_id", "unavailable")
+    return (
+        "Scored with the trained checkpoint runtime.\n\n"
+        f"- `sigma_raw`: `{_format_number(sigma_raw)}` latent residual.\n"
+        f"- `sigma_calibrated`: `{_format_number(sigma_calibrated)}` on the "
+        "released calibration table.\n"
+        f"- `bucket_id`: `{bucket_id}`; `low_confidence`: `{low_confidence}`.\n\n"
+        "Interpret this as a research surprise score for the supplied "
+        "reference-matched edit, not as a clinical classification."
+    )
+
+
 def _exception_line(exc: BaseException) -> str:
     return "".join(traceback.format_exception_only(type(exc), exc)).strip()
 
@@ -543,6 +671,7 @@ deployment readiness.
                     "available; the table falls back to pinned values if the Hub fetch "
                     "fails.</span>"
                 )
+                gr.Markdown(_results_guide_markdown())
                 load_button = gr.Button("Load public metrics", variant="primary")
                 table = gr.Dataframe(
                     headers=["Split", "Metric", "Value", "Baseline comparison", "N"],
@@ -558,17 +687,13 @@ deployment readiness.
                     "execution evidence for the manifest-backed path, not proof of useful "
                     "planning behavior."
                 )
+                gr.Markdown(_planning_guide_markdown())
                 planning_button = gr.Button("Load planning artifact", variant="primary")
                 planning_json = gr.JSON(label="Planning artifact summary")
                 planning_text = gr.Markdown()
                 planning_button.click(load_planning_summary, outputs=[planning_json, planning_text])
             with gr.Tab("Checkpoint"):
-                gr.Markdown(
-                    "### Trained Checkpoint Path\n"
-                    "Download the released model package, verify the trained action "
-                    "encoder/predictor can load, then attempt single-variant scoring. "
-                    "Full scoring needs Carbon-500M as the frozen state encoder."
-                )
+                gr.Markdown(_checkpoint_intro_markdown())
                 profile = gr.Dropdown(
                     choices=list(CHECKPOINTS),
                     value="v0.2.1 serious-completion checkpoint",
@@ -593,6 +718,7 @@ deployment readiness.
                     "For real variants, paste the reference window from FASTA; the "
                     "REF allele must match the supplied window at the relative locus."
                 )
+                gr.Markdown(_scoring_inputs_markdown())
                 with gr.Row():
                     variant = gr.Textbox(
                         label="Variant",
@@ -619,6 +745,7 @@ deployment readiness.
                     value=True,
                     label="Resolve Carbon-500M from Hugging Face Hub before scoring",
                 )
+                gr.Markdown(_score_result_guide_markdown())
                 score_button = gr.Button("Score variant", variant="primary")
                 score_status = gr.Markdown()
                 score_json = gr.JSON(label="Score result or runtime issue")
