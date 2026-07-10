@@ -6,9 +6,25 @@ GenoLeWM treats a genomic edit as an action. A frozen DNA encoder maps a
 reference window to a latent state, and a trainable predictor estimates
 the post-edit latent state from that state plus the structured edit.
 
-The package is alpha research software. It is installable, typed,
-tested, benchmarked, and published with public artifacts; the current
-model-quality evidence is mixed or negative versus Carbon.
+The package is alpha research software. It is installable, typed, tested,
+benchmarked, and published with public artifacts.
+
+> **Checkpoint validity notice (2026-07-10):** Every published v0.1 and v0.2.1
+> checkpoint uses `legacy_raw_v1`. `encoder.normalize: true` was not applied,
+> so those runs trained and evaluated on raw pooled Carbon states. Training
+> sources used global pooling while targets were edit-centered. Historical
+> centered pools were shifted one hidden token left because the leading `<dna>`
+> token was omitted from the token offset; rollout and candidate centers also
+> differed, and cache v1 omitted the center identity. The pinned Carbon
+> `tokenizer.py` also performed an unpinned, network-capable
+> `Qwen/Qwen3-4B-Base` lookup, so the prior runtime was not self-contained. In the
+> v0.2.1 Phase 2 run, KL was computed from frozen target states and supplied
+> no gradient to the trainable parameters. Published metrics are historical
+> legacy-implementation outputs. These defects invalidate the checkpoints and
+> metrics as evidence for the intended normalized method. Corrected results
+> require a new `l2_normalized_v2` lineage. The local pure-DNA tokenizer and
+> token-layout-aware centering repairs establish code contracts only, not model
+> quality.
 
 ## Start Here
 
@@ -33,8 +49,8 @@ model-quality evidence is mixed or negative versus Carbon.
 | Source/wheel release | <https://github.com/AbdelStark/GenoLeWM/releases/tag/v0.2.1> |
 | Model package | <https://huggingface.co/abdelstark/geno-lewm> |
 | Dataset package | <https://huggingface.co/datasets/abdelstark/geno-lewm-data> |
-| Benchmark/planning/paper tree | <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1> |
-| Generated paper | <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md> |
+| Historical v0.2.1 benchmark/planning/paper tree | <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1> |
+| Historical v0.2.1 generated paper | <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md> |
 
 ## Core Commands
 
@@ -50,6 +66,10 @@ for Carbon-backed training paths.
 
 ## Current Boundaries
 
+- No corrected normalized-method result is published. Existing checkpoints
+  and metrics are `legacy_raw_v1` historical outputs.
+- The v0.2.1 Phase 2 KL changed the reported scalar loss but had no gradient
+  with respect to the optimized predictor and action encoder.
 - No clinical utility claim.
 - No broad model-quality claim.
 - No K=20 rollout-speed closure.

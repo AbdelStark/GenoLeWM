@@ -27,7 +27,13 @@ def _hash(seed: int) -> bytes:
     return bytes([seed % 256]) * 32
 
 
-def _record(seed: int, *, pool_radius: int = 256, dtype: str = "fp16") -> WindowCacheRecord:
+def _record(
+    seed: int,
+    *,
+    pool_radius: int = 256,
+    center_token: int = 128,
+    dtype: str = "fp16",
+) -> WindowCacheRecord:
     return WindowCacheRecord(
         chrom="1",
         start_bp=seed * 10,
@@ -37,6 +43,7 @@ def _record(seed: int, *, pool_radius: int = 256, dtype: str = "fp16") -> Window
         state_layer=-1,
         pool_type=POOL_CENTERED_MEAN,
         pool_radius=pool_radius,
+        center_token=center_token,
         dtype=dtype,
         embedding=(float(seed), float(seed + 1), float(seed + 2)),
         untargeted=False,
@@ -54,6 +61,7 @@ def test_record_with_created_at_fills_timestamp() -> None:
         state_layer=-1,
         pool_type=POOL_CENTERED_MEAN,
         pool_radius=256,
+        center_token=128,
         dtype="fp16",
         embedding=(1.0,),
         untargeted=False,
@@ -90,6 +98,7 @@ def test_cache_key_invariance_distinct_configs_do_not_collide(tmp_path: Path) ->
         state_layer=base.state_layer,
         pool_type=base.pool_type,
         pool_radius=256,
+        center_token=base.center_token,
         dtype=base.dtype,
         embedding=(7.0, 8.0, 9.0),
         untargeted=base.untargeted,
@@ -114,6 +123,32 @@ def test_cache_key_invariance_distinct_configs_do_not_collide(tmp_path: Path) ->
     assert base.key != distinct.key
     assert read_embedding(tmp_path, base.key) == base.embedding
     assert read_embedding(tmp_path, distinct.key) == distinct.embedding
+
+
+def test_cache_key_includes_center_token(tmp_path: Path) -> None:
+    first = _record(21, center_token=127)
+    second = WindowCacheRecord(
+        chrom=first.chrom,
+        start_bp=first.start_bp,
+        end_bp=first.end_bp,
+        window_hash=first.window_hash,
+        encoder_hash=first.encoder_hash,
+        state_layer=first.state_layer,
+        pool_type=first.pool_type,
+        pool_radius=first.pool_radius,
+        center_token=128,
+        dtype=first.dtype,
+        embedding=(91.0, 92.0, 93.0),
+        untargeted=first.untargeted,
+        created_at=first.created_at + 1,
+    )
+
+    write_shard(tmp_path, encoder_id="carbon", contig="1", stride_block=0, records=[first])
+    write_shard(tmp_path, encoder_id="carbon", contig="1", stride_block=1, records=[second])
+
+    assert first.key != second.key
+    assert read_embedding(tmp_path, first.key) == first.embedding
+    assert read_embedding(tmp_path, second.key) == second.embedding
 
 
 def test_read_embedding_misses_when_index_absent(tmp_path: Path) -> None:
@@ -159,6 +194,59 @@ def test_index_stores_hashes_as_hex_text(tmp_path: Path) -> None:
     assert encoder_hash == record.encoder_hash.hex()
 
 
+def test_legacy_sqlite_index_is_dropped_before_lookup(tmp_path: Path) -> None:
+    record = _record(22)
+    write_shard(tmp_path, encoder_id="carbon", contig="1", stride_block=0, records=[record])
+    index = tmp_path / "embeddings" / "index.sqlite"
+    index.unlink()
+    with closing(sqlite3.connect(index)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE window_index (
+                window_hash TEXT NOT NULL,
+                encoder_hash TEXT NOT NULL,
+                state_layer INTEGER NOT NULL,
+                pool_type TEXT NOT NULL,
+                pool_radius INTEGER NOT NULL,
+                dtype TEXT NOT NULL,
+                shard_path TEXT NOT NULL,
+                row_offset INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (
+                    window_hash, encoder_hash, state_layer, pool_type, pool_radius, dtype
+                )
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO window_index VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.window_hash.hex(),
+                record.encoder_hash.hex(),
+                record.state_layer,
+                record.pool_type,
+                record.pool_radius,
+                record.dtype,
+                "legacy.parquet",
+                0,
+                record.created_at,
+            ),
+        )
+        conn.commit()
+
+    assert read_embedding(tmp_path, record.key) is None
+    with closing(sqlite3.connect(index)) as conn:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(window_index)")]
+        assert "center_token" in columns
+        assert conn.execute("SELECT COUNT(*) FROM window_index").fetchone()[0] == 0
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+
+    reindex_cache(tmp_path)
+    assert read_embedding(tmp_path, record.key) == record.embedding
+
+
 def test_repair_quarantines_truncated_shards(tmp_path: Path) -> None:
     record = _record(5)
     shard = write_shard(tmp_path, encoder_id="carbon", contig="1", stride_block=0, records=[record])
@@ -172,6 +260,21 @@ def test_repair_quarantines_truncated_shards(tmp_path: Path) -> None:
     assert not shard.exists()
     assert report.quarantined[0].is_file()
     assert read_embedding(tmp_path, record.key) is None
+
+
+def test_repair_quarantines_legacy_shard_without_center_token(tmp_path: Path) -> None:
+    pq = pytest.importorskip("pyarrow.parquet")
+    record = _record(23)
+    shard = write_shard(tmp_path, encoder_id="carbon", contig="1", stride_block=0, records=[record])
+    table = pq.read_table(shard)
+    pq.write_table(table.drop(["center_token"]), shard)
+
+    report = repair_cache(tmp_path)
+
+    assert report.checked_shards == 1
+    assert len(report.quarantined) == 1
+    assert report.reindex.indexed_rows == 0
+    assert not shard.exists()
 
 
 def test_repair_disambiguates_existing_quarantine_file(tmp_path: Path) -> None:
@@ -221,6 +324,7 @@ def test_existing_shard_refuses_conflicting_duplicate_key(tmp_path: Path) -> Non
         state_layer=record.state_layer,
         pool_type=record.pool_type,
         pool_radius=record.pool_radius,
+        center_token=record.center_token,
         dtype=record.dtype,
         embedding=(99.0,),
         untargeted=record.untargeted,
@@ -318,6 +422,9 @@ def test_shard_path_sanitizes_encoder_id(tmp_path: Path) -> None:
         {"state_layer": True},
         {"pool_type": "unsupported"},
         {"pool_radius": -1},
+        {"center_token": None},
+        {"center_token": -1},
+        {"center_token": True},
         {"dtype": "int8"},
     ],
 )
@@ -331,6 +438,7 @@ def test_record_validation_rejects_invalid_fields(kwargs: dict[str, object]) -> 
         "state_layer": -1,
         "pool_type": POOL_CENTERED_MEAN,
         "pool_radius": 256,
+        "center_token": 128,
         "dtype": "fp16",
         "embedding": (1.0,),
         "untargeted": False,
@@ -349,7 +457,32 @@ def test_window_cache_key_validation_rejects_invalid_fields() -> None:
             state_layer=-1,
             pool_type=POOL_CENTERED_MEAN,
             pool_radius=256,
+            center_token=128,
             dtype="int4",
+        )
+
+
+def test_global_pooling_key_requires_absent_center_token() -> None:
+    key = WindowCacheKey(
+        window_hash=_hash(1),
+        encoder_hash=_hash(2),
+        state_layer=-1,
+        pool_type=POOL_GLOBAL_MEAN,
+        pool_radius=0,
+        center_token=None,
+        dtype="fp16",
+    )
+
+    assert key.center_token is None
+    with pytest.raises(InputError, match="center_token must be absent"):
+        WindowCacheKey(
+            window_hash=_hash(1),
+            encoder_hash=_hash(2),
+            state_layer=-1,
+            pool_type=POOL_GLOBAL_MEAN,
+            pool_radius=0,
+            center_token=128,
+            dtype="fp16",
         )
 
 
@@ -410,6 +543,7 @@ def test_write_shard_validation_rejects_invalid_batches(tmp_path: Path) -> None:
                     state_layer=base.state_layer + 1,
                     pool_type=base.pool_type,
                     pool_radius=base.pool_radius,
+                    center_token=base.center_token,
                     dtype=base.dtype,
                     embedding=base.embedding,
                     untargeted=base.untargeted,
@@ -434,6 +568,7 @@ def test_write_shard_validation_rejects_invalid_batches(tmp_path: Path) -> None:
                     state_layer=base.state_layer,
                     pool_type=POOL_GLOBAL_MEAN,
                     pool_radius=base.pool_radius,
+                    center_token=None,
                     dtype=base.dtype,
                     embedding=base.embedding,
                     untargeted=base.untargeted,
@@ -458,6 +593,7 @@ def test_write_shard_validation_rejects_invalid_batches(tmp_path: Path) -> None:
                     state_layer=base.state_layer,
                     pool_type=base.pool_type,
                     pool_radius=base.pool_radius + 1,
+                    center_token=base.center_token,
                     dtype=base.dtype,
                     embedding=base.embedding,
                     untargeted=base.untargeted,

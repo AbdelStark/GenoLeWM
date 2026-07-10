@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+import geno_lewm.training.real as real_module
+from geno_lewm.action import EditSpec
 from geno_lewm.config import load_config
+from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import (
     SOURCE_CLINVAR,
     SOURCE_GNOMAD_COMMON,
@@ -38,6 +42,8 @@ from geno_lewm.training.real import (
 )
 from geno_lewm.training.trainer import TorchTrainerStepResult, TrainerSeeds
 from tests.unit.test_training_preflight import _write_release_dataset, _write_training_config
+
+_ENCODER_WEIGHTS_HASH = "sha256:" + ("a" * 64)
 
 
 def _step_result(*, loss: float, var: float, step: int = 1) -> TorchTrainerStepResult:
@@ -247,6 +253,63 @@ def test_move_trainable_to_device_leaves_cpu_module_in_place() -> None:
     assert module.devices == []
 
 
+def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime_setup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "dataset_manifest.json").write_text("{}\n", encoding="utf-8")
+    carbon_dir = tmp_path / "carbon"
+    carbon_dir.mkdir()
+    window = WindowContext(
+        record_id="placed-1",
+        source=SOURCE_GNOMAD_COMMON,
+        sequence="ACGT" * 16,
+        chrom="1",
+    )
+    observed: list[tuple[Path, str]] = []
+
+    monkeypatch.setattr(
+        real_module,
+        "_load_dataset_manifest",
+        lambda _dataset_dir: {"snapshot_id": "fixture", "files": []},
+    )
+    monkeypatch.setattr(real_module, "_dataset_files", lambda _manifest: ())
+    monkeypatch.setattr(real_module, "_load_windows", lambda *_args: iter((window,)))
+    monkeypatch.setattr(
+        real_module,
+        "_load_gnomad_edits",
+        lambda *_args: iter((EditSpec(chrom="1", pos=1, ref="A", alt="T"),)),
+    )
+    monkeypatch.setattr(real_module, "_load_clinvar_edits", lambda *_args: iter(()))
+
+    def fake_encoder_identity_hash(model_dir: Path, *, state_contract_version: str) -> str:
+        observed.append((model_dir, state_contract_version))
+        return _ENCODER_WEIGHTS_HASH
+
+    def stop_after_identity(_config: object) -> str:
+        raise RuntimeError("runtime setup reached")
+
+    monkeypatch.setattr(real_module, "encoder_identity_hash", fake_encoder_identity_hash)
+    monkeypatch.setattr(real_module, "_training_device", stop_after_identity)
+
+    with pytest.raises(RuntimeError, match="runtime setup reached"):
+        real_module.run_carbon_training(
+            config=config,
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            run_dir=tmp_path / "run",
+            steps=1,
+            command="geno-lewm-train --carbon-train",
+            commit_sha="abcdef123456",
+            package_version="0.1.0.dev0",
+        )
+
+    assert observed == [(carbon_dir, config.encoder.state_contract_version)]
+
+
 def test_validate_resume_checkpoint_accepts_matching_identity(tmp_path: Path) -> None:
     config = load_config(_write_training_config(tmp_path))
     seeds = TrainerSeeds.from_base_seed(config.seed)
@@ -258,9 +321,105 @@ def test_validate_resume_checkpoint_accepts_matching_identity(tmp_path: Path) ->
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         seeds=seeds,
         target_steps=5,
+        encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
     )
 
     assert checkpoint.steps_completed == 3
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "delete", "message"),
+    [
+        ("encoder.effective_normalize", "true", False, "must be boolean"),
+        ("encoder.normalize", False, False, "config does not match"),
+        (
+            "encoder.identity_hash",
+            None,
+            True,
+            "missing a complete encoder representation identity",
+        ),
+    ],
+)
+def test_validate_resume_checkpoint_rejects_malformed_encoder_contract(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    delete: bool,
+    message: str,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    checkpoint_config = payload["config"]
+    assert isinstance(checkpoint_config, dict)
+    if delete:
+        del checkpoint_config[field]
+    else:
+        checkpoint_config[field] = value
+
+    with pytest.raises(InputError, match=message):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        )
+
+
+def test_validate_resume_checkpoint_rejects_legacy_payload_for_normalized_lineage(
+    tmp_path: Path,
+) -> None:
+    legacy_config = load_config(_write_training_config(tmp_path))
+    config = replace(
+        legacy_config,
+        encoder=replace(
+            legacy_config.encoder,
+            state_contract_version="l2_normalized_v2",
+        ),
+    )
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    payload_config = payload["config"]
+    assert isinstance(payload_config, dict)
+    payload_config["encoder.state_contract_version"] = "legacy_raw_v1"
+    payload_config["encoder.effective_normalize"] = False
+
+    with pytest.raises(InputError, match="state contract does not match"):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        )
+
+
+def test_legacy_resume_rejects_missing_encoder_identity(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    payload_config = payload["config"]
+    assert isinstance(payload_config, dict)
+    for key in tuple(payload_config):
+        if key.startswith("encoder."):
+            del payload_config[key]
+
+    with pytest.raises(InputError, match="complete encoder state contract"):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        )
 
 
 def test_validate_resume_checkpoint_rejects_dataset_mismatch(tmp_path: Path) -> None:
@@ -277,6 +436,7 @@ def test_validate_resume_checkpoint_rejects_dataset_mismatch(tmp_path: Path) -> 
             dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
             seeds=seeds,
             target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
         )
 
 
@@ -294,6 +454,46 @@ def test_validate_resume_checkpoint_rejects_config_mismatch(tmp_path: Path) -> N
             dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
             seeds=seeds,
             target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        )
+
+
+def test_normalized_resume_rejects_encoder_identity_mismatch(tmp_path: Path) -> None:
+    legacy_config = load_config(_write_training_config(tmp_path))
+    config = replace(
+        legacy_config,
+        encoder=replace(
+            legacy_config.encoder,
+            state_contract_version="l2_normalized_v2",
+        ),
+    )
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    payload_config = payload["config"]
+    assert isinstance(payload_config, dict)
+    payload_config.update(
+        {
+            "encoder.normalize": True,
+            "encoder.state_contract_version": "l2_normalized_v2",
+            "encoder.effective_normalize": True,
+            "encoder.identity_hash": "sha256:" + ("b" * 64),
+            "encoder.revision": config.encoder.revision,
+            "encoder.dtype": config.encoder.dtype,
+            "encoder.state_layer": config.encoder.state_layer,
+            "encoder.pool_type": config.encoder.pool_type,
+            "encoder.pool_radius": config.encoder.pool_radius,
+        }
+    )
+
+    with pytest.raises(InputError, match="encoder representation does not match"):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
         )
 
 
@@ -309,6 +509,7 @@ def test_validate_resume_checkpoint_rejects_finished_checkpoint(tmp_path: Path) 
             dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
             seeds=seeds,
             target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
         )
 
 
@@ -330,6 +531,7 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         steps=7,
         seeds=seeds,
+        encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
     )
 
     payload = torch.load(path, map_location="cpu")
@@ -340,12 +542,18 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         seeds=seeds,
         target_steps=8,
+        encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
     )
 
     assert checkpoint.steps_completed == 7
     assert payload["predictor"]
     assert payload["action_encoder"]
     assert payload["optimizer"]
+    assert payload["config"]["encoder.normalize"] is True
+    assert payload["config"]["encoder.state_contract_version"] == "legacy_raw_v1"
+    assert payload["config"]["encoder.effective_normalize"] is False
+    assert payload["config"]["encoder.identity_hash"] == _ENCODER_WEIGHTS_HASH
+    assert payload["config"]["encoder.state_layer"] == config.encoder.state_layer
 
 
 def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dict[str, object]:
@@ -362,6 +570,15 @@ def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dic
             "data.batch_size": config.data.batch_size,
             "predictor.d_state": config.predictor.d_state,
             "action.d_action": config.action.d_action,
+            "encoder.normalize": config.encoder.normalize,
+            "encoder.state_contract_version": config.encoder.state_contract_version,
+            "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),
+            "encoder.identity_hash": _ENCODER_WEIGHTS_HASH,
+            "encoder.revision": config.encoder.revision,
+            "encoder.dtype": config.encoder.dtype,
+            "encoder.state_layer": config.encoder.state_layer,
+            "encoder.pool_type": config.encoder.pool_type,
+            "encoder.pool_radius": config.encoder.pool_radius,
         },
         "predictor": {},
         "action_encoder": {},

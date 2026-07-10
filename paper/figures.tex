@@ -22,11 +22,11 @@
     frozen/.style={box,draw=genocolor,fill=statefill,very thick},
     train/.style={box,draw=carboncolor,fill=actfill,very thick},
     io/.style={align=center,font=\footnotesize},
-    lat/.style={circle,draw,minimum size=8mm,inner sep=1pt,font=\footnotesize},
+    lat/.style={circle,draw,minimum size=8mm,inner sep=1pt,font=\footnotesize,align=center},
     arr/.style={-{Stealth[length=2.2mm]},thick},
   ]
     \node[io] (edit) {edit action $a$\\[-1pt]\scriptsize(pos, type, ref, alt)};
-    \node[io,below=10mm of edit] (wref) {reference window\\[-1pt]$w_{\mathrm{ref}}$ ($\approx$12\,kbp)};
+    \node[io,below=10mm of edit] (wref) {reference window\\[-1pt]$w_{\mathrm{ref}}$ ($4{,}096$\,bp released)};
     \node[io,below=12mm of wref] (walt) {edited window\\[-1pt]$w_{\mathrm{alt}}$};
 
     \node[train,right=12mm of edit] (aenc) {action\\encoder};
@@ -34,16 +34,12 @@
     \node[frozen,right=12mm of walt] (enc2) {Carbon-500M\\encoder \textbf{(frozen)}};
 
     \node[lat,right=10mm of aenc] (aemb) {$a_{\mathrm{emb}}$};
-    \node[lat,right=10mm of enc1] (st) {$s_t$};
-    \node[lat,right=10mm of enc2] (stp1) {$s_{t+1}$};
+    \node[lat,right=10mm of enc1] (st) {$s_t$ raw\\[-2pt]\scriptsize global};
+    \node[lat,right=10mm of enc2] (stp1) {$s_{t+1}$ raw\\[-2pt]\scriptsize centered};
 
     \node[train,right=16mm of st,minimum height=13mm] (pred) {cross-attention\\predictor $g$};
-    \node[lat,right=12mm of pred] (shat) {$\hat s_{t+1}$};
+    \node[lat,right=12mm of pred] (shat) {$\hat s_{t+1}$ unit};
     \node[box,draw=black!55,right=10mm of shat] (loss) {$\mathcal{L}_{\mathrm{pred}}$};
-    \node[io,below=7mm of pred,text=black!75,align=center] (down)
-      {\textbf{downstream (latent-only, no Carbon call):}\\[-1pt]
-       surprise $\|\hat s_{t+1}-s_{t+1}\|$ \;$\cdot$\; AR rollout \;$\cdot$\; CEM planning};
-
     \draw[arr] (edit) -- (aenc);
     \draw[arr] (wref) -- (enc1);
     \draw[arr] (walt) -- (enc2);
@@ -55,22 +51,21 @@
     \draw[arr] (pred) -- (shat);
     \draw[arr] (shat) -- (loss);
     \draw[arr] (stp1) -| (loss.south);
-    \draw[arr,dashed,black!55] (shat.south) -- ([yshift=2mm]down.east -| shat.south) ;
-
     \begin{scope}[on background layer]
       \node[fit=(enc1)(enc2)(wref)(walt),draw=genocolor,dashed,rounded corners,inner sep=6pt,
         label={[genocolor,font=\footnotesize]above:frozen state encoder (paid once per window)}] {};
     \end{scope}
   \end{tikzpicture}}
-  \caption{\textbf{GenoLeWM as an action-conditioned latent world model over genomic edits.}
+  \caption{\textbf{Released v0.2.1-r1 computation, exposing the state-contract violation.}
   A frozen Carbon-500M DNA encoder maps a reference window $w_{\mathrm{ref}}$ to a state
   $s_t\in\mathbb{R}^{1024}$; a small trainable action encoder maps an explicit edit
   $a=(\text{pos},\text{type},\text{ref},\text{alt})$ to $a_{\mathrm{emb}}$; and a cross-attention
-  predictor $g$ estimates the post-edit state $\hat s_{t+1}=g(s_t,a_{\mathrm{emb}})$. Only the action
-  encoder and predictor are trained ($\approx$40M params); the training target $s_{t+1}$ is the frozen
-  encoding of the edited window $w_{\mathrm{alt}}$. Once $\hat s_{t+1}$ is available, every downstream
-  use (surprise scoring, multi-edit rollout, CEM planning) operates entirely in latent space and never
-  re-invokes Carbon.}
+  predictor $g$ returns $\hat s_{t+1}=g(s_t,a_{\mathrm{emb}})$. Although \texttt{normalize: true} was
+  configured, released source and target encoder states were raw (rollout mean norms $29$--$34$), while
+  the predictor output was unit norm. Training sources used global pooling while targets used edit-centered
+  pooling; every nominal edit center also omitted the leading \texttt{<dna>} token and was shifted one hidden token left.
+  Rollout changed the source coordinate again. The frozen target-only KL had no gradient and no LoRA was present.
+  The diagram documents implementation flow, not validated world-model capability.}
   \label{fig:architecture}
 \end{figure}}
 
@@ -104,12 +99,11 @@
   \legend{GenoLeWM, Carbon zero-shot}
   \end{axis}
   \end{tikzpicture}
-  \caption{\textbf{Variant-effect prediction: GenoLeWM trails the Carbon zero-shot baseline on the
-  pathogenicity-bearing slices.} Bars are the released v0.2.1 values; Carbon values are recovered as
-  GenoLeWM~$-$~$\Delta$. GenoLeWM is worse on ClinVar coding/non-coding AUROC and BRCA2 saturation
-  Spearman; the only ``win'' (TraitGym) is between two scores indistinguishable from zero. Slices are
-  small (metrics quantized in steps of $0.0625{=}1/16$, consistent with $\approx$16 evaluated variants
-  per ClinVar slice); see \S\ref{sec:limitations}.}
+  \caption{\textbf{Historical v0.2.1 VEP rows; withdrawn as a method comparison.} Carbon values are
+  recovered as GenoLeWM~$-$~$\Delta$. The GenoLeWM ranking score came from an $L_2$ residual between
+  unit-norm predictions and raw target states, so bar differences do not establish better or worse
+  performance for the intended normalized-state method. The small slices add a separate power
+  limitation; see \S\ref{sec:limitations}.}
   \label{fig:vep}
 \end{figure}}
 
@@ -135,12 +129,11 @@
   \legend{GenoLeWM predictor, source-state baseline $\hat s_{t+1}{=}s_t$}
   \end{axis}
   \end{tikzpicture}
-  \caption{\textbf{The latent-residual baseline trap.} A trivial baseline that predicts \emph{no change}
-  ($\hat s_{t+1}{=}s_t$) attains cosine $\approx0.99$ to the true post-edit state, because a single
-  SNV barely perturbs a 1024-dimensional frozen Carbon embedding. The trained predictor's outputs sit at
-  cosine $\approx0.29$--$0.30$, far below the do-nothing baseline (deltas $-0.709$ and $-0.690$).
-  This is the central diagnostic for why edit-conditioned latent prediction is hard in this regime
-  (\S\ref{sec:discussion}).}
+  \caption{\textbf{Historical rollout cosine; mechanism withdrawn.} Prediction-to-target cosine is
+  $\approx0.29$--$0.30$ and raw-source-to-target cosine is $\approx0.99$. Cosine is scale-invariant, so
+  these values remain historical measurements, but the predictor was trained with a mixed-scale $L_2$
+  term, mixed pooling coordinates, a one-hidden-token centering offset, and rollout differs from the training distribution. The gap therefore does not establish a
+  latent-residual trap, action-conditioning failure, or any other mechanism (\S\ref{sec:discussion}).}
   \label{fig:rollout}
 \end{figure}}
 
@@ -165,10 +158,10 @@
     node[pos=0.5,above,font=\small,carboncolor]{RFC-0004 target $5.0\times$ (open, \#42)};
   \end{axis}
   \end{tikzpicture}
-  \caption{\textbf{KV-cached autoregressive rollout speedup.} Cached \texttt{ARPredictor} rollout is
+  \caption{\textbf{Historical KV-cache micro-benchmark.} Cached \texttt{ARPredictor} rollout is
   $2.41\times$ ($K{=}5$) and $2.47\times$ ($K{=}20$) faster than naive repeated one-step prediction.
   The gain is real but short of the $5\times$ target at $K{=}20$, which remains open and was explicitly rescoped.
-  Measured on toy synthetic dimensions ($d_{\mathrm{state}}{=}64$, CPU, fp32); not Carbon-scale.}
+  Measured on synthetic tensors with batch $8$, $d_{\mathrm{state}}{=}1024$, $d_{\mathrm{action}}{=}64$, CUDA, and bf16 on H200. The benchmark-specific predictor ($d_{\mathrm{hidden}}{=}1024$, $6+1$ blocks, FFN $4096$) is not the exact released checkpoint.}
   \label{fig:arspeed}
 \end{figure}}
 
@@ -191,20 +184,14 @@
   ]
   \addplot[fill=carboncolor,draw=carboncolor] coordinates {
     ({Regime 1\\cold subprocess},115262.94) [115{,}263\,ms]};
-  \addplot[pattern=north east lines,pattern color=baselinecolor,draw=baselinecolor] coordinates {
-    ({Regime 2\\warm cache},95) [${\sim}95$\,ms (est.)]
-    ({Regime 3\\latent rollout},1) [${\sim}1$\,ms (est.)]};
-  \legend{measured, estimated (unmeasured)}
   \end{semilogyaxis}
   \end{tikzpicture}
-  \caption{\textbf{The efficiency thesis is architecturally sound but unmeasured in the regime it
-  describes.} Only \emph{Regime 1}, a cold \texttt{geno-lewm-score} subprocess (interpreter start,
-  ${\sim}1$\,GiB Carbon load, two Carbon forward passes), is measured, at $115{,}262.94$\,ms; the
-  ${\sim}160$\,ms of actual Carbon compute is dwarfed by process start and model loading. The
+  \caption{\textbf{Historical cold-process timing.} Only \emph{Regime 1}, a cold \texttt{geno-lewm-score} subprocess (interpreter start,
+  ${\sim}1$\,GiB Carbon load, two Carbon forward passes), is measured, at $115{,}262.94$\,ms. The
+  release did not profile component timing, so this total cannot be apportioned between loading and compute. The
   ``pay-Carbon-once'' thesis applies to \emph{Regime 2} (warm reference cache: one Carbon call on the
   edited window, in-process) and \emph{Regime 3} (latent-only rollout/planning: zero further Carbon
-  calls), both \emph{unmeasured} on this checkpoint; the hatched bars are order-of-magnitude estimates,
-  not results (\S\ref{sec:efficiency}). The $115$\,s figure is therefore evidence of cold-start cost,
-  neither evidence that GenoLeWM is slow per inference nor that it is fast versus Carbon.}
+  calls), both \emph{unmeasured} on this checkpoint and therefore shown without bars. Because corresponding model quality is invalidated, this figure
+  supports neither a deployment claim nor an efficiency--quality comparison.}
   \label{fig:efficiency}
 \end{figure}}

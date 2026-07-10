@@ -25,51 +25,62 @@ tags:
 
 Action-conditioned latent world models for genomic edits.
 
-This Space is the public project console for GenoLeWM. It shows the
-released artifacts, measured benchmark results, model limitations, and a
-checkpoint-backed scoring path.
+This Space is the public project console for GenoLeWM. It shows released
+artifacts, historical implementation outputs, and model limitations. Legacy
+scientific scoring is disabled after the 2026-07-10 state-contract audit.
+
+Every published checkpoint uses `legacy_raw_v1`: raw pooled Carbon
+source/target states were combined with unit-normalized predictions. That
+mismatch invalidates released L2 residuals, VEP/calibration scores, and the
+planning objective. Training sources were also globally pooled while targets
+were edit-centered; every historical centered pool was shifted one hidden token
+left because the leading `<dna>` token was omitted, rollout/candidate centers
+differed, and cache v1 omitted that identity. The pinned Carbon tokenizer also
+made an unpinned, network-capable `Qwen/Qwen3-4B-Base` lookup, so the historical
+runtime was not self-contained. Released cosine values remain reproducible but are
+confounded by invalid training. The v0.2.1 Phase 2 KL also had no gradient
+path to any trainable parameter. Corrected results require a fresh
+`l2_normalized_v2` lineage.
+
+The source-level pure-DNA tokenizer and token-layout-aware centering repairs do
+not provide a corrected checkpoint or model-quality evidence.
 
 ## What This Space Does
 
 - Shows the current model, dataset, benchmark, planning, and paper
   artifacts.
-- Summarizes the v0.2.1 benchmark evidence without hiding negative
-  findings.
+- Displays v0.2.1 rows as historical outputs without reusing their withdrawn
+  positive or negative interpretation.
 - Downloads the released trained checkpoint files on demand.
 - Verifies that the action encoder and predictor weights can be loaded.
-- Attempts single-variant scoring with the checkpoint when the Space
-  runtime can also resolve the pinned Carbon-500M encoder.
-- Uses a synthetic, sequence-consistent default scoring example. For real
-  variants, the supplied `REF` allele must match the pasted FASTA reference
-  window at the relative locus; the app checks this before loading the model.
+- Displays the legacy checkpoint identity and declared encoder configuration
+  for provenance inspection.
+- Does not run single-variant scientific scoring with published checkpoints.
 
-## How To Read The Model-Run Screen
+## How To Read The Checkpoint Screen
 
-The **Checkpoint** tab is the model-run screen. It first materializes the
-released checkpoint artifacts, then the scorer validates a
-`CHROM:POS:REF:ALT` edit against the supplied reference window. If the
-reference allele does not match the sequence at the implied offset, the app
-stops before model inference.
+The **Checkpoint** tab materializes the released artifacts and can verify that
+the action encoder and predictor weights load. This is an integrity and
+compatibility check, not model-quality or scientific-score evidence.
 
-Successful runs return a JSON payload:
+Historical output fields may still appear in downloaded reports:
 
 - `sigma_raw` is the uncalibrated latent residual between the predicted
-  post-edit state and the Carbon-encoded edited state. Treat it as a
-  research/debug ranking signal; it is not a probability of pathogenicity.
+  post-edit state and the Carbon-encoded edited state. Published values mix
+  incompatible state scales and are invalid as edit-effect rankings.
 - `sigma_calibrated` maps that residual through the released calibration
-  table. Higher means more surprising relative to that calibration background;
-  it is not a clinical risk score.
+  table. Because the underlying residual is invalid, the legacy calibrated
+  value is not a scientific or clinical score.
 - `bucket_id`, `confidence`, and `low_confidence` describe the calibration
-  context. A low-confidence result should be treated as especially tentative.
-- `input_preflight` records the parsed variant, relative offset, observed
-  reference base, and window length used for the strict input check.
-- `runtime_note` explains whether Carbon-500M was remapped from the Hub, and
-  `receipt_path` points to the checksum receipt for artifact/output identity.
+  context of the historical output; they do not restore validity.
 
 ## Boundaries
 
 - No clinical utility claim.
-- No broad claim that GenoLeWM beats Carbon.
+- No superiority or inferiority claim from published legacy metrics.
+- No valid scientific scoring with a published checkpoint.
+- No valid L2 rollout, VEP/calibration, or planning-objective claim from
+  `legacy_raw_v1` artifacts.
 - Fixture or demo outputs are not model-quality evidence.
 - Checksum provenance covers artifact identity; it is not a runtime
   assurance system.

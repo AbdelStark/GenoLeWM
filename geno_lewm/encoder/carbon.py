@@ -12,16 +12,21 @@ from __future__ import annotations
 import hashlib
 import importlib
 from collections.abc import Callable, Mapping, Sequence
-from typing import Literal, cast
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Literal, cast
 
 from geno_lewm._inference import torch_inference_context
+from geno_lewm.encoder._dna_tokenizer import CarbonDNATokenizer
+from geno_lewm.encoder._identity import encoder_runtime_hash, encoder_weights_hash
+from geno_lewm.encoder._normalization import l2_normalize_state
 from geno_lewm.encoder.pooling import (
     DEFAULT_POOL_RADIUS_TOKENS,
     POOL_CENTERED_MEAN,
     POOL_GLOBAL_MEAN,
     pool_hidden_states,
 )
-from geno_lewm.encoder.windowing import canonicalize_dna, wrap_dna_for_tokenizer
+from geno_lewm.encoder.windowing import CARBON_TOKEN_BP, canonicalize_dna, wrap_dna_for_tokenizer
 from geno_lewm.errors import InputError, RuntimeSetupError
 
 __all__ = ["CarbonStateEncoder"]
@@ -78,6 +83,11 @@ class CarbonStateEncoder:
                 "pool_radius must be a non-negative integer",
                 details={"pool_radius": pool_radius, "type": type(pool_radius).__name__},
             )
+        if pool_type == POOL_GLOBAL_MEAN and pool_radius != 0:
+            raise InputError(
+                "global_mean pooling requires pool_radius=0",
+                details={"pool_type": pool_type, "pool_radius": pool_radius},
+            )
         if not isinstance(normalize, bool):
             raise InputError(
                 "normalize must be bool",
@@ -108,6 +118,8 @@ class CarbonStateEncoder:
         self._d_state: int | None = None
 
         if model is None or tokenizer is None:
+            if self._encoder_hash is not None:
+                _verify_local_encoder_weights(model_id, expected_hash=self._encoder_hash)
             tokenizer, model = _load_transformers_components(
                 model_id=model_id,
                 revision=revision,
@@ -117,6 +129,9 @@ class CarbonStateEncoder:
             )
         self.tokenizer = tokenizer
         self.model = model
+        self._parameter_count, self._trainable_parameter_count = _freeze_module_parameters(
+            self.model
+        )
         _eval_if_available(self.model)
         _move_module_to_device(self.model, self.device)
         config = getattr(self.model, "config", None)
@@ -155,6 +170,11 @@ class CarbonStateEncoder:
         normalized = tuple(canonicalize_dna(window) for window in windows)
         wrapped = [wrap_dna_for_tokenizer(window) for window in normalized]
         tokenized = _tokenize(self.tokenizer, wrapped)
+        layouts = _resolve_dna_token_layouts(
+            self.tokenizer,
+            tokenized,
+            sequences=normalized,
+        )
         tokenized = _move_inputs_to_device(tokenized, self.device)
         with torch_inference_context():
             output = _call_model(self.model, tokenized)
@@ -165,18 +185,67 @@ class CarbonStateEncoder:
                 details={"expected": len(windows), "observed": len(rows_by_item)},
             )
 
-        encoded = tuple(
-            pool_hidden_states(
-                rows,
-                edit_locus=edit_locus,
-                pool_type=self.pool_type,
-                pool_radius=self.pool_radius,
-            ).vector
-            for rows, edit_locus in zip(rows_by_item, edit_loci, strict=True)
+        pooled_rows: list[tuple[float, ...]] = []
+        for rows, edit_locus, layout, sequence in zip(
+            rows_by_item,
+            edit_loci,
+            layouts,
+            normalized,
+            strict=True,
+        ):
+            if len(rows) != layout.padded_token_count:
+                raise InputError(
+                    "encoder hidden-state length does not match tokenized input",
+                    details={
+                        "hidden_tokens": len(rows),
+                        "tokenized_tokens": layout.padded_token_count,
+                    },
+                )
+            center_token = layout.center_token(edit_locus, sequence_bp=len(sequence))
+            pooled_rows.append(
+                pool_hidden_states(
+                    rows[: layout.active_token_count],
+                    edit_locus=edit_locus,
+                    center_token=center_token,
+                    content_token_bounds=(
+                        layout.dna_content_start,
+                        layout.dna_content_start + layout.dna_content_count,
+                    ),
+                    pool_type=self.pool_type,
+                    pool_radius=self.pool_radius,
+                ).vector
+            )
+        pooled = tuple(pooled_rows)
+        encoded = (
+            tuple(
+                l2_normalize_state(vector, item_index=index) for index, vector in enumerate(pooled)
+            )
+            if self.normalize
+            else pooled
         )
         if encoded:
             self._d_state = len(encoded[0])
         return encoded
+
+    def pooling_identity(
+        self,
+        window: str,
+        edit_locus: int | None,
+    ) -> tuple[str, int, int | None]:
+        """Resolve the exact cache pooling identity from Carbon token IDs."""
+        sequence = canonicalize_dna(window)
+        tokenized = _tokenize(self.tokenizer, [wrap_dna_for_tokenizer(sequence)])
+        layout = _resolve_dna_token_layouts(
+            self.tokenizer,
+            tokenized,
+            sequences=(sequence,),
+        )[0]
+        center_token = layout.center_token(edit_locus, sequence_bp=len(sequence))
+        if edit_locus is None:
+            return POOL_GLOBAL_MEAN, 0, None
+        if self.pool_type == POOL_GLOBAL_MEAN:
+            return POOL_GLOBAL_MEAN, 0, None
+        return POOL_CENTERED_MEAN, self.pool_radius, center_token
 
     @property
     def encoder_hash(self) -> bytes:
@@ -196,6 +265,50 @@ class CarbonStateEncoder:
                 "d_state is not known until the encoder has produced at least one state",
             )
         return self._d_state
+
+    @property
+    def parameter_count(self) -> int:
+        """Return the number of parameters exposed by the encoder module."""
+        return self._parameter_count
+
+    @property
+    def trainable_parameter_count(self) -> int:
+        """Return zero after the frozen-encoder contract is enforced."""
+        return self._trainable_parameter_count
+
+
+@dataclass(frozen=True, slots=True)
+class _DNATokenLayout:
+    active_token_count: int
+    padded_token_count: int
+    dna_content_start: int
+    dna_content_count: int
+    token_bp: int
+
+    def center_token(self, edit_locus: int | None, *, sequence_bp: int) -> int | None:
+        if edit_locus is None:
+            return None
+        if isinstance(edit_locus, bool) or not isinstance(edit_locus, int):
+            raise InputError(
+                "edit_locus must be an integer offset",
+                details={"edit_locus": edit_locus, "type": type(edit_locus).__name__},
+            )
+        if edit_locus < 0 or edit_locus >= sequence_bp:
+            raise InputError(
+                "edit_locus falls outside the encoded DNA window",
+                details={"edit_locus": edit_locus, "sequence_bp": sequence_bp},
+            )
+        content_offset = edit_locus // self.token_bp
+        if content_offset >= self.dna_content_count:
+            raise InputError(
+                "edit_locus maps outside the tokenized DNA content",
+                details={
+                    "edit_locus": edit_locus,
+                    "token_bp": self.token_bp,
+                    "dna_content_tokens": self.dna_content_count,
+                },
+            )
+        return self.dna_content_start + content_offset
 
 
 def _load_transformers_components(
@@ -219,23 +332,244 @@ def _load_transformers_components(
     except ImportError:
         torch = None
 
-    tokenizer_cls = getattr(transformers, "AutoTokenizer", None)
     model_cls = getattr(transformers, "AutoModel", None)
-    if tokenizer_cls is None or model_cls is None:
-        raise RuntimeSetupError("transformers must expose AutoTokenizer and AutoModel")
+    if model_cls is None:
+        raise RuntimeSetupError("transformers must expose AutoModel")
 
-    kwargs = {
-        "revision": revision,
-        "local_files_only": local_files_only,
+    model_dir = _resolve_runtime_directory(
+        model_id=model_id,
+        revision=revision,
+        local_files_only=local_files_only,
+    )
+    tokenizer = CarbonDNATokenizer.from_model_dir(model_dir)
+    model_kwargs: dict[str, object] = {
+        "local_files_only": True,
         "trust_remote_code": trust_remote_code,
     }
-    tokenizer = tokenizer_cls.from_pretrained(model_id, **kwargs)
-    model_kwargs = dict(kwargs)
     torch_dtype = _torch_dtype(torch, dtype)
     if torch_dtype is not None:
         model_kwargs["torch_dtype"] = torch_dtype
-    model = model_cls.from_pretrained(model_id, **model_kwargs)
+    model = model_cls.from_pretrained(str(model_dir), **model_kwargs)
     return tokenizer, model
+
+
+def _resolve_runtime_directory(
+    *,
+    model_id: str,
+    revision: str,
+    local_files_only: bool,
+) -> Path:
+    local_path = Path(model_id).expanduser()
+    if local_path.is_dir():
+        return local_path.resolve()
+    try:
+        hub = importlib.import_module("huggingface_hub")
+    except ImportError as exc:
+        raise RuntimeSetupError(
+            "resolving a Carbon repository ID requires huggingface_hub",
+            remediation="install geno-lewm[train] or pass a local Carbon runtime directory",
+        ) from exc
+    snapshot_download = getattr(hub, "snapshot_download", None)
+    if not callable(snapshot_download):
+        raise RuntimeSetupError("huggingface_hub must expose snapshot_download")
+    try:
+        snapshot = snapshot_download(
+            repo_id=model_id,
+            revision=revision,
+            local_files_only=local_files_only,
+        )
+    except Exception as exc:
+        raise RuntimeSetupError(
+            "Carbon runtime snapshot could not be resolved",
+            details={
+                "model_id": model_id,
+                "revision": revision,
+                "local_files_only": local_files_only,
+            },
+            remediation="mount or cache the complete pinned Carbon runtime package",
+        ) from exc
+    resolved = Path(snapshot)
+    if not resolved.is_dir():
+        raise RuntimeSetupError(
+            "resolved Carbon runtime snapshot is not a directory",
+            details={"path": str(resolved)},
+        )
+    return resolved.resolve()
+
+
+def _resolve_dna_token_layouts(
+    tokenizer: object,
+    tokenized: Mapping[str, object],
+    *,
+    sequences: Sequence[str],
+) -> tuple[_DNATokenLayout, ...]:
+    input_ids = _integer_matrix(tokenized.get("input_ids"), field="input_ids")
+    attention_mask = _integer_matrix(
+        tokenized.get("attention_mask"),
+        field="attention_mask",
+    )
+    if len(input_ids) != len(sequences) or len(attention_mask) != len(sequences):
+        raise InputError(
+            "tokenizer batch size does not match encoded DNA windows",
+            details={
+                "sequences": len(sequences),
+                "input_ids": len(input_ids),
+                "attention_mask": len(attention_mask),
+            },
+        )
+    begin_id = _tokenizer_nonnegative_int(tokenizer, "dna_begin_token_id")
+    end_id = _tokenizer_nonnegative_int(tokenizer, "dna_end_token_id")
+    oov_id = _tokenizer_nonnegative_int(tokenizer, "oov_token_id")
+    pad_id = _tokenizer_nonnegative_int(tokenizer, "pad_token_id")
+    token_bp = _tokenizer_nonnegative_int(tokenizer, "k", positive=True)
+    dna_start_id = _tokenizer_nonnegative_int(tokenizer, "dna_start_id")
+    dna_vocab_size = _tokenizer_nonnegative_int(tokenizer, "dna_vocab_size", positive=True)
+    if len({begin_id, end_id, oov_id}) != 3:
+        raise InputError("Carbon tokenizer DNA control-token IDs must be distinct")
+    if (begin_id, end_id, oov_id) != (
+        dna_start_id,
+        dna_start_id + 1,
+        dna_start_id + 2,
+    ):
+        raise InputError(
+            "Carbon tokenizer DNA control-token IDs are not contiguous",
+            details={
+                "dna_start_id": dna_start_id,
+                "begin_id": begin_id,
+                "end_id": end_id,
+                "oov_id": oov_id,
+            },
+        )
+    if token_bp != CARBON_TOKEN_BP:
+        raise InputError(
+            "Carbon tokenizer k does not match the encoder contract",
+            details={"observed": token_bp, "expected": CARBON_TOKEN_BP},
+        )
+    first_kmer_id = dna_start_id + 3
+    last_kmer_id = first_kmer_id + (4**token_bp) - 1
+    if last_kmer_id >= dna_start_id + dna_vocab_size:
+        raise InputError("Carbon tokenizer DNA vocabulary cannot represent every k-mer")
+
+    layouts: list[_DNATokenLayout] = []
+    for item_index, (ids, mask, sequence) in enumerate(
+        zip(input_ids, attention_mask, sequences, strict=True)
+    ):
+        if len(ids) != len(mask) or not ids:
+            raise InputError(
+                "tokenizer input_ids and attention_mask rows must have equal non-zero length",
+                details={"item_index": item_index, "ids": len(ids), "mask": len(mask)},
+            )
+        if any(value not in (0, 1) for value in mask):
+            raise InputError(
+                "Carbon attention_mask must contain only zero or one",
+                details={"item_index": item_index},
+            )
+        active_count = sum(mask)
+        if mask != ([1] * active_count) + ([0] * (len(mask) - active_count)):
+            raise InputError(
+                "Carbon tokenizer must use contiguous right padding",
+                details={"item_index": item_index},
+            )
+        if any(token_id != pad_id for token_id in ids[active_count:]):
+            raise InputError(
+                "masked Carbon tokenizer positions must contain the declared pad token",
+                details={"item_index": item_index},
+            )
+        active_ids = ids[:active_count]
+        begin_positions = [
+            index for index, token_id in enumerate(active_ids) if token_id == begin_id
+        ]
+        end_positions = [index for index, token_id in enumerate(active_ids) if token_id == end_id]
+        if len(begin_positions) != 1 or len(end_positions) != 1:
+            raise InputError(
+                "tokenized Carbon window must contain exactly one DNA control-token pair",
+                details={
+                    "item_index": item_index,
+                    "dna_begin_count": len(begin_positions),
+                    "dna_end_count": len(end_positions),
+                },
+            )
+        begin = begin_positions[0]
+        end = end_positions[0]
+        expected_content_count = (len(sequence) + token_bp - 1) // token_bp
+        if begin != 0 or end != active_count - 1 or end - begin - 1 != expected_content_count:
+            raise InputError(
+                "tokenized Carbon window has an ambiguous DNA/control-token layout",
+                details={
+                    "item_index": item_index,
+                    "begin_token": begin,
+                    "end_token": end,
+                    "active_tokens": active_count,
+                    "expected_dna_tokens": expected_content_count,
+                },
+            )
+        content_ids = active_ids[begin + 1 : end]
+        invalid_content = [
+            token_id
+            for token_id in content_ids
+            if token_id != oov_id and not first_kmer_id <= token_id <= last_kmer_id
+        ]
+        if invalid_content:
+            raise InputError(
+                "tokenized Carbon DNA span contains non-DNA token IDs",
+                details={"item_index": item_index, "token_ids": sorted(set(invalid_content))},
+            )
+        layouts.append(
+            _DNATokenLayout(
+                active_token_count=active_count,
+                padded_token_count=len(ids),
+                dna_content_start=begin + 1,
+                dna_content_count=expected_content_count,
+                token_bp=token_bp,
+            )
+        )
+    return tuple(layouts)
+
+
+def _integer_matrix(value: object, *, field: str) -> list[list[int]]:
+    materialized = _materialize(value)
+    if not isinstance(materialized, Sequence) or isinstance(materialized, str | bytes):
+        raise InputError(
+            f"tokenizer output {field} must be a batch matrix",
+            details={"type": type(materialized).__name__},
+        )
+    matrix: list[list[int]] = []
+    for item_index, raw_row in enumerate(cast(Sequence[object], materialized)):
+        if not isinstance(raw_row, Sequence) or isinstance(raw_row, str | bytes):
+            raise InputError(
+                f"tokenizer output {field} rows must be sequences",
+                details={"item_index": item_index},
+            )
+        row: list[int] = []
+        for token_index, raw_value in enumerate(cast(Sequence[object], raw_row)):
+            if isinstance(raw_value, bool) or not isinstance(raw_value, int):
+                raise InputError(
+                    f"tokenizer output {field} values must be integers",
+                    details={
+                        "item_index": item_index,
+                        "token_index": token_index,
+                        "type": type(raw_value).__name__,
+                    },
+                )
+            row.append(raw_value)
+        matrix.append(row)
+    return matrix
+
+
+def _tokenizer_nonnegative_int(
+    tokenizer: object,
+    name: str,
+    *,
+    positive: bool = False,
+) -> int:
+    value = getattr(tokenizer, name, None)
+    minimum = 1 if positive else 0
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise InputError(
+            f"Carbon tokenizer must expose a valid {name}",
+            details={"value": value, "type": type(value).__name__},
+        )
+    return value
 
 
 def _torch_dtype(torch: object | None, dtype: str) -> object | None:
@@ -254,6 +588,55 @@ def _eval_if_available(model: object) -> None:
     eval_method = getattr(model, "eval", None)
     if callable(eval_method):
         eval_method()
+
+
+def _freeze_module_parameters(model: object) -> tuple[int, int]:
+    """Disable gradients on a torch-like module and verify the frozen contract."""
+    parameters_method = getattr(model, "parameters", None)
+    if not callable(parameters_method):
+        return 0, 0
+    try:
+        parameters = tuple(parameters_method())
+    except Exception as exc:
+        raise RuntimeSetupError("failed to enumerate Carbon encoder parameters") from exc
+
+    total = 0
+    trainable = 0
+    trainable_indices: list[int] = []
+    for index, parameter in enumerate(parameters):
+        numel_method = getattr(parameter, "numel", None)
+        count = 0
+        if callable(numel_method):
+            count = numel_method()
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise RuntimeSetupError(
+                    "Carbon encoder parameter numel() must return a non-negative integer",
+                    details={"parameter_index": index},
+                )
+            total += count
+        requires_grad_method = getattr(parameter, "requires_grad_", None)
+        if callable(requires_grad_method):
+            requires_grad_method(False)
+        elif hasattr(parameter, "requires_grad"):
+            try:
+                cast(Any, parameter).requires_grad = False
+            except (AttributeError, TypeError) as exc:
+                raise RuntimeSetupError(
+                    "failed to freeze a Carbon encoder parameter",
+                    details={"parameter_index": index},
+                ) from exc
+        if getattr(parameter, "requires_grad", False) is True:
+            trainable += count
+            trainable_indices.append(index)
+    if trainable_indices:
+        raise RuntimeSetupError(
+            "Carbon encoder parameters must be frozen",
+            details={
+                "trainable_parameter_count": trainable,
+                "trainable_parameter_indices": trainable_indices,
+            },
+        )
+    return total, trainable
 
 
 def _resolve_device(device: str | None) -> str:
@@ -303,7 +686,12 @@ def _tokenize(tokenizer: object, wrapped_windows: Sequence[str]) -> Mapping[str,
             details={"type": type(tokenizer).__name__},
         )
     call = cast(Callable[..., object], tokenizer)
-    payload = call(list(wrapped_windows), return_tensors="pt", padding=True)
+    payload = call(
+        list(wrapped_windows),
+        return_tensors="pt",
+        padding=True,
+        add_special_tokens=False,
+    )
     if not isinstance(payload, Mapping):
         raise InputError(
             "tokenizer must return a mapping",
@@ -424,3 +812,41 @@ def _coerce_encoder_hash(value: bytes | str | None) -> bytes | None:
         "encoder_hash must be bytes, str, or None",
         details={"type": type(value).__name__},
     )
+
+
+def _verify_local_encoder_weights(model_id: str, *, expected_hash: bytes) -> None:
+    model_dir = Path(model_id).expanduser()
+    if not model_dir.is_dir():
+        raise RuntimeSetupError(
+            "manifest-backed Carbon loading requires a local model directory",
+            details={"model_id": model_id},
+            remediation="mount the pinned Carbon checkpoint and set encoder.model_id to that path",
+        )
+    expected = f"sha256:{expected_hash.hex()}"
+    observed_weights = encoder_weights_hash(model_dir)
+    if observed_weights == expected:
+        return
+    try:
+        observed_runtime = encoder_runtime_hash(model_dir)
+    except InputError as exc:
+        raise RuntimeSetupError(
+            "local Carbon runtime does not match the committed encoder hash",
+            details={
+                "model_dir": str(model_dir),
+                "expected": expected,
+                "observed_weights": observed_weights,
+                "runtime_identity_error": str(exc),
+            },
+            remediation="mount the exact encoder runtime committed by the model manifest",
+        ) from exc
+    if observed_runtime != expected:
+        raise RuntimeSetupError(
+            "local Carbon runtime does not match the committed encoder hash",
+            details={
+                "model_dir": str(model_dir),
+                "expected": expected,
+                "observed_weights": observed_weights,
+                "observed_runtime": observed_runtime,
+            },
+            remediation="mount the exact encoder runtime committed by the model manifest",
+        )

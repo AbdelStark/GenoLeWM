@@ -49,20 +49,34 @@ def test_build_serious_completion_paper_binds_artifact_identities(tmp_path: Path
     assert "## Citation Metadata" in text
     assert "## Artifact Inputs" in text
     assert "## Planning Demo Evidence" in text
+    assert "## Validity Correction" in text
     assert "## Discussion and Learnings" in text
-    assert "## Negative Findings" in text
+    assert "## Historical Released Measurements" in text
     assert "## Reproducibility" in text
     assert "## References" in text
     assert "DNABERT" in text
     assert "HyenaDNA" in text
     assert "Nucleotide Transformer" in text
     assert "AlphaMissense" in text
-    assert "negative-results and systems" in text
+    assert "post-release validity correction" in text
+    assert "mixed raw/unit-normalized state contract" in text
+    assert "pooling-coordinate contract" in text
+    assert "leading <dna> control token" in text
+    assert "unpinned, network-capable Qwen/Qwen3-4B-Base load" in text
+    assert "corrected identity includes the local pure-DNA tokenizer implementation" in text
+    assert "no corrected model-quality result is published" in text
+    assert "VEP comparisons are invalid" in text
+    assert "L2 rollout distances are invalid" in text
+    assert "planning-objective values are invalid" in text
+    assert "Cosine similarity is scale-invariant but remains confounded" in text
+    assert "No model-mechanism or capability conclusion" in text
     assert "K20" in text
-    assert "does not prove useful planning behavior" in text
     assert "`23.656930390534644`" in text
     assert "v0.2_benchmark_readiness_report.json" in text
     assert "planning_demo_manifest.json" in text
+    assert "negative-results and systems" not in text
+    assert "current predictor has not learned" not in text
+    assert "The demo records one deterministic synthetic target" not in text
     assert str(tmp_path) not in text
 
 
@@ -145,8 +159,8 @@ def test_serious_completion_verifier_rejects_stale_generated_paper(tmp_path: Pat
     )
     output.write_text(
         output.read_text(encoding="utf-8").replace(
-            "negative-results and systems",
-            "improved-results and systems",
+            "post-release validity correction",
+            "post-release benchmark summary",
         ),
         encoding="utf-8",
     )
@@ -160,7 +174,7 @@ def test_serious_completion_verifier_rejects_stale_generated_paper(tmp_path: Pat
     )
 
     assert report.ok is False
-    assert "serious_paper.negative_results" in _codes(report)
+    assert "serious_paper.validity_correction" in _codes(report)
     assert "serious_paper.stale" in _codes(report)
 
 

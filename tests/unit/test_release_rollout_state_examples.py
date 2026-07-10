@@ -31,8 +31,13 @@ def test_rollout_state_examples_generate_jsonl_and_report(tmp_path: Path) -> Non
     )
 
     row = json.loads(output.read_text(encoding="utf-8"))
+    assert row["schema_version"] == "1.2.0"
+    assert row["cache_schema_version"] == "2.0.0"
+    assert row["cached_state_value_contract"] == "raw_pooled_v1"
+    assert row["materialized_state_contract"] == "legacy_raw_v1"
     assert row["generated_by"] == "tools.release.rollout_state_examples"
     assert row["id"] == "phased-k2-a"
+    assert row["normalize"] is False
     assert row["source_state"] == [0.0, 1.0]
     assert row["target_state"] == [1.0, 0.0]
     assert row["candidates"][0]["state"] == [1.0, 0.0]
@@ -40,11 +45,27 @@ def test_rollout_state_examples_generate_jsonl_and_report(tmp_path: Path) -> Non
     assert payload["rows"] == 1
     assert payload["splits"] == ["rollout_phased_haplotypes"]
     assert payload["horizons"] == [2]
+    assert payload["normalization_views"] == [False]
     assert payload["unique_cache_state_keys"] == 3
     assert payload["inputs"]["spec_jsonl"]["path"] == "eval/rollout_state_example_specs.jsonl"
     assert payload["inputs"]["cache_dir"]["path"] == "cache"
     assert payload["outputs"]["examples_jsonl"]["sha256"] == sha256_file(output)
     assert len(rollout_state_rows.load_rollout_state_examples(output)) == 1
+
+
+def test_rollout_state_examples_apply_explicit_normalized_view(tmp_path: Path) -> None:
+    cache_dir, records = _write_cache(tmp_path / "cache")
+    spec = tmp_path / "rollout_state_example_specs.jsonl"
+    spec.write_text(json.dumps(_spec_row(records, normalize=True)) + "\n", encoding="utf-8")
+
+    specs = rollout_state_examples.load_rollout_state_example_specs(spec)
+    rows = rollout_state_examples.generate_rollout_state_examples(specs, cache_dir=cache_dir)
+
+    assert specs[0].normalize is True
+    assert rows[0]["normalize"] is True
+    candidate = rows[0]["candidates"][1]
+    assert isinstance(candidate, dict)
+    assert candidate["state"] == pytest.approx([0.242535625, 0.9701425])
 
 
 def test_rollout_state_examples_reject_target_candidate_key_drift(tmp_path: Path) -> None:
@@ -75,6 +96,25 @@ def test_rollout_state_examples_reject_missing_cache_embedding(tmp_path: Path) -
     specs = rollout_state_examples.load_rollout_state_example_specs(spec)
 
     with pytest.raises(InputError, match="missing cache embedding"):
+        rollout_state_examples.generate_rollout_state_examples(specs, cache_dir=cache_dir)
+
+
+def test_rollout_state_examples_reject_state_representation_drift(tmp_path: Path) -> None:
+    cache_dir, records = _write_cache(tmp_path / "cache")
+    spec = tmp_path / "rollout_state_example_specs.jsonl"
+    row = _spec_row(records)
+    target_key = row["target_state_key"]
+    assert isinstance(target_key, dict)
+    target_key["state_layer"] = -2
+    candidates = row["candidates"]
+    assert isinstance(candidates, list)
+    target_candidate = candidates[0]
+    assert isinstance(target_candidate, dict)
+    target_candidate["state_key"] = dict(target_key)
+    spec.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    specs = rollout_state_examples.load_rollout_state_example_specs(spec)
+
+    with pytest.raises(InputError, match="must share one state representation"):
         rollout_state_examples.generate_rollout_state_examples(specs, cache_dir=cache_dir)
 
 
@@ -117,6 +157,7 @@ def _record(seed: int, *, embedding: tuple[float, ...]) -> WindowCacheRecord:
         state_layer=-1,
         pool_type=POOL_CENTERED_MEAN,
         pool_radius=256,
+        center_token=0,
         dtype="fp16",
         embedding=embedding,
         untargeted=False,
@@ -124,12 +165,19 @@ def _record(seed: int, *, embedding: tuple[float, ...]) -> WindowCacheRecord:
     )
 
 
-def _spec_row(records: tuple[WindowCacheRecord, ...]) -> dict[str, object]:
-    return {
-        "schema_version": "1.0.0",
+def _spec_row(
+    records: tuple[WindowCacheRecord, ...],
+    *,
+    normalize: bool | None = None,
+) -> dict[str, object]:
+    row: dict[str, object] = {
+        "schema_version": "1.2.0",
         "generated_by": "tools.release.rollout_state_example_specs",
+        "cache_schema_version": "2.0.0",
+        "cached_state_value_contract": "raw_pooled_v1",
         "id": "phased-k2-a",
         "split": "rollout_phased_haplotypes",
+        "normalize": bool(normalize),
         "source_state_key": _key(records[0]),
         "target_state_key": _key(records[1]),
         "target_candidate_id": "target",
@@ -142,6 +190,7 @@ def _spec_row(records: tuple[WindowCacheRecord, ...]) -> dict[str, object]:
             {"id": "source-like", "state_key": _key(records[2])},
         ],
     }
+    return row
 
 
 def _key(record: WindowCacheRecord) -> dict[str, object]:
@@ -151,6 +200,7 @@ def _key(record: WindowCacheRecord) -> dict[str, object]:
         "state_layer": record.state_layer,
         "pool_type": record.pool_type,
         "pool_radius": record.pool_radius,
+        "center_token": record.center_token,
         "dtype": record.dtype,
     }
 

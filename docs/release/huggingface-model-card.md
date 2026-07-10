@@ -25,6 +25,27 @@ tags:
   <a href="https://github.com/AbdelStark/GenoLeWM"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-GenoLeWM-181717?style=for-the-badge&logo=github&logoColor=ffffff"></a>
 </p>
 
+> **Checkpoint validity notice (2026-07-10):** Every checkpoint documented on
+> this page, including the stable v0.1 package and the v0.2.1 run-tree model,
+> uses the `legacy_raw_v1` state contract. Although the configs declared
+> `encoder.normalize: true`, the released implementation trained and evaluated
+> on raw pooled Carbon states. Training sources used global pooling while
+> targets were edit-centered, but every historical centered pool was shifted one
+> hidden token left because the leading `<dna>` control token was omitted from
+> the coordinate conversion; rollout/candidate centers differed and cache v1
+> omitted that identity. The pinned Carbon `tokenizer.py` also performed an
+> unpinned, network-capable `Qwen/Qwen3-4B-Base` lookup, so its hash did not
+> establish a self-contained runtime identity. The v0.2.1 Phase 2 KL was computed from frozen
+> target states; it changed the reported scalar loss but was constant with
+> respect to the trainable predictor and action encoder, so it supplied no
+> gradient. The metrics below are retained only as historical implementation
+> outputs. These defects invalidate the checkpoints and metrics as evidence
+> for the intended normalized method. Corrected results require fresh training
+> and evaluation in a new `l2_normalized_v2` checkpoint lineage.
+> The repaired source loader uses local pure-DNA tokenization and validated token
+> layout, but no checkpoint has yet supplied model-quality evidence under those
+> repairs.
+
 GenoLeWM is an alpha research system for action-conditioned latent world models
 over genomic edits. This model repository publishes the stable v0.1 checkpoint
 package: trainable GenoLeWM predictor and action-encoder weights, calibration
@@ -37,12 +58,12 @@ dependency and is resolved separately from this repository.
 
 ## Claim Boundary
 
-Use this checkpoint for reproducible research, local artifact inspection,
-method development, and demonstration scoring. Do not use it as a diagnostic
+Use this checkpoint for historical replay, local artifact inspection, and
+method development. Do not use it for scientific scoring or as a diagnostic
 model, clinical decision-support system, deployment-readiness claim, privacy
 claim, or evidence of broad superiority over Carbon. The measured results below
-are narrow artifact-level evaluations, and the broader v0.2.1 run-tree results
-are mixed or negative against the measured baselines.
+are historical evaluations of the `legacy_raw_v1` implementation. They are not
+valid evidence about the intended normalized GenoLeWM method.
 
 No clinical utility claim is made.
 
@@ -52,18 +73,20 @@ No clinical utility claim is made.
 | --- | --- |
 | Stable package in this repo | `geno-lewm-v0.1.0-r1` |
 | Newer run-tree checkpoint used by the Space | `geno-lewm-v0.2.1-r1` under `abdelstark/geno-lewm-runs` |
-| Runtime | `geno-lewm` package, manifest verification, local Carbon-500M encoder |
-| Main task | Single-SNV surprise scoring over reference windows |
-| Strongest honest conclusion | Reproducible systems artifact with measured negative and mixed model-quality findings |
+| State contract for both published checkpoints | `legacy_raw_v1` |
+| Runtime | Historical `geno-lewm` + Carbon path; not self-contained because its pinned tokenizer made an unpinned transitive Qwen lookup |
+| Historical task | Single-SNV residual output over reference windows |
+| Scientific status | Historical implementation outputs; normalized-method results not yet published |
+| Strongest honest conclusion | Reproducible legacy systems artifact, not a valid evaluation of the intended normalized method |
 | Not supported | Clinical utility, deployment readiness, privacy assurance, runtime assurance, broad model superiority |
 
 ## Which Checkpoint Should I Use?
 
 | Target | Location | Use when |
 | --- | --- | --- |
-| Stable package | [`abdelstark/geno-lewm`](https://huggingface.co/abdelstark/geno-lewm) | You need the checksum-bound v0.1 release package with a stable manifest and package-level evidence. |
-| Space/default demo checkpoint | [`geno-lewm-v021-strong-4f36eef-10k-r1/suite/model`](https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1/suite/model) | You want the newer v0.2.1 checkpoint used by the Hugging Face Space and the broader benchmark/planning evidence. |
-| Interactive demo | [`abdelstark/geno-lewm` Space](https://huggingface.co/spaces/abdelstark/geno-lewm) | You want to inspect artifacts or score a compatible single variant through the hosted UI. |
+| Stable package | [`abdelstark/geno-lewm`](https://huggingface.co/abdelstark/geno-lewm) | You need checksum-bound replay of the historical v0.1 `legacy_raw_v1` artifact. Do not use it to evaluate the normalized method. |
+| Space/default demo checkpoint | [`geno-lewm-v021-strong-4f36eef-10k-r1/suite/model`](https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1/suite/model) | You need historical v0.2.1 artifact replay or UI compatibility. Its benchmark and planning outputs do not evaluate the normalized method. |
+| Artifact console | [`abdelstark/geno-lewm` Space](https://huggingface.co/spaces/abdelstark/geno-lewm) | You want to inspect historical artifacts and checkpoint metadata. Legacy scientific scoring is disabled. |
 
 ## Published Artifacts
 
@@ -78,7 +101,7 @@ No clinical utility claim is made.
 | Efficiency evidence | [`efficiency_report.json`](https://huggingface.co/abdelstark/geno-lewm/blob/main/efficiency_report.json) | Release efficiency measurement for v0.1. |
 | Dataset package | [`abdelstark/geno-lewm-data`](https://huggingface.co/datasets/abdelstark/geno-lewm-data) | Public data snapshot and data card. |
 | v0.2.1 run tree | [`abdelstark/geno-lewm-runs`](https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1) | Newer checkpoint, broader benchmark suite, planning demo, and generated paper. |
-| Generated paper | [`paper.serious-completion.md`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md) | Manuscript-style synthesis of experiments, learnings, negative findings, and benchmark limits. |
+| Historical generated paper | [`paper.serious-completion.md`](https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md) | Superseded manuscript containing the withdrawn negative-result interpretation; retained only for provenance. |
 
 ## Model Identity
 
@@ -93,21 +116,23 @@ No clinical utility claim is made.
 | Calibration hash | `sha256:d4cf4778ac8e5557d363aca43cd13723b0ed9983b83215ab164d2b642b886201` |
 | Frozen encoder | Carbon-500M, mounted as `/carbon` in release jobs |
 | Encoder revision | `5d31d59b3c845b288a13aedb1358934196852eec` |
+| Effective state contract | `legacy_raw_v1` |
 | Dataset snapshot | `geno-lewm-data-v0.1.0-r1` |
 
 The newer Space default checkpoint has model id
 `sha256:cddb8f3b9671090201370b9824b9da741b933ff296b651238f022df5f3ed6af4`
-and lives in the v0.2.1 run tree. It is run evidence, not a replacement for
-the stable v0.1 package in this repository.
+and lives in the v0.2.1 run tree. It also uses `legacy_raw_v1`; it is historical
+run evidence, not a corrected replacement for the stable v0.1 package.
 
 ## Method
 
 GenoLeWM treats an edit as an action over a frozen genomic state embedding.
 For a reference window, Carbon-500M encodes the pre-edit state. GenoLeWM's
 trainable action encoder represents the edit, and the predictor estimates the
-post-edit latent state. Surprise scores are derived from the relationship
-between predicted and observed post-edit states, then calibrated by the
-packaged calibration artifact.
+post-edit latent state. Under a valid same-contract lineage, candidate surprise
+scores can be derived from the relationship between predicted and observed
+post-edit states and calibrated with a matching artifact. The published legacy
+residuals and calibration do not satisfy that contract.
 
 The package intentionally separates:
 
@@ -116,6 +141,19 @@ The package intentionally separates:
   `action_encoder.safetensors`;
 - release identity: `manifest.json` and `SHA256SUMS`;
 - evidence: training, evaluation, efficiency, and run-tree reports.
+
+The intended method applies L2 normalization to Carbon state vectors before
+training, scoring, rollout evaluation, and planning. Published checkpoints did
+not apply that transformation. Compatibility therefore preserves them as
+`legacy_raw_v1`; corrected runs must declare `l2_normalized_v2` and use a new
+checkpoint identity rather than reinterpret old weights or metrics.
+
+The same boundary applies to tokenization and coordinates. The released custom
+Carbon tokenizer could resolve `Qwen/Qwen3-4B-Base` over the network without a
+pinned revision, and historical centered pooling ignored the leading `<dna>`
+hidden token. Current source repairs both paths with a local pure-DNA tokenizer
+and token-ID-derived centers. They are implementation invariants, not evidence
+that a corrected model has learned a valid transition.
 
 ## Install And Load
 
@@ -150,17 +188,20 @@ model_dir = Path(run_root) / prefix
 Carbon-500M must also be available. The release manifests record the encoder as
 `/carbon` because training, evaluation, and demo jobs mounted
 `HuggingFaceBio/Carbon-500M` there at revision
-`5d31d59b3c845b288a13aedb1358934196852eec`. The Space resolves and remaps that
-encoder from the Hub before scoring.
+`5d31d59b3c845b288a13aedb1358934196852eec`. The Space no longer resolves this
+encoder for scoring; its published-checkpoint surface is inspection-only.
 
 ## Scoring Contract
 
-The scorer is strict about reference consistency. The `REF` allele in
+The runtime preserves this input-validation contract for compatibility, but
+running a published `legacy_raw_v1` checkpoint reproduces invalid historical
+residual output rather than a scientific score. The hosted Space therefore
+disables scoring. The `REF` allele in
 `chrom:pos:ref:alt` must match the supplied reference window at the one-based
 locus implied by `pos` and `--window-start-bp`. If it does not match, scoring
 raises `WindowMismatchError` before model inference.
 
-Example single-variant score with a synthetic reference-matched window:
+Historical replay example with a synthetic reference-matched window:
 
 ```bash
 geno-lewm-score \
@@ -175,13 +216,14 @@ PY
   --receipt receipt.json
 ```
 
-For real variants, use a FASTA-backed VCF path so the runtime builds windows
-from the same reference assembly as the variant coordinates.
+Do not interpret the output as edit effect, surprise, pathogenicity, or model
+quality. Corrected scientific scoring requires a newly trained
+`l2_normalized_v2` checkpoint and matching calibration table.
 
-## v0.1 Training Summary
+## Historical v0.1 Training Summary
 
 The stable v0.1 checkpoint was trained as a JEPA-style predictor over frozen
-Carbon-500M latent states.
+Carbon-500M raw pooled latent states under `legacy_raw_v1`.
 
 | Field | Value |
 | --- | --- |
@@ -193,11 +235,12 @@ Carbon-500M latent states.
 | Final training loss | 0.36124 |
 | Status | completed |
 
-## v0.1 Evaluation
+## Historical v0.1 Evaluation
 
 Held-out ClinVar GRCh38 chr21, binary P/LP versus B/LB labels. Scores use
 `sigma_raw`; intervals are deterministic stratified bootstrap confidence
-intervals from `eval_metrics.json`.
+intervals from `eval_metrics.json`. These values measure the released legacy
+implementation; they do not evaluate the intended normalized method.
 
 | Split | N | Positives | Negatives | Metric | Value | 95% CI |
 | --- | ---: | ---: | ---: | --- | ---: | --- |
@@ -222,9 +265,11 @@ Measured by `tools.release.efficiency_report` on `cuda:NVIDIA H200`.
 
 ## v0.2.1 Benchmark Evidence
 
-The v0.2.1 run tree includes broader benchmark coverage and Carbon zero-shot
-comparisons. Results remain mixed or negative relative to the measured
-baselines.
+The table is retained as historical `legacy_raw_v1` output. The v0.2.1 run tree
+includes broader benchmark coverage and Carbon zero-shot comparisons, but the
+results do not evaluate the intended normalized method. In addition, its
+Phase 2 KL was constant with respect to every optimized parameter and supplied
+no gradient, so the claimed active regularization was absent from optimization.
 
 | Slice | N | Metric | GenoLeWM | Baseline | Delta |
 | --- | ---: | --- | ---: | ---: | ---: |
@@ -239,9 +284,9 @@ baselines.
 | Phased-haplotype rollout | 8 | Cosine mean | 0.288861 | 0.997831 | -0.708970 |
 | Synthetic edit-chain rollout | 8 | Cosine mean | 0.301608 | 0.991240 | -0.689631 |
 
-The v0.2.1 readiness report is `ok=true` for artifact coverage and provenance.
-That is not a model-quality success claim. The autoregressive rollout speed
-report is `ok=false`: K=5 measured 2.41x speedup against a 2x target, while
+The v0.2.1 readiness report is `ok=true` for artifact coverage and provenance,
+not for scientific validity of the normalized method. The autoregressive
+rollout speed report is `ok=false`: K=5 measured 2.41x speedup against a 2x target, while
 K=20 measured 2.47x against a 5x target and missed the target.
 
 The v0.2.1 efficiency report measured one sample with no warmup on
@@ -255,24 +300,27 @@ The v0.2.1 run tree includes a deterministic synthetic multi-SNV planning demo.
 It ran with manifest-backed runtime evaluation and recorded 384 evaluations,
 `best_distance=23.656930390534644`, and `stopped_reason=patience`.
 
-This is not useful-planning evidence. It shows that the planner, checkpoint,
-window artifacts, and receipt path run end to end; it does not show biological
-or clinical planning utility.
+This is historical `legacy_raw_v1` execution evidence, not useful-planning or
+normalized-method evidence. It shows only that the planner, legacy checkpoint,
+window artifacts, and receipt path ran end to end.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `WindowMismatchError: window bases do not match edit.ref_bases at locus` | The variant `REF` allele does not match the supplied window at the requested coordinate. | Use a FASTA-backed VCF path or correct `--window`, `--window-start-bp`, and the variant `REF` allele so they describe the same reference sequence. |
-| Space says scoring did not complete and mentions Carbon-500M | The runtime could not resolve or mount the frozen Carbon encoder, or optional ML dependencies failed to load. | Inspect the artifact panel, reload the Space after dependency startup, or run locally with Carbon-500M available. |
+| Space has no scoring controls | Legacy scientific scoring is intentionally disabled after the state-contract audit. | Use the Space for artifact inspection; wait for a fresh `l2_normalized_v2` checkpoint before scientific scoring. |
 | `AutoModel.from_pretrained("abdelstark/geno-lewm")` fails | This repo is a GenoLeWM package, not a native Transformers architecture repo. | Use `snapshot_download` plus `geno-lewm-score` or the `geno_lewm.deploy` runtime. |
 
 ## Limitations
 
 - Alpha research checkpoint; not a clinical, diagnostic, or deployment model.
+- All published checkpoints use `legacy_raw_v1`; no corrected
+  `l2_normalized_v2` result is published.
+- The v0.2.1 Phase 2 KL supplied no gradient to trainable parameters.
 - v0.1 evaluation is narrow: held-out chr21 ClinVar P/LP versus B/LB labels.
-- v0.2.1 benchmark evidence is broader but mixed, with multiple negative deltas
-  versus Carbon zero-shot and source-state rollout baselines.
+- v0.1 and v0.2.1 metrics are retained only as historical implementation
+  outputs and must not be cited as evaluation of the intended normalized method.
 - Carbon-500M is required at runtime and is resolved separately from this model
   package.
 - Calibration is proof-scale and should be interpreted only within the reported

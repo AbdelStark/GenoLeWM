@@ -23,6 +23,7 @@ from geno_lewm.config import (
     load_default,
     write_resolved_config,
 )
+from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.config.schema import TOP_LEVEL_KEYS
 from geno_lewm.errors import (
     ConfigError,
@@ -54,8 +55,10 @@ def test_top_level_keys_match_dataclass_fields() -> None:
 @pytest.mark.parametrize("name", ["train", "score", "eval", "plan"])
 def test_default_yaml_files_load(name: str) -> None:
     cfg = load_default(name)
-    assert cfg.schema_version == "1.0.0"
+    assert cfg.schema_version == "1.1.0"
     assert cfg.encoder.model_id.startswith("HuggingFaceBio/")
+    assert cfg.encoder.state_contract_version == "l2_normalized_v2"
+    assert encoder_uses_normalized_states(cfg.encoder) is True
 
 
 def test_load_default_unknown_name_raises() -> None:
@@ -218,6 +221,79 @@ def test_encoder_config_defaults() -> None:
     e = EncoderConfig()
     assert e.normalize is True
     assert e.dtype == "bf16"
+    assert e.state_contract_version == "l2_normalized_v2"
+    assert encoder_uses_normalized_states(e) is True
+
+
+def test_encoder_state_contract_can_enable_or_disable_normalized_view() -> None:
+    normalized = EncoderConfig(state_contract_version="l2_normalized_v2")
+    disabled = EncoderConfig(
+        normalize=False,
+        state_contract_version="l2_normalized_v2",
+    )
+
+    assert encoder_uses_normalized_states(normalized) is True
+    with pytest.raises(InputError, match=r"requires encoder\.normalize=true"):
+        encoder_uses_normalized_states(disabled)
+
+
+def test_config_rejects_global_pooling_with_nonzero_radius() -> None:
+    with pytest.raises(ConfigError, match=r"global_mean requires encoder\.pool_radius=0"):
+        load_config(
+            {
+                "encoder": {
+                    "pool_type": "global_mean",
+                    "pool_radius": 8,
+                }
+            }
+        )
+
+
+def test_schema_v1_missing_state_contract_migrates_to_legacy_raw() -> None:
+    cfg = load_config({"schema_version": "1.0.0", "encoder": {"normalize": True}})
+
+    assert cfg.encoder.state_contract_version == "legacy_raw_v1"
+    assert encoder_uses_normalized_states(cfg.encoder) is False
+
+
+def test_schema_v1_rejects_normalized_v2_contract() -> None:
+    with pytest.raises(ConfigError, match="supports only the legacy_raw_v1"):
+        load_config(
+            {
+                "schema_version": "1.0.0",
+                "encoder": {
+                    "normalize": True,
+                    "state_contract_version": "l2_normalized_v2",
+                },
+            }
+        )
+
+
+def test_missing_schema_version_uses_current_normalized_contract() -> None:
+    cfg = load_config({"encoder": {"normalize": True}})
+
+    assert cfg.schema_version == "1.1.0"
+    assert cfg.encoder.state_contract_version == "l2_normalized_v2"
+    assert encoder_uses_normalized_states(cfg.encoder) is True
+
+
+@pytest.mark.parametrize("schema_version", ["1.0", "9.9.9", "invalid"])
+def test_loader_rejects_unsupported_schema_versions(schema_version: str) -> None:
+    with pytest.raises(ConfigError, match="not in allowed set"):
+        load_config({"schema_version": schema_version})
+
+
+def test_loader_rejects_incoherent_normalized_contract() -> None:
+    with pytest.raises(ConfigError, match=r"requires encoder\.normalize=true"):
+        load_config(
+            {
+                "schema_version": "1.1.0",
+                "encoder": {
+                    "normalize": False,
+                    "state_contract_version": "l2_normalized_v2",
+                },
+            }
+        )
 
 
 def test_optimizer_config_defaults() -> None:

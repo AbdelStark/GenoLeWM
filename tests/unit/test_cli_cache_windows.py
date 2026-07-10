@@ -27,6 +27,7 @@ def _record() -> WindowCacheRecord:
         state_layer=-1,
         pool_type=POOL_CENTERED_MEAN,
         pool_radius=256,
+        center_token=128,
         dtype="fp16",
         embedding=(1.0, 2.0, 3.0),
         untargeted=False,

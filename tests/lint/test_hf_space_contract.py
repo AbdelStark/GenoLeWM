@@ -31,19 +31,22 @@ def test_space_preserves_claim_boundaries_and_artifact_links() -> None:
 
     required = (
         "No clinical utility claim",
-        "mixed or negative",
-        "not as a diagnostic",
+        "legacy_raw_v1",
+        "l2_normalized_v2",
+        "Legacy scientific scoring is disabled",
+        "invalid",
+        "historical",
         "Carbon-500M",
         "abdelstark/geno-lewm",
         "abdelstark/geno-lewm-runs",
         "geno-lewm-v021-strong-4f36eef-10k-r1",
-        "score_single_variant",
-        "How to read the score JSON",
         "sigma_raw",
-        "not a probability of pathogenicity",
-        "input_preflight",
-        "runtime_note",
-        "reference-match check",
+        "supplied no gradient",
+        "Qwen/Qwen3-4B-Base",
+        "one hidden token",
+        "pure-DNA tokenization",
+        "not corrected model-quality evidence",
+        "artifact and checkpoint inspection",
     )
     for fragment in required:
         assert fragment in combined
@@ -54,20 +57,25 @@ def test_space_preserves_claim_boundaries_and_artifact_links() -> None:
         "provides privacy assurance",
         "broad superiority",
         "geno-lewm beats carbon",
+        "research/debug ranking signal",
+        "mixed or negative",
+        "score_single_variant",
+        'gr.Button("Score variant"',
+        "score_button.click",
     )
     lower = combined.lower()
     for fragment in forbidden:
         assert fragment.lower() not in lower
 
 
-def test_space_default_scoring_example_is_sequence_consistent() -> None:
+def test_space_disables_legacy_scientific_scoring() -> None:
     app = SPACE_APP.read_text(encoding="utf-8")
 
-    assert 'DEFAULT_VARIANT = "chrSynthetic:3073:A:T"' in app
-    assert "DEFAULT_WINDOW_START_BP = 0" in app
-    assert '"ACGT" * 3072' in app
-    assert "reference base mismatch before scoring" in app
-    assert "observed_ref" in app
+    assert "### Legacy scientific scoring disabled" in app
+    assert "produce invalid scientific output" in app
+    assert "score_single_variant" not in app
+    assert "score_button.click" not in app
+    assert "geno-lewm-score" not in app
 
 
 def test_space_is_in_source_distribution_contract() -> None:

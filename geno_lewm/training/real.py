@@ -22,6 +22,7 @@ from typing import Any
 
 from geno_lewm.action import ActionEncoder, EditSpec
 from geno_lewm.config import GenoLeWMConfig, write_resolved_config
+from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import (
     DEFAULT_SOURCE_FALLBACKS,
     SOURCE_CLINVAR,
@@ -38,6 +39,7 @@ from geno_lewm.data import (
     variant_provider,
 )
 from geno_lewm.encoder import CarbonStateEncoder
+from geno_lewm.encoder._identity import encoder_identity_hash
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
@@ -154,6 +156,10 @@ def run_carbon_training(
     clinvar_edits = tuple(_load_clinvar_edits(dataset_dir, dataset_files))
     if not gnomad_edits:
         raise InputError("Carbon training requires at least one gnomAD edit")
+    carbon_identity_hash = _carbon_identity_hash(
+        carbon_model_dir,
+        state_contract_version=config.encoder.state_contract_version,
+    )
 
     device = _training_device(config)
     seeds = TrainerSeeds.from_base_seed(config.seed)
@@ -182,6 +188,7 @@ def run_carbon_training(
             dataset_snapshot_id=dataset_snapshot_id,
             seeds=seeds,
             target_steps=steps,
+            encoder_identity_hash=carbon_identity_hash,
         )
         resumed_from_step = resume_checkpoint.steps_completed
         _skip_training_items(
@@ -196,8 +203,8 @@ def run_carbon_training(
         state_layer=config.encoder.state_layer,
         pool_type=config.encoder.pool_type,
         pool_radius=config.encoder.pool_radius,
-        normalize=config.encoder.normalize,
-        encoder_hash=_carbon_weights_hash(carbon_model_dir),
+        normalize=encoder_uses_normalized_states(config.encoder),
+        encoder_hash=carbon_identity_hash,
         device=device,
         local_files_only=True,
         trust_remote_code=config.encoder.trust_remote_code,
@@ -311,6 +318,7 @@ def run_carbon_training(
                     dataset_snapshot_id=dataset_snapshot_id,
                     steps=step,
                     seeds=seeds,
+                    encoder_identity_hash=carbon_identity_hash,
                 )
             for alert in collapse_alerts:
                 log.write(
@@ -346,6 +354,7 @@ def run_carbon_training(
         dataset_snapshot_id=dataset_snapshot_id,
         steps=steps,
         seeds=seeds,
+        encoder_identity_hash=carbon_identity_hash,
     )
     _write_training_metadata(
         metadata_path,
@@ -599,25 +608,11 @@ def _safe_dataset_path(dataset_dir: Path, relative: str) -> Path:
     return target
 
 
-def _carbon_weights_hash(carbon_model_dir: Path) -> str:
-    weights = _first_existing(
+def _carbon_identity_hash(carbon_model_dir: Path, *, state_contract_version: str) -> str:
+    return encoder_identity_hash(
         carbon_model_dir,
-        ("model.safetensors", "model.safetensors.index.json", "pytorch_model.bin"),
+        state_contract_version=state_contract_version,
     )
-    if weights is None:
-        raise InputError(
-            "Carbon model weights are required for cache-keyed training",
-            details={"carbon_model_dir": str(carbon_model_dir)},
-        )
-    return sha256_file(weights)
-
-
-def _first_existing(root: Path, names: tuple[str, ...]) -> Path | None:
-    for name in names:
-        path = root / name
-        if path.is_file():
-            return path
-    return None
 
 
 def _json_object_line(line: str, *, path: Path, line_no: int) -> dict[str, Any]:
@@ -717,6 +712,7 @@ def _write_checkpoint(
     dataset_snapshot_id: str,
     steps: int,
     seeds: TrainerSeeds,
+    encoder_identity_hash: str,
 ) -> None:
     try:
         torch = importlib.import_module("torch")
@@ -739,6 +735,15 @@ def _write_checkpoint(
                 "data.batch_size": config.data.batch_size,
                 "predictor.d_state": config.predictor.d_state,
                 "action.d_action": config.action.d_action,
+                "encoder.normalize": config.encoder.normalize,
+                "encoder.state_contract_version": config.encoder.state_contract_version,
+                "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),
+                "encoder.identity_hash": encoder_identity_hash,
+                "encoder.revision": config.encoder.revision,
+                "encoder.dtype": config.encoder.dtype,
+                "encoder.state_layer": config.encoder.state_layer,
+                "encoder.pool_type": config.encoder.pool_type,
+                "encoder.pool_radius": config.encoder.pool_radius,
             },
         },
         path,
@@ -772,6 +777,7 @@ def _validate_resume_checkpoint_payload(
     dataset_snapshot_id: str,
     seeds: TrainerSeeds,
     target_steps: int,
+    encoder_identity_hash: str,
 ) -> _ResumeCheckpoint:
     if payload.get("schema_version") != _SCHEMA_VERSION:
         raise InputError(
@@ -829,6 +835,12 @@ def _validate_resume_checkpoint_payload(
     checkpoint_config = payload.get("config")
     if not isinstance(checkpoint_config, dict):
         raise InputError("resume checkpoint config must be a mapping", details={"path": str(path)})
+    _validate_resume_state_contract(
+        checkpoint_config,
+        path=path,
+        config=config,
+        encoder_identity_hash=encoder_identity_hash,
+    )
     expected_config = {
         "run_id": config.run_id,
         "seed": config.seed,
@@ -855,6 +867,91 @@ def _validate_resume_checkpoint_payload(
                 details={"path": str(path), "state": key},
             )
     return _ResumeCheckpoint(path=path, steps_completed=steps_completed, payload=payload)
+
+
+def _validate_resume_state_contract(
+    checkpoint_config: dict[str, Any],
+    *,
+    path: Path,
+    config: GenoLeWMConfig,
+    encoder_identity_hash: str,
+) -> None:
+    keys = {
+        "encoder.normalize",
+        "encoder.state_contract_version",
+        "encoder.effective_normalize",
+    }
+    present = keys.intersection(checkpoint_config)
+    if present != keys:
+        raise InputError(
+            "resume checkpoint is missing a complete encoder state contract",
+            details={"path": str(path), "present": sorted(present), "required": sorted(keys)},
+        )
+
+    expected_version = config.encoder.state_contract_version
+    expected_effective = encoder_uses_normalized_states(config.encoder)
+    observed_version = checkpoint_config["encoder.state_contract_version"]
+    observed_effective = checkpoint_config["encoder.effective_normalize"]
+    observed_configured = checkpoint_config["encoder.normalize"]
+    if not isinstance(observed_configured, bool) or not isinstance(observed_effective, bool):
+        raise InputError(
+            "resume checkpoint encoder normalization fields must be boolean",
+            details={"path": str(path)},
+        )
+    if observed_configured != config.encoder.normalize:
+        raise InputError(
+            "resume checkpoint config does not match training config",
+            details={
+                "path": str(path),
+                "field": "encoder.normalize",
+                "checkpoint": observed_configured,
+                "config": config.encoder.normalize,
+            },
+        )
+
+    if observed_version != expected_version or observed_effective != expected_effective:
+        raise InputError(
+            "resume checkpoint encoder state contract does not match training config",
+            details={
+                "path": str(path),
+                "checkpoint_version": observed_version,
+                "checkpoint_effective_normalize": observed_effective,
+                "config_version": expected_version,
+                "config_effective_normalize": expected_effective,
+            },
+        )
+
+    identity = {
+        "encoder.identity_hash": encoder_identity_hash,
+        "encoder.revision": config.encoder.revision,
+        "encoder.dtype": config.encoder.dtype,
+        "encoder.state_layer": config.encoder.state_layer,
+        "encoder.pool_type": config.encoder.pool_type,
+        "encoder.pool_radius": config.encoder.pool_radius,
+    }
+    identity_keys = set(identity)
+    identity_present = identity_keys.intersection(checkpoint_config)
+    if identity_present != identity_keys:
+        raise InputError(
+            "resume checkpoint is missing a complete encoder representation identity",
+            details={
+                "path": str(path),
+                "present": sorted(identity_present),
+                "required": sorted(identity_keys),
+            },
+        )
+    for field, expected in identity.items():
+        observed = checkpoint_config.get(field)
+        if observed != expected:
+            raise InputError(
+                "resume checkpoint encoder representation does not match training config",
+                details={
+                    "path": str(path),
+                    "field": field,
+                    "checkpoint": observed,
+                    "config": expected,
+                },
+            )
 
 
 def _restore_resume_checkpoint(

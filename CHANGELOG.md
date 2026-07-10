@@ -7,6 +7,52 @@ or incompatible command changes require an explicit compatibility note.
 
 ## [Unreleased]
 
+### Scientific Validity Correction
+
+- Added explicit encoder state contracts. Published v0.1 and v0.2.1
+  checkpoints are classified as `legacy_raw_v1`; new corrected runs must use
+  a distinct `l2_normalized_v2` checkpoint lineage.
+- Corrected the encoder path so `normalize: true` applies L2 normalization
+  consistently to live states and raw pooled cache hits.
+- Replaced the ambiguous cache v1 key with cache schema `2.0.0`. Centered
+  pooling now commits `center_token`; legacy Parquet shards are rejected and
+  legacy SQLite indexes are invalidated because they can collide across loci.
+- Corrected the Carbon token-coordinate mapping. Historical centered pooling
+  used `edit_locus // 6` directly against hidden states even though the first
+  hidden token is `<dna>`, shifting every intended center one hidden token left
+  and sometimes centering a pool on the control token. The repaired path
+  derives the DNA-content start from validated token IDs.
+- Corrected training to pool source and target states at the same edit locus,
+  persist the complete encoder representation in resume checkpoints, and
+  reject cross-identity resumes.
+- Corrected encoder provenance. `l2_normalized_v2` manifests and cache keys
+  commit Carbon weights plus runtime-critical config and tokenizer files;
+  manifest-backed loading verifies that local runtime before inference.
+- Removed the unpinned transitive tokenizer load from the Carbon runtime path.
+  The pinned upstream `tokenizer.py` delegated to a network-capable
+  `Qwen/Qwen3-4B-Base` lookup without a revision, so hashing the local file did
+  not make execution self-contained. The repaired loader implements Carbon's
+  pure-DNA tokenization from local configuration and validates its control-token
+  layout. This is a code-path correction; no corrected model-quality result is
+  published.
+- Changed new programmatic config defaults to `l2_normalized_v2`. Loading a
+  schema-`1.0.0` config without an explicit state contract migrates it to
+  `legacy_raw_v1`; incoherent normalized configs now fail during loading.
+- Disclosed that the v0.2.1 Phase 2 KL was computed from frozen target states.
+  It changed the reported scalar loss but was constant with respect to the
+  trainable parameters and supplied no gradient.
+- Reclassified every published model-quality metric as a historical output of
+  the legacy implementation. Those values do not evaluate the intended
+  normalized method; corrected results require fresh training and evaluation.
+
+### Compatibility
+
+- `WindowCacheKey` and `WindowCacheRecord` now require `center_token`, and
+  cache schema `1.0.0` is intentionally not reusable.
+- Rollout state specs/examples move to schema `1.2.0` and bind cache schema,
+  raw-storage semantics, materialized state contract, encoder identity,
+  pooling locus, and state width. Older ambiguous rows must be regenerated.
+
 ### Added
 
 - Added fixture-backed scoring tutorial notebooks for a single
@@ -80,6 +126,18 @@ or incompatible command changes require an explicit compatibility note.
 - The released planning demo exercises the manifest-backed model path
   but does not prove useful planning behavior.
 - Fixture smoke outputs are CI evidence, not model results.
+
+### Known Scientific Invalidation (documented 2026-07-10)
+
+- The v0.1 and v0.2.1 configs declared `encoder.normalize: true`, but the
+  released runtime ignored it. All published checkpoints therefore use raw
+  pooled Carbon states and are now identified as `legacy_raw_v1`.
+- The v0.2.1 Phase 2 KL was evaluated only on frozen target states. It was a
+  constant, no-gradient addition to the reported loss rather than an active
+  regularizer for the predictor or action encoder.
+- The published metrics remain reproducible historical implementation outputs,
+  but they do not evaluate the intended normalized method. Corrected evidence
+  requires a newly trained and evaluated `l2_normalized_v2` lineage.
 
 ### Security
 

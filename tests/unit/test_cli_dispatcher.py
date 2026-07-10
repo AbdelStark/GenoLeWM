@@ -598,7 +598,7 @@ def test_print_config_emits_resolved_yaml(
     assert rc == 0
     assert "run_id:" in captured.out
     assert "encoder:" in captured.out
-    assert "schema_version: 1.0.0" in captured.out
+    assert "schema_version: 1.1.0" in captured.out
 
 
 @pytest.mark.parametrize(("entry", "module"), TYPER_SCRIPTS)
