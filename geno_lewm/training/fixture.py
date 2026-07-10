@@ -19,6 +19,7 @@ from pathlib import Path
 from geno_lewm.config import GenoLeWMConfig, write_resolved_config
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_file
+from geno_lewm.training._phase_contract import require_executable_training_phase
 
 __all__ = [
     "FIXTURE_CHECKPOINT_NAME",
@@ -98,6 +99,7 @@ def run_fixture_training(
     supplied, the checkpoint's current step must be lower than ``steps``;
     the resumed run continues with the same deterministic sample stream.
     """
+    require_executable_training_phase(config, boundary="run_fixture_training")
     _require_positive_steps(steps)
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = write_resolved_config(config, run_dir / "config.resolved.yaml")

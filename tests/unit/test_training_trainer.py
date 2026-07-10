@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -338,6 +339,32 @@ def test_build_adamw_optimizer_accepts_real_small_modules() -> None:
     }
 
 
+def test_phase2_trainer_and_optimizer_reject_missing_encoder_adapter() -> None:
+    torch = pytest.importorskip("torch")
+    phase2_cfg = replace(load_default("train"), phase="phase2")
+    predictor = torch.nn.Linear(2, 2)
+    action_encoder = torch.nn.Linear(2, 2)
+    optimizer = torch.optim.SGD(
+        list(predictor.parameters()) + list(action_encoder.parameters()),
+        lr=0.01,
+    )
+
+    with pytest.raises(RuntimeSetupError, match="graph-preserving trainable encoder-adapter"):
+        TorchTrainer(
+            predictor=predictor,
+            action_encoder=action_encoder,
+            optimizer=optimizer,
+            config=phase2_cfg,
+            total_steps=1,
+        )
+    with pytest.raises(RuntimeSetupError, match="graph-preserving trainable encoder-adapter"):
+        trainer_module.build_adamw_optimizer(
+            predictor=predictor,
+            action_encoder=action_encoder,
+            config=phase2_cfg,
+        )
+
+
 def test_pred_var_per_dim_matches_population_variance() -> None:
     torch = pytest.importorskip("torch")
     from geno_lewm.training.trainer import _pred_var_per_dim
@@ -348,6 +375,22 @@ def test_pred_var_per_dim_matches_population_variance() -> None:
 
     # Higher-rank predictions are flattened to (rows, dim) before reduction.
     assert _pred_var_per_dim(torch.zeros(1, 3, 5)) == pytest.approx(0.0)
+
+
+def test_masked_training_rows_accepts_only_shape_matched_binary_masks() -> None:
+    torch = pytest.importorskip("torch")
+    values = torch.tensor([[[1.0], [2.0]], [[3.0], [4.0]]])
+
+    selected = trainer_module._masked_training_rows(
+        values,
+        torch.tensor([[1, 0], [0, 1]]),
+    )
+
+    torch.testing.assert_close(selected, torch.tensor([[1.0], [4.0]]))
+    with pytest.raises(InputError, match="leading dimensions"):
+        trainer_module._masked_training_rows(values, torch.ones(2, 1, dtype=torch.bool))
+    with pytest.raises(InputError, match="boolean or 0/1"):
+        trainer_module._masked_training_rows(values, torch.tensor([[2, 0], [0, 1]]))
 
 
 def test_torch_trainer_records_live_collapse_alerts() -> None:
