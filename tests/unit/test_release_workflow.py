@@ -80,7 +80,9 @@ def test_ci_workflow_builds_checked_paper_pdf_artifact() -> None:
 
     assert "  paper:" in text
     assert "name: Paper PDF (tectonic)" in text
-    assert "sudo apt-get install -y tectonic" in text
+    assert "wtfjoke/setup-tectonic@8a63d072f8390efdff59da7fa08aa49e3c1f5e1b" in text
+    assert 'tectonic-version: "0.16.9"' in text
+    assert "apt-get install -y tectonic" not in text
     assert "make -C paper" in text
     assert "python -m tools.release.paper_tex" in text
     assert "--output paper/paper_tex_build_report.json" in text
