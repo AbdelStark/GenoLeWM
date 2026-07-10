@@ -44,6 +44,7 @@ from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
 from geno_lewm.provenance import sha256_file
+from geno_lewm.training._phase_contract import require_executable_training_phase
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
 from geno_lewm.training.trainer import (
     TorchTrainer,
@@ -134,6 +135,7 @@ def run_carbon_training(
     resume_from: Path | None = None,
 ) -> CarbonTrainingReport:
     """Run a single-process Carbon-backed training job."""
+    require_executable_training_phase(config, boundary="run_carbon_training")
     _require_positive_int("steps", steps)
     _require_positive_int("data.batch_size", config.data.batch_size)
     run_dir.mkdir(parents=True, exist_ok=True)

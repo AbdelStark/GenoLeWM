@@ -26,6 +26,7 @@ from geno_lewm.encoder.pooling import POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN
 from geno_lewm.encoder.windowing import window_sha256
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.predictor.losses import predictor_loss
+from geno_lewm.training._phase_contract import require_executable_training_phase
 from geno_lewm.training.collapse import CollapseMonitor
 
 __all__ = [
@@ -139,6 +140,7 @@ class TorchTrainer:
         config: GenoLeWMConfig,
         total_steps: int,
     ) -> None:
+        require_executable_training_phase(config, boundary="TorchTrainer")
         _require_torch("TorchTrainer")
         _require_positive_int("total_steps", total_steps)
         self.predictor = predictor
@@ -179,6 +181,7 @@ class TorchTrainer:
             batch.target,
             phase=self.config.phase,
             mask=batch.action_mask,
+            regularizer_states=_masked_training_rows(batch.target, batch.action_mask),
         )
         action_count = int(batch.action_mask.sum().item())
         self.last_collapse_alerts = ()
@@ -329,6 +332,7 @@ def build_adamw_optimizer(
     config: GenoLeWMConfig,
 ) -> object:
     """Build AdamW groups for predictor/action-encoder trainable parameters."""
+    require_executable_training_phase(config, boundary="build_adamw_optimizer")
     _require_torch("build_adamw_optimizer")
     if config.optimizer.name != "adamw":
         raise InputError(
@@ -786,7 +790,15 @@ def _masked_training_rows(value: Tensor, mask: Tensor) -> Tensor:
             "training collapse monitor expects [batch, actions] masks",
             details={"shape": tuple(mask.shape)},
         )
-    return value[mask]
+    if mask.shape != value.shape[:-1]:
+        raise InputError(
+            "training collapse monitor mask must match tensor leading dimensions",
+            details={"mask_shape": tuple(mask.shape), "value_shape": tuple(value.shape)},
+        )
+    if mask.dtype != torch.bool and not torch.all((mask == 0) | (mask == 1)):
+        raise InputError("training collapse monitor mask must contain boolean or 0/1 values")
+    valid = mask.to(device=value.device, dtype=torch.bool)
+    return value[valid]
 
 
 def _seed_numpy(seed: int) -> None:

@@ -245,6 +245,32 @@ def test_training_preflight_rejects_wsd_warmup_without_decay_horizon(
     assert "training_config.training.max_steps_wsd_warmup" in _codes(report)
 
 
+def test_training_preflight_rejects_phase2_without_encoder_adapter(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("phase: phase1", "phase: phase2"),
+        encoding="utf-8",
+    )
+
+    assert load_config(config).phase == "phase2"
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            training_config=config,
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is False
+    assert "training_config.phase2_adapter_unavailable" in _codes(report)
+
+
 def test_training_preflight_requires_cuda_training_device(tmp_path: Path) -> None:
     pytest.importorskip("pyarrow")
     dataset_dir = _write_release_dataset(tmp_path)

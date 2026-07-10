@@ -18,6 +18,10 @@ import yaml
 from geno_lewm.config import config_to_dict, load_config
 from geno_lewm.errors import GenoLeWMError
 from geno_lewm.provenance import sha256_file
+from geno_lewm.training._phase_contract import (
+    PHASE2_ADAPTER_UNAVAILABLE_CODE,
+    PHASE2_ADAPTER_UNAVAILABLE_MESSAGE,
+)
 
 REPORT_NAME: Final = "training_preflight_report.json"
 SCHEMA_VERSION: Final = "1.0.0"
@@ -450,6 +454,7 @@ def _inspect_training_config(
         )
         return payload
     payload["resolved"] = config_to_dict(resolved)
+    _verify_training_phase(resolved, training_config, issues)
     _verify_training_horizon(resolved, training_config, issues)
     for key in ("encoder", "data", "predictor", "action", "training", "optimizer"):
         if key not in decoded:
@@ -461,6 +466,22 @@ def _inspect_training_config(
                 f"{key} block is not present in the training config",
             )
     return payload
+
+
+def _verify_training_phase(
+    config: object,
+    training_config: Path,
+    issues: list[TrainingPreflightIssue],
+) -> None:
+    if getattr(config, "phase", None) != "phase2":
+        return
+    _issue(
+        issues,
+        "error",
+        PHASE2_ADAPTER_UNAVAILABLE_CODE,
+        training_config,
+        PHASE2_ADAPTER_UNAVAILABLE_MESSAGE,
+    )
 
 
 def _verify_training_horizon(

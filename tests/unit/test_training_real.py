@@ -21,7 +21,7 @@ from geno_lewm.data import (
     synthetic_indel_provider,
     synthetic_snv_provider,
 )
-from geno_lewm.errors import InputError
+from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.provenance import sha256_file
 from geno_lewm.training.preflight import REPORT_NAME, AcceleratorProbe, TrainingPreflightReport
 from geno_lewm.training.real import (
@@ -66,6 +66,23 @@ def test_nan_loss_count_counts_nonfinite_losses() -> None:
         _step_result(loss=0.3, var=1.0),
     ]
     assert _nan_loss_count(results) == 2
+
+
+def test_run_carbon_training_rejects_phase2_before_runtime_setup(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    phase2_config = replace(config, phase="phase2")
+
+    with pytest.raises(RuntimeSetupError, match="graph-preserving trainable encoder-adapter"):
+        real_module.run_carbon_training(
+            config=phase2_config,
+            dataset_dir=tmp_path / "missing-dataset",
+            carbon_model_dir=tmp_path / "missing-carbon",
+            run_dir=tmp_path / "run",
+            steps=1,
+            command="geno-lewm-train --carbon-train",
+            commit_sha="a" * 40,
+            package_version="0.2.1",
+        )
 
 
 def test_collapse_var_min_returns_minimum_and_handles_empty() -> None:
