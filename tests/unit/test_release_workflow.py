@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PYPROJECT = ROOT / "pyproject.toml"
 PYPI_WORKFLOW = ROOT / ".github" / "workflows" / "release-pypi.yml"
 HUB_DRY_RUN_WORKFLOW = ROOT / ".github" / "workflows" / "release-hub-dry-run.yml"
 HUB_PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "release-hub-publish.yml"
@@ -38,6 +39,14 @@ def test_ci_build_workflow_checks_sdist_release_assets() -> None:
     assert "python -m build" in text
     assert "twine check dist/*" in text
     assert "python -m tools.release.check_sdist_assets dist/*.tar.gz" in text
+
+
+def test_ci_type_dependencies_are_bounded_to_validated_versions() -> None:
+    text = PYPROJECT.read_text(encoding="utf-8")
+    dev_dependencies = text.split("dev = [", maxsplit=1)[1].split("]", maxsplit=1)[0]
+
+    assert '"mypy>=1.10,<2.2"' in dev_dependencies
+    assert '"pyarrow>=15,<25"' in dev_dependencies
 
 
 def test_ci_workflow_checks_first_experiment_dataset_spec() -> None:
