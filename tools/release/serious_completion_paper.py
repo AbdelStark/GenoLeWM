@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Generate and verify the v0.2 serious-completion paper artifact.
+"""Generate and verify the v0.2 post-release validity-correction paper.
 
 This is the paper path for the post-v0.2 evidence package tracked by #205.
 It consumes the broader benchmark suite/readiness artifacts and the released
-planning demo. It does not reuse the v0.1 terminal-demo package shape.
+planning demo, preserving their measurements as historical records without
+repeating the withdrawn model-quality interpretation. It does not reuse the
+v0.1 terminal-demo package shape.
 """
 
 from __future__ import annotations
@@ -38,9 +40,7 @@ from tools.release.v02_benchmark_suite import (
 SCHEMA_VERSION: Final = "1.0.0"
 GENERATED_BY: Final = "tools.release.paper_draft"
 PAPER_KIND: Final = "serious_completion_v0.2"
-DEFAULT_TITLE: Final = (
-    "GenoLeWM: Evidence-Bound Genomic Edit World Models, Benchmarks, and Negative Results"
-)
+DEFAULT_TITLE: Final = "GenoLeWM v0.2: Post-Release Validity Correction and Historical Measurements"
 
 EVAL_METRICS_NAME: Final = "eval_metrics.v02.json"
 EVAL_REPORT_NAME: Final = "eval_report.v02.md"
@@ -433,16 +433,23 @@ def _render_serious_completion_paper(
         (
             "We study GenoLeWM, an action-conditioned latent world model for genomic "
             "edits that predicts changes in frozen Carbon-500M sequence representations "
-            "rather than directly reconstructing DNA. The paper reports the v0.2 "
-            "serious-completion experiments: ClinVar coding and non-coding SNV "
-            "classification, BRCA2 saturation and TraitGym Mendelian continuous-label "
-            "benchmarks, rollout-fidelity measurements, autoregressive rollout-speed "
-            "measurements, and a released-artifact multi-edit planning demo. The main "
-            "finding is negative: although the artifact pipeline is reproducible and "
-            "the broader benchmark package is complete, GenoLeWM trails Carbon zero-shot "
-            "on most variant-effect rows, rollout fidelity is weak versus source-state "
-            "baselines, the K20 rollout-speed target remains open under #42, and the "
-            "planning demo records execution rather than useful planning behavior."
+            "rather than directly reconstructing DNA. This post-release validity correction "
+            "withdraws the v0.2 model-quality interpretation. The released encoder path "
+            "ignored its requested normalization, so Carbon source and target states remained "
+            "raw while predictor outputs were unit normalized: a mixed raw/unit-normalized "
+            "state contract. It also violated the pooling-coordinate contract: training "
+            "sources used global-mean fallback, targets were edit-centered, rollout changed "
+            "source pooling, and historical candidates could use different centers. Every "
+            "nominal center also omitted the leading <dna> control token and was one hidden "
+            "token left of the intended DNA token. The pinned Carbon tokenizer source made "
+            "an unpinned, network-capable Qwen/Qwen3-4B-Base load, so the historical runtime "
+            "was not self-contained. VEP "
+            "comparisons, L2 rollout distances, and planning-objective "
+            "values derived from that geometry are invalid. Cosine similarity is "
+            "scale-invariant but remains confounded by training under the invalid contract "
+            "and by train-to-rollout distribution shift. The artifact values are retained "
+            "below as historical measurements, not as evidence for a negative result. No "
+            "model-mechanism or capability conclusion follows from them."
         ),
         "",
         "## Introduction",
@@ -459,10 +466,9 @@ def _render_serious_completion_paper(
         (
             "The contribution of this paper is deliberately bounded. It is not a claim "
             "of clinical utility, deployment readiness, privacy assurance, runtime "
-            "assurance, or broad superiority over Carbon. It is a negative-results and "
-            "systems paper: an evidence-bound account of what worked operationally, "
-            "what failed empirically, and which benchmark artifacts support those "
-            "conclusions."
+            "assurance, model failure, or broad superiority over Carbon. It is an "
+            "evidence-bound correction that separates reproducible artifact execution "
+            "from scientific interpretation."
         ),
         "",
         "The paper makes three concrete contributions:",
@@ -472,12 +478,12 @@ def _render_serious_completion_paper(
             "and demoing an action-conditioned genomic latent predictor."
         ),
         (
-            "2. A broader v0.2 benchmark package showing mixed and mostly negative "
-            "variant-effect performance against Carbon zero-shot baselines."
+            "2. A preserved v0.2 benchmark package whose VEP and latent-distance rows "
+            "are explicitly marked invalid under the released state contract."
         ),
         (
-            "3. A planning and rollout audit showing that released-artifact execution "
-            "is possible, but useful multi-edit planning behavior is not established."
+            "3. A validity audit that identifies confounded cosine measurements and "
+            "invalid planning objectives without inferring learned mechanism or capability."
         ),
         "",
         "## Related Work",
@@ -520,22 +526,26 @@ def _render_serious_completion_paper(
         ),
         "",
         (
-            "Variant scoring uses surprise-style comparisons derived from model-predicted "
-            "state changes and calibration artifacts. Rollout experiments repeatedly apply "
-            "the predictor over edit chains. Planning uses the released manifest-backed "
-            "runtime to search over candidate SNV edits against a target latent state."
+            "The intended method compares normalized source, target, and predicted states. "
+            "The released implementation instead left Carbon source and target states raw "
+            "while the predictor normalized its outputs. Variant scoring used surprise-style "
+            "comparisons derived from this incompatible geometry, rollout experiments "
+            "repeatedly applied the predictor over edit chains, and planning searched against "
+            "a raw target state with a unit-normalized prediction. Historical centered paths "
+            "also indexed hidden states without the leading <dna> control-token offset."
         ),
         "",
         "## Experiments",
         "",
         (
             "The v0.2 experiment package evaluates the same released model identity across "
-            "binary ClinVar coding and non-coding SNV slices, continuous-label BRCA2 and "
-            "TraitGym Mendelian slices, two rollout-fidelity slices, inference-efficiency "
+            "binary ClinVar coding and non-coding SNV slices, a BRCA2 saturation slice, "
+            "a binary-label TraitGym Mendelian slice, two rollout-fidelity slices, inference-efficiency "
             "measurements, autoregressive rollout-speed measurements at K5 and K20, and "
             "one synthetic multi-SNV planning demo. Every result below is loaded from the "
             "artifact files listed in the reproducibility sections rather than copied from "
-            "hand-authored tables."
+            "hand-authored tables. Their presence records what the release produced; it does "
+            "not restore the withdrawn scientific interpretation."
         ),
         "",
         "## Citation Metadata",
@@ -589,6 +599,24 @@ def _render_serious_completion_paper(
     lines.extend(
         [
             "",
+            "## Validity Correction",
+            "",
+            (
+                "The tables in this section preserve the released artifact values, statuses, "
+                "and baseline deltas. They are historical measurements only. VEP comparisons "
+                "are invalid because their surprise signals crossed the mixed raw/unit-normalized "
+                "state contract. Training and rollout also crossed a pooling-coordinate contract: "
+                "global training sources, centered targets, centered rollout sources, and "
+                "candidate-specific centers. Every nominal center was additionally one hidden "
+                "token left because the leading <dna> token was omitted. The pinned Carbon "
+                "tokenizer also made an unpinned transitive Qwen load. L2 rollout distances are invalid for these reasons. The "
+                "planning-objective values are invalid because the search compared a raw target "
+                "state with unit-normalized predictions. Cosine similarity is scale-invariant "
+                "but remains confounded by invalid-contract training and train-to-rollout "
+                "distribution shift. No model-mechanism or capability conclusion may be drawn "
+                "from these rows."
+            ),
+            "",
             "## Results",
             "",
             "### Benchmark Readiness Summary",
@@ -640,6 +668,11 @@ def _render_serious_completion_paper(
             f"- Evaluations: `{_required_int(planning_summary, 'n_evaluations')}`.",
             f"- Elapsed seconds: `{_format_value(_required_number(planning_summary, 'elapsed_seconds'))}`.",
             f"- Stopped reason: `{_required_text(planning_summary, 'stopped_reason')}`.",
+            (
+                "- Validity status: the best-distance and best-objective values are preserved "
+                "as historical execution records; their planning-objective interpretation is "
+                "invalid under the mixed raw/unit-normalized state contract."
+            ),
             "",
             "### Synthetic Target Edits",
             "",
@@ -687,52 +720,58 @@ def _render_serious_completion_paper(
             "## Discussion and Learnings",
             "",
             (
-                "The central lesson is that an artifact-complete genomic world-model "
-                "pipeline is easier to achieve than a useful learned edit model. The "
-                "training, packaging, scoring, evaluation, rollout, planning, and release "
-                "contracts now bind their inputs and outputs, but those contracts mainly "
-                "make the negative findings auditable."
+                "The artifact chain establishes reproducible execution and identity binding "
+                "for the included training, packaging, scoring, evaluation, rollout, planning, "
+                "and release artifacts. It does not bind the historical tokenizer's unpinned "
+                "transitive Qwen dependency. "
+                "It does not make the released scientific comparisons valid. Reproducibility "
+                "and validity are separate requirements."
             ),
             "",
             (
-                "The most informative failure is the gap between narrow classification "
-                "successes and latent rollout behavior. Coding ClinVar balanced accuracy "
-                "improves slightly over Carbon on this tiny slice, but AUROC and average "
-                "precision trail Carbon, non-coding ClinVar is worse on every reported "
-                "metric, BRCA2 saturation correlation trails Carbon, and rollout-state "
-                "cosine similarity is far below the source-state baseline. This suggests "
-                "that the current predictor has not learned an edit-transition model that "
-                "transfers cleanly across evaluation modes."
+                "The released VEP scores, L2 rollout distances, and planning objectives all "
+                "depend on comparisons between raw Carbon states and unit-normalized predictor "
+                "outputs, with global/centered pooling mismatches and a one-hidden-token "
+                "centering offset across training and rollout. "
+                "Their signs, magnitudes, and baseline deltas therefore cannot support "
+                "either a success or failure claim. Cosine similarity removes scale sensitivity, "
+                "but the checkpoint was trained under the invalid contract and evaluated under "
+                "a shifted rollout distribution, so the cosine rows remain confounded."
             ),
             "",
             (
-                "The planning demo is therefore best interpreted as integration evidence. "
-                "It proves that a released checkpoint can be loaded through the planning "
-                "runtime and can emit a candidate edit sequence, but the measured non-zero "
-                "best distance and patience stop show that the run should not be presented "
-                "as useful genomic planning behavior."
+                "The planning demo is limited to integration evidence: a released checkpoint "
+                "was loaded through the manifest-backed runtime and the search emitted a "
+                "candidate edit sequence. Because its objective used the invalid mixed-state "
+                "geometry, best distance, best objective, and patience stopping behavior say "
+                "nothing about planning capability. No model-mechanism or capability conclusion "
+                "is supported by the v0.2 scientific rows."
             ),
             "",
-            "## Negative Findings",
+            "## Historical Released Measurements",
             "",
         ]
     )
-    lines.extend(f"- {item}" for item in _negative_findings(artifacts))
+    lines.extend(f"- {item}" for item in _historical_measurements(artifacts))
     lines.extend(
         [
             "",
             "## Limitations",
             "",
             "- This paper is not clinical, privacy-assurance, runtime-assurance, deployment-readiness, or broad model-quality evidence.",
-            "- The benchmark suite is broader than v0.1 but remains a bounded v0.2 evidence package.",
+            "- The VEP, L2 rollout, and planning-objective rows are invalid scientific comparisons and are retained only for release-history auditability.",
+            "- Training sources, targets, rollout sources, and candidates did not share one pooling center; cache v1 also omitted that center from identity.",
+            "- Every nominal centered pool omitted the leading <dna> token and was one hidden token left of the intended DNA token.",
+            "- The pinned Carbon tokenizer source made an unpinned, network-capable Qwen/Qwen3-4B-Base load; corrected identity includes the local pure-DNA tokenizer implementation, but no corrected model-quality result is published.",
+            "- The cosine rollout rows are scale-invariant but confounded and cannot isolate learned edit-transition behavior.",
             "- The K20 autoregressive rollout-speed target remains open in #42 despite the accepted v0.2 limitation.",
-            "- The planning demo uses one deterministic synthetic multi-SNV target window and does not prove useful planning behavior.",
+            "- The planning demo uses one deterministic synthetic multi-SNV target window and establishes execution only, not planning capability.",
             "",
             "## Conclusions",
             "",
-            "- The v0.2 evidence supports a systems and reproducibility contribution with negative model-quality findings.",
-            "- Artifact generation, benchmark aggregation, readiness checks, and released-artifact planning execution are now bound by public-safe identities.",
-            "- The measured result does not justify claims of broad GenoLeWM improvement over Carbon or useful multi-edit planning.",
+            "- The v0.2 model-quality interpretation is withdrawn; its scientific rows do not establish either success or failure.",
+            "- Artifact generation, benchmark aggregation, readiness checks, and released-artifact planning execution remain bound to their included bytes; the historical transitive tokenizer was outside that graph.",
+            "- Corrected normalized-state training and reevaluation are required before making any model-mechanism or capability claim.",
             "",
             "## Reproducibility",
             "",
@@ -740,15 +779,16 @@ def _render_serious_completion_paper(
                 "The manuscript is generated from machine-readable benchmark, readiness, "
                 "efficiency, rollout-speed, and planning-demo artifacts. Verification "
                 "re-renders the paper from those artifacts and rejects stale text, missing "
-                "negative findings, missing K20 scope markers, mutated planning evidence, "
-                "and private absolute workstation paths."
+                "validity-correction markers, missing K20 scope markers, mutated planning "
+                "evidence, and private absolute workstation paths."
             ),
             "",
             (
                 "The artifact chain records model release, model id, dataset snapshot, "
                 "commit, hardware string, package-relative artifact paths, SHA-256 hashes, "
                 "and file sizes. These commitments support reproducible inspection of the "
-                "reported experiments; they do not establish runtime assurance."
+                "reported experiments; they do not bind unpinned transitive dependencies or "
+                "establish runtime assurance."
             ),
             "",
             "## Artifact Availability",
@@ -840,9 +880,10 @@ def _verify_paper_path(
             "Citation Metadata",
             "Artifact Inputs",
             "Results",
+            "Validity Correction",
             "Planning Demo Evidence",
             "Discussion and Learnings",
-            "Negative Findings",
+            "Historical Released Measurements",
             "Limitations",
             "Reproducibility",
             "Conclusions",
@@ -868,8 +909,20 @@ def _verify_paper_path(
         "serious_paper.plan": re.escape(PLAN_NAME),
         "serious_paper.transcript": re.escape(PLANNING_TRANSCRIPT_NAME),
         "serious_paper.k20_open": r"K20.*#42",
-        "serious_paper.weak_planning": r"does not prove useful planning behavior",
-        "serious_paper.negative_results": r"negative-results and systems",
+        "serious_paper.validity_correction": r"post-release validity correction",
+        "serious_paper.mixed_state_contract": r"mixed raw/unit-normalized state contract",
+        "serious_paper.pooling_coordinate_contract": r"pooling-coordinate contract",
+        "serious_paper.control_token_offset": r"leading <dna> control token",
+        "serious_paper.transitive_tokenizer_dependency": (
+            r"unpinned, network-capable Qwen/Qwen3-4B-Base load"
+        ),
+        "serious_paper.invalid_vep": r"VEP comparisons are invalid",
+        "serious_paper.invalid_l2": r"L2 rollout distances are invalid",
+        "serious_paper.invalid_planning": r"planning-objective values are invalid",
+        "serious_paper.confounded_cosine": (
+            r"Cosine similarity is scale-invariant but remains confounded"
+        ),
+        "serious_paper.no_capability_conclusion": (r"No model-mechanism or capability conclusion"),
         "serious_paper.references": r"(?m)^## References$",
     }
     for code, pattern in required_patterns.items():
@@ -948,7 +1001,7 @@ def _validate_readiness_report(payload: dict[str, Any], eval_input: EvalReportIn
     if payload.get("missing_or_failed_benchmarks") not in ([], ()):
         raise InputError("readiness report must not have missing or failed benchmarks")
     if not _text_list(payload.get("negative_findings"), "readiness negative_findings"):
-        raise InputError("readiness report must carry negative findings")
+        raise InputError("readiness report must preserve its historical negative_findings field")
     rows = {str(row.get("benchmark_id")): row for row in _benchmark_rows(payload)}
     missing = [benchmark for benchmark in REQUIRED_BENCHMARKS if benchmark not in rows]
     if missing:
@@ -963,10 +1016,10 @@ def _validate_readiness_report(payload: dict[str, Any], eval_input: EvalReportIn
                 "readiness benchmark row has unexpected status",
                 details={"benchmark": benchmark, "expected": expected, "observed": status},
             )
-    _require_negative_delta(rows["clinvar_noncoding"], "auroc")
-    _require_negative_delta(rows["brca2_saturation"], "spearman_rho")
-    _require_rollout_weakness(rows["rollout_phased_haplotypes"])
-    _require_rollout_weakness(rows["rollout_synthetic_edit_chains"])
+    _require_historical_negative_delta(rows["clinvar_noncoding"], "auroc")
+    _require_historical_negative_delta(rows["brca2_saturation"], "spearman_rho")
+    _require_historical_rollout_values(rows["rollout_phased_haplotypes"])
+    _require_historical_rollout_values(rows["rollout_synthetic_edit_chains"])
     ar_values = _required_mapping(rows["ar_rollout_speed"], "observed_values")
     if _required_number(ar_values, "k20_speedup") >= 5.0:
         raise InputError("serious-completion paper expects K20 to remain a recorded #42 miss")
@@ -1013,7 +1066,7 @@ def _validate_rollout_speed_scope(payload: dict[str, Any]) -> None:
     if "#42" not in _text_list(payload.get("issue_refs"), "rollout speed scope issue_refs"):
         raise InputError("rollout speed scope report must retain #42 issue reference")
     if not _text_list(payload.get("negative_findings"), "rollout speed scope negative_findings"):
-        raise InputError("rollout speed scope report must carry negative findings")
+        raise InputError("rollout speed scope must preserve its historical negative_findings field")
 
 
 def _validate_planning_demo(artifacts: _SeriousCompletionArtifacts) -> None:
@@ -1029,7 +1082,7 @@ def _validate_planning_demo(artifacts: _SeriousCompletionArtifacts) -> None:
     if "useful planning behavior" not in boundary:
         raise InputError("planning manifest must not claim useful planning behavior")
     if not _text_list(manifest.get("negative_findings"), "planning negative_findings"):
-        raise InputError("planning manifest must carry negative findings")
+        raise InputError("planning manifest must preserve its historical negative_findings field")
 
     _require_value(plan, "generated_by", "geno-lewm-plan", label="planning plan")
     _require_value(plan, "evaluation_mode", "manifest_runtime", label="planning plan")
@@ -1052,9 +1105,9 @@ def _validate_planning_demo(artifacts: _SeriousCompletionArtifacts) -> None:
                 "planning manifest summary does not match plan result", details={"field": key}
             )
     if _required_number(summary, "best_distance") <= 0.0:
-        raise InputError("planning best_distance must preserve weak non-zero behavior")
+        raise InputError("planning best_distance must preserve its historical non-zero value")
     if _required_text(summary, "stopped_reason") != "patience":
-        raise InputError("planning demo must preserve patience-stop evidence")
+        raise InputError("planning demo must preserve its historical patience stop")
     if (
         "# GenoLeWM Planning Demo" not in artifacts.transcript
         or "best_distance" not in artifacts.transcript
@@ -1111,18 +1164,21 @@ def _require_identity_mapping(
         raise InputError(f"{label} identity does not match eval metrics", details=mismatches)
 
 
-def _require_negative_delta(row: dict[str, Any], metric: str) -> None:
+def _require_historical_negative_delta(row: dict[str, Any], metric: str) -> None:
     deltas = _required_mapping(row, "delta_vs_baseline")
     if _required_number(deltas, metric) >= 0.0:
-        raise InputError("expected negative baseline delta is missing", details={"metric": metric})
+        raise InputError(
+            "historical baseline delta changed sign",
+            details={"metric": metric},
+        )
 
 
-def _require_rollout_weakness(row: dict[str, Any]) -> None:
+def _require_historical_rollout_values(row: dict[str, Any]) -> None:
     deltas = _required_mapping(row, "delta_vs_baseline")
     if _required_number(deltas, "cosine_similarity_mean") >= 0.0:
-        raise InputError("rollout cosine delta must preserve weak source-baseline result")
+        raise InputError("historical rollout cosine delta changed sign")
     if _required_number(deltas, "l2_distance_mean") <= 0.0:
-        raise InputError("rollout L2 delta must preserve weak source-baseline result")
+        raise InputError("historical rollout L2 delta changed sign")
 
 
 def _require_model_artifact_identity(
@@ -1223,53 +1279,39 @@ def _metric_table_row(metric: Any) -> str:
     )
 
 
-def _negative_findings(artifacts: _SeriousCompletionArtifacts) -> list[str]:
+def _historical_measurements(artifacts: _SeriousCompletionArtifacts) -> list[str]:
     rows = {str(row.get("benchmark_id")): row for row in _benchmark_rows(artifacts.readiness)}
-    findings = [
+    return [
         (
-            "GenoLeWM trails Carbon on most VEP rows: ClinVar non-coding AUROC delta "
+            "Historical VEP deltas include ClinVar non-coding AUROC "
             f"`{_format_value(_readiness_delta(rows, 'clinvar_noncoding', 'auroc'))}` and "
             "BRCA2 Spearman delta "
-            f"`{_format_value(_readiness_delta(rows, 'brca2_saturation', 'spearman_rho'))}`."
+            f"`{_format_value(_readiness_delta(rows, 'brca2_saturation', 'spearman_rho'))}`; "
+            "both are invalid under the released state contract."
         ),
         (
-            "Only narrow coding ClinVar balanced-accuracy and accuracy deltas are positive "
+            "Historical coding ClinVar balanced-accuracy and accuracy deltas are "
             f"(`{_format_value(_readiness_delta(rows, 'clinvar_coding', 'balanced_accuracy'))}` each); "
-            "this is not a broad model-quality win."
+            "these values are also invalid and do not establish improvement."
         ),
         (
-            "Rollout fidelity is weak versus source-state baselines: phased-haplotype cosine delta "
+            "Historical phased-haplotype cosine delta "
             f"`{_format_value(_readiness_delta(rows, 'rollout_phased_haplotypes', 'cosine_similarity_mean'))}` "
             "and synthetic-chain cosine delta "
-            f"`{_format_value(_readiness_delta(rows, 'rollout_synthetic_edit_chains', 'cosine_similarity_mean'))}`."
+            f"`{_format_value(_readiness_delta(rows, 'rollout_synthetic_edit_chains', 'cosine_similarity_mean'))}` "
+            "are scale-invariant but confounded; the associated L2 values are invalid."
         ),
         (
-            "K20 rollout speed remains below the original target: measured "
+            "The separate systems-only K20 rollout-speed measurement was "
             f"`{_format_value(_readiness_observed(artifacts, 'ar_rollout_speed', 'k20_speedup'))}`x "
             "against a 5.0x target, with #42 still open."
         ),
         (
-            "The planning demo stopped by patience with best_distance "
+            "The planning demo historically recorded a patience stop and best_distance "
             f"`{_format_value(_required_number(_required_mapping(artifacts.planning_manifest, 'plan_summary'), 'best_distance'))}`; "
-            "it records execution from released artifacts, not useful planning behavior."
+            "the value is an invalid planning objective and supports execution evidence only."
         ),
     ]
-    for payload in (
-        artifacts.eval_input.negative_findings,
-        _text_list(artifacts.readiness.get("negative_findings"), "readiness negative_findings"),
-        _text_list(
-            artifacts.rollout_speed_scope.get("negative_findings"),
-            "rollout speed scope negative_findings",
-        ),
-        _text_list(
-            artifacts.planning_manifest.get("negative_findings"),
-            "planning negative_findings",
-        ),
-    ):
-        for item in payload:
-            if item not in findings:
-                findings.append(item)
-    return findings
 
 
 def _readiness_delta(rows: dict[str, dict[str, Any]], benchmark: str, metric: str) -> float:

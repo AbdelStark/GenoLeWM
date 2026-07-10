@@ -34,6 +34,10 @@ from pathlib import Path
 from typing import Any
 
 from geno_lewm.config import load_config
+from geno_lewm.encoder._identity import (
+    encoder_identity_hash,
+    encoder_weights_hash as _encoder_weights_hash,
+)
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import (
     SCHEMA_VERSION,
@@ -58,11 +62,10 @@ DEFAULT_CONFIG_NAME = "training_config.yaml"
 # model-package verifier still fails until the real artifact is committed.
 _PLACEHOLDER_HASH = "sha256:" + ("0" * 64)
 
-_ENCODER_WEIGHT_NAMES = (
-    "model.safetensors",
-    "model.safetensors.index.json",
-    "pytorch_model.bin",
-)
+
+def encoder_weights_hash(encoder_weights: Path) -> str:
+    """Compatibility wrapper for the shared encoder weight identity helper."""
+    return _encoder_weights_hash(encoder_weights)
 
 
 def author_manifest(
@@ -100,7 +103,10 @@ def author_manifest(
     encoder = ManifestEncoder(
         id=cfg.encoder.model_id,
         revision=cfg.encoder.revision,
-        hash=_encoder_weights_hash(Path(encoder_weights)),
+        hash=encoder_identity_hash(
+            Path(encoder_weights),
+            state_contract_version=cfg.encoder.state_contract_version,
+        ),
     )
     predictor = ManifestArtifact(
         file=predictor_file,
@@ -187,21 +193,6 @@ def _evidence_hash(model_dir: Path, file_name: str, allow_missing: bool, label: 
             "--allow-missing-evidence to author a preliminary manifest"
         ),
     )
-
-
-def _encoder_weights_hash(encoder_weights: Path) -> str:
-    if encoder_weights.is_dir():
-        for name in _ENCODER_WEIGHT_NAMES:
-            candidate = encoder_weights / name
-            if candidate.is_file():
-                return sha256_file(candidate)
-        raise InputError(
-            "encoder weights directory has no recognized weight file",
-            details={"path": str(encoder_weights), "expected": list(_ENCODER_WEIGHT_NAMES)},
-        )
-    if encoder_weights.is_file():
-        return sha256_file(encoder_weights)
-    raise InputError("encoder weights path does not exist", details={"path": str(encoder_weights)})
 
 
 def main(argv: list[str] | None = None) -> int:

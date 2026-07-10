@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
+import geno_lewm.encoder._identity as identity_module
+from geno_lewm.encoder._identity import encoder_runtime_hash
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import load_manifest, sha256_file
-from tools.release.author_manifest import author_manifest
+from tools.release.author_manifest import author_manifest, encoder_weights_hash
 
 CONFIG = Path("configs/first_experiment/train-carbon-500m-snv.yaml")
 
@@ -96,3 +99,158 @@ def test_encoder_weights_must_exist(tmp_path: Path) -> None:
 
     with pytest.raises(InputError, match="encoder weights"):
         _author(model_dir, tmp_path / "missing", allow_missing_evidence=True)
+
+
+def test_sharded_encoder_identity_commits_every_referenced_shard(tmp_path: Path) -> None:
+    model_dir = tmp_path / "carbon-sharded"
+    model_dir.mkdir()
+    (model_dir / "model-00001-of-00002.safetensors").write_bytes(b"shard-one")
+    second = model_dir / "model-00002-of-00002.safetensors"
+    second.write_bytes(b"shard-two")
+    (model_dir / "model.safetensors.index.json").write_text(
+        json.dumps(
+            {
+                "weight_map": {
+                    "layer.0": "model-00001-of-00002.safetensors",
+                    "layer.1": "model-00002-of-00002.safetensors",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    first_hash = encoder_weights_hash(model_dir)
+    second.write_bytes(b"changed-shard-two")
+
+    assert encoder_weights_hash(model_dir) != first_hash
+
+
+def test_corrected_encoder_runtime_identity_commits_tokenizer_code(tmp_path: Path) -> None:
+    model_dir = tmp_path / "carbon-runtime"
+    model_dir.mkdir()
+    (model_dir / "model.safetensors").write_bytes(b"weights")
+    (model_dir / "config.json").write_text("{}\n", encoding="utf-8")
+    (model_dir / "tokenizer_config.json").write_text("{}\n", encoding="utf-8")
+    (model_dir / "dna_config.json").write_text("{}\n", encoding="utf-8")
+    tokenizer = model_dir / "tokenizer.py"
+    tokenizer.write_text("# v1\n", encoding="utf-8")
+
+    first_hash = encoder_runtime_hash(model_dir)
+    tokenizer.write_text("# v2\n", encoding="utf-8")
+
+    assert encoder_runtime_hash(model_dir) != first_hash
+
+
+def test_corrected_encoder_runtime_identity_commits_local_encoder_implementation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model_dir = tmp_path / "carbon-runtime"
+    model_dir.mkdir()
+    (model_dir / "model.safetensors").write_bytes(b"weights")
+    for name in ("config.json", "tokenizer_config.json", "dna_config.json"):
+        (model_dir / name).write_text("{}\n", encoding="utf-8")
+    (model_dir / "tokenizer.py").write_text("# upstream tokenizer\n", encoding="utf-8")
+    tokenizer_implementation = tmp_path / "_dna_tokenizer.py"
+    tokenizer_implementation.write_text("# tokenizer implementation v1\n", encoding="utf-8")
+    pooling_implementation = tmp_path / "pooling.py"
+    pooling_implementation.write_text("# pooling implementation v1\n", encoding="utf-8")
+    monkeypatch.setattr(
+        identity_module,
+        "_ENCODER_IMPLEMENTATION_FILES",
+        (
+            ("geno_lewm/encoder/_dna_tokenizer.py", tokenizer_implementation),
+            ("geno_lewm/encoder/pooling.py", pooling_implementation),
+        ),
+    )
+
+    first_hash = encoder_runtime_hash(model_dir)
+    pooling_implementation.write_text("# pooling implementation v2\n", encoding="utf-8")
+
+    assert encoder_runtime_hash(model_dir) != first_hash
+
+
+def test_encoder_weights_identity_matches_transformers_safetensors_precedence(
+    tmp_path: Path,
+) -> None:
+    model_dir = tmp_path / "carbon-mixed-weights"
+    model_dir.mkdir()
+    shard = model_dir / "model-00001-of-00001.safetensors"
+    shard.write_bytes(b"safetensors-shard")
+    (model_dir / "model.safetensors.index.json").write_text(
+        json.dumps({"weight_map": {"layer.0": shard.name}}),
+        encoding="utf-8",
+    )
+    (model_dir / "pytorch_model.bin").write_bytes(b"unused-pytorch-monolith")
+
+    first_hash = encoder_weights_hash(model_dir)
+    (model_dir / "pytorch_model.bin").write_bytes(b"changed-but-still-unused")
+
+    assert encoder_weights_hash(model_dir) == first_hash
+    shard.write_bytes(b"changed-loaded-safetensors-shard")
+    assert encoder_weights_hash(model_dir) != first_hash
+
+
+def test_encoder_identity_rejects_missing_or_incomplete_runtime_paths(tmp_path: Path) -> None:
+    with pytest.raises(InputError, match="path does not exist"):
+        identity_module.encoder_weights_hash(tmp_path / "missing")
+
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    with pytest.raises(InputError, match="no recognized weight file"):
+        identity_module.encoder_weights_hash(empty_dir)
+    with pytest.raises(InputError, match="missing required identity files"):
+        encoder_runtime_hash(empty_dir)
+
+    weight_file = tmp_path / "model.safetensors"
+    weight_file.write_bytes(b"weights")
+    assert identity_module.encoder_weights_hash(weight_file) == sha256_file(weight_file)
+    with pytest.raises(InputError, match="must be a directory"):
+        encoder_runtime_hash(weight_file)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ("{", "not readable JSON"),
+        ("[]", "must be a JSON object"),
+        ("{}", "non-empty weight_map"),
+        (json.dumps({"weight_map": {}}), "non-empty weight_map"),
+        (json.dumps({"weight_map": {"layer.0": ""}}), "non-empty shard paths"),
+    ],
+)
+def test_sharded_encoder_identity_rejects_invalid_index_contract(
+    tmp_path: Path,
+    payload: str,
+    message: str,
+) -> None:
+    index = tmp_path / "model.safetensors.index.json"
+    index.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(InputError, match=message):
+        identity_module.encoder_weights_hash(index)
+
+
+def test_sharded_encoder_identity_rejects_escape_and_missing_shards(tmp_path: Path) -> None:
+    index = tmp_path / "model.safetensors.index.json"
+    index.write_text(
+        json.dumps({"weight_map": {"layer.0": "../outside.safetensors"}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(InputError, match="must stay beside"):
+        identity_module.encoder_weights_hash(index)
+
+    index.write_text(
+        json.dumps({"weight_map": {"layer.0": "missing.safetensors"}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(InputError, match="shard is missing"):
+        identity_module.encoder_weights_hash(index)
+
+
+def test_encoder_identity_dispatch_rejects_unknown_state_contract(tmp_path: Path) -> None:
+    with pytest.raises(InputError, match="unsupported encoder state contract"):
+        identity_module.encoder_identity_hash(
+            tmp_path,
+            state_contract_version="future_contract",
+        )

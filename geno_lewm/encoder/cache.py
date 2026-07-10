@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Parquet window-embedding cache and SQLite index.
+"""Parquet raw pooled window-embedding cache and SQLite index.
 
 Implements the on-disk cache contract from encoder contract and
 ``public API contract``.
@@ -38,8 +38,9 @@ __all__ = [
 ]
 
 
-CACHE_SCHEMA_VERSION = "1.0.0"
+CACHE_SCHEMA_VERSION = "2.0.0"
 INDEX_DB_NAME = "index.sqlite"
+_INDEX_SCHEMA_VERSION = 2
 _EMBEDDINGS_DIR = "embeddings"
 _QUARANTINE_DIR = ".quarantine"
 _SUPPORTED_DTYPES = frozenset({"bf16", "fp16", "fp32"})
@@ -55,6 +56,7 @@ class WindowCacheKey:
     state_layer: int
     pool_type: str
     pool_radius: int
+    center_token: int | None
     dtype: str
 
     def __post_init__(self) -> None:
@@ -62,12 +64,17 @@ class WindowCacheKey:
         _validate_hash("encoder_hash", self.encoder_hash)
         _validate_state_layer(self.state_layer)
         _validate_pool(self.pool_type, self.pool_radius)
+        _validate_pool_locus(self.pool_type, self.center_token)
         _validate_dtype(self.dtype)
 
 
 @dataclass(frozen=True, slots=True)
 class WindowCacheRecord:
-    """One row in the window-embedding cache schema."""
+    """One raw pooled row in the window-embedding cache schema.
+
+    Normalization is a consumer-side view and is intentionally absent from
+    the cache key. Cache producers must never persist normalized states.
+    """
 
     chrom: str
     start_bp: int
@@ -77,6 +84,7 @@ class WindowCacheRecord:
     state_layer: int
     pool_type: str
     pool_radius: int
+    center_token: int | None
     dtype: str
     embedding: tuple[float, ...]
     untargeted: bool
@@ -110,6 +118,7 @@ class WindowCacheRecord:
             state_layer=self.state_layer,
             pool_type=self.pool_type,
             pool_radius=self.pool_radius,
+            center_token=self.center_token,
             dtype=self.dtype,
         )
 
@@ -122,6 +131,7 @@ class WindowCacheRecord:
             state_layer=self.state_layer,
             pool_type=self.pool_type,
             pool_radius=self.pool_radius,
+            center_token=self.center_token,
             dtype=self.dtype,
         )
 
@@ -138,6 +148,7 @@ class WindowCacheRecord:
             state_layer=self.state_layer,
             pool_type=self.pool_type,
             pool_radius=self.pool_radius,
+            center_token=self.center_token,
             dtype=self.dtype,
             embedding=self.embedding,
             untargeted=self.untargeted,
@@ -252,7 +263,7 @@ def write_shard(
 
 
 def read_embedding(cache_dir: Path | str, key: WindowCacheKey) -> tuple[float, ...] | None:
-    """Return an embedding by content key, or ``None`` on cache miss."""
+    """Return a raw pooled embedding by content key, or ``None`` on cache miss."""
     root = Path(cache_dir)
     index_path = _index_path(root)
     if not index_path.exists():
@@ -268,6 +279,7 @@ def read_embedding(cache_dir: Path | str, key: WindowCacheKey) -> tuple[float, .
               AND state_layer = ?
               AND pool_type = ?
               AND pool_radius = ?
+              AND center_token = ?
               AND dtype = ?
             """,
             _index_key_params(key),
@@ -362,6 +374,7 @@ def _write_records_to_parquet(path: Path, records: Sequence[WindowCacheRecord]) 
             "state_layer": [record.state_layer for record in records],
             "pool_type": [record.pool_type for record in records],
             "pool_radius": [record.pool_radius for record in records],
+            "center_token": [record.center_token for record in records],
             "dtype": [record.dtype for record in records],
             "embedding": [list(record.embedding) for record in records],
             "untargeted": [record.untargeted for record in records],
@@ -389,24 +402,31 @@ def _read_records_from_shard(path: Path) -> tuple[WindowCacheRecord, ...]:
             "cache shard is missing required column(s)",
             details={"shard_path": str(path), "missing": sorted(required - observed)},
         )
-    return tuple(
-        WindowCacheRecord(
-            chrom=str(row["chrom"]),
-            start_bp=int(row["start_bp"]),
-            end_bp=int(row["end_bp"]),
-            window_hash=bytes(row["window_hash"]),
-            encoder_hash=bytes(row["encoder_hash"]),
-            state_layer=int(row["state_layer"]),
-            pool_type=str(row["pool_type"]),
-            pool_radius=int(row["pool_radius"]),
-            dtype=str(row["dtype"]),
-            embedding=tuple(float(value) for value in row["embedding"]),
-            untargeted=bool(row["untargeted"]),
-            created_at=int(row["created_at"]),
-            schema_version=str(row["schema_version"]),
+    try:
+        return tuple(
+            WindowCacheRecord(
+                chrom=str(row["chrom"]),
+                start_bp=int(row["start_bp"]),
+                end_bp=int(row["end_bp"]),
+                window_hash=bytes(row["window_hash"]),
+                encoder_hash=bytes(row["encoder_hash"]),
+                state_layer=int(row["state_layer"]),
+                pool_type=str(row["pool_type"]),
+                pool_radius=int(row["pool_radius"]),
+                center_token=(None if row["center_token"] is None else int(row["center_token"])),
+                dtype=str(row["dtype"]),
+                embedding=tuple(float(value) for value in row["embedding"]),
+                untargeted=bool(row["untargeted"]),
+                created_at=int(row["created_at"]),
+                schema_version=str(row["schema_version"]),
+            )
+            for row in table.to_pylist()
         )
-        for row in table.to_pylist()
-    )
+    except (InputError, TypeError, ValueError) as exc:
+        raise CacheCorruptError(
+            "cache shard contains an invalid row",
+            details={"shard_path": str(path), "error": str(exc)},
+        ) from exc
 
 
 def _arrow_schema(pa: Any) -> Any:
@@ -420,6 +440,7 @@ def _arrow_schema(pa: Any) -> Any:
             ("state_layer", pa.int8()),
             ("pool_type", pa.string()),
             ("pool_radius", pa.int32()),
+            ("center_token", pa.int32()),
             ("dtype", pa.string()),
             ("embedding", pa.list_(pa.float16())),
             ("untargeted", pa.bool_()),
@@ -439,6 +460,7 @@ def _column_names() -> tuple[str, ...]:
         "state_layer",
         "pool_type",
         "pool_radius",
+        "center_token",
         "dtype",
         "embedding",
         "untargeted",
@@ -483,6 +505,7 @@ def _assert_index_keys_available(cache_dir: Path, records: Sequence[WindowCacheR
                   AND state_layer = ?
                   AND pool_type = ?
                   AND pool_radius = ?
+                  AND center_token = ?
                   AND dtype = ?
                 """,
                 _index_key_params(record.key),
@@ -529,6 +552,7 @@ def _insert_index_records(
               AND state_layer = ?
               AND pool_type = ?
               AND pool_radius = ?
+              AND center_token = ?
               AND dtype = ?
             """,
             _index_key_params(record.key),
@@ -552,11 +576,12 @@ def _insert_index_records(
                 state_layer,
                 pool_type,
                 pool_radius,
+                center_token,
                 dtype,
                 shard_path,
                 row_offset,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.window_hash.hex(),
@@ -564,6 +589,7 @@ def _insert_index_records(
                 record.state_layer,
                 record.pool_type,
                 record.pool_radius,
+                _index_center_token(record.center_token),
                 record.dtype,
                 rel_shard,
                 row_offset,
@@ -573,6 +599,10 @@ def _insert_index_records(
 
 
 def _ensure_index_schema(conn: sqlite3.Connection) -> None:
+    observed = conn.execute("PRAGMA table_info(window_index)").fetchall()
+    if observed and not _index_schema_matches(observed):
+        conn.execute("DROP INDEX IF EXISTS idx_shard_path")
+        conn.execute("DROP TABLE window_index")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS window_index (
@@ -581,15 +611,42 @@ def _ensure_index_schema(conn: sqlite3.Connection) -> None:
             state_layer INTEGER NOT NULL,
             pool_type TEXT NOT NULL,
             pool_radius INTEGER NOT NULL,
+            center_token INTEGER NOT NULL,
             dtype TEXT NOT NULL,
             shard_path TEXT NOT NULL,
             row_offset INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
-            PRIMARY KEY (window_hash, encoder_hash, state_layer, pool_type, pool_radius, dtype)
+            PRIMARY KEY (
+                window_hash,
+                encoder_hash,
+                state_layer,
+                pool_type,
+                pool_radius,
+                center_token,
+                dtype
+            )
         )
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_shard_path ON window_index(shard_path)")
+    conn.execute(f"PRAGMA user_version = {_INDEX_SCHEMA_VERSION}")
+
+
+def _index_schema_matches(columns: Sequence[tuple[Any, ...]]) -> bool:
+    expected = (
+        ("window_hash", 1, 1),
+        ("encoder_hash", 1, 2),
+        ("state_layer", 1, 3),
+        ("pool_type", 1, 4),
+        ("pool_radius", 1, 5),
+        ("center_token", 1, 6),
+        ("dtype", 1, 7),
+        ("shard_path", 1, 0),
+        ("row_offset", 1, 0),
+        ("created_at", 1, 0),
+    )
+    observed = tuple((str(column[1]), int(column[3]), int(column[5])) for column in columns)
+    return observed == expected
 
 
 def _index_key_params(key: WindowCacheKey) -> tuple[Any, ...]:
@@ -599,8 +656,13 @@ def _index_key_params(key: WindowCacheKey) -> tuple[Any, ...]:
         key.state_layer,
         key.pool_type,
         key.pool_radius,
+        _index_center_token(key.center_token),
         key.dtype,
     )
+
+
+def _index_center_token(center_token: int | None) -> int:
+    return -1 if center_token is None else center_token
 
 
 def _iter_shards(cache_dir: Path) -> Iterable[Path]:
@@ -662,6 +724,30 @@ def _validate_pool(pool_type: str, pool_radius: int) -> None:
         raise InputError(
             "pool_radius must be a non-negative integer",
             details={"pool_radius": pool_radius, "type": type(pool_radius).__name__},
+        )
+    if pool_type == POOL_GLOBAL_MEAN and pool_radius != 0:
+        raise InputError(
+            "global_mean cache keys require pool_radius=0",
+            details={"pool_type": pool_type, "pool_radius": pool_radius},
+        )
+
+
+def _validate_pool_locus(pool_type: str, center_token: int | None) -> None:
+    if pool_type == POOL_GLOBAL_MEAN:
+        if center_token is not None:
+            raise InputError(
+                "center_token must be absent for global pooling",
+                details={"pool_type": pool_type, "center_token": center_token},
+            )
+        return
+    if not isinstance(center_token, int) or isinstance(center_token, bool) or center_token < 0:
+        raise InputError(
+            "center_token must be a non-negative integer for locus-aware pooling",
+            details={
+                "pool_type": pool_type,
+                "center_token": center_token,
+                "type": type(center_token).__name__,
+            },
         )
 
 

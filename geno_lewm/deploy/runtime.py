@@ -711,6 +711,7 @@ def _optional_module_available(name: str) -> bool:
 
 
 def _build_runtime_encoder(manifest: Manifest, cfg: Any) -> object:
+    from geno_lewm.config._state_contract import encoder_uses_normalized_states
     from geno_lewm.encoder import CarbonStateEncoder
 
     return CarbonStateEncoder(
@@ -720,7 +721,7 @@ def _build_runtime_encoder(manifest: Manifest, cfg: Any) -> object:
         state_layer=cfg.encoder.state_layer,
         pool_type=cfg.encoder.pool_type,
         pool_radius=cfg.encoder.pool_radius,
-        normalize=cfg.encoder.normalize,
+        normalize=encoder_uses_normalized_states(cfg.encoder),
         encoder_hash=manifest.encoder.hash,
         local_files_only=True,
         trust_remote_code=getattr(cfg.encoder, "trust_remote_code", False),
@@ -774,11 +775,13 @@ def _resolve_commitment_configs(
     manifest: Manifest | None,
 ) -> tuple[PoolingConfig, DtypeConfig]:
     cfg = _load_commitment_config_source(model_dir, manifest)
+    from geno_lewm.config._state_contract import encoder_uses_normalized_states
+
     resolved_pooling = PoolingConfig(
         state_layer=cfg.encoder.state_layer,
         pool_type=cfg.encoder.pool_type,
         pool_radius=cfg.encoder.pool_radius,
-        normalize=cfg.encoder.normalize,
+        normalize=encoder_uses_normalized_states(cfg.encoder),
     )
 
     predictor_dtype = cfg.predictor.dtype

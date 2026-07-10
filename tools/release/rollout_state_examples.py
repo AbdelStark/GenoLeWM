@@ -25,11 +25,19 @@ from typing import Any, Final
 
 from geno_lewm.action import EditType, RelEdit
 from geno_lewm.cli._artifact_paths import package_relative_artifact_path
-from geno_lewm.encoder.cache import INDEX_DB_NAME, WindowCacheKey, read_embedding
+from geno_lewm.encoder._normalization import l2_normalize_state
+from geno_lewm.encoder.cache import (
+    CACHE_SCHEMA_VERSION,
+    INDEX_DB_NAME,
+    WindowCacheKey,
+    read_embedding,
+)
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import sha256_file
 
 SCHEMA_VERSION: Final = "1.0.0"
+SPEC_SCHEMA_VERSION: Final = "1.2.0"
+EXAMPLE_SCHEMA_VERSION: Final = "1.2.0"
 GENERATED_BY: Final = "tools.release.rollout_state_examples"
 SPEC_GENERATED_BY: Final = "tools.release.rollout_state_example_specs"
 ISSUE_REFS: Final = ("#57", "#197")
@@ -49,6 +57,7 @@ class RolloutStateExampleSpec:
 
     row_id: str
     split: str
+    normalize: bool
     source_state_key: WindowCacheKey
     target_state_key: WindowCacheKey
     edits: tuple[RelEdit, ...]
@@ -97,8 +106,24 @@ def generate_rollout_state_examples(
     """Resolve cache keys and return normalized rollout-state example rows."""
     rows: list[dict[str, object]] = []
     for spec in specs:
-        source_state = _read_state(cache_dir, spec.source_state_key, label="source_state")
-        target_state = _read_state(cache_dir, spec.target_state_key, label="target_state")
+        _require_matching_state_key(
+            spec.source_state_key,
+            spec.target_state_key,
+            field="target_state_key",
+            row_id=spec.row_id,
+        )
+        source_state = _read_state(
+            cache_dir,
+            spec.source_state_key,
+            label="source_state",
+            normalize=spec.normalize,
+        )
+        target_state = _read_state(
+            cache_dir,
+            spec.target_state_key,
+            label="target_state",
+            normalize=spec.normalize,
+        )
         _require_state_dim(
             target_state,
             expected_dim=len(source_state),
@@ -121,8 +146,17 @@ def generate_rollout_state_examples(
             )
         candidate_rows: list[dict[str, object]] = []
         for candidate in spec.candidates:
+            _require_matching_state_key(
+                spec.source_state_key,
+                candidate.state_key,
+                field=f"candidate:{candidate.candidate_id}.state_key",
+                row_id=spec.row_id,
+            )
             state = _read_state(
-                cache_dir, candidate.state_key, label=f"candidate:{candidate.candidate_id}"
+                cache_dir,
+                candidate.state_key,
+                label=f"candidate:{candidate.candidate_id}",
+                normalize=spec.normalize,
             )
             _require_state_dim(
                 state,
@@ -138,10 +172,16 @@ def generate_rollout_state_examples(
             )
         rows.append(
             {
-                "schema_version": SCHEMA_VERSION,
+                "schema_version": EXAMPLE_SCHEMA_VERSION,
                 "generated_by": GENERATED_BY,
+                "cache_schema_version": CACHE_SCHEMA_VERSION,
+                "cached_state_value_contract": "raw_pooled_v1",
+                "materialized_state_contract": (
+                    "l2_normalized_v2" if spec.normalize else "legacy_raw_v1"
+                ),
                 "id": spec.row_id,
                 "split": spec.split,
+                "normalize": spec.normalize,
                 "source_state": list(source_state),
                 "source_state_key": _state_key_dict(spec.source_state_key),
                 "target_state": list(target_state),
@@ -215,15 +255,27 @@ def _parse_spec(payload: Any, *, line_no: int) -> RolloutStateExampleSpec:
             details={"line": line_no},
         )
     schema_version = _required_text(payload, "schema_version", line_no=line_no)
-    if schema_version != SCHEMA_VERSION:
+    if schema_version != SPEC_SCHEMA_VERSION:
         raise InputError(
             "unsupported rollout-state example spec schema_version",
             details={
                 "line": line_no,
                 "schema_version": schema_version,
-                "supported": SCHEMA_VERSION,
+                "supported": SPEC_SCHEMA_VERSION,
             },
         )
+    _require_contract_field(
+        payload,
+        "cache_schema_version",
+        CACHE_SCHEMA_VERSION,
+        line_no=line_no,
+    )
+    _require_contract_field(
+        payload,
+        "cached_state_value_contract",
+        "raw_pooled_v1",
+        line_no=line_no,
+    )
     generated_by = _required_text(payload, "generated_by", line_no=line_no)
     if generated_by != SPEC_GENERATED_BY:
         raise InputError(
@@ -231,9 +283,11 @@ def _parse_spec(payload: Any, *, line_no: int) -> RolloutStateExampleSpec:
             details={"line": line_no, "expected": SPEC_GENERATED_BY, "observed": generated_by},
         )
     candidates = _candidate_specs(payload.get("candidates"), line_no=line_no)
+    normalize = _spec_normalization(payload, schema_version=schema_version, line_no=line_no)
     return RolloutStateExampleSpec(
         row_id=_required_text(payload, "id", line_no=line_no),
         split=_required_text(payload, "split", line_no=line_no),
+        normalize=normalize,
         source_state_key=_state_key(payload.get("source_state_key"), line_no=line_no),
         target_state_key=_state_key(payload.get("target_state_key"), line_no=line_no),
         edits=_edits(payload.get("edits"), line_no=line_no),
@@ -308,18 +362,58 @@ def _state_key(raw: object, *, line_no: int) -> WindowCacheKey:
         state_layer=_required_int(raw, "state_layer", line_no=line_no),
         pool_type=_required_text(raw, "pool_type", line_no=line_no),
         pool_radius=_required_int(raw, "pool_radius", line_no=line_no),
+        center_token=_optional_int(raw, "center_token", line_no=line_no),
         dtype=_required_text(raw, "dtype", line_no=line_no),
     )
 
 
-def _read_state(cache_dir: Path, key: WindowCacheKey, *, label: str) -> tuple[float, ...]:
+def _read_state(
+    cache_dir: Path,
+    key: WindowCacheKey,
+    *,
+    label: str,
+    normalize: bool,
+) -> tuple[float, ...]:
     value = read_embedding(cache_dir, key)
     if value is None:
         raise InputError(
             "rollout-state example references a missing cache embedding",
             details={"field": label, "state_key": _state_key_dict(key)},
         )
-    return _state_vector(value, field=label)
+    state = _state_vector(value, field=label)
+    return l2_normalize_state(state) if normalize else state
+
+
+def _require_matching_state_key(
+    expected: WindowCacheKey,
+    observed: WindowCacheKey,
+    *,
+    field: str,
+    row_id: str,
+) -> None:
+    expected_fields = _state_representation(expected)
+    observed_fields = _state_representation(observed)
+    if observed_fields != expected_fields:
+        raise InputError(
+            "rollout-state spec keys must share one state representation",
+            details={
+                "id": row_id,
+                "field": field,
+                "expected": expected_fields,
+                "observed": observed_fields,
+            },
+        )
+
+
+def _state_representation(key: WindowCacheKey) -> dict[str, object]:
+    return {
+        "encoder_hash": key.encoder_hash.hex(),
+        "state_layer": key.state_layer,
+        "pool_type": key.pool_type,
+        "pool_radius": key.pool_radius,
+        "center_token": key.center_token,
+        "dtype": key.dtype,
+    }
 
 
 def _state_vector(raw: object, *, field: str) -> tuple[float, ...]:
@@ -422,6 +516,9 @@ def _build_report(
         "rows": len(rows),
         "splits": splits,
         "horizons": horizons,
+        "normalization_views": sorted({spec.normalize for spec in specs}),
+        "cache_schema_version": CACHE_SCHEMA_VERSION,
+        "cached_state_value_contract": "raw_pooled_v1",
         "unique_cache_state_keys": len(unique_state_keys),
         "negative_findings": [
             (
@@ -435,8 +532,8 @@ def _build_report(
                 "candidate sets. This tool does not construct held-out haplotypes."
             ),
             (
-                "The cache must already contain measured latent states from a compatible "
-                "encoder run. This tool does not run Carbon encoding."
+                "The cache must contain raw pooled latent states from a compatible encoder run. "
+                "Normalization is an explicit spec-level view applied after cache lookup."
             ),
         ],
         "claim_boundary": (
@@ -474,6 +571,7 @@ def _state_key_dict(key: WindowCacheKey) -> dict[str, object]:
         "state_layer": key.state_layer,
         "pool_type": key.pool_type,
         "pool_radius": key.pool_radius,
+        "center_token": key.center_token,
         "dtype": key.dtype,
     }
 
@@ -520,6 +618,43 @@ def _required_int(payload: dict[str, object], field: str, *, line_no: int) -> in
     if isinstance(value, bool) or not isinstance(value, int):
         raise InputError(f"{field} must be an integer", details={"line": line_no})
     return value
+
+
+def _optional_int(payload: dict[str, object], field: str, *, line_no: int) -> int | None:
+    value = payload.get(field)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InputError(f"{field} must be an integer or null", details={"line": line_no})
+    return value
+
+
+def _spec_normalization(
+    payload: dict[str, object],
+    *,
+    schema_version: str,
+    line_no: int,
+) -> bool:
+    del schema_version
+    value = payload.get("normalize")
+    if not isinstance(value, bool):
+        raise InputError("normalize must be boolean", details={"line": line_no})
+    return value
+
+
+def _require_contract_field(
+    payload: dict[str, object],
+    field: str,
+    expected: str,
+    *,
+    line_no: int,
+) -> None:
+    observed = payload.get(field)
+    if observed != expected:
+        raise InputError(
+            f"{field} does not match the rollout-state contract",
+            details={"line": line_no, "expected": expected, "observed": observed},
+        )
 
 
 def _duplicates(values: Iterable[object]) -> list[str]:

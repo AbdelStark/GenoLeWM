@@ -1,11 +1,34 @@
 # GenoLeWM — Consolidated Evidence Dossier
 
-**Status:** Single source of truth for the v0.2.1-r1 negative-results + systems/reproducibility paper.
-**Honest framing (non-negotiable):** GenoLeWM does NOT beat Carbon zero-shot broadly. No clinical, privacy, runtime-assurance, or deployment claims. The strongest positive claim is that the repository can train / eval / benchmark / replay an action-conditioned genomic-edit latent world model with content-addressed (checksum-receipt) evidence. Never inflate negatives into wins.
+**Status:** Single source of truth for the post-release validity correction to `v0.2.1-r1`.
+**Corrected framing (non-negotiable):** `v0.2.1-r1` does not validly establish either positive or negative model quality. Preserve its numbers as historical implementation measurements only. Make no clinical, privacy, runtime-assurance, deployment, world-model-capability, variant-effect, planning, or mechanistic claim from this run. Any contrary interpretation in the historical evidence cards below is superseded by this correction.
+
+## POST-RELEASE VALIDITY CORRECTION — AUTHORITATIVE
+
+The release configuration set `normalize: true`, but runtime encoder outputs were raw pooled states. Predictor outputs were explicitly L2-normalized. Training source states also fell back to global-mean pooling because `_source_states` passed no edit locus, while training targets were nominally edit-centered. Every historical centered path used `edit_locus // 6` directly against hidden states even though Carbon emits a leading `<dna>` control token. Thus every intended center was shifted one hidden token left, and some early-window loci centered on the control token. Rollout source/target states used that shifted centering rule, and historical distractors could use their own first edits. Cache v1 did not include the pooling center in its key.
+
+The pinned Carbon `tokenizer.py` made an unpinned, network-capable transitive load of `Qwen/Qwen3-4B-Base`. Hashing the local custom-tokenizer file therefore did not identify the transitive tokenizer actually loaded and did not establish a self-contained runtime. The released rollout state audit found:
+
+| Slice | Mean source norm | Mean target norm | Mean prediction norm |
+|---|---:|---:|---:|
+| phased haplotypes | 33.982 | 33.595 | 1.000 |
+| synthetic edit chains | 29.253 | 29.089 | 1.000 |
+
+Validity consequences:
+
+1. **Invalid intended-method measurements:** training L2, raw/calibrated surprise, surprise-based VEP metrics, rollout L2, and planning distances compare incompatible state scales and, in several paths, incompatible pooling coordinates and token layouts. They do not evaluate the intended normalized, coordinate-matched method.
+2. **Historical but confounded cosine:** released cosine values are scale-invariant and remain reproducible measurements of the historical implementation. They are downstream of invalid mixed-scale, global-source/shifted-target training and are additionally confounded by train/rollout distribution mismatch. They support no capability or causal conclusion.
+3. **Correct run metadata:** the `v0.2.1` run used seed `271828`, 10,000 optimizer steps, and 80,000 samples. The prior seed `104729` / 20,000-step description belongs to the earlier v0.1 first-experiment lineage.
+4. **Phase semantics:** the run configuration said `phase2`, but Carbon remained frozen and no LoRA parameters existed. The Gaussian KL was computed from frozen target states only, so it was constant with respect to trainable parameters and supplied no gradient.
+5. **Withdrawals:** withdraw the latent-residual-trap attribution, the claim that freezing caused the observed gap, claims that the predictor learned a distorted identity, claims of model inferiority/superiority, and all behavioral world-model, VEP, rollout, surprise, and planning conclusions.
+6. **Historical runtime identity incomplete:** the pinned Carbon custom tokenizer could resolve a mutable Qwen tokenizer over the network. Claims that hashing `tokenizer.py` alone made the runtime fully local or self-contained are withdrawn.
+7. **New identity required:** a corrected run must publish a new checkpoint identity, dataset/evaluation manifest, config hash, metric report, and receipt graph. It must use cache schema 2 with an explicit token-layout-derived `center_token`, include the local pure-DNA tokenizer implementation in the Carbon runtime identity, and prove network-independent tokenization. Never overwrite or relabel `v0.2.1-r1` as corrected.
+
+All subsequent dossier text is an audit trail. Where a historical card says normalization occurred, centering was exact, the runtime was self-contained, Phase 1 was run, the KL was active, or a mechanism/capability was established, this authoritative correction controls.
 
 ---
 
-## CANONICAL GROUND-TRUTH NUMBERS (v0.2.1-r1) — AUTHORITATIVE, DO NOT ALTER
+## HISTORICAL IMPLEMENTATION MEASUREMENTS (v0.2.1-r1) — PRESERVE, DO NOT INTERPRET
 
 **Identity**
 - `model_release = geno-lewm-v0.2.1-r1`
@@ -14,15 +37,19 @@
 - `commit = d9b06815cf8e64860f51d236b8db6ba55aa4154d`
 - `hardware = NVIDIA H200 (Linux x86_64, glibc2.35)`
 
-**VEP track**
+**VEP track (historical rows; invalid as intended-method evidence because the score is L2-derived)**
 - `clinvar_coding` (status pass): accuracy=0.75, AUROC=0.734375, average_precision=0.852976, balanced_accuracy=0.75 ; deltas vs Carbon zero-shot: accuracy=+0.0625, AUROC=-0.1875, AP=-0.098947, balanced_accuracy=+0.0625 ; issues #53,#55,#56,#197.
 - `clinvar_noncoding` (pass): accuracy=0.4375, AUROC=0.5625, AP=0.605456, balanced_accuracy=0.4375 ; deltas: accuracy=-0.25, AUROC=-0.3125, AP=-0.308967, balanced_accuracy=-0.25.
 - `brca2_saturation` (pass): Spearman_rho=0.149194 ; delta=-0.327713.
 - `traitgym_mendelian` (pass): Spearman_rho=-0.0279645 ; delta=+0.055929.
 
-**Latent rollout fidelity** (baseline = source-state s_t, i.e. predicting "no change")
-- `rollout_phased_haplotypes` (pass): cosine_mean=0.288861, l2_mean=33.3197, recall_at_k=1.0 ; deltas vs source-state: cosine=-0.70897, l2=+31.1929, recall_at_k=0.0.
-- `rollout_synthetic_edit_chains` (pass): cosine_mean=0.301608, l2_mean=28.8029, recall_at_k=1.0 ; deltas: cosine=-0.689631, l2=+25.6371, recall_at_k=0.0.
+**Latent rollout rows** (historical baseline = raw source state)
+- `rollout_phased_haplotypes` (historical): cosine_mean=0.288861, l2_mean=33.3197, recall_at_k=1.0 ; deltas vs source-state: cosine=-0.70897, l2=+31.1929, recall_at_k=0.0. Cosine is confounded; L2 is invalid for the intended method.
+- `rollout_synthetic_edit_chains` (historical): cosine_mean=0.301608, l2_mean=28.8029, recall_at_k=1.0 ; deltas: cosine=-0.689631, l2=+25.6371, recall_at_k=0.0. Cosine is confounded; L2 is invalid for the intended method.
+
+**State-norm audit**
+- phased: source=33.982, target=33.595, prediction=1.000.
+- synthetic: source=29.253, target=29.089, prediction=1.000.
 
 **Inference efficiency** (single released score path, H200)
 - `single_variant_latency_ms = 115262.939968` (~115 s)
@@ -61,7 +88,7 @@ ClinVar deltas/metrics are quantized in steps of 0.0625 = 1/16, confirming N=16 
 
 ### Summary
 
-The GenoLeWM state encoder wraps Carbon-500M — a 500M-parameter, llama-architecture causal DNA language model (hidden size 1024) from HuggingFaceBio — and extracts hidden states from a single selected transformer layer (default: layer 20, pinned to commit `5d31d59b3c845b288a13aedb1358934196852eec`). Input to Carbon is a 12,288 bp (2,048 six-mer-token) window centered on the edit locus, wrapped in `<dna>...</dna>` tags required by Carbon's custom `HybridDNATokenizer` (`trust_remote_code=True`). Per-token hidden states are collapsed via centered-mean pooling over a ±`pool_radius`-token window around the edit locus (default `pool_radius=8` tokens = ±48 bp in code; the RFC specifies ±256 tokens). The encoder is frozen in Phase 1; its output is L2-normalized before being passed to the predictor, yielding a state vector `s_t ∈ ℝ^{1024}`. Reference-window embeddings are cached in content-addressed Parquet shards indexed by a SQLite index; edited windows are encoded on-the-fly. The action subsystem encodes a genomic edit — represented as `EditSpec` (absolute VCF coordinates) or its window-relative form `RelEdit` — into a fixed-size action embedding through four sub-encoders (sinusoidal position, learned type table, shared SeqMicroEncoder for ref/alt bases) fed into a 2-layer MLP projection, targeting `d_action=64` in the paper's first experiment (not the `d_action=512` stated in the RFC).
+The GenoLeWM state encoder wraps Carbon-500M — a 500M-parameter, llama-architecture causal DNA language model (hidden size 1024) from HuggingFaceBio — and extracts hidden states from a selected transformer layer (layer 20, pinned to commit `5d31d59b3c845b288a13aedb1358934196852eec`). The code default is 12,288 bp, while the released v0.2.1 placed-window manifest used 4,096 bp windows, padded to the tokenizer's six-base multiple. The intended representation uses centered-mean pooling over `pool_radius=8` tokens (±48 bp) at one shared edit locus and then L2-normalizes. **The released v0.2.1 implementation did neither consistently:** `normalize: true` was stored but ignored; training sources used global-mean fallback, training targets and rollout rows used centers shifted one hidden token left by an omitted `<dna>` offset, and distractors could use different loci. Raw vectors reached training, caching, and evaluation while predictor outputs were unit norm. Its pinned tokenizer source also made an unpinned transitive Qwen load. The action subsystem maps an edit into `d_action=64` through position, type, and shared ref/alt sequence sub-encoders.
 
 ### Key facts
 
@@ -70,19 +97,20 @@ The GenoLeWM state encoder wraps Carbon-500M — a 500M-parameter, llama-archite
 - **Carbon model identity:** `HuggingFaceBio/Carbon-500M`, described as "llama arch" in config comment, `hidden_size=1024`; loaded via `AutoModel` + `AutoTokenizer` with `trust_remote_code=True`. [VERIFIED: `configs/first_experiment/train-carbon-500m-snv.yaml:20-31`, `geno_lewm/encoder/carbon.py:232-237`]
 - **Pinned revision:** SHA `5d31d59b3c845b288a13aedb1358934196852eec`. [VERIFIED: `configs/first_experiment/train-carbon-500m-snv.yaml:22`]
 - **Encoder dtype:** `bf16` (default; `fp16` and `fp32` supported). [VERIFIED: `carbon.py:29`, `train-carbon-500m-snv.yaml:23`]
-- **Tokenizer type:** `HybridDNATokenizer` (Carbon custom tokenizer, requires `trust_remote_code=True`). Window must be wrapped as `<dna>SEQUENCE</dna>` and length must be a multiple of 6 bp (6-mer tokenizer). [VERIFIED: `windowing.py:34-36`, config comment line 28-30]
+- **Historical tokenizer type:** `HybridDNATokenizer` (Carbon custom tokenizer, loaded with `trust_remote_code=True`). Window was wrapped as `<dna>SEQUENCE</dna>` and length was a multiple of 6 bp. The pinned custom source called `Qwen/Qwen3-4B-Base` without a revision or local-only constraint. [VERIFIED HISTORICAL RUNTIME + POST-RELEASE TRANSITIVE-DEPENDENCY AUDIT]
 - **Window size:** Default `DEFAULT_WINDOW_BP = 12_288` bp = 2,048 6-mer tokens. Supported sizes: `(4096, 12288, 24576)` bp. Centering: on edit locus when supplied, otherwise on source midpoint. Right-padding with `A` when source sequence is shorter than window. [VERIFIED: `windowing.py:37-38`, `windowing.py:109-156`]
 - **Hidden-layer selection (state_layer):** Config pins `state_layer: 20` (an explicit positive integer index, not the final layer). [VERIFIED: `train-carbon-500m-snv.yaml:24`]. RFC-0002 §3.3 specifies the default as `state_layer = -1` (final layer). **Discrepancy — see Reconcile section.**
 - **Pool type:** `centered_mean` (default constant `POOL_CENTERED_MEAN`). Fallback to `global_mean` when `edit_locus=None`, tagged `untargeted=True`. `attention` pooling is not implemented (raises InputError). [VERIFIED: `pooling.py:31-36`, `pooling.py:106-114`, `pooling.py:222-226`, config line 25]
 - **Pool radius:** `DEFAULT_POOL_RADIUS_TOKENS = 256` tokens (defined in `pooling.py:37`). Centered-mean spans tokens `[center - radius, center + radius]` inclusive. [VERIFIED: `pooling.py:37`, `pooling.py:71-84`]. However, config pins `pool_radius: 8`. **Discrepancy — see Reconcile section.**
-- **Edit-locus to token conversion:** `token = edit_locus // token_bp` where `token_bp = 6`. [VERIFIED: `pooling.py:245`]
-- **Normalize:** L2-normalization applied by `CarbonStateEncoder` when `normalize=True` (the constructor stores the flag; `encode_batch` returns pooled tuples — normalization is applied at a layer above this module; the config sets `normalize: true`). [VERIFIED: `train-carbon-500m-snv.yaml:27`, `carbon.py:46`; actual L2 normalization call not found in `carbon.py` itself — see Caveats]
-- **Encoder frozen in Phase 1:** `lora_config=None` is enforced (any non-None `lora_config` raises `RuntimeSetupError`); model loaded and called with `torch.no_grad()` via `torch_inference_context()`. [VERIFIED: `carbon.py:86-90`, `carbon.py:159`]
+- **Historical edit-locus conversion bug:** `token = edit_locus // token_bp`, where `token_bp = 6`, was used as an absolute hidden-state index. Carbon's leading `<dna>` token means the intended DNA-token index was `1 + edit_locus // 6`. [POST-RELEASE VERIFIED]
+- **Normalization bug in released lineage:** the config set `normalize: true`, but the historical encoder only stored the flag and returned raw pooled tuples. No outer layer restored normalization. The released state-norm audit measured source/target means 33.982/33.595 (phased) and 29.253/29.089 (synthetic), versus prediction norm 1.000. [POST-RELEASE VERIFIED; supersedes the earlier inference that normalization happened above `carbon.py`]
+- **Pooling-coordinate bugs in released lineage:** training source encoding passed `edit_locus=None` and therefore used global mean; targets used the first edit locus. All nominal centered paths omitted the leading `<dna>` offset, shifting their center one hidden token left. Rollout source/target states used the target edit while distractors could use their own edits. [POST-RELEASE VERIFIED: historical `training/trainer.py::_source_states`; historical `tools/release/v02_rollout_inputs.py::_candidate_sequences`; token-layout audit]
+- **Encoder frozen despite `phase2` label:** `lora_config=None`; no LoRA parameters existed, and the model ran under inference/no-grad context. [POST-RELEASE VERIFIED]
 - **State vector dimension:** `d_state = 1024` (Carbon-500M hidden size; auto-read from `model.config.hidden_size`). [VERIFIED: `carbon.py:122-125`, `train-carbon-500m-snv.yaml:40`]
-- **Cache format:** Parquet shards, zstd compression level 9, one shard per (contig × stride_block). Schema fields: `chrom`, `start_bp`, `end_bp`, `window_hash` (SHA-256, 32 bytes binary), `encoder_hash` (32 bytes binary), `state_layer` (int8), `pool_type`, `pool_radius` (int32), `dtype`, `embedding` (list\<float16\>), `untargeted` (bool), `created_at` (int64 ns), `schema_version`. SQLite index at `embeddings/index.sqlite` keyed on `(window_hash, encoder_hash, state_layer, pool_type, pool_radius, dtype)`. [VERIFIED: `cache.py:412-429`, `cache.py:575-591`]
+- **Historical cache-v1 flaw:** Parquet/SQLite identity omitted `center_token`, so the same sequence pooled around two loci could collide. Corrected cache schema 2 stores raw post-pooling/pre-normalization vectors and keys `(window_hash, encoder_hash, state_layer, pool_type, pool_radius, center_token, dtype)`; legacy indexes are invalidated and legacy shards require regeneration. [POST-RELEASE VERIFIED]
 - **Cache size estimate (RFC):** ~370k windows × 1024 × 2 bytes ≈ 750 MB for the default human-genome config. [SPEC: RFC-0002 §3.6]
-- **Encoder hash:** SHA-256 of the encoder weights file, 32 bytes; stored as `encoder_hash.txt` in the GenoLeWM checkpoint. [SPEC: RFC-0002 §3.1, VERIFIED: `cache.py:52-65`]
-- **Supported window sizes (code):** `(4096, 12288, 24576)`. These exactly correspond to `(682, 2048, 4096)` 6-mer tokens. [VERIFIED: `windowing.py:38`]
+- **Encoder identity:** historical manifests used the SHA-256 of the encoder weights file. A first correction hashed runtime-critical Carbon files including `tokenizer.py`, but that still did not bind its unpinned transitive Qwen load. Corrected `l2_normalized_v2` identity includes the local pure-DNA tokenizer implementation and the Carbon files it consumes; native loading verifies the local package. [POST-RELEASE CORRECTION]
+- **Supported window sizes (code):** `(4096, 12288, 24576)`. The 4,096 bp option is right-padded to 4,098 bp before six-mer tokenization (683 tokens); the others are already multiples of six. [VERIFIED: `windowing.py:38, 149-169`]
 
 #### Action Representation
 
@@ -110,18 +138,24 @@ The GenoLeWM state encoder wraps Carbon-500M — a 500M-parameter, llama-archite
 
 **State encoder pipeline:**
 ```
-w_t  ∈ {A,C,G,T,N}^{12288}       # DNA window, 12288 bp
+w_t  ∈ {A,C,G,T,N}^L             # L=4096 released; 12288 code default
 T(w_t) = <dna>w_t</dna>           # wrapped tokenizer input
-H = Carbon(T(w_t))[L]             # H ∈ R^{2048 × 1024}, layer L=20 hidden states
-c = floor(locus_bp / 6)           # edit locus → token index (6 bp per token)
-s_t = mean(H[max(0,c-r) : c+r+1]) # centered mean, r=pool_radius tokens
-s_t = s_t / ||s_t||_2             # L2 normalize (normalize=true)
+H = Carbon(T(w_t))[20]            # token count depends on padded L; hidden size 1024
+c_hist = floor(locus_bp / 6)      # released absolute index; omits leading <dna>
+c = 1 + floor(locus_bp / 6)       # intended DNA-token index
+s_source_train_raw = mean(H)           # released training: missing locus -> global fallback
+s_target_train_raw = mean(H[max(0,c_hist-r) : c_hist+r+1]) # released target: shifted
+s_rollout_raw = mean(H[max(0,c_hist-r) : c_hist+r+1])      # rollout source/target: shifted
+s_raw = s_target_train_raw             # intended: same centered operator for every operand
+s_intended = s_raw / ||s_raw||_2    # intended contract when normalize=true
+s_released = s_raw                   # v0.2.1 behavior: flag ignored
 s_t ∈ R^{d_state},  d_state=1024
 ```
 
 **Centered-mean pooling (inclusive):**
 ```
-center_token c = floor(edit_locus_bp / token_bp)
+center_token intended = dna_content_start + floor(edit_locus_bp / token_bp)
+center_token released = floor(edit_locus_bp / token_bp)  # one hidden token left
 start = max(0, c - pool_radius)
 end   = min(|H|, c + pool_radius + 1)
 s_t   = (1/(end-start)) * sum_{i=start}^{end-1} H[i]
@@ -174,7 +208,11 @@ overlap(e1, e2) ⟺ max(e1.rel_pos, e2.rel_pos) < min(e1.rel_pos+|e1.ref|, e2.re
 | `pool_radius` default | `256` tokens (RFC §3.4 text, ±1,536 bp) | `DEFAULT_POOL_RADIUS_TOKENS = 256` in `pooling.py:37`, but config pins `pool_radius: 8` (±48 bp) | RFC-0002 §3.4 vs `train-carbon-500m-snv.yaml:26` and `pooling.py:37` |
 | `d_action` default | `512` (RFC-0003 §3.4) | `64` in production config and in `ActionEncoder.__init__` default in code | RFC-0003 §3.4, `encoder.py:97` vs `train-carbon-500m-snv.yaml:44` |
 | Action concat dim | RFC: `concat ∈ R^{704}`, MLP `704→1024→512` | Code: `projection_in = 128+64+512 = 704`, MLP `704→1024→d_action(=512 default, 64 in config)` | RFC-0003 §3.4 vs `encoder.py:117-123` — math consistent |
-| L2 normalization site | RFC: encoder normalizes before predictor | `CarbonStateEncoder` stores `self.normalize` but `encode_batch` returns raw pooled tuples | RFC-0002 §3.5 vs `carbon.py:127-179` |
+| L2 normalization site | RFC: encoder normalizes before predictor | **Released v0.2.1 returned raw pooled states despite `normalize: true`** | post-release state-contract audit |
+| Pooling coordinate | same edit-centered representation for compared states | training source global / target centered; rollout centered; distractors could differ | post-release code-path audit |
+| DNA control-token offset | first six-mer begins after `<dna>` | released centers omitted the leading-token offset; corrected path derives the DNA-content start from validated token IDs | post-release token-layout audit |
+| Cache key | pooling identity must distinguish centers | v1 omitted center; corrected v2 includes `center_token` | post-release code-path audit |
+| Tokenizer dependency | pinned, local runtime | pinned Carbon source made an unpinned, network-capable Qwen load; corrected identity includes a local pure-DNA tokenizer implementation | post-release transitive-dependency audit |
 | `pool_type=attention` | RFC lists as supported (deferred) | `pooling.py` raises `InputError`; `carbon.py:68-74` only accepts `centered_mean`/`global_mean` | RFC-0002 §3.4 vs `pooling.py:222-226` |
 | `state_layer` supported values | RFC: `{-1, -2, -3, -4}` | Code: any integer; `state_layer=20` in config | RFC-0002 §3.3 vs `carbon.py:63-67` |
 | Synthetic MNV length dist | RFC: "uniform over [2, 8]" | Code: `range(2,9)` = [2..8] inclusive. Consistent. | RFC-0003 §3.8 vs `synthetic.py:293` |
@@ -183,15 +221,16 @@ overlap(e1, e2) ⟺ max(e1.rel_pos, e2.rel_pos) < min(e1.rel_pos+|e1.ref|, e2.re
 
 ### Open questions / caveats
 
-1. **L2 normalization not found in `carbon.py`:** `normalize=True` flag stored and validated, but the `F.normalize` call does not appear inside `CarbonStateEncoder.encode_batch`. Either happens in an outer training loop, or is an unimplemented stub.
-2. **state_layer=20 vs. 24-layer Carbon-500M:** Layer index 20 (0-based) would be the 21st layer, plausibly penultimate. Total layer count not confirmed in read files; verify `model.config.num_hidden_layers`.
-3. **pool_radius=8 tokens = ±48 bp:** Dramatically tighter than RFC default ±256 tokens (±1,536 bp). The first-experiment config is an ablation point, not the RFC default. Any paper table must distinguish.
-4. **SeqMicroEncoder shares weights for ref and alt** but the RFC diagram is slightly ambiguous; code confirms sharing.
-5. **Sinusoidal position frequency base:** uses `max_bp` (12,288) as the period base rather than 10,000. Non-standard; extrapolation depends on this formula.
-6. **SV type never constructible via `EditSpec`:** `EditType.SV=5` is in the enum but `EditSpec.__post_init__` raises `UnsupportedEditError` first. The extra embedding row is dead in v1.
-7. **RFC-0002 "implementation status: Partial":** clean-machine validation against pinned Carbon weights and full cache-build throughput evidence explicitly open.
-8. **`max_len: 16` in action config** matches `V1_MAX_LEN=16` (per-sequence max ref/alt length), not the multi-edit haplotype length.
-9. **`ActionEncoder.forward` signature** in code more permissive than RFC (accepts `Sequence[RelEdit] | Sequence[Sequence[RelEdit]]`).
+1. **Resolved validity failures:** no outer training/runtime layer normalized the released encoder states, and no historical centered path accounted for the leading DNA control token. These were implementation bugs, not open location questions. All mixed-scale L2-dependent results are invalid for the intended method; cosine remains confounded.
+2. **Resolved source-code boundary:** the corrected path does not execute the upstream hybrid tokenizer and includes its local pure-DNA implementation in runtime identity. This is not model-quality evidence.
+3. **state_layer=20 vs. 24-layer Carbon-500M:** Layer index 20 (0-based) would be the 21st layer, plausibly penultimate. Total layer count not confirmed in read files; verify `model.config.num_hidden_layers`.
+4. **pool_radius=8 tokens = ±48 bp:** Dramatically tighter than RFC default ±256 tokens (±1,536 bp). The first-experiment config is an ablation point, not the RFC default. Any paper table must distinguish.
+5. **SeqMicroEncoder shares weights for ref and alt** but the RFC diagram is slightly ambiguous; code confirms sharing.
+6. **Sinusoidal position frequency base:** uses `max_bp` (12,288) as the period base rather than 10,000. Non-standard; extrapolation depends on this formula.
+7. **SV type never constructible via `EditSpec`:** `EditType.SV=5` is in the enum but `EditSpec.__post_init__` raises `UnsupportedEditError` first. The extra embedding row is dead in v1.
+8. **RFC-0002 "implementation status: Partial":** clean-machine validation against pinned Carbon weights and full cache-build throughput evidence explicitly open.
+9. **`max_len: 16` in action config** matches `V1_MAX_LEN=16` (per-sequence max ref/alt length), not the multi-edit haplotype length.
+10. **`ActionEncoder.forward` signature** in code more permissive than RFC (accepts `Sequence[RelEdit] | Sequence[Sequence[RelEdit]]`).
 
 ---
 
@@ -199,7 +238,7 @@ overlap(e1, e2) ⟺ max(e1.rel_pos, e2.rel_pos) < min(e1.rel_pos+|e1.ref|, e2.re
 
 ### Summary
 
-GenoLeWM's PREDICTOR subsystem is a cross-attention Transformer that maps a frozen Carbon-500M state embedding `s_t` and one or more action embeddings `a_emb` to a predicted next-state embedding `ŝ_{t+1}` in the same 1024-dimensional latent space. The architecture alternates state-cross-action and action-cross-state attention blocks (`n_cross_layers`), then applies self-attention blocks (`n_self_layers`) over the fused sequence, and finally reads out a per-step prediction through a 2-layer output MLP followed by L2 normalization. The TRAINING subsystem is a Phase-1-only frozen-encoder loop: only the prediction loss `L_pred = alpha*(1-cos) + beta*||delta||^2/d` is active; the LeJEPA Gaussian KL regularizer is computed for monitoring but is not added to the gradient until Phase 2. Optimization uses AdamW with beta2=0.95 and a WSD schedule; collapse is monitored every 500 steps via seven scalar diagnostics. The first-experiment paper run (config `train-carbon-500m-snv.yaml`) is configured for `max_steps=20000`, `seed=104729`, `batch_size=8` (physical), `warmup_steps=1000`, and `d_state=1024`.
+GenoLeWM's predictor is a cross-attention Transformer that maps a Carbon state and edit embeddings to a 1024-dimensional, explicitly unit-normalized prediction. In the released v0.2.1 run, its source and target states were raw, not unit-normalized, so `L_pred = alpha*(1-cos) + beta*||delta||^2/d` mixed incompatible scales. The run used seed `271828`, 10,000 optimizer steps, 80,000 samples, physical batch size 8, and a `phase2` label. Carbon nevertheless remained frozen with no LoRA. The Gaussian KL was calculated from frozen targets only and was therefore constant with respect to trainable parameters. The older `seed=104729`, `max_steps=20000` recipe belongs to the v0.1 first-experiment lineage and must not be used as v0.2.1 metadata.
 
 ### Key Facts
 
@@ -214,7 +253,7 @@ GenoLeWM's PREDICTOR subsystem is a cross-attention Transformer that maps a froz
 - **Normalization:** Pre-LayerNorm. [VERIFIED] `model.py:505-533`
 - **Output MLP structure:** `Linear(768,768) → GELU → LayerNorm(768) → Linear(768,1024)`. [VERIFIED] `model.py:133-138` (extra LayerNorm not in RFC)
 - **Output normalization:** L2-normalized via `F.normalize(base + delta, p=2, dim=-1, eps=1e-12)`. Output is `state + MLP_delta` then normalized. [VERIFIED] `model.py:396-406`
-- **Identity-at-init:** final `nn.Linear(d_hidden, d_state)` weight and bias zero-initialized. [VERIFIED] `model.py:160-163`
+- **Zero residual at init, but not released baseline identity:** final `nn.Linear(d_hidden, d_state)` weight and bias are zero-initialized. Because the model then normalizes `base + delta`, the released initial output equaled normalized raw source, not the raw source-state baseline. [VERIFIED + POST-RELEASE INTERPRETATION]
 - **Other init:** Truncated normal `std=sqrt(2/fan_in)` for linear/attn; LayerNorm weight=1 bias=0; embeddings normal std=0.02. [VERIFIED] `model.py:141-163`
 - **Token-type embedding:** `nn.Embedding(2, d_hidden)` (state=0, action=1). [VERIFIED] `model.py:113`
 - **Step-position embedding:** `nn.Embedding(max_actions+1, d_hidden)`, max_actions=16 default. [VERIFIED] `model.py:114`; config `yaml:45`
@@ -236,9 +275,9 @@ GenoLeWM's PREDICTOR subsystem is a cross-attention Transformer that maps a froz
 - **Default beta:** 0.1. [VERIFIED] `losses.py:49`
 - **d_state for normalization:** uses `prediction.shape[-1]` dynamically (=1024). [VERIFIED] `losses.py:61`
 - **Per-step averaging:** masked uniform-weight mean over valid `(batch, step)`. [VERIFIED] `losses.py:63, 175-186`
-- **Phase-conditional total loss:** Phase 1 `L = L_pred`; Phase 2 `L = L_pred + gamma*kl_reg`. [VERIFIED] `losses.py:125`
+- **Phase-conditional total loss:** code forms Phase 1 `L = L_pred`; Phase 2 `L = L_pred + gamma*kl_reg`. In v0.2.1, `kl_reg` was target-only and constant with respect to trainables, so adding it changed the scalar log but not gradients. [VERIFIED + POST-RELEASE INTERPRETATION]
 - **Default gamma:** 0.5. [VERIFIED] `losses.py:111`
-- **KL regularizer in Phase 1:** computed from target states for monitoring only. [VERIFIED] `losses.py:123-125`; `trainer.py:179-181`
+- **Released KL:** computed from frozen target states with no LoRA path. Despite the `phase2` label, it supplied no gradient to the predictor, action encoder, or Carbon. [POST-RELEASE VERIFIED]
 - **KL formula:** `eigvalsh` of empirical covariance in float64; `KL = 0.5*(||mu||^2 + tr(Sigma) - logdet(Sigma + eps*I) - d)`. [VERIFIED] `losses.py:87-101`
 - **KL stabilizer eps:** 1e-6. [VERIFIED] `losses.py:67,115`
 
@@ -253,11 +292,11 @@ GenoLeWM's PREDICTOR subsystem is a cross-attention Transformer that maps a froz
 - **WSD schedule:** warmup linear; stable to 80% of post-warmup; decay peak→0.1*peak over 80%→98%; taper to 0.01*peak over 98%→100%. [VERIFIED] `trainer.py:351-391`
 - **Warmup steps (config):** 1000. [VERIFIED] `yaml:64`. RFC: 2000. [SPEC]
 
-#### Training Config (first experiment)
-- **max_steps:** 20000. [VERIFIED] `yaml:52`
-- **seed:** 104729. [VERIFIED] `yaml:14`
-- **Seeds:** `data_seed=seed`, `predictor_seed=seed+1`, `lora_seed=seed+2`. [VERIFIED] `trainer.py:67-70`
-- **phase:** phase1 (frozen encoder). [VERIFIED] `yaml:15`
+#### Released v0.2.1 Run Metadata
+- **optimizer steps / samples:** 10,000 / 80,000. [POST-RELEASE VERIFIED]
+- **seed:** 271828. [POST-RELEASE VERIFIED]
+- **Seed derivation in code:** `data_seed=seed`, `predictor_seed=seed+1`, `lora_seed=seed+2`; no LoRA parameters existed in this run. [VERIFIED]
+- **phase label / actual adaptation:** `phase2`; frozen Carbon, no LoRA. [POST-RELEASE VERIFIED]
 - **batch_size (config):** 8 physical. [VERIFIED] `yaml:71`. RFC: 256 effective (microbatch=16, accum=16). [SPEC]
 - **Collapse monitoring interval:** every 500 steps. [VERIFIED] `yaml:53`; `collapse.py:94`
 - **Deterministic mode:** true. [VERIFIED] `yaml:16`
@@ -278,7 +317,7 @@ Default rollout step mix: K=1 p=0.90, K=2 p=0.05, K=3 p=0.05. [VERIFIED] `sampli
 L_pred(hat_s, s) = alpha*(1 - cos(hat_s, s)) + beta*sum_j((hat_s_j - s_j)^2)/d_state
 cos(u,v) = (u.v)/(||u||*||v||);  d_state=1024; alpha=1.0; beta=0.1
 L_pred,total = (1/K) * sum_{k=1}^{K} L_pred(hat_s_{t+k}, s_{t+k})   # uniform, masked-mean
-Phase 1: L = L_pred,total ;  Phase 2: L = L_pred,total + gamma*L_reg ;  gamma=0.5
+v0.2.1: L = L_pred,total + gamma*L_reg(target_raw) ; dL_reg/d(theta_trainable) = 0
 L_reg = 0.5*(||mu_batch||^2 + tr(Sigma_batch) - logdet(Sigma_batch + eps*I) - d) ;  eps=1e-6 float64 eigvalsh
 hat_s_{t+k} = normalize(s_t + MLP(action_output_k))   # MLP: Linear→GELU→LayerNorm→Linear (final zero-init)
 WSD: warmup t/warmup ; stable 1.0 to ~80% ; decay 1.0→0.1 ; taper 0.1→0.01
@@ -296,7 +335,8 @@ WSD: warmup t/warmup ; stable 1.0 to ~80% ; decay 1.0→0.1 ; taper 0.1→0.01
 | weight_decay | 0.05 | **0.1** | RFC vs `yaml:60` |
 | d_state schema default | 1024 | schema default **512**; config overrides to 1024 | `schema.py:75` |
 | Per-component LR groups | separate (predictor 3e-4, LoRA 1e-5, ...) | two groups only, same LR; LoRA not implemented | RFC vs `trainer.py:422-470` |
-| KL regularizer input Phase 1 | "encoder outputs over current batch" | computed on target states (correct, deterministic) | `losses.py:123` |
+| KL regularizer path | Phase 2 should adapt encoder/LoRA | target-only constant; no trainable gradient | post-release audit |
+| Run identity | v0.1: seed 104729, 20k steps | v0.2.1: seed 271828, 10k steps, 80k samples | release lineage audit |
 | Output MLP LayerNorm | "1024→1024→1024" no LayerNorm | `Linear→GELU→LayerNorm→Linear` | RFC vs `model.py:133-138` |
 
 ### Open Questions / Caveats
@@ -304,8 +344,8 @@ WSD: warmup t/warmup ; stable 1.0 to ~80% ; decay 1.0→0.1 ; taper 0.1→0.01
 2. **Effective batch size unknown.** `batch_size:8`, no accum config. RFC targets 256 effective.
 3. **ffn_dim=768 (not 2048).** 2× expansion in RFC not reflected in code.
 4. **~22M parameter count overstated.** With ffn=768, actual ~15-17M (not counted in code).
-5. **Phase-1 KL on target states is numerically valid** but cannot drift (encoder frozen) — correct.
-6. **WSD decay boundaries fractional-step**; correct for max_steps=20000.
+5. **Released KL is not an active regularizer:** it can be numerically evaluated but has no gradient path; describing v0.2.1 as Phase-2 regularized training was invalid.
+6. **Run metadata corrected:** v0.2.1 used 10,000 steps / 80,000 samples, not the v0.1 20,000-step recipe.
 7. **Attention impl:** `F.scaled_dot_product_attention` (cached path) + `nn.MultiheadAttention` (standard); no RoPE.
 8. **d_action=64 vs RFC table 512→1024**; first experiment SNV-only `Linear(64,768)`.
 
@@ -315,7 +355,7 @@ WSD: warmup t/warmup ; stable 1.0 to ~80% ; decay 1.0→0.1 ; taper 0.1→0.01
 
 ### Summary
 
-GenoLeWM is a systems-and-reproducibility research project that trains and evaluates an action-conditioned latent world model (LeWM) over genomic edits. The data pipeline (RFC-0006) feeds a frozen Carbon-500M encoder with windows drawn from `HuggingFaceBio/carbon-pretraining-corpus`, applies a 4-source edit mix (gnomAD/synthetic SNV/synthetic indel/ClinVar P/LP), and emits `(w_ref, action, w_alt)` training tuples. The evaluation suite (RFC-0007) covers three tracks: binary VEP classification on ClinVar coding/noncoding (AUROC, AP, balanced accuracy), continuous Spearman correlation on BRCA2 saturation mutagenesis and TraitGym Mendelian benchmarks, and latent rollout fidelity (cosine similarity, L2 distance, Recall@k against a source-state naive baseline). Baselines are Carbon-500M zero-shot log-likelihood ratio and — for rollout — predicting no-change (`s_t` unchanged). The canonical v0.2.1-r1 results are uniformly mixed-to-negative. The paper is explicitly framed as a negative-results and systems/reproducibility contribution.
+GenoLeWM is a systems-and-reproducibility research project implementing an action-conditioned genomic latent-prediction pipeline. The evaluation suite produced VEP, continuous-label, and rollout rows. After the post-release state-contract audit, those v0.2.1 rows are historical implementation measurements, not mixed-to-negative scientific results: VEP scores and rollout L2 are invalid for the intended normalized method, while cosine is confounded. The paper is now a validity-correction and audit record rather than a negative-results contribution.
 
 ### Key Facts
 
@@ -366,8 +406,8 @@ Four holdout types in `HoldoutPolicy`: `holdout_chroms`, `intervals`, `edit_keys
 - **Spearman rho:** `Pearson(rank(y_true), rank(y_score))`, average-rank ties. Label field `functional_score` (BRCA2, TraitGym). [VERIFIED: `evaluation.py:1211-1218`]
 
 #### Evaluation — Rollout Fidelity Track
-Three metrics over n instances (each = one `(source_window, edit_list)` pair): cosine_similarity_mean, l2_distance_mean, recall_at_k. `ŝ_{t+K}` = predictor final state; `s*_{t+K}` = encoder of fully edited window; rank = position of `s*` among K-nearest cached refs. Default `DEFAULT_RECALL_K = 10`. [VERIFIED: `cli/rollout.py:26, 383-394`]
-**Source-state baseline:** `ŝ_{t+K} = s_t` (no-change); naive cosine `cos(s_t, enc(apply_all(w, edits)))`. [VERIFIED: `cli/rollout.py:386-393`]
+Three historical metrics over n instances: cosine similarity, L2 distance, and Recall@k. In v0.2.1 the prediction was unit norm, the target and source baseline were raw, training used global sources and targets with a one-hidden-token-left nominal center, and rollout changed source/candidate loci. Therefore L2 is invalid and cosine is confounded. Default `DEFAULT_RECALL_K = 10`. [VERIFIED + POST-RELEASE VALIDITY AUDIT]
+**Historical source-state baseline:** raw `s_t` (no-change). It is not identical to the model's zero-residual output, which normalizes raw `s_t`. [POST-RELEASE CORRECTION]
 **DISCREPANCY:** README reports "Recall@4"; template + CLI default `recall_k=10`. Canonical recall_at_k=1.0 trivially holds for any small k at N=8.
 
 #### Carbon Zero-Shot Baseline
@@ -428,7 +468,7 @@ Step size 1/16 = 0.0625 confirms N=16 for ClinVar. All AUROC/AP/balanced accurac
 
 ### Summary
 
-GenoLeWM implements three interlocking subsystems: the **surprise scorer** (RFC-0009) converts predictor residual L2 error into a calibrated, context-stratified percentile score (unsupervised pathogenicity signal). The **CEM planner** (RFC-0008) performs model-predictive control in latent space — iteratively sampling, evaluating, refitting a factored proposal distribution over discrete edit sequences, never calling Carbon during search. The **AR rollout wrapper** (`ARPredictor`, RFC-0004) pre-encodes static action projections and reuses them across the autoregressive loop. v0.2.1-r1: AR cache 2.41x at K=5 (passing local 2x), 2.47x at K=20 (failing RFC-0004 5x; #42 open, rescoped). Planning demo ran 384 evaluations on a synthetic task, stopped on patience, `best_distance=23.66` on a non-learned proxy. Systems/reproducibility evidence, not useful-planning evidence.
+GenoLeWM implements a surprise-score interface, a CEM search interface, and an autoregressive rollout wrapper. In v0.2.1 the surprise and planning objectives used mixed-scale L2 distances and are invalid for the intended normalized-state method. The CEM trace demonstrates search-path execution only. Historical AR cache speedups were 2.41x at K=5 and 2.47x at K=20 in a synthetic-tensor H200 micro-benchmark at `d_state=1024`.
 
 ### Key Facts
 
@@ -453,7 +493,7 @@ GenoLeWM implements three interlocking subsystems: the **surprise scorer** (RFC-
 - **CEM defaults:** horizon=5, n_iterations=5, n_samples=1024, n_elite=64, cost_weight=0.0, stopping_eps=0.05, patience=2, smoothing=0.1. [VERIFIED] `cem.py:48-88`
 - **Total predictor calls (theoretical):** 5×1024 = 5,120 K-step rollouts → 25,600 calls if run to completion. [SPEC] RFC-0008 §3.4
 - **Planning demo (published):** best_distance=23.656930390534644, n_evaluations=384, elapsed≈15.34s, stopped_reason=patience. NOT 5,120 — patience fired early on synthetic task. [SPEC]
-- **Latent-only:** Carbon called once to encode initial/target; CEM inner loop only predictor. [VERIFIED] RFC-0008 §2
+- **Latent inner loop:** FASTA-backed setup encodes source and target separately (two Carbon calls); the CEM inner loop then uses only predictor rollouts. [VERIFIED `cli/plan.py:325-326`; RFC-0008 §2]
 - **Refit:** `new_weight[t] = smoothing*prior_prob[t] + (1-smoothing)*mle[t]`, smoothing=0.1. [VERIFIED] `cem.py:429-478`
 - **Stopping reasons:** max_iterations, distance_threshold (<0.05), patience (no improve for 2). [VERIFIED] `cem.py:229, 267-271`
 - **Distance functions:** l2, cosine, region, projection. [VERIFIED] `cem.py:297-345`
@@ -465,8 +505,9 @@ GenoLeWM implements three interlocking subsystems: the **surprise scorer** (RFC-
 
 #### AR Rollout Speed
 - **Benchmark:** `ARPredictor.rollout_tensor` (cached) vs `_naive_rollout_tensor` (loop). Speedup = naive.median_ns / cached.median_ns. [VERIFIED] `bench/rollout.py:163-175`
-- **Timing:** perf_counter_ns, iters=30, warmup=5, median. [VERIFIED] `bench/rollout.py:46-49`
-- **Default params:** batch_size=4, d_state=64, d_action=32, d_hidden=64, n_heads=4, n_cross_layers=2, n_self_layers=1, ffn_dim=128. **Toy synthetic dims.** [VERIFIED] `bench/rollout.py:34-51`
+- **Recorded timing:** perf_counter_ns, 20 iterations, 5 warmup iterations, median. [PUBLISHED ARTIFACT]
+- **Code defaults, not the published run:** batch_size=4, d_state=64, d_action=32, d_hidden=64, n_heads=4, n_cross_layers=2, n_self_layers=1, ffn_dim=128. [VERIFIED `bench/rollout.py:34-51`]
+- **Published command:** batch_size=8, d_state=1024, d_action=64, d_hidden=1024, n_heads=8, n_cross_layers=6, n_self_layers=1, ffn_dim=4096, CUDA, bf16, H200. This is synthetic-tensor predictor timing with a benchmark-specific shape, not exact released-checkpoint or end-to-end timing. [PUBLISHED READINESS/AR ARTIFACT]
 - **Horizons:** K=5, K=20. [VERIFIED]
 - **RFC-0004 targets:** 5.0 if K≥20, 2.0 if K≥5. [VERIFIED] `bench/rollout.py:178-184`
 - **Measured:** K=5 2.41386 (passes); K=20 2.47322 (fails 5.0; #42 open, rescoped). [SPEC]
@@ -486,6 +527,8 @@ new_weight[t] = smoothing*prior_prob[t] + (1-smoothing)*MLE[t]   # smoothing=0.1
 speedup(K) = median_latency_naive(K) / median_latency_cached(K)
 ```
 
+The equations above describe intended interfaces. In v0.2.1, `g(...)` was unit norm and `enc(...)` was raw, so the L2-based `sigma_raw` and planner objective were invalid intended-method quantities.
+
 ### Reconcile
 - CEM defaults (horizon/iters/samples/elite/smoothing/cost_weight) all MATCH RFC-0008. [VERIFIED]
 - `PlanningResult.n_predictor_calls` = alias for `n_evaluations`. [VERIFIED]
@@ -496,14 +539,14 @@ speedup(K) = median_latency_naive(K) / median_latency_cached(K)
 - `score_variant` API extends RFC (extra kwargs); backwards-compatible.
 
 ### Open Questions / Caveats
-1. **K=20 AR speedup fails RFC-0004 (5x); measured 2.47x; #42 open.** Benchmark on toy model, not Carbon-scale.
-2. **Planning demo uses synthetic proxy evaluator, not learned predictor.** `best_distance=23.66`, `n_evaluations=384` measure CEM on a convex proxy.
+1. **K=20 AR speedup fails RFC-0004 (5x); measured 2.47x; #42 open.** The H200 synthetic-tensor benchmark uses training-scale state/action dimensions but a benchmark-specific predictor shape.
+2. **The published planning demo used the manifest-backed checkpoint on a synthetic multi-SNV task.** Its `best_distance=23.66` and `n_evaluations=384` prove execution only; the distance is invalid as intended-method evidence under the mixed-scale state contract. The separate `bench/planning.py` proxy benchmark must not be conflated with this demo.
 3. **Planning demo stopped at 384 evaluations (not 5,120)** — patience.
 4. **ClinVar N≈16** quantized 1/16; AUROC 0.734375 with N≈16 has SE ≈ ±0.13; noncoding delta -0.1875 uninterpretable.
 5. **Calibration table not validated on released model.** [SPEC RFC-0009 status]
 6. **GC bins hard-coded thirds**, not data-derived.
 7. **`PlanningConfig` lacks `distance` field** despite RFC §3.8.
-8. **AR benchmark toy dims** — speedups not predictive at Carbon scale.
+8. **AR benchmark scope** — predictor-only synthetic tensors and a benchmark-specific architecture; not exact-checkpoint or end-to-end latency.
 9. **`upcast_output_mlp` at K>20** silently forces fp32.
 
 **Source files verified:** `rfcs/0009`, `rfcs/0008`, `rfcs/0004` (140-155); `surprise/score.py`, `surprise/context.py`, `surprise/calibration.py`; `planning/cem.py`, `planning/costs.py`, `planning/sampling.py`; `predictor/ar.py`; `bench/rollout.py`, `bench/planning.py`, `bench/_harness.py`.
@@ -514,7 +557,7 @@ speedup(K) = median_latency_naive(K) / median_latency_cached(K)
 
 ### Summary
 
-GenoLeWM's reproducibility/evidence-bound release subsystem is a multi-layer content-addressed provenance chain. A SHA-256-over-canonical-JSON scheme produces a `model_id` that is literally the hash of the manifest (which itself hashes every artifact file); every scoring call produces a cryptographic receipt binding model identity, input commitment, calibrated score, and runtime metadata. The on-device runtime enforces a fail-closed network guard patching five socket/HTTP entry points during inference. Personal-genome importers (23andMe, AncestryDNA, MyHeritage, Sequencing.com JSON) operate entirely locally. The release toolchain implements an evidence-bound paper path: a benchmark suite orchestrator verifies content-addressed output files per step, a readiness report gates all required benchmark rows (including mandatory negative findings), and `serious_completion_paper.py` re-renders the entire manuscript from machine-readable artifacts at verification time, rejecting stale/placeholder/mutated text. Negative findings are structurally auditable: the paper cannot pass verification unless the negative deltas are present in the artifacts that drive it.
+GenoLeWM's release subsystem is a multi-layer content-addressed provenance chain. It correctly binds the model artifacts, declared inputs, outputs, and runtime metadata included in its graph. The post-release correction establishes a critical limit: the input commitment recorded `normalize: true` and one pooling config, but no check proved that normalization affected runtime tensors, that base-pair coordinates accounted for the leading `<dna>` token, or that compared states shared a pooling center. Historical manifests were weight-only; a later attempt to hash local tokenizer code was also insufficient because that code made an unpinned, network-capable Qwen tokenizer load. The paper verifier enforced artifact presence and selected metric signs, not state norms, token layout, transitive dependency closure, pooling coordinates, gradient paths, or distribution compatibility. It therefore preserved a semantically invalid run whose runtime was not self-contained. A corrected verifier must gate scientific invariants before metric values and must issue a new run identity.
 
 ### Key Facts
 
@@ -537,6 +580,7 @@ GenoLeWM's reproducibility/evidence-bound release subsystem is a multi-layer con
 - `input_commitment = SHA-256(canonical_json({reference_window, edit_spec, pooling_config, dtype_config, version:1}))`. [VERIFIED `commitment.py:105-120`]
 - edit_spec committed fields: chrom, pos, ref, alt, edit_type (int). [VERIFIED `commitment.py:71-80`]
 - pooling_config: state_layer, pool_type, pool_radius, normalize. [VERIFIED]
+- **Validity limitation:** in v0.2.1 this committed the configured flag, not the observed transformation; `normalize: true` was present while states remained raw. [POST-RELEASE VERIFIED]
 - dtype_config: encoder_dtype, predictor_dtype. [VERIFIED]
 - Privacy: reference window committed but not in receipt top-level JSON. [VERIFIED RFC-0011 §4]
 
@@ -551,12 +595,14 @@ GenoLeWM's reproducibility/evidence-bound release subsystem is a multi-layer con
 - `ManifestHashMismatchError` on mismatch. [VERIFIED `runtime.py:1091-1099`]
 - Absolute paths and `..` rejected. [VERIFIED `runtime.py:1102-1109`]
 - Verified at `GenoLeWMRuntime.__init__`. [VERIFIED `runtime.py:140-143`]
+- **Historical encoder gap:** the released manifest bound only Carbon weights. Hashing the pinned custom tokenizer source in isolation would still not bind the unpinned `Qwen/Qwen3-4B-Base` tokenizer it could load. [POST-RELEASE VERIFIED]
+- **Corrected boundary:** the encoder identity includes the local pure-DNA tokenizer implementation and its consumed Carbon files; the loader does not execute the upstream network-capable tokenizer wrapper. This is a runtime invariant, not model-quality evidence. [POST-RELEASE CORRECTION]
 
 #### Fail-Closed Network Guard
 - `unittest.mock.patch` ExitStack patches 5 targets: socket.create_connection, socket.socket.connect, urllib.request.urlopen, http.client.HTTP(S)Connection.connect. [VERIFIED `runtime.py:366-384`]
 - Raises `NetworkCallProhibitedError`. [VERIFIED `runtime.py:369-373`]
 - Applied to score_variant, score_vcf, encode_window, predict. [VERIFIED]
-- Not applied to setup/update (weight download). [VERIFIED RFC-0010 §3.7]
+- Not applied to setup/update (weight download). The historical unpinned Qwen tokenizer load could therefore occur before guarded inference. [VERIFIED RFC-0010 §3.7 + POST-RELEASE AUDIT]
 
 #### Local-First Importers
 - 23andMe, AncestryDNA, MyHeritage, Sequencing.com JSON; local-only. [VERIFIED]
@@ -592,6 +638,7 @@ GenoLeWM's reproducibility/evidence-bound release subsystem is a multi-layer con
 - `claim_boundary` enforcement: each artifact must contain one of clinical/privacy/runtime/model-quality/release-readiness/deployment/"evidence only". [VERIFIED `:1497-1509`]
 - Mandatory non-empty `negative_findings` on readiness, rollout speed scope, planning manifest. [VERIFIED `:950,1015,1031`]
 - Hardcoded negative requirements: negative AUROC delta on clinvar_noncoding, negative Spearman delta on brca2_saturation, rollout weakness on both splits, K20 speedup < 5.0. [VERIFIED `:968-982`]
+- **Correction:** these sign checks did not establish valid metrics and should not be described as requiring a real negative result. [POST-RELEASE VALIDITY AUDIT]
 - K20 scope: `ar_rollout_speed` row "rescoped" + `scope_decision.status == "accepted"`. [VERIFIED `:983-985`]
 - Required paper sections (20). [VERIFIED `:831-851`]
 - Required patterns: Carbon-500M, Joint-Embedding Predictive Architecture, DNABERT.*HyenaDNA.*Nucleotide Transformer, K20.*#42, "does not prove useful planning behavior", "negative-results and systems". [VERIFIED `:856-876`]
@@ -625,6 +672,7 @@ artifact_hash_i = SHA-256( bytes(artifact_file_i) )   # 1 MiB streaming
 4. int4 export/quantization: RFC default; runtime currently loads safetensors directly, no quantization. Export "open".
 5. Crash-log sanitization: only in RFC, not found in repo code.
 6. **"28 verified suite outputs"** from task framing; template produces 29 declared step-level outputs (4×4 + 2×5 + 2 aggregate + 1 readiness = 29). Number 28 not found in repo.
+7. **Semantic gate missing:** no released check asserted observed source/target/prediction norms, normalization-view equality across live/cache paths, DNA control-token offsets, transitive tokenizer closure, or nonzero regularizer gradients.
 
 ### Open Questions / Caveats
 1. **No public release-run artifacts in the repo** (HF runs tree `geno-lewm-v021-strong-4f36eef-10k-r1`). Reviewer cannot re-run without private data/checkpoint.
@@ -632,9 +680,10 @@ artifact_hash_i = SHA-256( bytes(artifact_file_i) )   # 1 MiB streaming
 3. **Network guard uses `unittest.mock.patch` in production** — unconventional; indirect socket import could bypass.
 4. **VCF JSONL per-row receipts**; no aggregate; scalability gap at WGS scale.
 5. **K20 rollout speed open (#42)**; verifier hardcodes K20 < 5.0 to pass.
-6. **ClinVar noncoding AUROC + BRCA2 Spearman require negative deltas** — verifier structurally enforces model is worse than Carbon on these splits.
+6. **ClinVar noncoding AUROC + BRCA2 Spearman sign gates were invalid as method-quality evidence** because the GenoLeWM score was L2-derived under the norm mismatch.
 7. **Export pipeline (ONNX/CoreML/GGUF) unimplemented.**
 8. **Observability event/metric registry linting** end-to-end CI enforcement not verifiable from RFC text.
+9. **Historical runtime was not self-contained:** the pinned Carbon tokenizer source could resolve an unpinned Qwen tokenizer over the network. The local pure-DNA replacement is a correction, not evidence for any archived metric or new model capability.
 
 ---
 
@@ -642,7 +691,7 @@ artifact_hash_i = SHA-256( bytes(artifact_file_i) )   # 1 MiB streaming
 
 ### Summary
 
-GenoLeWM is an action-conditioned Joint-Embedding Predictive Architecture (JEPA) over DNA, treating a genomic edit as an explicit action in a latent state space. A frozen Carbon-500M DNA foundation model encodes a contiguous reference window into a state vector; a small trainable predictor head and action encoder, trained in the style of LeWorldModel (Maes et al. 2026), estimate the post-edit latent state without re-running the full encoder. The system supports single-variant scoring, multi-edit haplotype rollout, latent planning via CEM, and unsupervised surprise-based pathogenicity scoring. This is a **negative-results and systems/reproducibility paper**: all four evaluated tracks either fail to beat Carbon-500M zero-shot or produce near-random metrics, the K=20 AR rollout speed target remains unmet, and the planning demo does not demonstrate useful planning behavior. Strongest published claim: the repository can train, package, evaluate, benchmark, and content-addressedly replay a genomic-edit world-model pipeline. History: 2026-05-20 scaffold-only `0.1.0-draft` → v0.1 terminal-demo (chr21 ClinVar, N=3,000, near-chance AUROC 0.519) → v0.2.1 "serious-completion" (2026-06-09).
+GenoLeWM implements an action-conditioned JEPA-style research pipeline over DNA. The v0.2.1 release packaged scoring, rollout, planning, and provenance paths, but it did not validly evaluate their intended normalized-state formulation. Its nominal centers were one hidden token left, and its pinned tokenizer source retained an unpinned transitive network dependency. This is now a **post-release validity-correction paper**, not a negative-results paper. The strongest surviving claim is that the repository produced archived, content-addressed outputs whose included bytes and semantic defects can be audited; exact self-contained reproduction of the historical runtime is not established. It does not establish a trained genomic world-model capability.
 
 ### Key Facts
 
@@ -651,24 +700,25 @@ GenoLeWM is an action-conditioned Joint-Embedding Predictive Architecture (JEPA)
 - **State encoder:** Carbon-500M, frozen Phase 1; smallest model meeting quality bar, single-GPU when frozen. [VERIFIED `docs/design-decisions.md:17-22`]
 - **Window length:** 12,288 bp (2,048 6-mer tokens). [VERIFIED `:33-35`]
 - **Pooling:** centered-mean ±256 tokens around edit locus. [VERIFIED `:38-41`] (Note: deployed config uses pool_radius=8 — see R1/R7.)
-- **State vectors:** L2-normalized at encoder output. [VERIFIED `:26-30`]
+- **State vectors (intended vs released):** design docs specify L2 normalization; released v0.2.1 encoder outputs remained raw despite `normalize: true`. [POST-RELEASE CORRECTION]
 - **Predictor (RFC-0004 doc):** cross-attention Transformer, 4 cross + 2 self, `d_hidden=1024`, 8 heads, 2048 FFN, GELU, pre-LN. [VERIFIED `rfcs/0004:50-62`] (Note: code defaults differ — see R2/R7.)
 - **Predictor params:** ~40M default; ~22M for d_hidden=768. RFC-0001 target was 20M. [VERIFIED `rfcs/0004:93-109`]
 - **Action encoder:** 4 sub-encoders; ref/alt share SeqMicroEncoder; ~2.5M params. [VERIFIED]
 - **v1 edit-length cap:** ≤16 bp. [VERIFIED]
-- **Output MLP init:** final layer zero-init (identity-at-init). [VERIFIED `rfcs/0004:157-163`]
+- **Output MLP init:** final layer zero-init, followed by output normalization. Under the released raw-source contract this was normalized-source-at-init, not identity with the raw baseline. [POST-RELEASE CORRECTION]
 - **Why JEPA not discriminative:** (A) supervised classifier (needs labels, no rollout), (B) regression on ΔlogP (distillation, no rollout), (C) action-conditioned JEPA — selected for scoring/rollout/planning/surprise. [VERIFIED `rfcs/0001:169-185`]
 - **Why action-conditioned not masked-autoencoding:** edits as conditioning unlock rollout/planning/surprise. [VERIFIED `docs/faq.md:18-26`]
 
-#### Training Recipe
+#### Training Recipe and Design-Spec Values
 - **Loss:** `L = α(1−cos) + β·MSE/d_state`. [VERIFIED `docs/design-decisions.md:78-83`]
-- **LeJEPA regularizer:** monitored-only Phase 1 (frozen encoder ⇒ collapse impossible). [VERIFIED `:86-91`]
+- **Released regularizer:** v0.2.1 was labeled Phase 2, but had no LoRA; target-only KL was constant and supplied no gradient. [POST-RELEASE CORRECTION]
 - **Optimizer:** AdamW β₂=0.95, WSD schedule. [VERIFIED `:94-108`]
-- **Batch size:** 256, edit-balanced [0.4,0.2,0.2,0.1,0.1]. [VERIFIED `:110-115`]
-- **Edit source mix:** 40% gnomAD / 30% synthetic SNV / 20% synthetic indel / 10% ClinVar. [VERIFIED `:128-132`]
-- **Holdouts:** chr21, ClinVar P/LP, gnomAD phased multi-edit. [VERIFIED `:142-148`]
-- **Window overlap:** 67%, stride 8,192. [VERIFIED `:135-139`]
+- **Design-spec batch size (not the released run):** 256, edit-balanced [0.4,0.2,0.2,0.1,0.1]. [SPEC `:110-115`]
+- **Design-spec edit source mix (not the released run):** 40% gnomAD / 30% synthetic SNV / 20% synthetic indel / 10% ClinVar. [SPEC `:128-132`]
+- **Design-spec holdouts (not confirmed for v0.2.1):** chr21, ClinVar P/LP, gnomAD phased multi-edit. [SPEC `:142-148`]
+- **Design-spec window overlap:** 67%, stride 8,192. [SPEC `:135-139`]
 - **v0.1 run:** 160,000 samples, 20,000 steps, final loss 0.36124, run id `first-snv-carbon-500m-r1`, commit `cd2bfccb...`. [VERIFIED `model-card:187-194`]
+- **v0.2.1 run:** seed 271828, physical batch size 8, provider weights 3/3/1/1, 80,000 samples, 10,000 optimizer steps, `phase2` label, frozen Carbon, no LoRA. [POST-RELEASE VERIFIED]
 - **Hardware:** NVIDIA H200. [VERIFIED]
 
 #### Non-Goals (citable)
@@ -676,15 +726,15 @@ No new DNA FM pretraining; no DNA generation; no clinical decision support; no p
 
 #### Success Criteria (stated, NOT met)
 - Trained checkpoint on HF Hub: partially met (negative evidence).
-- ClinVar coding AUROC ≥ Carbon zero-shot at ≥10× lower latency: **Not met** — 0.734375 vs 0.921875 (Carbon), delta −0.1875.
-- 3-edit haplotype cosine ≥0.80: **Not met** — phased 0.289 vs source baseline ~0.997.
+- ClinVar coding AUROC ≥ Carbon zero-shot at ≥10× lower latency: **not validly tested** — historical score used mixed-scale L2 surprise.
+- 3-edit haplotype cosine ≥0.80: **not validly tested as capability** — historical cosine is confounded by invalid training and distribution mismatch.
 - Predictor <200 MB int8: not measured. [VERIFIED `rfcs/0001:114-124`]
 
 #### Chronology
 - **2026-05-20** `v0.1.0-draft`: scaffold, 19 RFCs (0001–0019), Phase 1 infra. No training. [VERIFIED `CHANGELOG.md:511-548`]
 - **v0.1:** first Carbon training (`first-snv-carbon-500m-r1`, 20k steps, loss 0.361). Terminal demo on 32-row chr21 VCF. Eval 3,000 chr21 ClinVar, AUROC 0.5192 (CI 0.491–0.547), AP 0.1652, balanced accuracy 0.500. "Near-chance." [VERIFIED `model-card:202-211`]
 - **2026-06-08** June 8 v0.2 readiness run: broader suite + Carbon baselines; mixed/negative. [VERIFIED `docs/faq.md:90-97`]
-- **2026-06-09** `v0.2.1` "serious-completion": #202 checkpoint, #203 suite rerun, #204 planning demo, #205 paper. Preserves negative framing. Readiness `ok=true` for coverage; AR speed `rescoped`. [VERIFIED `CHANGELOG.md:15-27`]
+- **2026-06-09** `v0.2.1` "serious-completion": #202 checkpoint, #203 suite rerun, #204 planning demo, #205 paper. Readiness `ok=true` covered artifact presence, not semantic validity. [VERIFIED + POST-RELEASE CORRECTION]
 
 #### Issue Number Meanings
 - **#42:** AR rollout speed K=20 5× target — open. [VERIFIED]
@@ -701,11 +751,11 @@ No new DNA FM pretraining; no DNA generation; no clinical decision support; no p
 - Decision `rescope_rfc0004_speed_target` status `accepted`; refs #42, #197; row `rescoped`. "Not rollout-speed evidence." [VERIFIED `rollout_speed_scope.py:24-25,73-85`]
 - Accepted in 2026-06-08/09 window; no persisted scope JSON in repo. [VERIFIED tooling; scope JSON not found]
 
-#### Canonical Numbers — see top of dossier (identical).
+#### Historical measurements — see top of dossier (identical bytes, corrected interpretation).
 
-**Compare v0.1 efficiency (same H200):** 494 ms single-variant, 2.024 variants/s, ~1.1 GiB peak. v0.2.1 latency ~233× slower — likely batch/warmup difference, not regression. [VERIFIED `model-card:218-221`]
+**Compare v0.1 efficiency (same H200):** 494 ms single-variant, 2.024 variants/s, ~1.1 GiB peak. The v0.2.1 cold-subprocess latency is ~233× larger, but the methodologies are not established as matched and no component profile supports a causal explanation. [VERIFIED `model-card:218-221`]
 
-#### Explicit "What We Learned" (citable quotations)
+#### Historical claims now superseded
 1. "GenoLeWM does not broadly beat Carbon." [`CHANGELOG.md:23-24`; `AGENTS.md:55`; `README.md:89`]
 2. "K20 rollout speed remains below the RFC-0004 target." [`CHANGELOG.md:24-25`; `README.md:316`]
 3. "The released planning demo exercises the manifest-backed model path but does not prove useful planning behavior." [`AGENTS.md:58-59`; `ROADMAP.md:23`]
@@ -717,10 +767,13 @@ No new DNA FM pretraining; no DNA generation; no clinical decision support; no p
 9. "the non-coding row preserved as a negative finding." [`docs/faq.md:149`]
 10. "Checksum receipts prove artifact and output identity; they do not certify runtime behavior." [`README.md:323-324`]
 
+Items 1, 3--6, and 9 above are preserved as historical quotations, not current conclusions. The state-contract audit supersedes their model-quality interpretation. Item 10 remains correct and is the central systems lesson.
+
 ### Equations & Notation
 ```
 ŝ_{t+1} = g(s_t, a)
-s_t = enc(w_ref)        # L2-norm, centered-mean pooled, d_state=1024
+s_raw = enc(w_ref)      # training source: raw global mean; rollout source: raw centered mean
+hat_s = normalize(s_raw + delta)  # released prediction norm = 1
 a = action(EditSpec)    # d_action=512 (RFC) / 64 (config) projected to d_hidden
 L = α(1 − cos(ŝ_{t+1}, s_{t+1})) + β·MSE(ŝ_{t+1}, s_{t+1})/d_state
 carbon_zero_shot_score = -(log_lik_alt - log_lik_ref)
@@ -741,7 +794,7 @@ K_speedup = T_naive(K) / T_cached(K)
 
 ### Open Questions / Caveats
 1. **ClinVar N=16** extremely small; metrics 1/16-quantized; no meaningful CI.
-2. **Rollout cosine ~0.29–0.30** vs source baseline ~0.997 (predictor nearly orthogonal to target). recall_at_k=1.0 suspicious (N=8 candidate set).
+2. **Rollout cosine ~0.29–0.30** vs source baseline ~0.997 is historical and confounded; do not infer orthogonality as capability or mechanism. Recall@k=1.0 is non-discriminating at N=8.
 3. **v0.2.1 latency 115 s vs v0.1 494 ms** unexplained; 233× on same H200; "one sample, no warmup."
 4. **K=20 mechanism unclear**; no no-cache vs with-cache ablation at K=20.
 5. **No RFC promoted from Draft.** Spec success criterion ("all RFCs Accepted/Superseded") not met.
@@ -757,7 +810,7 @@ K_speedup = T_naive(K) / T_cached(K)
 
 ### Summary
 
-GenoLeWM is a latent world model built on a frozen Carbon-500M. The **efficiency thesis**: pay one Carbon forward pass per reference window, then a cheap (~25–40M-param) predictor supports thousands of downstream latent queries (rollout, planning, VEP) without re-calling Carbon. The "pay once, query many" argument is formally correct for multi-edit rollout and planning. However, VEP scoring as implemented **always** requires a second Carbon call on the edited window, so single-variant benefit is at most a halving when the reference cache is warm — not elimination. The released `--release-efficiency` benchmark measures end-to-end wall-clock of the `geno-lewm-score` subprocess (cold CLI start, model loading, exactly two Carbon forwards); it does not exercise warm-cache or rollout paths. The measured ~115 s latency on H200 is dominated by model loading and cold-start, not pure inference. The only measured latent-cheapness evidence is the AR rollout speedup (2.41×/2.47×), both below RFC-0004 targets (K=20 badly missed). Predictive quality vs Carbon zero-shot is mixed-to-negative on all VEP tracks. Main contribution: reproducible pipeline + content-addressed evidence, not a model that beats its encoder.
+GenoLeWM implements a latent-query call graph over frozen Carbon-500M. The "pay once, query many" statement is a call-count property for rollout/planning, not a validated efficiency--quality claim. VEP requires an edited-window Carbon call. The released efficiency benchmark measures a cold scoring subprocess and does not exercise warm-cache or rollout regimes. Its timing remains a historical implementation measurement; predictive quality cannot be called mixed-to-negative because the L2-derived VEP score was invalid for the intended method.
 
 ### Key facts
 
@@ -788,12 +841,12 @@ GenoLeWM is a latent world model built on a frozen Carbon-500M. The **efficiency
 - Peak memory: `RUSAGE_CHILDREN.ru_maxrss`, best-effort. [VERIFIED `:562-574`]
 - Does NOT measure warm-cache, pipeline-batched, or rollout/planning latency.
 
-**Canonical numbers (v0.2.1-r1, H200):** see top of dossier.
+**Historical measurements (v0.2.1-r1, H200):** see top of dossier.
 
 **Cache architecture**
-- On-disk Parquet shards per (chrom × stride_block); content-addressed by `(window_hash, encoder_hash, state_layer, pool_type, pool_radius, dtype)`. [VERIFIED `cache.py:49-58`]
-- SQLite index. [VERIFIED `cache.py:575-592`]
-- Embedding `list<float16>`. [VERIFIED `cache.py:424`]
+- Historical cache v1 omitted the pooling center and is scientifically ambiguous.
+- Corrected cache v2 uses on-disk Parquet shards per (chrom × stride_block), keyed by `(window_hash, encoder_hash, state_layer, pool_type, pool_radius, center_token, dtype)`, with a derived SQLite index.
+- Embeddings are raw post-pooling/pre-normalization `list<float16>` values; normalization is applied after lookup.
 - **LRU edited-window cache: RFC-0002 §3.6 specifies 10,000-entry; NOT implemented in cache.py** (only reference-window disk cache). [VERIFIED]
 - RFC §3.6 reference cache ≈ 750 MB. [SPEC]
 - ARCHITECTURE.md:200 "8 workers, batch 256, ~150 steps/sec" cache-warm. [SPEC]
@@ -803,13 +856,14 @@ GenoLeWM is a latent world model built on a frozen Carbon-500M. The **efficiency
 
 ### Equations and notation
 ```
-s_t = L2Normalize( centered_mean_pool( Carbon-500M(w_ref, layer=L) ) )
-s_{t+1} = L2Normalize( centered_mean_pool( Carbon-500M(w_alt, layer=L) ) )
+s_t_raw = global_mean_pool( Carbon-500M(w_ref, layer=L) )          # released training source
+s_{t+1,raw} = centered_mean_pool( Carbon-500M(w_alt, layer=L), c ) # released training target
+s_t_rollout_raw = centered_mean_pool( Carbon-500M(w_ref, layer=L), c ) # rollout source
   L = state_layer (20 deployed; RFC default final)
   pool = centered_mean ±pool_radius (256 RFC; 8 deployed)
 a_emb = ActionEncoder(chrom, pos, ref, alt) ∈ R^{d_action}   (64 deployed)
-hat_s_{t+1} = g(s_t, a_emb) = L2Normalize( OutputMLP( CrossAttention(s_t, a_emb) ) )   (d_state 512 deployed / 1024 RFC)
-sigma = || hat_s_{t+1} - s_{t+1} ||_2
+hat_s_{t+1} = L2Normalize( OutputMLP( CrossAttention(s_t_raw, a_emb) ) )
+sigma_released = || hat_s_{t+1} - s_{t+1,raw} ||_2   # invalid intended-method score
 L_pred = lambda_cos*(1 - cos) + lambda_mse*|| · ||^2
 # AR rollout (K steps, 0 Carbon after step 0): K-1 predictor calls
 speedup(K) = naive_median_ns / cached_median_ns
@@ -833,20 +887,20 @@ speedup(K) = naive_median_ns / cached_median_ns
 2. **pool_radius discrepancy load-bearing:** ±48 bp deployed vs ±1,536 bp RFC. Changes what state captures. Paper must state deployed value.
 3. **d_state discrepancy:** deployed 512 vs RFC 1024 ⇒ 1024→512 projection alters geometry. Impacts surprise/rollout claims. (NOTE: R1/R2/R6 evidence cards report d_state=1024 from the first-experiment config `train-carbon-500m-snv.yaml:39`; R7 reports the package-level `defaults/*.yaml` default of 512. The first-experiment config OVERRIDES to 1024. Treat d_state=1024 as the canonical released value; flag the 512 default as a config-layering caveat.)
 4. **LRU edited-window cache unimplemented** — every score re-encodes edited window.
-5. **Rollout benchmark toy dims** (d_state=64, CPU, fp32). 2.41×/2.47× not predictive of real model on GPU.
+5. **Rollout micro-benchmark scope:** H200/CUDA bf16, batch 8, d_state 1024, d_action 64, with a benchmark-specific d_hidden 1024 / 6+1-block / FFN 4096 predictor. The 2.41×/2.47× ratios do not measure the exact checkpoint or full pipeline.
 6. **No warm-cache single-variant latency measured.** <5 ms warm / <50 ms cold never demonstrated.
-7. **Predictive quality rests on negative results.** Only positive (coding accuracy +0.0625 = 1/16) within quantization step; no permutation test/CI.
-8. **Hardware mismatch:** benchmark H200, budget defined for H100. 115 s on H200 implies worse on H100.
+7. **Predictive quality is not established.** L2-derived VEP is invalid; cosine is confounded; sample sizes are also underpowered.
+8. **Hardware mismatch:** the benchmark used H200 while the budget was defined for H100. No matched run supports a directional hardware comparison.
 
 ### Efficiency analysis — three regimes
 
-**Regime 1 — Cold single-variant VEP (what the benchmark measures):** subprocess = interpreter start + model loading (predictor + action-encoder safetensors + Carbon ~1 GB) + 2 Carbon forwards (~80 ms each H100) + predictor (~1 ms) + surprise. The 115,262 ms median is dominated by model loading, not compute. Confirmed by 0.31 variants/s throughput.
+**Regime 1 — Cold single-variant VEP (what the benchmark measures):** the subprocess includes interpreter start, artifact and Carbon loading, two Carbon forwards, predictor execution, and surprise computation. The measured 115,262 ms is end-to-end wall time. No component profile was recorded, so the release cannot attribute that total to loading or compute.
 
-**Regime 2 — Warm reference cache, in-process, single variant:** cache lookup → predictor (~1 ms) → Carbon on edited window (~80 ms) → surprise. Expected ~80–100 ms. **Not measured. Not reported.** <50 ms cold target never validated for this checkpoint.
+**Regime 2 — Warm reference cache, in-process, single variant:** cache lookup → predictor → Carbon on edited window → surprise. **Not measured.** The RFC's H100 component estimates are hypotheses, not results for this H200 release.
 
-**Regime 3 — Latent rollout/planning (the thesis proper):** after initial encode, K-step rollout = 0 additional Carbon, K predictor calls; CEM 1024×5 = 25,600 predictor calls, 0 Carbon (demo 384 evals ~15 s, latent only). 2.41×/2.47× KV-cache speedups real (toy model, CPU) but below RFC-0004 5× at K=20.
+**Regime 3 — Latent rollout/planning (the thesis proper):** after initial encode, K-step rollout = 0 additional Carbon, K predictor calls; CEM 1024×5 = 25,600 predictor calls, 0 Carbon (demo 384 evals ~15 s, latent only). The 2.41×/2.47× KV-cache ratios come from the H200 synthetic-tensor, benchmark-specific predictor above and remain below the RFC-0004 5× target at K=20.
 
-**Honest verdict:** the efficiency thesis is **architecturally sound but operationally unmeasured in the regime it describes, and irrelevant to the measured regime.** Correct for rollout/planning; partial (2× Carbon-call reduction at best) for warm-cache VEP; not applicable to the cold-start benchmark as reported. The 115 s is evidence of expensive cold-process model loading — neither evidence GenoLeWM is slow per token nor evidence it is fast vs Carbon. The correct comparison (warm-cache GenoLeWM, one Carbon call, in-process vs Carbon zero-shot one Carbon call) has not been made. Conditions for the thesis to fully hold (pre-built ref cache; resident model; multi-variant amortization; KV-cache reaching 5× at K=20; rollout/planning-heavy workloads) — none of 1–4 demonstrated in v0.2.1-r1.
+**Corrected verdict:** the release documents cold-process timing and a latent-query call graph. It does not demonstrate efficiency at matched quality because model-quality evaluation is invalidated, and it does not measure the warm-cache regime. Any corrected efficiency claim must accompany a new valid checkpoint and matched quality measurement under a new identity.
 
 ---
 ---
@@ -1095,7 +1149,7 @@ All others (jepa2023, dnabert2021, hyenadna2023, nucleotidetransformer2025, trai
 
 ## 1. RELATED WORK
 
-Organized around the *question* GenoLeWM asks — *can a learned model predict the latent consequence of an explicit genomic edit cheaply enough to support scoring, rollout, and planning?* Four research programs converge: DNA foundation models supply the encoder; variant-effect prediction supplies the evaluation and the foil; JEPA/anti-collapse SSL supplies the objective and the principal failure mode; latent world models supply the action-conditioned framing and planning interface. GenoLeWM is the intersection, and its negative result is most legible against all four.
+Organized around the *question* GenoLeWM asks — *can a learned model predict the latent consequence of an explicit genomic edit cheaply enough to support scoring, rollout, and planning?* Four research programs converge: DNA foundation models, variant-effect prediction, JEPA/anti-collapse SSL, and latent world models. The v0.2.1 experiment does not answer the question because it violated the state-normalization contract.
 
 ### 1.1 DNA and genomic foundation models: encoders, not edit predictors
 
@@ -1103,37 +1157,35 @@ First wave ported MLM/causal-LM to nucleotides: **DNABERT** (Ji et al.) and DNAB
 
 Unifying property: output is a representation or likelihood; where they "predict," they predict *tokens*, not *consequences of an intervention*. **Carbon-500M** (HuggingFaceBio — release date/attribution `[VERIFY EXISTENCE]`) is GenoLeWM's chosen instance: permissively licensed, consumer-hardware-runnable, competitive VEP. GenoLeWM uses it strictly as a **frozen state encoder** (RFC-0002): pay once per reference window, never fine-tune in Phase 1.
 
-Sharp distinction: these answer *"what is the representation/likelihood of this sequence?"* GenoLeWM trains a small head to answer *"given the frozen representation of a reference window and an explicit edit action, what is the representation of the edited window?"* — an **edit-conditioned latent transition operator**, not a sequence scorer. The contrast to **GeneJepa** (`[VERIFY EXISTENCE]`, RFC-0001 §4.2) is sharpest: GeneJepa does masked-token JEPA over gene structure (no explicit action variable); GenoLeWM makes **the edit a conditioning input, not a masked perturbation of the target**. That decision is what would, in principle, license rollout and planning — and what the negative result interrogates.
+Sharp distinction: these answer *"what is the representation/likelihood of this sequence?"* GenoLeWM's intended interface asks *"given a reference representation and explicit edit action, what is the edited representation?"* This architectural distinction motivates rollout and planning experiments, but the released run does not validate a transition operator.
 
 ### 1.2 Variant-effect prediction and resources: the evaluation, and the precise sense in which GenoLeWM is *not* a clinical predictor
 
-Standard VEP ecosystem (RFC-0007 §3.1): **ClinVar** (Landrum et al.) clinical interpretations (P/LP vs B/LB, VUS excluded); **gnomAD** (Karczewski et al.) population frequency, repurposed as a per-context *null model* for surprise calibration (RFC-0009 §3.4); **TraitGym** (Benegas et al. — *attribution* `[VERIFY EXISTENCE]`) causal regulatory/Mendelian; **BRCA2 saturation genome editing** (Findlay et al.) continuous functional scores; **AlphaMissense** (Cheng et al.) structure-aware supervised missense, anchoring the high end.
+Standard VEP ecosystem (RFC-0007 §3.1): **ClinVar** (Landrum et al.) clinical interpretations (P/LP vs B/LB, VUS excluded); **gnomAD** (Karczewski et al.) population frequency, repurposed as a per-context *null model* for surprise calibration (RFC-0009 §3.4); **TraitGym** (Benegas et al. — *attribution* `[VERIFY EXISTENCE]`) causal regulatory/Mendelian; a **BRCA2 saturation genome-editing** continuous-score benchmark whose exact publication source remains unverified; and **AlphaMissense** (Cheng et al.) structure-aware supervised missense, anchoring the high end. Findlay et al. concerns BRCA1 and must not be cited as the BRCA2 source.
 
 GenoLeWM is **not** a clinical predictor, precise along four axes:
 1. **Label-free by construction.** Surprise is an unsupervised side effect of predictor residual error (RFC-0009 §2); no pathogenicity label enters training. Cannot claim calibrated clinical-grade discrimination.
 2. **Signal, not decision.** Every output framed as research signal; disclaims clinical decision support, refuses germline/reproductive use (RFC-0001 §3.2, §3.5).
 3. **Comparison is to the *encoder*, not SOTA clinical models.** Baseline = Carbon-500M zero-shot likelihood (`-ΔlogLik`). Question is narrow/internal: *does action-conditioned latent prediction add evidence over the encoder it sits on?* NOT *does GenoLeWM beat AlphaMissense?* Conflating them = central overclaim to avoid.
-4. **The honest finding is that it does not, yet.** Trails Carbon zero-shot on most VEP rows; only narrow coding-ClinVar balanced-accuracy positive. So GenoLeWM is not even a *Carbon-beating* scorer on this evidence — making "not a clinical predictor" an accurate scope description, not modesty.
+4. **No comparative finding survives.** The GenoLeWM VEP score was L2-derived under incompatible state scales. Historical deltas establish neither superiority nor inferiority to Carbon.
 
 This section earns trust: adopt the field's benchmarks for *comparability* while refusing the field's *claims*.
 
-### 1.3 JEPAs and anti-collapse SSL: the objective, and why the frozen encoder sidesteps collapse but springs a different trap
+### 1.3 JEPAs and anti-collapse SSL: intended objective versus released computation
 
 Lineage = **Joint-Embedding Predictive Architecture**. **I-JEPA** (Assran et al.) established predicting *in representation space* yields strong features without pixel reconstruction. Genomic analogue is direct: GenoLeWM predicts Carbon-encoded window embeddings, never tokens.
 
 Defining hazard of any predict-in-latent-space objective: **representation collapse** (RFC-0005 §2). SSL anti-collapse menu: stop-gradient/EMA (BYOL, I-JEPA), variance-covariance regularizers (**VICReg**, Bardes et al.; **PLDM** `[VERIFY EXISTENCE]`), contrastive negatives, distribution-matching. **LeWorldModel / LeJEPA** (Maes, Le Lidec, Scieur, LeCun, Balestriero `[VERIFY EXISTENCE]`) — direct parent — is distribution-matching: prediction + isotropic-Gaussian regularizer, no EMA/teacher, via **SIGReg** (random 1-D projections + Epps–Pulley normality test, Cramér–Wold). GenoLeWM inherits the *form*: Phase-2 regularizer = closed-form KL between batch-empirical Gaussian and `N(0,I)` (RFC-0005 §3.2).
 
-The pivot: **In Phase 1, GenoLeWM freezes the encoder**, changing the collapse calculus entirely (RFC-0005 §2–§3.3). Frozen targets `s_{t+1}` are fixed; the predictor cannot drive the encoder to a constant; collapse is **mechanically impossible**; the Gaussian regularizer is monitored not trained. Legitimate simplification — same move **DINO-WM** (Zhou et al. `[VERIFY ATTRIBUTION]`) makes on frozen DINOv2.
-
-But the price is the **latent-residual baseline trap**: with a fixed pre-trained target manifold and a single SNV moving the 1024-d frozen embedding only slightly, the trivial predictor `ŝ_{t+1} := s_t` (copy source state) becomes a *strong* baseline — not because it is good, but because the quantity to predict is small relative to embedding scale. LeWM/PLDM never face this fully because their encoders are *trained jointly*. By freezing Carbon, GenoLeWM forgoes that adaptation. This is why the eval suite was designed *a priori* with a **naive source-state baseline** (RFC-0007 §3.2.3), and why the central negative finding is rollout cosine *below* that baseline. §2.1 develops this.
+The released run was labeled `phase2` but kept Carbon frozen with no LoRA. Its KL was computed only from frozen targets and therefore supplied no gradient. Simultaneously, raw source/target states were paired with unit-norm predictions. This does not instantiate either the intended normalized frozen-encoder baseline or the intended jointly adapted Phase-2 method. The latent-residual trap remains an untested hypothesis.
 
 ### 1.4 Latent world models and planning: GenoLeWM as a world model whose action is a discrete genomic edit
 
 Precise architectural claim (RFC-0001 §4.4). Lineage: **Ha & Schmidhuber "World Models"** (VAE encoder + recurrent latent dynamics + controller in imagination) → **Dreamer/DreamerV2/DreamerV3** (Hafner et al., latent recurrent SSM + policy via imagined rollouts) → **TD-MPC/TD-MPC2** (Hansen et al. `[VERIFY ATTRIBUTION]`, task-oriented latent dynamics + sampling-based MPC). GenoLeWM's planning = **CEM** in latent space with MPC replanning, same family as PlaNet/Dreamer and LeWM's CEM-over-action-sequences (RFC-0008 §3.4).
 
-Distinctive move: the *type of action*. In all the above, action is a continuous control vector. In GenoLeWM, **the action is a discrete genomic edit** — `(position, type, ref, alt)` over `{SNV, INS, DEL, MNV, INDEL}` (RFC-0003) — encoded by a small action encoder, consumed by a cross-attention predictor. Planning = **combinatorial search over a discrete edit space**; hence CEM-over-factored-categoricals (deferred MCTS variant) over gradient-based optimization (RFC-0008 §4.1). The three operations (scoring, rollout, planning) are all *search/score over discrete edits scored by latent distance after predictor rollout*, with the efficiency thesis being they touch Carbon **once**.
+Control-world-model action spaces may be continuous or discrete. GenoLeWM's distinctive choice is the **structured genomic edit action** `(position, type, ref, alt)` over `{SNV, INS, DEL, MNV, INDEL}` (RFC-0003), encoded by a small action encoder and consumed by a cross-attention predictor. Planning is combinatorial search over a factored categorical edit space (with MCTS deferred) rather than generic control semantics. Latent rollout and planning require no additional Carbon call after source/target setup. Surprise scoring additionally encodes the edited window, for two Carbon calls uncached or one with a warm source cache.
 
-Honest reading: GenoLeWM satisfies the *architectural* definition (predicts next latent state given action, exposes a planner) without yet the *behavioral* one (the demo records execution, not useful planning — stops on patience with non-zero best-distance). Dreamer/TD-MPC earn the title via demonstrated control; GenoLeWM concedes it has earned the title structurally but not empirically. That concession is the paper's integrity.
+Corrected reading: GenoLeWM exposes an action-conditioned predictor and planner interface, but v0.2.1 does not establish that it predicts a valid next-state representation or supports useful planning. Treat "world model" as the project architecture/name, not a released behavioral capability.
 
 ### 1.5 Comparison table
 
@@ -1141,33 +1193,29 @@ Honest reading: GenoLeWM satisfies the *architectural* definition (predicts next
 |---|---|---|---|---|---|---|
 | DNA FMs (DNABERT, NT, HyenaDNA, Caduceus, Evo/Carbon) | yes (pretrain) | n/a (gen/MLM) | none | none | Carbon as frozen encoder | adds edit-conditioned latent transition |
 | VEP scorers (AlphaMissense, CADD, ESM-1b) | task-tuned | n/a (supervised) | none | none | benchmarks | label-free surprise; not clinical |
-| JEPA/LeJEPA (I-JEPA, LeWM) | **yes, jointly** | EMA/**SIGReg** | n/a or control | CEM | latent-prediction objective + Gaussian reg | **freezes** encoder ⇒ collapse-immune but residual-trap-prone |
-| Frozen-feature WM (DINO-WM) | no (frozen DINOv2) | n/a | continuous control | CEM/MPC | frozen-encoder strategy | discrete genomic-edit action |
-| Latent WMs (Ha-Schmidhuber, Dreamer, TD-MPC) | yes | reconstruction/reward | continuous control | imagination/MPC | world-model framing + CEM-MPC | **action = discrete genomic edit** |
+| JEPA/LeJEPA (I-JEPA, LeWM) | **yes, jointly** | EMA/**SIGReg** | n/a or control | CEM | latent-prediction objective + Gaussian reg | released run froze encoder; target KL had no gradient |
+| Frozen-feature WM (DINO-WM) | no (frozen DINOv2) | n/a | control action | CEM/MPC | frozen-encoder strategy | structured genomic-edit semantics |
+| Latent WMs (Ha-Schmidhuber, Dreamer, TD-MPC) | yes | reconstruction/reward | continuous or discrete control | imagination/MPC | world-model framing + CEM-MPC | **factored genomic-edit action** |
 
-*Distinguishing experiment:* a **rollout-fidelity test against the source-state baseline stratified by edit magnitude** (RFC-0007 §3.2.3) — does the predictor beat `ŝ:=s_t` by a margin that *grows* with true latent displacement? On v0.2 it does not — the empirical heart of the paper.
+*Required correction experiment:* run a normalized-state, coordinate-matched, distribution-matched evaluation against normalized source-state and shuffled-action baselines under a new identity. The v0.2.1 rows cannot serve as this test.
 
-## 2. DISCUSSION — Why the negative result occurs
+## 2. DISCUSSION — Why v0.2.1 is not interpretable
 
-Predictable consequence of four interacting causes; the contribution is diagnosing them mechanistically. Low prediction loss is **not** evidence of a learned edit-transition operator.
+### 2.1 Established validity failures
+`normalize: true` was ignored for encoder states. Mean rollout source/target norms were 33.982/33.595 (phased) and 29.253/29.089 (synthetic), while predictions were 1.000. Training source/target pooling was global/centered, rollout changed the source to centered, candidates could use different centers, and cache v1 omitted that coordinate. Mixed-scale/mixed-coordinate L2 loss, surprise, rollout distance, and planning distance are invalid for the intended method. The `phase2` label also overstated the training semantics: no LoRA existed and target-only KL had no gradient.
 
-### 2.1 The latent-residual baseline trap (primary cause)
-Training loss `α(1−cos)+β‖ŝ−s‖²/d` (RFC-0005 §3.1). The trivial `ŝ:=s_t`: a single SNV in a ~12 kbp window, mean-pooled over a frozen 1024-d embedding, perturbs the embedding only slightly — so `s_{t+1}≈s_t` and `cos(s_t, s_{t+1})` is near 1. The copy-baseline gets *most* achievable cosine for free; the predictor must capture only the tiny residual `Δ = s_{t+1}−s_t` (small norm, high variance, dominated by the bulk `s_t` direction). Gradient descent is *attracted to the copy solution*. **Evidence:** rollout cosine far below the source-state baseline (phased −0.70897, synthetic −0.689631). A predictor that learned `Δ` would beat copy; one that learned a *distorted* copy sits below it. RFC-0007 §3.2.3 introduced the naive baseline precisely to catch this — the negative result is the design's own canary firing. **Phase-1 collapse-immunity is the cause, not a defense:** the Gaussian regularizer guards *encoder collapse*; nothing in Phase 1 guards against *functional collapse of the predictor onto identity*.
+### 2.2 Historical cosine is insufficient
+Cosine is scale-invariant, so 0.288861/0.301608 and source-baseline 0.997831/0.991239 remain reproducible historical values. They are nevertheless downstream of invalid mixed-scale, mixed-coordinate optimization and confounded by train/rollout distribution mismatch. They do not distinguish a normalization effect, pooling-coordinate effect, distribution shift, optimization failure, action insensitivity, residual geometry, or encoder limitations.
 
-### 2.2 Representation geometry — what an "edit direction" looks like in Carbon's space
-For action-conditioning to be learnable, `(s_t, a_v) → Δ` must be *exposed* by Carbon's geometry (similar edits → similar low-dimensional roughly-linear displacements). No guarantee a frozen MLM/causal encoder organizes its space this way — Carbon was trained for likelihood, not edit-linearity. `Δ` may be near-isotropic noise of magnitude comparable to encoder variance (RFC-0009 §3.1: σ_raw inflated in GC-rich/repeat regions regardless of pathogenicity), highly nonlinear, or entangled with nuisance directions. **Show:** linear-vs-MLP probe gap for decoding `Δ`; `Δ`-norm vs encoder regional variance; edit-direction consistency.
+### 2.3 Mechanistic and capability conclusions withdrawn
+The paper withdraws the latent-residual-trap diagnosis, the claim that freezing caused the gap, the "distorted copy" interpretation, and conclusions about world-model, VEP, surprise, rollout, or planning capability. Residual geometry and edit-direction accessibility remain testable hypotheses only.
 
-### 2.3 Tiny evaluation slices and absence of power
-ClinVar N≈16; metrics quantized at 1/16 = 0.0625; bootstrap CIs over 16 examples meaningless. A 1–2 point AUROC "win/loss" is within CI width. Honest statement: not "GenoLeWM trails Carbon" on every row with confidence, but "on slices this size, GenoLeWM does not show a detectable improvement and shows detectable deficits only where deltas exceed the CI."
-
-### 2.4 Frozen encoder may not expose an edit-linear latent (structural cause)
-Synthesis: (1) frozen Carbon optimized for the wrong invariance (what the sequence *is*, not how an edit moves it); (2) predictor has no leverage on the encoder (unlike LeWM where the encoder adapts); (3) **the efficiency thesis and the learnability thesis are in tension** — freezing Carbon enables "pay once, query many" but removes the encoder's ability to become edit-predictable. Deepest insight: *the very design choice that delivers efficiency may be the one that costs accuracy*, and the resolution (Phase-2 LoRA + LeJEPA) reintroduces the collapse risk Phase-1 was designed to avoid.
-
-**Drop-in thesis paragraph:** *GenoLeWM's negative result is the joint consequence of a frozen target manifold on which single edits are near-invisible (making the copy-baseline strong), a frozen encoder geometry that was never shaped to expose edit directions (making the residual hard to extract), and evaluation slices too small to distinguish the resulting near-parity from noise. The Phase-1 design eliminated representation collapse by construction and, in doing so, created a residual-prediction problem in which the trivial identity map is a competitive baseline. The result is not that edit-conditioned latent world modeling is impossible, but that it is not learnable against a fully frozen, edit-agnostic encoder on under-powered slices.*
+### 2.4 Independent power limitation
+ClinVar N=16 and rollout N=8 are underpowered even after the semantic defect is fixed. A corrected run must use pre-specified power, repeated seeds, and distribution-stratified controls.
 
 ## 3. FUTURE RESEARCH PROGRAM
 
-Twelve directions (hypothesis / smallest falsifying experiment / baseline to beat / failure mode). D1–D4 attack the cause; D5–D8 evaluation/measurement; D9–D12 deployment/scale.
+No mechanistic direction precedes the correction control: normalize all live/cached states consistently, use one committed pooling center for every compared state, assert observed norms, run a true Phase-1 baseline, verify LoRA and KL gradients if Phase 2 is claimed, match train/rollout distributions, use adequate power and repeated seeds, and publish under a new identity. The following directions remain hypotheses only.
 
 **D1 — Phase-2 LoRA + LeJEPA.** Lightly LoRA-adapt Carbon under the Gaussian regularizer (lr 1e-5) so `Δ` becomes linearly extractable, lifting rollout cosine above the source-state baseline. Baseline: source-state copy + Phase-1. Failure: collapse (kl_reg>10) or still trails copy ⇒ problem is action/objective (→D2).
 
@@ -1193,16 +1241,14 @@ Twelve directions (hypothesis / smallest falsifying experiment / baseline to bea
 
 **D12 — Surprise as Bayesian/directional + ensemble with ΔlogLik.** Report AUROC for {raw, calibrated, MC-dropout, surprise⊕ΔlogLik} on a power-adequate ClinVar slice (D5). Failure: ensemble adds nothing over ΔlogLik ⇒ surprise carries no orthogonal signal (retire it honestly).
 
-**Program-level framing:** decision tree rooted at §2's diagnosis. D3/D7 run first (cheap, high-information): is the cause encoder geometry? If yes, D1/D2/D4 are the cure. D5/D6/D8 fix measurement so any cure is provable. D9–D12 earn deployment/scientific claims. The unifying question — *is edit-conditioned latent prediction learnable against a (near-)frozen genomic encoder, and at what compute?* — is the paper's most valuable bequest.
+**Program-level framing:** the corrected control is D0 and gates D1--D12. No branch may use v0.2.1 as evidence for a cause. The unifying scientific question remains open.
 
 ## Citation existence flags (for verification)
 
-- `[VERIFY EXISTENCE]` Carbon-500M/3B/8B (HuggingFaceBio): confirm family, publisher, license, release date.
+- `[VERIFY FORMAL ATTRIBUTION]` Carbon-500M/3B/8B (HuggingFaceBio): the model card is verified, but it exposes no formal author list or technical-report citation.
 - `[VERIFY EXISTENCE]` LeWorldModel/LeJEPA (Maes, Le Lidec, Scieur, LeCun, Balestriero, "2026"; arXiv 2603.19312 per skill notes): confirm authorship/title; SIGReg attribution. (NOTE: citations block has a VERIFIED LeJEPA 2025 entry by Balestriero & LeCun, arXiv 2511.08544 — distinguish the LeJEPA paper from the LeWorldModel paper.)
-- `[VERIFY EXISTENCE]` Evo 2 (Brixi et al.) and exact Evo (Nguyen et al.) attribution. (NOTE: both VERIFIED in citations block.)
 - `[VERIFY EXISTENCE]` GeneJepa (RFC-0001 §4.2 "Oct 2025 masked-gene-token JEPA").
-- `[VERIFY EXISTENCE]` TraitGym (Benegas et al.). (NOTE: VERIFIED in citations block.)
-- `[VERIFY ATTRIBUTION]` Caduceus, DINO-WM (Zhou et al.), TD-MPC2 (Hansen et al.), DreamerV3, VICReg (Bardes/Ponce/LeCun), I-JEPA, AlphaMissense, gnomAD, ClinVar, BRCA2 SGE (Findlay et al.), HyenaDNA, Nucleotide Transformer, DNABERT/DNABERT-2.
+- `[VERIFY ATTRIBUTION]` Caduceus, DINO-WM (Zhou et al.), TD-MPC2 (Hansen et al.), DreamerV3, VICReg (Bardes/Ponce/LeCun), I-JEPA, AlphaMissense, gnomAD, ClinVar, HyenaDNA, Nucleotide Transformer, DNABERT/DNABERT-2. `[VERIFY SOURCE]` exact BRCA2 SGE benchmark publication; Findlay et al. is BRCA1 and is not the source.
 - `[VERIFY EXISTENCE]` PLDM (VICReg-inspired latent world model) before naming as a baseline.
 
 ## Key source files (absolute paths)

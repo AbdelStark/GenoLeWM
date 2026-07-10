@@ -8,7 +8,7 @@ run_id: phase1-default
 seed: 0
 phase: phase1
 deterministic: false
-schema_version: 1.0.0
+schema_version: 1.1.0
 
 encoder:
   model_id: HuggingFaceBio/Carbon-500M
@@ -18,6 +18,7 @@ encoder:
   pool_type: centered_mean
   pool_radius: 8
   normalize: true
+  state_contract_version: l2_normalized_v2
 
 predictor:
   architecture: cross_attention

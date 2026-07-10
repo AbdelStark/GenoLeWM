@@ -58,6 +58,9 @@ class EncoderConfig:
     pool_type: str = "centered_mean"
     pool_radius: int = 8
     normalize: bool = True
+    # Schema-1.0 payloads missing this field migrate to legacy_raw_v1 at load
+    # time. New programmatic and schema-1.1 configs use the corrected contract.
+    state_contract_version: Literal["legacy_raw_v1", "l2_normalized_v2"] = "l2_normalized_v2"
     # Carbon-500M ships a custom HybridDNATokenizer (auto_map + tokenizer.py),
     # so Transformers requires trust_remote_code=True to load it. Default False
     # (safe); the first-experiment config opts in against a pinned revision.
@@ -185,7 +188,7 @@ class GenoLeWMConfig:
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     deterministic: bool = False
-    schema_version: str = "1.0.0"
+    schema_version: Literal["1.0.0", "1.1.0"] = "1.1.0"
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import geno_lewm.training.trainer as trainer_module
 from geno_lewm.action import EditType, RelEdit
 from geno_lewm.config import load_config, load_default
 from geno_lewm.data import TrainingTuple, WindowContext
+from geno_lewm.encoder._normalization import l2_normalize_state
 from geno_lewm.encoder.windowing import window_sha256
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.training.trainer import (
@@ -101,7 +102,7 @@ def test_encode_training_batch_uses_carbon_encoder_and_masks_ragged_actions(
     assert batch.target.shape == (2, 2, 2)
     assert batch.action_mask.tolist() == [[True, False], [True, True]]
     assert encoder.calls == [
-        (("ACGTAC",), (None,)),
+        (("ACGTAC",), (1,)),
         (("ATGTAC", "ACCTAC"), (1, 2)),
     ]
     torch.testing.assert_close(batch.target[0, 1], torch.zeros(2))
@@ -143,8 +144,9 @@ def test_encode_training_batch_reuses_cached_source_state(
     )
 
     assert len(observed_keys) == 1
-    assert observed_keys[0].pool_type == "global_mean"
-    assert observed_keys[0].pool_radius == 0
+    assert observed_keys[0].pool_type == "centered_mean"
+    assert observed_keys[0].pool_radius == 8
+    assert observed_keys[0].center_token == 1
     assert encoder.calls == [(("ATGTAC",), (1,))]
     torch.testing.assert_close(batch.state, torch.tensor([[99.0, 100.0]]))
 
@@ -167,12 +169,35 @@ def test_source_states_reuses_cache_without_torch(
     monkeypatch.setattr(trainer_module, "read_embedding", fake_read_embedding)
     encoder = FakeCarbonEncoder()
 
-    states = trainer_module._source_states(encoder, ["ACGTAC"])
+    states = trainer_module._source_states(encoder, ["ACGTAC"], [1])
 
     assert states == ((3.0, 4.0),)
     assert encoder.calls == []
-    assert observed_keys[0].pool_type == "global_mean"
-    assert observed_keys[0].pool_radius == 0
+    assert observed_keys[0].pool_type == "centered_mean"
+    assert observed_keys[0].pool_radius == 8
+    assert observed_keys[0].center_token == 1
+
+
+def test_source_states_applies_encoder_normalization_to_raw_cache_hit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "embeddings").mkdir(parents=True)
+    (cache_dir / "embeddings" / "index.sqlite").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(trainer_module, "default_cache_dir", lambda: cache_dir)
+    monkeypatch.setattr(
+        trainer_module,
+        "read_embedding",
+        lambda _cache_root, _key: (3.0, 4.0),
+    )
+    encoder = FakeCarbonEncoder(normalize=True)
+
+    states = trainer_module._source_states(encoder, ["ACGTAC"], [1])
+
+    assert states[0] == pytest.approx((0.6, 0.8))
+    assert encoder.calls == []
 
 
 def test_source_states_reuses_in_memory_cache_without_torch(
@@ -182,12 +207,12 @@ def test_source_states_reuses_in_memory_cache_without_torch(
     monkeypatch.setattr(trainer_module, "default_cache_dir", lambda: tmp_path / "empty-cache")
     encoder = FakeCarbonEncoder()
 
-    first = trainer_module._source_states(encoder, ["ACGTAC", "ACGTAC"])
-    second = trainer_module._source_states(encoder, ["ACGTAC"])
+    first = trainer_module._source_states(encoder, ["ACGTAC", "ACGTAC"], [1, 1])
+    second = trainer_module._source_states(encoder, ["ACGTAC"], [1])
 
-    assert first == ((6.0, -1.0), (6.0, -1.0))
-    assert second == ((6.0, -1.0),)
-    assert encoder.calls == [(("ACGTAC",), (None,))]
+    assert first == ((6.0, 1.0), (6.0, 1.0))
+    assert second == ((6.0, 1.0),)
+    assert encoder.calls == [(("ACGTAC",), (1,))]
 
 
 def test_encode_training_batch_reuses_in_memory_source_state(
@@ -220,7 +245,7 @@ def test_encode_training_batch_reuses_in_memory_source_state(
     )
 
     assert encoder.calls == [
-        (("ACGTAC",), (None,)),
+        (("ACGTAC",), (1,)),
         (("ATGTAC",), (1,)),
         (("ATGTAC",), (1,)),
     ]
@@ -240,6 +265,56 @@ def test_encode_training_batch_rejects_missing_source_window() -> None:
 
     with pytest.raises(InputError, match="source window sequence missing"):
         encode_training_batch(encoder=FakeCarbonEncoder(), tuples=[item], source_windows={})
+
+
+def test_source_pooling_identity_requires_encoder_resolver() -> None:
+    with pytest.raises(RuntimeSetupError, match=r"requires encoder\.pooling_identity"):
+        trainer_module._source_pooling_identity(object(), "ACGT", 1)
+
+
+@pytest.mark.parametrize(
+    ("resolved", "message"),
+    [
+        ("centered_mean", "returned invalid cache metadata"),
+        (("attention", 8, 1), "supported encoder pool_type"),
+        (("global_mean", 1, None), "radius zero and no center"),
+        (("centered_mean", 8, None), "requires an exact center_token"),
+        (("centered_mean", 7, 1), "disagrees with configured pooling"),
+    ],
+)
+def test_source_pooling_identity_rejects_invalid_resolver_metadata(
+    resolved: object,
+    message: str,
+) -> None:
+    encoder = PoolingIdentityEncoder(resolved)
+
+    with pytest.raises(RuntimeSetupError, match=message):
+        trainer_module._source_pooling_identity(encoder, "ACGT", 1)
+
+
+def test_source_pooling_identity_accepts_canonical_global_metadata() -> None:
+    encoder = PoolingIdentityEncoder(("global_mean", 0, None))
+
+    assert trainer_module._source_pooling_identity(encoder, "ACGT", 1) == (
+        "global_mean",
+        0,
+        None,
+    )
+
+
+def test_source_pooling_identity_rejects_centered_metadata_without_edit_locus() -> None:
+    encoder = PoolingIdentityEncoder(("centered_mean", 8, 1))
+
+    with pytest.raises(RuntimeSetupError, match="requires an edit locus"):
+        trainer_module._source_pooling_identity(encoder, "ACGT", None)
+
+
+def test_encoder_normalization_flag_must_be_boolean() -> None:
+    class InvalidNormalizationEncoder:
+        normalize = "true"
+
+    with pytest.raises(RuntimeSetupError, match="normalize to be boolean"):
+        trainer_module._encoder_normalizes(InvalidNormalizationEncoder())
 
 
 def test_build_adamw_optimizer_accepts_real_small_modules() -> None:
@@ -323,7 +398,8 @@ class FakeCarbonEncoder:
     pool_radius = 8
     dtype = "bf16"
 
-    def __init__(self) -> None:
+    def __init__(self, *, normalize: bool = False) -> None:
+        self.normalize = normalize
         self.calls: list[tuple[tuple[str, ...], tuple[int | None, ...]]] = []
 
     def encode_batch(
@@ -333,10 +409,34 @@ class FakeCarbonEncoder:
     ) -> tuple[tuple[float, float], ...]:
         assert len(windows) == len(edit_loci)
         self.calls.append((tuple(windows), tuple(edit_loci)))
-        return tuple(
+        states = tuple(
             (float(len(window)), -1.0 if locus is None else float(locus))
             for window, locus in zip(windows, edit_loci, strict=True)
         )
+        if self.normalize:
+            return tuple(l2_normalize_state(state) for state in states)
+        return states
+
+    def pooling_identity(
+        self,
+        window: str,
+        edit_locus: int | None,
+    ) -> tuple[str, int, int | None]:
+        del window
+        if edit_locus is None:
+            return "global_mean", 0, None
+        return self.pool_type, self.pool_radius, 1 + (edit_locus // 6)
+
+
+class PoolingIdentityEncoder:
+    pool_type = "centered_mean"
+    pool_radius = 8
+
+    def __init__(self, resolved: object) -> None:
+        self.resolved = resolved
+
+    def pooling_identity(self, _window: str, _edit_locus: int | None) -> object:
+        return self.resolved
 
 
 class DummyActionEncoder:

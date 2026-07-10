@@ -1,8 +1,10 @@
 # Contributing to GenoLeWM
 
-GenoLeWM is an alpha Python ML research project. The v0.1 paper/demo
-publication is complete with public model, dataset, demo, paper, and
-final publication evidence artifacts.
+GenoLeWM is an alpha Python ML research project. The v0.1/v0.2.1 model,
+dataset, demo, paper, and run artifacts are public, but their earlier model
+interpretation was withdrawn after the 2026-07-10 state-contract audit. The
+checkpoints are `legacy_raw_v1` artifacts, not evidence for the intended
+normalized method.
 
 The most valuable contributions now are narrow, tested changes that
 improve benchmark evidence, runtime reliability, reproducibility, and
@@ -12,10 +14,11 @@ public documentation.
 
 - Broader held-out benchmark builders with pinned upstream revisions and
   deterministic smoke fixtures.
-- Trainer and evaluation paths that emit stronger publishable artifacts
-  without weakening the v0.1 release evidence contract.
+- Trainer and evaluation paths that enforce `l2_normalized_v2`, reject
+  no-gradient regularizers, and emit auditable fresh-lineage artifacts.
 - AR rollout speed work and benchmark gates for the K=20 target.
-- Planning API/CLI work backed by measured predictor and eval evidence.
+- Planning API/CLI work backed by corrected same-contract predictor and
+  evaluation evidence.
 - Release automation for future evidence packages.
 - Documentation that keeps public claims aligned with measured behavior.
 
@@ -79,6 +82,14 @@ Docs must separate:
 - measured results;
 - planned work;
 - fixture-only examples.
+
+Published `legacy_raw_v1` values may be quoted only as historical
+implementation outputs. Do not interpret their L2 residuals, VEP/calibration,
+or planning objectives scientifically. Do not describe their cosine values as
+positive or negative model results: they are confounded by invalid training.
+New scientific evidence must declare `l2_normalized_v2`, use a fresh
+checkpoint/calibration lineage, and verify that every claimed regularizer has
+a gradient path to an optimized parameter.
 
 Do not add benchmark or model-quality claims unless the code and
 artifacts needed to reproduce them are committed or linked from the

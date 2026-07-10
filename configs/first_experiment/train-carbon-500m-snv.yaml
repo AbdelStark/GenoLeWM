@@ -14,7 +14,7 @@ run_id: first-snv-carbon-500m-r1
 seed: 104729
 phase: phase1
 deterministic: true
-schema_version: 1.0.0
+schema_version: 1.1.0
 
 encoder:
   model_id: /carbon
@@ -25,8 +25,10 @@ encoder:
   pool_type: centered_mean
   pool_radius: 8
   normalize: true
-  # Carbon-500M ships a custom HybridDNATokenizer; Transformers needs this to
-  # load it. Safe here because encoder.revision pins the exact commit.
+  # Historical v0.1 lineage: normalize was configured but ignored in code.
+  state_contract_version: legacy_raw_v1
+  # Historical release config. The corrected wrapper does not execute Carbon's
+  # custom tokenizer; it uses the committed local pure-DNA implementation.
   trust_remote_code: true
 
 predictor:

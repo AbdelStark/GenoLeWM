@@ -20,8 +20,9 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from geno_lewm.action import RelEdit
 from geno_lewm.config import GenoLeWMConfig
 from geno_lewm.data import TrainingTuple
+from geno_lewm.encoder._normalization import l2_normalize_state
 from geno_lewm.encoder.cache import INDEX_DB_NAME, WindowCacheKey, default_cache_dir, read_embedding
-from geno_lewm.encoder.pooling import POOL_GLOBAL_MEAN
+from geno_lewm.encoder.pooling import POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN
 from geno_lewm.encoder.windowing import window_sha256
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.predictor.losses import predictor_loss
@@ -53,7 +54,7 @@ else:
         Tensor = Any
 
 ScheduleName = Literal["wsd", "constant", "cosine"]
-_SOURCE_STATE_MEMORY_CACHE_ATTR = "_geno_lewm_source_state_cache"
+_SOURCE_STATE_MEMORY_CACHE_ATTR = "_geno_lewm_source_state_cache_v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,7 +280,7 @@ def encode_training_batch(
         window_ids.append(item.window_id)
     target_loci = [edits[0].rel_pos if edits else None for edits in rel_edits]
     encoder_runtime = _encoder_runtime(encoder)
-    source_states = _source_states(encoder_runtime, source_sequences)
+    source_states = _source_states(encoder_runtime, source_sequences, target_loci)
     target_states = encoder_runtime.encode_batch(target_sequences, target_loci)
     state = torch.tensor(source_states, dtype=dtype or torch.float32, device=device)
     target_single = torch.tensor(target_states, dtype=state.dtype, device=state.device)
@@ -512,7 +513,13 @@ def _encoder_runtime(encoder: object) -> Any:
 def _source_states(
     encoder: object,
     source_sequences: Sequence[str],
+    edit_loci: Sequence[int | None],
 ) -> tuple[tuple[float, ...], ...]:
+    if len(source_sequences) != len(edit_loci):
+        raise InputError(
+            "source sequences and edit loci must have the same length",
+            details={"source_sequences": len(source_sequences), "edit_loci": len(edit_loci)},
+        )
     runtime = _encoder_runtime(encoder)
     memory_cache = _source_state_memory_cache(runtime)
     cache_dir = default_cache_dir()
@@ -520,42 +527,58 @@ def _source_states(
 
     states: list[tuple[float, ...] | None] = []
     missing_indices: list[int] = []
-    for index, sequence in enumerate(source_sequences):
-        cached = memory_cache.get(sequence)
+    for index, (sequence, edit_locus) in enumerate(zip(source_sequences, edit_loci, strict=True)):
+        memory_key = _source_memory_key(encoder, sequence, edit_locus)
+        cached = memory_cache.get(memory_key)
         if cached is not None:
             states.append(cached)
             continue
         if disk_cache_exists:
-            key = _source_cache_key(encoder, sequence)
+            key = _source_cache_key(encoder, sequence, edit_locus)
             cached = read_embedding(cache_dir, key)
             if cached is not None:
                 state = _require_state_vector(cached, index=index)
-                memory_cache[sequence] = state
+                if _encoder_normalizes(runtime):
+                    state = l2_normalize_state(state, item_index=index)
+                memory_cache[memory_key] = state
                 states.append(state)
                 continue
         states.append(None)
         missing_indices.append(index)
 
     if missing_indices:
-        missing_by_sequence: dict[str, list[int]] = {}
+        missing_by_key: dict[tuple[str, str, int, int | None], list[int]] = {}
         for index in missing_indices:
-            missing_by_sequence.setdefault(source_sequences[index], []).append(index)
-        missing_sequences = list(missing_by_sequence)
-        encoded = tuple(runtime.encode_batch(missing_sequences, [None] * len(missing_sequences)))
-        for sequence, vector in zip(missing_sequences, encoded, strict=True):
-            state = _require_state_vector(vector, index=missing_by_sequence[sequence][0])
-            memory_cache[sequence] = state
-            for index in missing_by_sequence[sequence]:
+            memory_key = _source_memory_key(
+                encoder,
+                source_sequences[index],
+                edit_loci[index],
+            )
+            missing_by_key.setdefault(memory_key, []).append(index)
+        missing_keys = list(missing_by_key)
+        missing_sequences = [key[0] for key in missing_keys]
+        missing_loci = [edit_loci[missing_by_key[key][0]] for key in missing_keys]
+        encoded = tuple(runtime.encode_batch(missing_sequences, missing_loci))
+        for memory_key, vector in zip(missing_keys, encoded, strict=True):
+            indices = missing_by_key[memory_key]
+            state = _require_state_vector(vector, index=indices[0])
+            memory_cache[memory_key] = state
+            for index in indices:
                 states[index] = state
 
     return tuple(_require_state_vector(state, index=index) for index, state in enumerate(states))
 
 
-def _source_state_memory_cache(encoder: object) -> dict[str, tuple[float, ...]]:
+def _source_state_memory_cache(
+    encoder: object,
+) -> dict[tuple[str, str, int, int | None], tuple[float, ...]]:
     raw_cache = getattr(encoder, _SOURCE_STATE_MEMORY_CACHE_ATTR, None)
     if isinstance(raw_cache, dict):
-        return cast(dict[str, tuple[float, ...]], raw_cache)
-    cache: dict[str, tuple[float, ...]] = {}
+        return cast(
+            dict[tuple[str, str, int, int | None], tuple[float, ...]],
+            raw_cache,
+        )
+    cache: dict[tuple[str, str, int, int | None], tuple[float, ...]] = {}
     try:
         setattr(encoder, _SOURCE_STATE_MEMORY_CACHE_ATTR, cache)
     except Exception:
@@ -567,15 +590,96 @@ def _source_cache_index_exists(cache_dir: Path) -> bool:
     return (cache_dir / "embeddings" / INDEX_DB_NAME).is_file()
 
 
-def _source_cache_key(encoder: object, sequence: str) -> WindowCacheKey:
+def _source_cache_key(
+    encoder: object,
+    sequence: str,
+    edit_locus: int | None,
+) -> WindowCacheKey:
+    pool_type, pool_radius, center_token = _source_pooling_identity(
+        encoder,
+        sequence,
+        edit_locus,
+    )
     return WindowCacheKey(
         window_hash=window_sha256(sequence),
         encoder_hash=_encoder_hash(encoder),
         state_layer=_encoder_int_attr(encoder, "state_layer"),
-        pool_type=POOL_GLOBAL_MEAN,
-        pool_radius=0,
+        pool_type=pool_type,
+        pool_radius=pool_radius,
+        center_token=center_token,
         dtype=_encoder_text_attr(encoder, "dtype"),
     )
+
+
+def _source_memory_key(
+    encoder: object,
+    sequence: str,
+    edit_locus: int | None,
+) -> tuple[str, str, int, int | None]:
+    pool_type, pool_radius, center_token = _source_pooling_identity(
+        encoder,
+        sequence,
+        edit_locus,
+    )
+    return sequence, pool_type, pool_radius, center_token
+
+
+def _source_pooling_identity(
+    encoder: object,
+    sequence: str,
+    edit_locus: int | None,
+) -> tuple[str, int, int | None]:
+    resolver = getattr(encoder, "pooling_identity", None)
+    if not callable(resolver):
+        raise RuntimeSetupError(
+            "source-state cache requires encoder.pooling_identity(window, edit_locus)",
+            remediation="use CarbonStateEncoder so cache centers come from actual token IDs",
+        )
+    resolved = resolver(sequence, edit_locus)
+    if (
+        not isinstance(resolved, tuple)
+        or len(resolved) != 3
+        or not isinstance(resolved[0], str)
+        or isinstance(resolved[1], bool)
+        or not isinstance(resolved[1], int)
+    ):
+        raise RuntimeSetupError(
+            "encoder.pooling_identity returned invalid cache metadata",
+            details={"value": repr(resolved)},
+        )
+    pool_type, pool_radius, center_token = resolved
+    if pool_type not in {POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN}:
+        raise RuntimeSetupError(
+            "source-state cache requires a supported encoder pool_type",
+            details={"pool_type": pool_type},
+        )
+    if pool_type == POOL_GLOBAL_MEAN:
+        if pool_radius != 0 or center_token is not None:
+            raise RuntimeSetupError(
+                "global source-state pooling identity must use radius zero and no center",
+                details={"pool_radius": pool_radius, "center_token": center_token},
+            )
+        return pool_type, pool_radius, None
+    if edit_locus is None:
+        raise RuntimeSetupError("centered source-state pooling requires an edit locus")
+    if isinstance(center_token, bool) or not isinstance(center_token, int) or center_token < 0:
+        raise RuntimeSetupError(
+            "centered source-state pooling identity requires an exact center_token",
+            details={"center_token": center_token},
+        )
+    expected_pool_type = _encoder_text_attr(encoder, "pool_type")
+    expected_pool_radius = _encoder_int_attr(encoder, "pool_radius")
+    if pool_type != expected_pool_type or pool_radius != expected_pool_radius:
+        raise RuntimeSetupError(
+            "encoder pooling identity disagrees with configured pooling",
+            details={
+                "resolved_pool_type": pool_type,
+                "resolved_pool_radius": pool_radius,
+                "configured_pool_type": expected_pool_type,
+                "configured_pool_radius": expected_pool_radius,
+            },
+        )
+    return pool_type, pool_radius, center_token
 
 
 def _encoder_hash(encoder: object) -> bytes:
@@ -612,6 +716,16 @@ def _encoder_text_attr(encoder: object, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise RuntimeSetupError(
             f"source-state cache lookup requires encoder.{name}",
+            details={"type": type(value).__name__},
+        )
+    return value
+
+
+def _encoder_normalizes(encoder: object) -> bool:
+    value = getattr(encoder, "normalize", False)
+    if not isinstance(value, bool):
+        raise RuntimeSetupError(
+            "source-state cache lookup requires encoder.normalize to be boolean",
             details={"type": type(value).__name__},
         )
     return value

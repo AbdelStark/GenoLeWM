@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Hugging Face Space for the public GenoLeWM research demo."""
+"""Hugging Face Space for GenoLeWM artifact and checkpoint inspection."""
 
 from __future__ import annotations
 
@@ -13,18 +13,13 @@ from pathlib import Path
 from typing import Any
 
 import gradio as gr
-import yaml
 from huggingface_hub import hf_hub_download, snapshot_download
 
 RUN_REPO = "abdelstark/geno-lewm-runs"
 MODEL_REPO = "abdelstark/geno-lewm"
 DATA_REPO = "abdelstark/geno-lewm-data"
 RUN_PREFIX = "geno-lewm-v021-strong-4f36eef-10k-r1"
-CARBON_REPO = "HuggingFaceBio/Carbon-500M"
-CARBON_REVISION = "5d31d59b3c845b288a13aedb1358934196852eec"
 SPACE_CACHE = Path(os.getenv("HF_HOME", "/tmp/huggingface")) / "geno_lewm_space"
-DEFAULT_VARIANT = "chrSynthetic:3073:A:T"
-DEFAULT_WINDOW_START_BP = 0
 
 CHECKPOINTS: dict[str, dict[str, Any]] = {
     "v0.2.1 serious-completion checkpoint": {
@@ -165,9 +160,16 @@ def _space_header() -> str:
   </p>
 </section>
 <div class="callout">
-  No clinical utility claim. Current benchmark evidence is mixed or negative
-  versus Carbon on most rows. Use this Space as a research demo and artifact
-  browser, not as a diagnostic or deployment system.
+  No clinical utility claim. Every published checkpoint uses
+  <code>legacy_raw_v1</code>: raw Carbon targets were combined with
+  unit-normalized predictions. Training also mixed global source pooling with
+  edit-centered targets; every historical centered pool was one hidden token
+  left of the intended DNA token because the leading <code>&lt;dna&gt;</code>
+  token was omitted. The pinned Carbon tokenizer also made an unpinned,
+  network-capable <code>Qwen/Qwen3-4B-Base</code> lookup. These defects invalidate L2 residual, VEP/calibration, and
+  planning-objective interpretations. Cosine values remain historical and
+  confounded. Legacy scientific scoring is disabled; use this Space only for
+  artifact and checkpoint inspection.
 </div>
 """
 
@@ -222,90 +224,44 @@ loss = distance(s_hat_{t+1}, s_{t+1}) + collapse regularization
 
 The trained GenoLeWM components are the action encoder and predictor.
 Carbon-500M is frozen and used as the state encoder. Planning amortizes
-Carbon work by searching in latent space with the predictor.
+Carbon work by searching in latent space with the predictor. That is the
+intended architecture, not a capability established by the published legacy
+checkpoints.
 """
 
 
 def _checkpoint_intro_markdown() -> str:
     return """
-### Run the Published Model
+### Inspect Published Checkpoints
 
-This panel exercises the released checkpoint path. It does not train a new
-model and it does not call a private service. On demand, the Space downloads the
-manifest-listed action encoder, predictor, calibration table, and config, then
-loads the frozen Carbon-500M encoder needed to score a reference-matched edit.
+This panel downloads the manifest-listed action encoder, predictor,
+calibration table, and config. It can verify that the trainable module weights
+load. It does not run scientific scoring.
 
-The workflow is intentionally split:
+Both published checkpoint choices use `legacy_raw_v1`. Their artifacts remain
+available for provenance, compatibility, and implementation audit, but their
+residual scores do not evaluate the intended `l2_normalized_v2` method. The
+v0.2.1 Phase 2 KL also supplied no gradient to the trainable modules. Current
+source repairs for local pure-DNA tokenization and token-layout-aware centers
+are code contracts only, not corrected model-quality evidence.
 
-1. **Inspect checkpoint** downloads the selected release artifacts and can verify
-   that the action encoder and predictor weights load.
-2. **Score variant** validates the variant/window pair, runs the GenoLeWM
-   surprise scorer, and writes a checksum receipt for the returned output.
-"""
-
-
-def _scoring_inputs_markdown() -> str:
-    return """
-<div class="field-guide">
-<h3>Input guide</h3>
-<ul>
-  <li><strong>Variant</strong>: <code>CHROM:POS:REF:ALT</code>, with
-  <code>POS</code> as a one-based coordinate.</li>
-  <li><strong>Window start bp</strong>: the zero-based coordinate of the first
-  base in the reference window.</li>
-  <li><strong>Reference window</strong>: FASTA bases from the same assembly as
-  the coordinates. The app checks that <code>REF</code> matches this sequence at
-  the implied relative offset before it loads the model.</li>
-  <li><strong>Resolve Carbon-500M</strong>: leave this enabled in the hosted
-  Space; it remaps the release manifest's training-time <code>/carbon</code>
-  mount to the public Hub snapshot.</li>
-</ul>
-</div>
-"""
-
-
-def _score_result_guide_markdown() -> str:
-    return """
-<div class="field-guide">
-<h3>How to read the score JSON</h3>
-<ul>
-  <li><code>sigma_raw</code> is the uncalibrated latent residual. Larger values
-  mean the predicted post-edit state was farther from the Carbon-encoded edited
-  state. Treat it as a research/debug ranking signal; it is not a probability of
-  pathogenicity.</li>
-  <li><code>sigma_calibrated</code> maps that residual through the released
-  calibration table for the selected context bucket. It is bounded between
-  0 and 1; higher means more surprising relative to the calibration background,
-  not a clinical risk score.</li>
-  <li><code>bucket_id</code>, <code>confidence</code>, and
-  <code>low_confidence</code> describe the calibration context. If
-  <code>low_confidence</code> is true, treat the calibrated score as especially
-  tentative.</li>
-  <li><code>input_preflight</code> records the parsed coordinate, relative
-  offset, observed reference base, and window length used for the strict
-  reference-match check.</li>
-  <li><code>runtime_note</code> explains whether the Space used the published
-  manifest paths or remapped Carbon-500M from the Hub. <code>receipt_path</code>
-  points to the checksum receipt for artifact/output identity.</li>
-</ul>
-</div>
 """
 
 
 def _results_guide_markdown() -> str:
     return """
 <div class="field-guide">
-<h3>How to read the metrics table</h3>
+<h3>How to read the historical table</h3>
 <ul>
-  <li><strong>Value</strong> is the measured score from the public v0.2.1 run
-  tree for that split and metric.</li>
-  <li><strong>Baseline comparison</strong> reports the measured delta against
-  the named baseline where one exists. Negative Carbon deltas mean GenoLeWM was
-  below Carbon on that row.</li>
+  <li><strong>Value</strong> is a reproducible output from the public v0.2.1
+  <code>legacy_raw_v1</code> run, not a corrected-method result.</li>
+  <li><strong>Recorded delta</strong> preserves the released arithmetic for
+  audit. It does not establish superiority or inferiority. Residual/VEP values
+  are invalid; rollout cosine values are confounded by invalid training.</li>
   <li><strong>N</strong> is the proof-scale row count for the reported slice;
   it is not a broad population sample.</li>
-  <li>The negative findings below the table are part of the evidence, not a
-  footer. Keep them in view when interpreting any positive row.</li>
+  <li>The 2026-07-10 validity correction supersedes the run's earlier positive
+  and negative model interpretation.</li>
 </ul>
 </div>
 """
@@ -314,12 +270,13 @@ def _results_guide_markdown() -> str:
 def _planning_guide_markdown() -> str:
     return """
 <div class="field-guide">
-<h3>What the planning demo proves</h3>
+<h3>What the planning artifact proves</h3>
 <ul>
-  <li>It proves the released manifest-backed planning path can execute against
-  the published artifacts.</li>
-  <li>It does not prove that the selected edits are biologically useful or that
-  the planner improves downstream genomic design.</li>
+  <li>It proves the released manifest-backed legacy path executed against the
+  published artifacts.</li>
+  <li>Its L2 objective compared incompatible state scales, so
+  <code>best_distance</code> is invalid as a planning objective value.</li>
+  <li>It does not establish edit-selection or genomic-design capability.</li>
   <li>Use the JSON panel to inspect the command output and manifest summary,
   then compare any planning claim against the generated paper and run tree.</li>
 </ul>
@@ -364,16 +321,18 @@ def load_results() -> tuple[list[list[str]], str]:
             f"{RUN_PREFIX}/suite/model/eval_metrics.v02.json",
         )
         rows = _metric_rows_from_payload(payload)
-        negative = payload.get("negative_findings", [])
-        findings = "\n".join(f"- {item}" for item in negative if isinstance(item, str))
         summary = (
             f"Generated by `{payload.get('generated_by')}` on `{payload.get('hardware')}`.\n\n"
-            f"{findings}"
+            "These are historical `legacy_raw_v1` implementation outputs. "
+            "The released L2/VEP values are invalid, and cosine values are "
+            "confounded; the recorded deltas support neither superiority nor "
+            "inferiority claims."
         )
         return rows or STATIC_METRIC_ROWS, summary
     except Exception as exc:
         return STATIC_METRIC_ROWS, (
-            "Live metric fetch failed; showing the pinned README summary.\n\n"
+            "Live metric fetch failed; showing pinned historical outputs. The "
+            "2026-07-10 validity correction still applies.\n\n"
             f"`{_exception_line(exc)}`"
         )
 
@@ -389,8 +348,9 @@ def load_planning_summary() -> tuple[dict[str, Any], str]:
             f"{RUN_PREFIX}/planning-demo/planning_demo_manifest.json",
         )
         text = (
-            "The planning demo ran the released manifest-backed model path. "
-            "It is execution evidence, not useful-planning evidence."
+            "The planning artifact records execution of the manifest-backed "
+            "`legacy_raw_v1` path. Its mixed-scale L2 objective is invalid, so "
+            "the output is not planning-capability evidence."
         )
         return {"stdout": summary, "manifest_summary": manifest.get("summary", manifest)}, text
     except Exception as exc:
@@ -431,50 +391,6 @@ def _materialize_model(profile_name: str) -> Path:
     return target
 
 
-def _sha256_text(text: str) -> str:
-    import hashlib
-
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _runtime_with_public_carbon(model_dir: Path) -> tuple[Path, str]:
-    """Create an operational runtime copy that resolves Carbon from the Hub cache."""
-    snapshot_download(repo_id=CARBON_REPO, revision=CARBON_REVISION, repo_type="model")
-    canonical = Path("/carbon")
-    if canonical.exists():
-        return model_dir, "canonical /carbon path exists"
-
-    try:
-        canonical.symlink_to(Path(snapshot_download(repo_id=CARBON_REPO, revision=CARBON_REVISION)))
-        return model_dir, "created canonical /carbon symlink"
-    except OSError:
-        pass
-
-    target = SPACE_CACHE / "models" / f"{model_dir.name}-carbon-hub-runtime"
-    target.mkdir(parents=True, exist_ok=True)
-    for path in model_dir.iterdir():
-        if path.name not in {"manifest.json", "training_config.effective.yaml"}:
-            _link_or_copy(path, target / path.name)
-
-    config = yaml.safe_load((model_dir / "training_config.effective.yaml").read_text())
-    config["encoder"]["model_id"] = CARBON_REPO
-    config["encoder"]["revision"] = CARBON_REVISION
-    config_text = yaml.safe_dump(config, sort_keys=False)
-    (target / "training_config.effective.yaml").write_text(config_text, encoding="utf-8")
-
-    manifest = json.loads((model_dir / "manifest.json").read_text(encoding="utf-8"))
-    manifest["encoder"]["id"] = CARBON_REPO
-    manifest["training"]["hash"] = _sha256_text(config_text)
-    (target / "manifest.json").write_text(
-        json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
-        encoding="utf-8",
-    )
-    return target, (
-        "remapped encoder path to HuggingFaceBio/Carbon-500M; artifact weight hashes "
-        "are unchanged, but the runtime manifest id differs from the released manifest"
-    )
-
-
 def inspect_checkpoint(profile_name: str, load_weights: bool) -> tuple[str, dict[str, Any]]:
     try:
         model_dir = _materialize_model(profile_name)
@@ -501,149 +417,12 @@ def inspect_checkpoint(profile_name: str, load_weights: bool) -> tuple[str, dict
         }
 
 
-def score_single_variant(
-    profile_name: str,
-    variant: str,
-    window: str,
-    window_start_bp: int | float | str,
-    backend: str,
-    resolve_carbon_from_hub: bool,
-) -> tuple[str, dict[str, Any]]:
-    try:
-        from geno_lewm.action import EditSpec
-        from geno_lewm.deploy import GenoLeWMRuntime
-
-        chrom, pos, ref, alt, normalized_window, start_bp, preflight = _prepare_scoring_inputs(
-            variant,
-            window,
-            window_start_bp,
-        )
-        edit = EditSpec(chrom=chrom, pos=pos, ref=ref, alt=alt)
-        model_dir = _materialize_model(profile_name)
-        runtime_note = "using manifest paths as published"
-        runtime_dir = model_dir
-        if resolve_carbon_from_hub:
-            runtime_dir, runtime_note = _runtime_with_public_carbon(model_dir)
-        receipt_path = SPACE_CACHE / "last_single_variant_receipt.json"
-        runtime = GenoLeWMRuntime(runtime_dir, backend=backend)
-        result = runtime.score_variant(
-            edit,
-            window=normalized_window,
-            window_start_bp=start_bp,
-            receipt_path=receipt_path,
-        )
-        payload = result.to_dict() if hasattr(result, "to_dict") else dict(result)
-        payload["receipt_path"] = str(receipt_path)
-        payload["runtime_note"] = runtime_note
-        payload["input_preflight"] = preflight
-        return _score_success_summary(payload), payload
-    except Exception as exc:
-        message = (
-            "Scoring did not complete. If this is an input error, fix the variant/window "
-            "pair and retry. Otherwise the Space runtime may still be downloading "
-            "Carbon-500M or loading the optional ML stack.\n\n"
-            f"`{_exception_line(exc)}`"
-        )
-        return message, {"trace": _short_trace(exc)}
-
-
-def _prepare_scoring_inputs(
-    variant: str,
-    window: str,
-    window_start_bp: int | float | str,
-) -> tuple[str, int, str, str, str, int, dict[str, Any]]:
-    chrom, pos, ref, alt = _parse_variant_text(variant)
-    start_bp = _coerce_window_start_bp(window_start_bp)
-    normalized_window = _normalize_window_text(window)
-    rel_pos = pos - 1 - start_bp
-    if rel_pos < 0 or rel_pos + len(ref) > len(normalized_window):
-        raise ValueError(
-            "variant is outside the supplied reference window "
-            f"(relative offset {rel_pos}, window length {len(normalized_window)})"
-        )
-    observed_ref = normalized_window[rel_pos : rel_pos + len(ref)]
-    if observed_ref != ref:
-        raise ValueError(
-            "reference base mismatch before scoring: "
-            f"variant REF={ref!r}, observed window bases={observed_ref!r}, "
-            f"relative offset={rel_pos}. Use a matching FASTA window or correct the REF allele."
-        )
-    return (
-        chrom,
-        pos,
-        ref,
-        alt,
-        normalized_window,
-        start_bp,
-        {
-            "chrom": chrom,
-            "pos": pos,
-            "ref": ref,
-            "alt": alt,
-            "window_start_bp": start_bp,
-            "relative_offset": rel_pos,
-            "observed_ref": observed_ref,
-            "window_bp": len(normalized_window),
-        },
-    )
-
-
-def _coerce_window_start_bp(raw: int | float | str) -> int:
-    if isinstance(raw, bool):
-        raise ValueError("window_start_bp must be an integer, not bool")
-    if isinstance(raw, int):
-        value = raw
-    elif isinstance(raw, float):
-        if not raw.is_integer():
-            raise ValueError("window_start_bp must be an integer")
-        value = int(raw)
-    elif isinstance(raw, str):
-        value = int(raw.strip())
-    else:
-        raise ValueError(f"window_start_bp must be an integer, got {type(raw).__name__}")
-    if value < 0:
-        raise ValueError("window_start_bp must be non-negative")
-    return value
-
-
-def _normalize_window_text(raw: str) -> str:
-    return "".join(str(raw).split()).upper()
-
-
-def _parse_variant_text(raw: str) -> tuple[str, int, str, str]:
-    parts = raw.strip().split(":")
-    if len(parts) != 4:
-        raise ValueError("variant must have the form CHROM:POS:REF:ALT")
-    chrom, pos_text, ref, alt = parts
-    return chrom, int(pos_text), ref.upper(), alt.upper()
-
-
-def _score_success_summary(payload: Mapping[str, Any]) -> str:
-    sigma_raw = payload.get("sigma_raw", "unavailable")
-    sigma_calibrated = payload.get("sigma_calibrated", "unavailable")
-    low_confidence = payload.get("low_confidence", "unavailable")
-    bucket_id = payload.get("bucket_id", "unavailable")
-    return (
-        "Scored with the trained checkpoint runtime.\n\n"
-        f"- `sigma_raw`: `{_format_number(sigma_raw)}` latent residual.\n"
-        f"- `sigma_calibrated`: `{_format_number(sigma_calibrated)}` on the "
-        "released calibration table.\n"
-        f"- `bucket_id`: `{bucket_id}`; `low_confidence`: `{low_confidence}`.\n\n"
-        "Interpret this as a research surprise score for the supplied "
-        "reference-matched edit, not as a clinical classification."
-    )
-
-
 def _exception_line(exc: BaseException) -> str:
     return "".join(traceback.format_exception_only(type(exc), exc)).strip()
 
 
 def _short_trace(exc: BaseException) -> str:
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__, limit=3))
-
-
-def _example_window() -> str:
-    return "ACGT" * 3072
 
 
 def build_app() -> gr.Blocks:
@@ -657,24 +436,24 @@ def build_app() -> gr.Blocks:
                     """
 ### Claim Boundary
 
-The strongest supported claim is systems evidence: the project can train,
-package, evaluate, benchmark, publish, and replay a genomic-edit world-model
-pipeline with content-addressed evidence. The published metrics do not
-establish broad model superiority, clinical utility, privacy assurance, or
+The supported claim is systems evidence: the project published and can replay
+the legacy genomic-edit world-model pipeline with content-addressed artifacts.
+The published metrics do not evaluate the intended normalized method and do
+not establish model quality, clinical utility, privacy assurance, or
 deployment readiness.
 """
                 )
             with gr.Tab("Results"):
                 gr.Markdown(
-                    "### Measured v0.2.1 Metrics\n"
+                    "### Historical v0.2.1 Outputs\n"
                     "<span class='metric-note'>Loaded from the public run tree when "
-                    "available; the table falls back to pinned values if the Hub fetch "
-                    "fails.</span>"
+                    "available. These legacy outputs are shown for audit, not scientific "
+                    "interpretation.</span>"
                 )
                 gr.Markdown(_results_guide_markdown())
                 load_button = gr.Button("Load public metrics", variant="primary")
                 table = gr.Dataframe(
-                    headers=["Split", "Metric", "Value", "Baseline comparison", "N"],
+                    headers=["Split", "Metric", "Value", "Recorded delta", "N"],
                     datatype=["str", "str", "str", "str", "str"],
                     value=STATIC_METRIC_ROWS,
                 )
@@ -682,10 +461,10 @@ deployment readiness.
                 load_button.click(load_results, outputs=[table, findings])
             with gr.Tab("Planning Demo"):
                 gr.Markdown(
-                    "### Released-Artifact Planning\n"
-                    "This panel reads the published planning-demo artifacts. It is "
-                    "execution evidence for the manifest-backed path, not proof of useful "
-                    "planning behavior."
+                    "### Historical Planning Artifact\n"
+                    "This panel reads the published legacy planning artifacts. The "
+                    "mixed-scale objective is invalid; the panel is for execution and "
+                    "provenance inspection only."
                 )
                 gr.Markdown(_planning_guide_markdown())
                 planning_button = gr.Button("Load planning artifact", variant="primary")
@@ -712,47 +491,13 @@ deployment readiness.
                     inputs=[profile, load_weights],
                     outputs=[inspect_status, inspect_json],
                 )
-                gr.Markdown("### Single-Variant Scoring")
                 gr.Markdown(
-                    "The prefilled example is synthetic and sequence-consistent. "
-                    "For real variants, paste the reference window from FASTA; the "
-                    "REF allele must match the supplied window at the relative locus."
-                )
-                gr.Markdown(_scoring_inputs_markdown())
-                with gr.Row():
-                    variant = gr.Textbox(
-                        label="Variant",
-                        value=DEFAULT_VARIANT,
-                        placeholder="CHROM:POS:REF:ALT",
-                    )
-                    window_start = gr.Number(
-                        label="Window start bp",
-                        value=DEFAULT_WINDOW_START_BP,
-                        precision=0,
-                    )
-                    backend = gr.Dropdown(
-                        label="Backend",
-                        choices=["auto", "cpu", "cuda"],
-                        value="auto",
-                    )
-                window = gr.Textbox(
-                    label="Reference window",
-                    value=_example_window(),
-                    lines=4,
-                    max_lines=8,
-                )
-                carbon = gr.Checkbox(
-                    value=True,
-                    label="Resolve Carbon-500M from Hugging Face Hub before scoring",
-                )
-                gr.Markdown(_score_result_guide_markdown())
-                score_button = gr.Button("Score variant", variant="primary")
-                score_status = gr.Markdown()
-                score_json = gr.JSON(label="Score result or runtime issue")
-                score_button.click(
-                    score_single_variant,
-                    inputs=[profile, variant, window, window_start, backend, carbon],
-                    outputs=[score_status, score_json],
+                    "### Legacy scientific scoring disabled\n"
+                    "Published checkpoints mix raw source/target states with "
+                    "unit-normalized predictions. Running their residual scorer would "
+                    "produce invalid scientific output, so this Space exposes no score "
+                    "action. A scoring UI can return only after a fresh "
+                    "`l2_normalized_v2` checkpoint and calibration lineage are published."
                 )
             with gr.Tab("Reproduce"):
                 gr.Markdown(
@@ -772,20 +517,16 @@ snapshot_download("{MODEL_REPO}")
 snapshot_download("{RUN_REPO}", allow_patterns="{RUN_PREFIX}/suite/model/*")
 ```
 
-Run a local score once the model directory and Carbon-500M are available:
+Verify a historical receipt against its manifest locally:
 
 ```bash
-geno-lewm-score \\
-  --model-dir /path/to/model \\
-  --backend auto \\
-  --variant {DEFAULT_VARIANT} \\
-  --window ACGT... \\
-  --window-start-bp {DEFAULT_WINDOW_START_BP} \\
-  --receipt receipt.json
+geno-lewm-verify /path/to/receipt.json --manifest /path/to/model/manifest.json
 ```
 
-Every published claim should route back to a JSON/JSONL/Markdown artifact in
-the model repo or the `{RUN_PREFIX}` run tree.
+This verifies artifact identity, not scientific validity. Every historical
+output should route back to a JSON/JSONL/Markdown artifact in the model repo or
+the `{RUN_PREFIX}` run tree. New scientific claims require a fresh
+`l2_normalized_v2` lineage.
 """
                 )
     return demo
