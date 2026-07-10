@@ -91,9 +91,11 @@ dev = [
     "pytest-xdist>=3.6",
     "pytest-benchmark>=4",
     "hypothesis>=6.100",
-    "pyarrow>=15",
+    # PyArrow 25 dropped the typed-package marker consumed by strict mypy CI.
+    "pyarrow>=15,<25",
     "ruff>=0.5",
-    "mypy>=1.10",
+    # Upgrade deliberately after reconciling new strict diagnostics.
+    "mypy>=1.10,<2.2",
     "types-PyYAML>=6",
     "pre-commit>=3.7",
     "build>=1.2",
