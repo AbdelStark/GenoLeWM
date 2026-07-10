@@ -24,7 +24,11 @@ from tools.ci import coverage_gate
 # ---------------------------------------------------------------------------
 
 
-def _coverage_xml(files: dict[str, dict[int, int]]) -> str:
+def _coverage_xml(
+    files: dict[str, dict[int, int]],
+    *,
+    source: str | None = None,
+) -> str:
     """Build a minimal Cobertura XML from ``{filename: {line: hits}}``."""
     classes = []
     for fn, lines in files.items():
@@ -39,8 +43,10 @@ def _coverage_xml(files: dict[str, dict[int, int]]) -> str:
       </class>"""
         )
     classes_xml = "\n".join(classes)
+    sources_xml = "" if source is None else f"  <sources><source>{source}</source></sources>\n"
     return f"""<?xml version="1.0" ?>
 <coverage version="7.0">
+{sources_xml}\
   <packages>
     <package name="geno_lewm">
       <classes>
@@ -92,6 +98,43 @@ def test_parse_coverage_xml_normalizes_paths(tmp_path: Path) -> None:
     p.write_text(xml, encoding="utf-8")
     tracked, _ = coverage_gate.parse_coverage_xml(p)
     assert "geno_lewm/foo.py" in tracked
+
+
+def test_parse_coverage_xml_resolves_package_relative_source_path(tmp_path: Path) -> None:
+    xml = _coverage_xml(
+        {"encoder/carbon.py": {10: 1}},
+        source=str(coverage_gate.REPO_ROOT / "geno_lewm"),
+    )
+    p = tmp_path / "coverage.xml"
+    p.write_text(xml, encoding="utf-8")
+
+    tracked, covered = coverage_gate.parse_coverage_xml(p)
+
+    assert tracked == {"geno_lewm/encoder/carbon.py": frozenset({10})}
+    assert covered == {"geno_lewm/encoder/carbon.py": frozenset({10})}
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "geno_lewm/encoder/carbon.py",
+        str(coverage_gate.REPO_ROOT / "geno_lewm" / "encoder" / "carbon.py"),
+    ],
+)
+def test_parse_coverage_xml_preserves_prefixed_and_absolute_paths(
+    tmp_path: Path,
+    filename: str,
+) -> None:
+    xml = _coverage_xml(
+        {filename: {10: 1}},
+        source=str(coverage_gate.REPO_ROOT / "geno_lewm"),
+    )
+    p = tmp_path / "coverage.xml"
+    p.write_text(xml, encoding="utf-8")
+
+    tracked, _ = coverage_gate.parse_coverage_xml(p)
+
+    assert tracked == {"geno_lewm/encoder/carbon.py": frozenset({10})}
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +350,36 @@ def test_main_fail_case(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert code == 1
     assert "FAIL" in captured.out
     assert "below" in captured.err
+
+
+def test_main_fails_for_package_relative_cobertura_filename(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Canonical pytest-cov paths must intersect repository-relative diff paths."""
+    xml = tmp_path / "coverage.xml"
+    diff = tmp_path / "diff.patch"
+    xml.write_text(
+        _coverage_xml(
+            {"encoder/carbon.py": {100: 1, 101: 0}},
+            source=str(coverage_gate.REPO_ROOT / "geno_lewm"),
+        ),
+        encoding="utf-8",
+    )
+    diff.write_text(
+        _diff({"geno_lewm/encoder/carbon.py": [100, 101]}),
+        encoding="utf-8",
+    )
+
+    code = coverage_gate.main(
+        ["--coverage-xml", str(xml), "--diff-file", str(diff), "--threshold", "0.9"]
+    )
+    captured = capsys.readouterr()
+
+    assert code == 1
+    assert "geno_lewm/encoder/carbon.py" in captured.out
+    assert "FAIL" in captured.out
+    assert "no measurable changed lines" not in captured.out
 
 
 def test_main_writes_output_json_on_failure(
