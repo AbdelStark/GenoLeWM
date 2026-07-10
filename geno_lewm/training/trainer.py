@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from geno_lewm.action import RelEdit
 from geno_lewm.config import GenoLeWMConfig
+from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import TrainingTuple
 from geno_lewm.encoder._normalization import l2_normalize_state
 from geno_lewm.encoder.cache import INDEX_DB_NAME, WindowCacheKey, default_cache_dir, read_embedding
@@ -151,6 +152,8 @@ class TorchTrainer:
         self.collapse_monitor = CollapseMonitor(
             log_every_steps=config.training.collapse_log_every_steps,
         )
+        # KL-to-N(0,I) is not a valid collapse threshold for unit-sphere states.
+        self.collapse_monitor._kl_alert_enabled = not encoder_uses_normalized_states(config.encoder)
         self.last_collapse_alerts: tuple[dict[str, object], ...] = ()
 
     def train_step(self, batch: TorchTrainerBatch, *, step: int) -> TorchTrainerStepResult:

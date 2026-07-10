@@ -34,6 +34,8 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
 
     expected = {
         "bench/inference.py",
+        "configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json",
+        "configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml",
         "configs/first_experiment/dataset-snapshot-snv.json",
         "configs/first_experiment/eval-clinvar-snv.yaml",
         "configs/first_experiment/train-carbon-500m-snv.yaml",
@@ -71,6 +73,9 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/release/training_run.py",
         "tools/release/v02_benchmark_readiness.py",
         "tools/release/v02_benchmark_suite.py",
+        "tools/research/correction_control_postflight.py",
+        "tools/research/correction_control_preflight.py",
+        "tools/research/state_contract_audit.py",
     }
 
     assert expected <= assets

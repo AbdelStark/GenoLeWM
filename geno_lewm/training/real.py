@@ -20,15 +20,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from geno_lewm.action import ActionEncoder, EditSpec
+from geno_lewm.action import ActionEncoder, EditSpec, EditType
 from geno_lewm.config import GenoLeWMConfig, write_resolved_config
 from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import (
+    DEFAULT_EDIT_SOURCE_COUNTS,
     DEFAULT_SOURCE_FALLBACKS,
     SOURCE_CLINVAR,
     SOURCE_GNOMAD_COMMON,
     SOURCE_SYNTHETIC_INDEL,
     SOURCE_SYNTHETIC_SNV,
+    EditSourceCount,
     GenoLeWMDataset,
     TrainingDatasetItem,
     WindowContext,
@@ -70,6 +72,12 @@ CARBON_TRAINING_METADATA_NAME = "training_run.json"
 _SCHEMA_VERSION = "1.0.0"
 _TRAINING_RUN_PACKAGE_GENERATED_BY = "tools.release.training_run"
 _RESOLVED_CONFIG_NAME = "training_config.effective.yaml"
+_ALL_V1_SUB_ENCODERS = ("snv", "ins", "del", "mnv")
+_SNV_ONLY_EDIT_SOURCE_COUNTS = (
+    EditSourceCount(SOURCE_GNOMAD_COMMON, 3),
+    EditSourceCount(SOURCE_SYNTHETIC_SNV, 4),
+    EditSourceCount(SOURCE_CLINVAR, 1),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,17 +176,17 @@ def run_carbon_training(
     determinism = configure_torch_reproducibility(
         seed=seeds.predictor, deterministic=config.deterministic
     )
-    providers = {
-        SOURCE_GNOMAD_COMMON: variant_provider(gnomad_edits),
-        SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
-        SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
-        SOURCE_CLINVAR: variant_provider(clinvar_edits),
-    }
+    providers, edit_source_counts = _training_edit_contract(
+        config,
+        gnomad_edits=gnomad_edits,
+        clinvar_edits=clinvar_edits,
+    )
     iterator = _repeat_training_items(
         windows,
         providers,
         seed=seeds.data,
         fallback_sources=_dataset_fallback_sources(windows),
+        mix=edit_source_counts,
     )
     resumed_from_step = 0
     resume_checkpoint: _ResumeCheckpoint | None = None
@@ -421,6 +429,7 @@ def _repeat_training_items(
     *,
     seed: int,
     fallback_sources: Mapping[str, str],
+    mix: Sequence[EditSourceCount] = DEFAULT_EDIT_SOURCE_COUNTS,
 ) -> Iterator[TrainingDatasetItem]:
     """Yield deterministic repeated passes over a finite release dataset."""
     epoch = 0
@@ -430,6 +439,7 @@ def _repeat_training_items(
             providers,
             seed=seed + epoch,
             fallback_sources=fallback_sources,
+            mix=mix,
         )
         produced = 0
         for item in dataset.iter_with_source_windows():
@@ -445,6 +455,47 @@ def _repeat_training_items(
                 ),
             )
         epoch += 1
+
+
+def _training_edit_contract(
+    config: GenoLeWMConfig,
+    *,
+    gnomad_edits: Sequence[EditSpec],
+    clinvar_edits: Sequence[EditSpec],
+) -> tuple[dict[str, Any], tuple[EditSourceCount, ...]]:
+    """Resolve the configured edit surface into providers and source counts."""
+    sub_encoders = config.action.sub_encoders
+    if sub_encoders == ("snv",):
+        gnomad_snv = tuple(edit for edit in gnomad_edits if edit.edit_type is EditType.SNV)
+        clinvar_snv = tuple(edit for edit in clinvar_edits if edit.edit_type is EditType.SNV)
+        if not gnomad_snv:
+            raise InputError("SNV-only training requires at least one gnomAD SNV")
+        return (
+            {
+                SOURCE_GNOMAD_COMMON: variant_provider(gnomad_snv),
+                SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
+                SOURCE_CLINVAR: variant_provider(clinvar_snv),
+            },
+            _SNV_ONLY_EDIT_SOURCE_COUNTS,
+        )
+    if sub_encoders != _ALL_V1_SUB_ENCODERS:
+        raise InputError(
+            "real training does not support the configured action.sub_encoders subset",
+            details={
+                "observed": list(sub_encoders),
+                "supported": [["snv"], list(_ALL_V1_SUB_ENCODERS)],
+            },
+            remediation="use SNV-only or the complete V1 edit surface",
+        )
+    return (
+        {
+            SOURCE_GNOMAD_COMMON: variant_provider(gnomad_edits),
+            SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
+            SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
+            SOURCE_CLINVAR: variant_provider(clinvar_edits),
+        },
+        DEFAULT_EDIT_SOURCE_COUNTS,
+    )
 
 
 def _next_batch(
@@ -736,7 +787,9 @@ def _write_checkpoint(
                 "deterministic": config.deterministic,
                 "data.batch_size": config.data.batch_size,
                 "predictor.d_state": config.predictor.d_state,
+                "predictor.dtype": config.predictor.dtype,
                 "action.d_action": config.action.d_action,
+                "action.sub_encoders": list(config.action.sub_encoders),
                 "encoder.normalize": config.encoder.normalize,
                 "encoder.state_contract_version": config.encoder.state_contract_version,
                 "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),
@@ -849,7 +902,9 @@ def _validate_resume_checkpoint_payload(
         "deterministic": config.deterministic,
         "data.batch_size": config.data.batch_size,
         "predictor.d_state": config.predictor.d_state,
+        "predictor.dtype": config.predictor.dtype,
         "action.d_action": config.action.d_action,
+        "action.sub_encoders": list(config.action.sub_encoders),
     }
     for key, expected in expected_config.items():
         if checkpoint_config.get(key) != expected:

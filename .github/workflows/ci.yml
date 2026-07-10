@@ -98,6 +98,11 @@ jobs:
           python -m tools.release.dataset_snapshot
           --spec-json configs/first_experiment/dataset-snapshot-snv.json
           --check-spec
+      - name: check correction-control dataset spec
+        run: >-
+          python -m tools.release.dataset_snapshot
+          --spec-json configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json
+          --check-spec
       - name: check_license_headers (SPDX)
         run: python -m tools.lint.check_license_headers
       - name: public-API snapshot

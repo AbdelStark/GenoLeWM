@@ -326,6 +326,9 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     serious_cfg = load_config(
         root / "configs/serious_completion/train-carbon-500m-snv-post-v02.yaml"
     )
+    correction_cfg = load_config(
+        root / "configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml"
+    )
 
     assert train_cfg.run_id == "first-snv-carbon-500m-r1"
     assert train_cfg.action.sub_encoders == ("snv",)
@@ -343,6 +346,16 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     assert serious_cfg.training.max_steps == 40000
     assert serious_cfg.optimizer.warmup_steps < serious_cfg.training.max_steps
     assert serious_cfg.runtime.device == "cuda"
+    assert correction_cfg.run_id == "correction-control-l2-p1-smoke-v1"
+    assert correction_cfg.phase == "phase1"
+    assert correction_cfg.encoder.state_contract_version == "l2_normalized_v2"
+    assert correction_cfg.encoder.normalize is True
+    assert correction_cfg.encoder.trust_remote_code is False
+    assert correction_cfg.predictor.dtype == "fp32"
+    assert correction_cfg.action.sub_encoders == ("snv",)
+    assert correction_cfg.training.max_steps == 50
+    assert correction_cfg.data.shuffle_buffer == 0
+    assert correction_cfg.runtime.device == "cuda"
 
 
 def _write_release_dataset(root: Path, *, snapshot_id: str = "geno-lewm-data-v0.1.0-r1") -> Path:

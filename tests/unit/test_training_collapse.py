@@ -151,6 +151,18 @@ def test_pairwise_and_kl_criteria_trip() -> None:
     ]
 
 
+def test_monitor_can_retain_kl_metric_without_using_incompatible_kl_alert() -> None:
+    monitor = CollapseMonitor(log_every_steps=1)
+    monitor._kl_alert_enabled = False
+    states = [[-1.0, -1.0], [1.0, 1.0]]
+
+    check = monitor.observe(states, states, kl_reg=1000.0, step=1)
+
+    assert check is not None
+    assert check.metrics.kl_reg == 1000.0
+    assert check.alerts == ()
+
+
 def test_record_collapse_metrics_updates_registry_without_logger() -> None:
     metrics = compute_collapse_metrics(
         [[1.0, 0.0], [0.0, 1.0]],
