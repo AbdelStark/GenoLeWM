@@ -2193,7 +2193,7 @@ def _copy_regular_file(source: Path, target: Path) -> None:
         metadata = os.fstat(source_fd)
         if not stat.S_ISREG(metadata.st_mode):
             raise InputError("snapshot input changed from a regular file during capture")
-        target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         while True:
             chunk = os.read(source_fd, 1 << 20)
             if not chunk:

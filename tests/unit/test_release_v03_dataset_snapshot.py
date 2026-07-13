@@ -121,6 +121,19 @@ def test_filter_membership_parquet_rejects_symlink_source(tmp_path: Path) -> Non
         )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes are not portable to Windows")
+def test_snapshot_copy_creates_private_staging_file(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    target = tmp_path / "stage" / "target.txt"
+    source.write_text("public upstream bytes\n", encoding="utf-8")
+    source.chmod(0o644)
+
+    snapshot_module._copy_regular_file(source, target)
+
+    assert target.read_bytes() == source.read_bytes()
+    assert target.stat().st_mode & 0o077 == 0
+
+
 def test_clinvar_filter_uses_the_exact_membership_source_row_identity(tmp_path: Path) -> None:
     pa = pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
