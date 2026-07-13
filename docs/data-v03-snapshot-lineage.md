@@ -38,6 +38,13 @@ The repository therefore provides the contract and fixture tests, not a
 ready-to-assemble production lineage. Do not substitute fixture evidence for
 live staging evidence.
 
+Immutable report and lineage publication requires anchored `dir_fd` filesystem
+operations (supported by the tested Linux and macOS paths). Platforms without
+that capability, including Windows, fail before creating a temporary or output
+file; there is deliberately no pathname-only fallback because it cannot remain
+bound to one parent directory across a concurrent rename or link change. The
+read-only parsers and semantic verifiers remain platform-independent.
+
 ## Produce the remote postflights
 
 ### gnomAD autosomes

@@ -5,6 +5,12 @@ immutable Hugging Face dataset revision. The verifier rejects mutable refs,
 requires the exact four-file namespace, downloads every file at the same
 40-character revision, and performs a full Parquet scan.
 
+Writing the immutable postflight report requires anchored `dir_fd` filesystem
+operations. The tested Linux and macOS paths provide that capability; Windows
+and any other unsupported platform fail before creating an output. Run the
+publication step on a supported platform rather than weakening it to a
+pathname-only write.
+
 The known corrected artifact is verified with:
 
 ```bash

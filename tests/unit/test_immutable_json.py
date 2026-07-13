@@ -11,7 +11,13 @@ import pytest
 
 from tools.data._immutable_json import ImmutableJsonError, write_immutable_json
 
+requires_anchored_dir_fd = pytest.mark.skipif(
+    os.name == "nt",
+    reason="secure immutable publication requires anchored dir_fd operations",
+)
 
+
+@requires_anchored_dir_fd
 def test_writer_fails_closed_when_the_parent_path_is_swapped_after_temp_creation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -52,6 +58,7 @@ def test_writer_fails_closed_when_the_parent_path_is_swapped_after_temp_creation
     assert not list(moved_parent.glob(f".{output.name}.*.tmp"))
 
 
+@requires_anchored_dir_fd
 def test_anchored_writer_cleans_every_link_when_directory_fsync_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -73,25 +80,21 @@ def test_anchored_writer_cleans_every_link_when_directory_fsync_fails(
     assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
 
 
-def test_portable_writer_cleans_its_temp_when_regular_file_fsync_fails(
+def test_writer_fails_closed_before_writes_when_anchored_operations_are_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output = tmp_path / "result.json"
-    real_fsync = os.fsync
-
-    def fail_regular_file_fsync(descriptor: int) -> None:
-        if stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise OSError("injected regular-file fsync failure")
-        real_fsync(descriptor)
 
     monkeypatch.setattr(
         "tools.data._immutable_json._supports_anchored_directory_operations",
         lambda: False,
     )
-    monkeypatch.setattr("tools.data._immutable_json.os.fsync", fail_regular_file_fsync)
 
-    with pytest.raises(OSError, match="injected regular-file fsync failure"):
+    with pytest.raises(
+        ImmutableJsonError,
+        match="requires anchored dir_fd operations; this platform is unsupported",
+    ):
         write_immutable_json(output, {"trusted": True})
 
     assert not output.exists()

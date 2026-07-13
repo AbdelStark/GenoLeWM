@@ -7,7 +7,6 @@ import json
 import os
 import secrets
 import stat
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -34,8 +33,11 @@ def write_immutable_json(path: Path, payload: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if _supports_anchored_directory_operations():
         _write_immutable_json_anchored(path, encoded)
-    else:  # pragma: no cover - exercised by Windows CI
-        _write_immutable_json_portable(path, encoded)
+        return
+    raise ImmutableJsonError(
+        "secure immutable JSON publication requires anchored dir_fd operations; "
+        "this platform is unsupported"
+    )
 
 
 def _supports_anchored_directory_operations() -> bool:
@@ -256,149 +258,6 @@ def _unlink_if_same_file_at(
         return
     if _same_file_identity(expected, observed):
         os.unlink(name, dir_fd=directory)
-
-
-def _write_immutable_json_portable(path: Path, encoded: bytes) -> None:
-    """Portable fallback with post-publication inode/content/parent checks."""
-    parent_before = path.parent.lstat()
-    if not stat.S_ISDIR(parent_before.st_mode):
-        raise ImmutableJsonError(
-            f"immutable output parent is a symlink or non-directory: {path.parent}"
-        )
-    descriptor, temporary_text = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=path.parent,
-    )
-    temporary = Path(temporary_text)
-    temporary_metadata: os.stat_result | None = None
-    created_destination = False
-    publication_accepted = False
-    try:
-        temporary_metadata = os.fstat(descriptor)
-        with os.fdopen(descriptor, "wb") as stream:
-            descriptor = -1
-            stream.write(encoded)
-            stream.flush()
-            os.fsync(stream.fileno())
-        for _attempt in range(128):
-            try:
-                os.link(temporary, path)
-            except FileNotFoundError as exc:
-                if not _path_is_same_directory(path.parent, parent_before):
-                    raise ImmutableJsonError(
-                        "immutable output parent directory changed during publication: "
-                        f"{path.parent}"
-                    ) from exc
-                raise
-            except FileExistsError:
-                try:
-                    observed = _read_regular_file_without_following_symlinks(path)
-                except FileNotFoundError:
-                    continue
-                if observed != encoded:
-                    raise ImmutableJsonError(
-                        f"refusing to replace different bytes at immutable output: {path}"
-                    ) from None
-                break
-            else:
-                created_destination = True
-                destination_metadata = path.lstat()
-                if not _same_file_identity(temporary_metadata, destination_metadata):
-                    raise ImmutableJsonError(
-                        f"immutable output is not linked to the trusted temporary file: {path}"
-                    )
-                if _read_regular_file_without_following_symlinks(path) != encoded:
-                    raise ImmutableJsonError(
-                        f"immutable output bytes changed during publication: {path}"
-                    )
-                break
-        else:
-            raise ImmutableJsonError(
-                f"immutable output changed too frequently during publication: {path}"
-            )
-        _fsync_directory(path.parent)
-        try:
-            parent_after = path.parent.lstat()
-        except FileNotFoundError as exc:
-            raise ImmutableJsonError(
-                f"immutable output parent directory changed during publication: {path.parent}"
-            ) from exc
-        if not stat.S_ISDIR(parent_after.st_mode) or not _same_file_identity(
-            parent_before, parent_after
-        ):
-            if created_destination and temporary_metadata is not None:
-                _unlink_if_same_file(path, temporary_metadata)
-                created_destination = False
-            raise ImmutableJsonError(
-                f"immutable output parent directory changed during publication: {path.parent}"
-            )
-        publication_accepted = True
-    finally:
-        try:
-            if created_destination and not publication_accepted and temporary_metadata is not None:
-                _unlink_if_same_file(path, temporary_metadata)
-        finally:
-            try:
-                if descriptor >= 0:
-                    os.close(descriptor)
-            finally:
-                try:
-                    if temporary_metadata is not None:
-                        _unlink_if_same_file(temporary, temporary_metadata)
-                finally:
-                    _fsync_directory_if_same_parent(path.parent, parent_before)
-
-
-def _read_regular_file_without_following_symlinks(path: Path) -> bytes:
-    metadata = path.lstat()
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ImmutableJsonError(f"immutable output is a symlink or non-regular file: {path}")
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_NONBLOCK", 0)
-    )
-    descriptor = os.open(path, flags)
-    try:
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode) or not _same_file_identity(metadata, opened):
-            raise ImmutableJsonError(
-                f"immutable output is a replaced, symlink, or non-regular file: {path}"
-            )
-        chunks: list[bytes] = []
-        while chunk := os.read(descriptor, 1 << 20):
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        os.close(descriptor)
-
-
-def _unlink_if_same_file(path: Path, expected: os.stat_result) -> None:
-    try:
-        observed = path.lstat()
-    except FileNotFoundError:
-        return
-    if _same_file_identity(expected, observed):
-        path.unlink()
-
-
-def _fsync_directory_if_same_parent(path: Path, expected: os.stat_result) -> None:
-    try:
-        observed = path.lstat()
-    except FileNotFoundError:
-        return
-    if stat.S_ISDIR(observed.st_mode) and _same_file_identity(expected, observed):
-        _fsync_directory(path)
-
-
-def _path_is_same_directory(path: Path, expected: os.stat_result) -> bool:
-    try:
-        observed = path.lstat()
-    except FileNotFoundError:
-        return False
-    return stat.S_ISDIR(observed.st_mode) and _same_file_identity(expected, observed)
 
 
 def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
