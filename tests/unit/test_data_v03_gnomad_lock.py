@@ -17,6 +17,7 @@ import pytest
 
 from tools.data.v03_gnomad_lock import (
     SourceLockError,
+    _require_prefixed_sha256,
     audit_gnomad_parquet,
     is_hf_parent_head_conflict,
     main,
@@ -26,6 +27,15 @@ from tools.data.v03_gnomad_lock import (
 
 SOURCE_LOCK = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json")
 SOURCE_LOCK_SCHEMA = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json")
+
+
+def test_require_prefixed_sha256_normalizes_only_the_prepare_cli_contract() -> None:
+    digest = "a" * 64
+
+    assert _require_prefixed_sha256(f"sha256:{digest}", "artifact.sha256") == digest
+    for invalid in (digest, f"sha256:{'A' * 64}", "sha256:short"):
+        with pytest.raises(SourceLockError, match="lowercase sha256:<hex> digest"):
+            _require_prefixed_sha256(invalid, "artifact.sha256")
 
 
 class _ParentConflict(RuntimeError):
@@ -707,12 +717,12 @@ def test_author_receipt_cli_reconciles_transform_and_output_evidence(tmp_path: P
                 "release": "v4.1",
                 "input_vcf": {
                     "path": str(source_path),
-                    "sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+                    "sha256": "sha256:" + hashlib.sha256(source_path.read_bytes()).hexdigest(),
                     "size_bytes": source_path.stat().st_size,
                 },
                 "output_parquet": {
                     "path": str(output_parquet),
-                    "sha256": hashlib.sha256(output_parquet.read_bytes()).hexdigest(),
+                    "sha256": "sha256:" + hashlib.sha256(output_parquet.read_bytes()).hexdigest(),
                     "size_bytes": output_parquet.stat().st_size,
                 },
                 "records_read": 10,

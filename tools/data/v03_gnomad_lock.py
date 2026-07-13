@@ -648,7 +648,14 @@ def author_receipt(
         source_identity.get("size_bytes"),
         "prepare report.input_vcf.size_bytes",
     )
-    _require_equal(input_report.get("sha256"), source_sha256, "prepare report.input_vcf.sha256")
+    prepare_input_sha256 = _require_prefixed_sha256(
+        input_report.get("sha256"), "prepare report.input_vcf.sha256"
+    )
+    _require_equal(
+        prepare_input_sha256,
+        source_sha256,
+        "prepare report.input_vcf.sha256",
+    )
 
     output_report = _require_mapping(
         prepare_report.get("output_parquet"), "prepare report.output_parquet"
@@ -659,12 +666,19 @@ def author_receipt(
     _require_equal(
         output_report.get("path"), str(output_parquet), "prepare report.output_parquet.path"
     )
-    for field in ("sha256", "size_bytes"):
-        _require_equal(
-            output_report.get(field),
-            output_identity[field],
-            f"prepare report.output_parquet.{field}",
-        )
+    prepare_output_sha256 = _require_prefixed_sha256(
+        output_report.get("sha256"), "prepare report.output_parquet.sha256"
+    )
+    _require_equal(
+        prepare_output_sha256,
+        output_identity["sha256"],
+        "prepare report.output_parquet.sha256",
+    )
+    _require_equal(
+        output_report.get("size_bytes"),
+        output_identity["size_bytes"],
+        "prepare report.output_parquet.size_bytes",
+    )
 
     transform = _require_mapping(selection.get("transform"), "selection.transform")
     command = _require_str(transform.get("command"), "selection.transform.command")
@@ -1064,6 +1078,14 @@ def _require_sha256(value: object, field: str) -> str:
     if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise SourceLockError(f"{field} must be a lowercase SHA-256 hex digest")
     return digest
+
+
+def _require_prefixed_sha256(value: object, field: str) -> str:
+    digest = _require_str(value, field)
+    match = re.fullmatch(r"sha256:([0-9a-f]{64})", digest)
+    if match is None:
+        raise SourceLockError(f"{field} must be a lowercase sha256:<hex> digest")
+    return match.group(1)
 
 
 def _require_pyarrow_for_audit() -> tuple[Any, Any]:
