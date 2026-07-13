@@ -916,6 +916,47 @@ def test_builder_rejects_source_identity_drift_before_atomic_publication(
     assert not output.exists()
 
 
+def test_source_capture_requests_binary_mode_for_input_and_private_copy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_bundle: tuple[Path, tuple[MembershipSourceInput, ...]],
+) -> None:
+    lineage_path, sources = source_bundle
+    _binding, expected_sources, _payload = membership_store_lineage._load_snapshot_lineage(
+        lineage_path
+    )
+    source = next(item for item in sources if item.kind == "clinvar")
+    expected = expected_sources[source.source_id].binding
+    real_open = os.open
+    sentinel = 1 << 29
+    platform_binary = getattr(os, "O_BINARY", 0)
+    opened_flags: list[int] = []
+
+    def _recording_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+        opened_flags.append(flags)
+        return real_open(path, flags & ~sentinel, *args, **kwargs)
+
+    monkeypatch.setattr(
+        membership_store_lineage.os,
+        "O_BINARY",
+        platform_binary | sentinel,
+        raising=False,
+    )
+    monkeypatch.setattr(membership_store_lineage.os, "open", _recording_open)
+    capture_root = tmp_path / "private-capture"
+    capture_root.mkdir()
+
+    captured = membership_store_lineage._capture_source_artifact(
+        source,
+        expected,
+        capture_root,
+    )
+
+    assert len(opened_flags) == 2
+    assert all(flags & sentinel for flags in opened_flags)
+    assert captured.path.read_bytes() == source.path.read_bytes()
+
+
 def test_builder_rejects_unexpected_lineage_identity_before_publication(
     tmp_path: Path,
     source_bundle: tuple[Path, tuple[MembershipSourceInput, ...]],

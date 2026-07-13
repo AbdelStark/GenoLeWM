@@ -304,14 +304,14 @@ def _capture_source_artifact(
     destination_fd: int | None = None
     destination = capture_root / f"{binding.source_id}-{binding.artifact_sha256[7:]}.parquet"
     try:
-        source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
         source_fd = os.open(path, source_flags)
         source_stat = os.fstat(source_fd)
         if not stat.S_ISREG(source_stat.st_mode):
             raise InputError("membership source artifact must be a regular file")
         destination_fd = os.open(
             destination,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
             0o400,
         )
         digest = hashlib.sha256()

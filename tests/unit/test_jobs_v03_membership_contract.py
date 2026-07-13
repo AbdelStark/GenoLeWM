@@ -7,6 +7,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 JOB = Path("tools/jobs/v03_build_membership_store.sh")
 DOC = Path("docs/data-v03-membership-hf-job.md")
 
@@ -184,6 +186,7 @@ def test_membership_job_operator_guide_preserves_evidence_and_claim_boundaries()
     assert "data-v03-membership-hf-job.md" in navigation
 
 
+@pytest.mark.skipif(os.name == "nt", reason="hosted job runner is a POSIX bash contract")
 def test_membership_job_rejects_noncanonical_commit_before_workspace_writes(
     tmp_path: Path,
 ) -> None:

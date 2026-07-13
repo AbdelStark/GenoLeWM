@@ -7,9 +7,18 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
+from tools.data._immutable_json import supports_secure_immutable_json_publication
 from tools.data.v03_membership_job import main
 
+requires_secure_immutable_json_publication = pytest.mark.skipif(
+    not supports_secure_immutable_json_publication(),
+    reason="secure immutable publication requires anchored dir_fd operations",
+)
 
+
+@requires_secure_immutable_json_publication
 def test_author_spec_binds_all_23_downloaded_sources_to_lineage(tmp_path: Path) -> None:
     lineage_path, gnomad_root, clinvar_root = _write_download_fixture(tmp_path)
     lineage_sha256 = _sha256_uri(lineage_path)
@@ -76,6 +85,7 @@ def test_author_spec_binds_all_23_downloaded_sources_to_lineage(tmp_path: Path) 
     assert len(report["files"]) == 23
 
 
+@requires_secure_immutable_json_publication
 def test_author_download_plan_closes_exact_revisions_namespaces_and_paths(
     tmp_path: Path,
 ) -> None:
