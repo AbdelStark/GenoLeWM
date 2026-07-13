@@ -51,9 +51,9 @@ def _write_immutable_json_anchored(path: Path, encoded: bytes) -> None:
     publication_accepted = False
     try:
         temporary_name, temporary_descriptor = _create_temporary_at(directory, path.name)
+        temporary_metadata = os.fstat(temporary_descriptor)
         _write_all(temporary_descriptor, encoded)
         os.fsync(temporary_descriptor)
-        temporary_metadata = os.fstat(temporary_descriptor)
 
         for _attempt in range(128):
             try:
@@ -114,19 +114,32 @@ def _write_immutable_json_anchored(path: Path, encoded: bytes) -> None:
             raise
         publication_accepted = True
     finally:
-        if created_destination and not publication_accepted and temporary_metadata is not None:
-            _unlink_if_same_file_at(directory, path.name, temporary_metadata)
-            os.fsync(directory)
-        if temporary_descriptor >= 0:
-            os.close(temporary_descriptor)
-        if temporary_name:
+        try:
+            if created_destination and not publication_accepted and temporary_metadata is not None:
+                try:
+                    _unlink_if_same_file_at(directory, path.name, temporary_metadata)
+                finally:
+                    os.fsync(directory)
+        finally:
             try:
-                os.unlink(temporary_name, dir_fd=directory)
-            except FileNotFoundError:
-                pass
-            else:
-                os.fsync(directory)
-        os.close(directory)
+                if temporary_descriptor >= 0:
+                    os.close(temporary_descriptor)
+            finally:
+                removed_temporary = False
+                try:
+                    if temporary_name:
+                        try:
+                            os.unlink(temporary_name, dir_fd=directory)
+                        except FileNotFoundError:
+                            pass
+                        else:
+                            removed_temporary = True
+                finally:
+                    try:
+                        if removed_temporary:
+                            os.fsync(directory)
+                    finally:
+                        os.close(directory)
 
 
 def _open_stable_parent_directory(path: Path) -> tuple[int, os.stat_result]:
@@ -262,12 +275,12 @@ def _write_immutable_json_portable(path: Path, encoded: bytes) -> None:
     created_destination = False
     publication_accepted = False
     try:
+        temporary_metadata = os.fstat(descriptor)
         with os.fdopen(descriptor, "wb") as stream:
             descriptor = -1
             stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary_metadata = temporary.lstat()
         for _attempt in range(128):
             try:
                 os.link(temporary, path)
@@ -322,13 +335,19 @@ def _write_immutable_json_portable(path: Path, encoded: bytes) -> None:
             )
         publication_accepted = True
     finally:
-        if created_destination and not publication_accepted and temporary_metadata is not None:
-            _unlink_if_same_file(path, temporary_metadata)
-        if descriptor >= 0:
-            os.close(descriptor)
-        if temporary_metadata is not None:
-            _unlink_if_same_file(temporary, temporary_metadata)
-        _fsync_directory_if_same_parent(path.parent, parent_before)
+        try:
+            if created_destination and not publication_accepted and temporary_metadata is not None:
+                _unlink_if_same_file(path, temporary_metadata)
+        finally:
+            try:
+                if descriptor >= 0:
+                    os.close(descriptor)
+            finally:
+                try:
+                    if temporary_metadata is not None:
+                        _unlink_if_same_file(temporary, temporary_metadata)
+                finally:
+                    _fsync_directory_if_same_parent(path.parent, parent_before)
 
 
 def _read_regular_file_without_following_symlinks(path: Path) -> bytes:
