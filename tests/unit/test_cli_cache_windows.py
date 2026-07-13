@@ -100,7 +100,7 @@ def _write_build_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
 schema_version: 1.1.0
 encoder:
   model_id: HuggingFaceBio/Carbon-500M
-  revision: pinned-revision
+  revision: "1111111111111111111111111111111111111111"
   dtype: bf16
   state_layer: 20
   pool_type: centered_mean
@@ -117,7 +117,7 @@ encoder:
             {
                 "schema_version": "1.0.0",
                 "model_id": "HuggingFaceBio/Carbon-500M",
-                "revision": "pinned-revision",
+                "revision": "1" * 40,
                 "state_contract_version": "l2_normalized_v2",
                 "runtime_hash": digest,
             },
@@ -323,6 +323,65 @@ def test_cache_windows_build_cli_requires_all_immutable_inputs(
 
     assert rc == 2
     assert "cache build mode requires explicit immutable inputs" in captured.err
+
+
+@pytest.mark.parametrize(
+    "revision",
+    [
+        "5d31d59b",
+        "v1.2.3",
+        "5D31D59B3C845B288A13AEDB1358934196852EEC",
+        "main",
+    ],
+)
+def test_cache_windows_cli_rejects_nonexact_revision_before_encoder_or_cache_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    revision: str,
+) -> None:
+    requests, config, identity_path = _write_build_inputs(tmp_path)
+    payload = json.loads(identity_path.read_text(encoding="utf-8"))
+    payload["revision"] = revision
+    identity_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    def must_not_start_encoder_work(**_kwargs: object) -> object:
+        raise AssertionError("invalid revision must fail before encoder work")
+
+    monkeypatch.setattr(cache_cli, "_capture_encoder_runtime_identity", must_not_start_encoder_work)
+    monkeypatch.setattr(cache_cli, "_build_encoder", must_not_start_encoder_work)
+    cache = tmp_path / "cache"
+    evidence = tmp_path / "evidence"
+
+    rc = run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--cache-dir",
+            str(cache),
+            "--requests-jsonl",
+            str(requests),
+            "--evidence-dir",
+            str(evidence),
+            "--encoder-runtime-identity",
+            str(identity_path),
+            "--carbon-model-dir",
+            str(tmp_path / "carbon"),
+            "--config",
+            str(config),
+            "--created-at-ns",
+            "1750000000000000000",
+            "--hardware",
+            "fixture CPU",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert "exact lowercase 40-character hexadecimal commit SHA" in captured.err
+    assert not cache.exists()
+    assert not evidence.exists()
 
 
 def test_build_encoder_rejects_corrected_runtime_identity_at_cli_boundary(

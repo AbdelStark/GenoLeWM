@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 from geno_lewm.config._state_contract import (
@@ -33,6 +34,7 @@ _REQUIRED_KEYS = frozenset(
     }
 )
 _OPTIONAL_KEYS = frozenset({"weights_hash"})
+_EXACT_COMMIT_SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,11 +53,10 @@ class EncoderRuntimeIdentity:
             raise InputError("encoder runtime identity has an unsupported schema_version")
         if not isinstance(self.model_id, str) or not self.model_id.strip():
             raise InputError("encoder runtime identity model_id must be non-empty text")
-        if not isinstance(self.revision, str) or not self.revision.strip():
-            raise InputError("encoder runtime identity revision must be exact non-empty text")
-        if self.revision.casefold() in {"main", "master", "latest", "head"}:
+        if type(self.revision) is not str or _EXACT_COMMIT_SHA.fullmatch(self.revision) is None:
             raise InputError(
-                "encoder runtime identity revision must be immutable, not a floating ref"
+                "encoder runtime identity revision must be an exact lowercase 40-character "
+                "hexadecimal commit SHA"
             )
         if self.state_contract_version not in SUPPORTED_ENCODER_STATE_CONTRACTS:
             raise InputError(

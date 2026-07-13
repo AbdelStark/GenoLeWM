@@ -29,6 +29,34 @@ def test_corrected_carbon_runtime_identity_accepts_published_exact_constants() -
 
 
 @pytest.mark.parametrize(
+    "revision",
+    [
+        "5d31d59b",
+        "v1.2.3",
+        "5D31D59B3C845B288A13AEDB1358934196852EEC",
+        "main",
+    ],
+)
+def test_runtime_identity_requires_exact_lowercase_commit_sha(revision: str) -> None:
+    payload = {
+        "schema_version": "1.0.0",
+        "model_id": "/carbon",
+        "revision": revision,
+        "state_contract_version": "l2_normalized_v2",
+        "runtime_hash": "sha256:" + "0" * 64,
+    }
+
+    with pytest.raises(
+        InputError,
+        match="exact lowercase 40-character hexadecimal commit SHA",
+    ):
+        parse_encoder_runtime_identity_bytes(
+            json.dumps(payload).encode("utf-8"),
+            source="fixture",
+        )
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         {

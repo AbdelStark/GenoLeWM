@@ -93,7 +93,7 @@ def build_window_cache(**kwargs: object):  # type: ignore[no-untyped-def]
     """Supply the explicit fixture runtime identity required by the public API."""
     kwargs.setdefault("hardware", "fixture CPU")
     encoder_id = kwargs.get("encoder_id", "HuggingFaceBio/Carbon-500M")
-    revision = "fixture-revision-0001"
+    revision = "1" * 40
     resolved_config = dict(kwargs.get("resolved_config", {}))  # type: ignore[arg-type]
     resolved_config.setdefault(
         "encoder",
@@ -1415,14 +1415,14 @@ def test_public_builder_rejects_unsupported_or_mismatched_runtime_before_writes(
             resolved_config={
                 "encoder": {
                     "model_id": "HuggingFaceBio/Carbon-500M",
-                    "revision": "fixture-revision-0001",
+                    "revision": "1" * 40,
                     "state_contract_version": resolved_state_contract,
                 }
             },
             encoder_runtime_identity={
                 "schema_version": "1.0.0",
                 "model_id": "HuggingFaceBio/Carbon-500M",
-                "revision": "fixture-revision-0001",
+                "revision": "1" * 40,
                 "state_contract_version": state_contract,
                 "runtime_hash": digest,
             },

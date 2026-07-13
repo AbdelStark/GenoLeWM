@@ -45,7 +45,9 @@ predictor, action encoder, training run, calibration, or evaluation release:
 
 The object is closed: unknown fields are rejected. `runtime_hash` is always
 required; `weights_hash` is optional for corrected L2 runtimes and required for
-`legacy_raw_v1`. Floating revisions such as `main` are rejected.
+`legacy_raw_v1`. `revision` must be an exact lowercase 40-character hexadecimal
+commit SHA. Short SHAs, tags, uppercase hashes, and floating refs such as `main`
+are rejected; the runtime and optional weight digests bind the actual bytes.
 
 ```bash
 geno-lewm-cache-windows \
