@@ -38,9 +38,11 @@ __all__ = [
     "CacheReadPolicy",
     "CacheReindexReport",
     "CacheRepairReport",
+    "CacheShardInspection",
     "WindowCacheKey",
     "WindowCacheRecord",
     "default_cache_dir",
+    "inspect_cache_shard",
     "read_cache_entries",
     "read_cache_entry",
     "read_embedding",
@@ -319,6 +321,16 @@ class CacheRepairReport:
 
 
 @dataclass(frozen=True, slots=True)
+class CacheShardInspection:
+    """Fully decoded immutable shard bytes and their exact file identity."""
+
+    path: Path
+    records: tuple[WindowCacheRecord, ...]
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class CacheProvenance:
     """Physical source selected for one logical cache-key lookup."""
 
@@ -345,6 +357,64 @@ class _RecoveredPublication:
 def default_cache_dir() -> Path:
     """Return ``$GENO_LEWM_CACHE`` or the documented local default."""
     return Path(os.environ.get("GENO_LEWM_CACHE", ".geno-lewm-cache")).expanduser()
+
+
+def inspect_cache_shard(
+    cache_dir: Path | str,
+    shard_path: Path | str,
+) -> CacheShardInspection:
+    """Decode and hash one shard through one no-follow file descriptor.
+
+    The caller may pass a cache-relative path or an absolute path inside the
+    cache root. Every physical row and embedding is decoded and validated.
+    The digest and size describe the same held inode, so resume checks do not
+    rely on a path-following time-of-check/time-of-use sequence.
+    """
+    root = Path(cache_dir).absolute()
+    supplied = Path(shard_path)
+    path = supplied if supplied.is_absolute() else root / supplied
+    _require_secure_cache_io()
+    _assert_safe_namespace_path(root, path, final_kind="regular file")
+    with _secure_parent_directory(root, path, create=False) as parent_fd:
+        if parent_fd is None:
+            raise CacheCorruptError(
+                "cache shard parent disappeared during inspection",
+                details={"shard_path": str(path)},
+            )
+        descriptor = _open_regular_at(parent_fd, path.name, label="cache shard")
+        if descriptor is None:
+            raise CacheCorruptError(
+                "cache shard disappeared during inspection",
+                details={"shard_path": str(path)},
+            )
+        try:
+            before = os.fstat(descriptor)
+            digest = _sha256_descriptor(descriptor)
+            records = _read_records_from_descriptor(descriptor, path=path)
+            after = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+    if (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    ) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    ):
+        raise CacheCorruptError(
+            "cache shard changed during inspection",
+            details={"shard_path": str(path)},
+        )
+    return CacheShardInspection(
+        path=path,
+        records=records,
+        sha256=digest,
+        size_bytes=before.st_size,
+    )
 
 
 def shard_path_for(
@@ -1233,6 +1303,14 @@ def _read_records_from_descriptor(
     os.lseek(descriptor, 0, os.SEEK_SET)
     with os.fdopen(os.dup(descriptor), "rb") as handle:
         return _read_records_from_source(handle, path=path)
+
+
+def _sha256_descriptor(descriptor: int) -> str:
+    digest = sha256()
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    while chunk := os.read(descriptor, 1 << 20):
+        digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _read_records_from_cache_shard(cache_dir: Path, path: Path) -> tuple[WindowCacheRecord, ...]:

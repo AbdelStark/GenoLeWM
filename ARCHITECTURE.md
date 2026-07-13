@@ -72,6 +72,18 @@ A durable single-publication intent repairs a crash between final-shard linking
 and index commit without scanning existing shards, while first-index creation is
 private and atomically published so readers never observe an empty bootstrap.
 
+`geno-lewm-cache-windows` also has a finite request-artifact build mode. Its
+newline-terminated JSONL input names each genomic window and `edit_locus`; the
+builder resolves the actual tokenizer-derived `center_token`, deduplicates only
+the resulting complete cache key, and commits a deterministic shard plan with a
+caller-supplied `created_at_ns` before encoding. A durable per-shard state binds
+completed Parquet bytes to SHA-256 identities. Resume first fully decodes and
+hash-verifies every completed shard and repairs its index entry, then invokes
+Carbon only for missing shards. The evidence bundle closes the exact requests,
+plan, state, report, index, and shard identities. This is request-scoped build
+plumbing; it does not establish a 10% corpus build, the RFC-0006 24-hour target,
+corrected training/evaluation, model quality, or clinical validity.
+
 The corrected Carbon path does not execute the upstream custom tokenizer. The
 pinned upstream `tokenizer.py` delegated to an unpinned, network-capable
 `Qwen/Qwen3-4B-Base` tokenizer lookup, so hashing that file alone could not make

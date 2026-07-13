@@ -61,6 +61,13 @@ Race-resistant cache I/O is supported on Linux and macOS and fails closed on Win
 or when secure directory-descriptor/no-follow primitives are unavailable; no
 path-only mutation fallback is used.
 
+**Finite cache build.** A request-scoped `geno-lewm-cache-windows` operation
+driven by immutable JSONL rows containing a DNA window and its `edit_locus`.
+The committed plan preserves distinct `center_token` keys for the same window,
+and the resumable state SHA-256-binds each fully decoded shard before any new
+encoder batch runs. Its report proves only the exact supplied request artifact;
+it is not evidence of 10% corpus coverage or the 24-hour hardware target.
+
 **Surprise.** A candidate residual between predicted and encoded post-edit
 states under the same validated state contract. Published `legacy_raw_v1`
 values mixed state scales and are not valid scientific surprise scores.

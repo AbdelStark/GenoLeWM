@@ -14,9 +14,11 @@ from geno_lewm.encoder.cache import (
     CacheReadPolicy,
     CacheReindexReport,
     CacheRepairReport,
+    CacheShardInspection,
     WindowCacheKey,
     WindowCacheRecord,
     default_cache_dir,
+    inspect_cache_shard,
     read_cache_entries,
     read_cache_entry,
     read_embedding,
@@ -25,6 +27,12 @@ from geno_lewm.encoder.cache import (
     repair_cache,
     shard_path_for,
     write_shard,
+)
+from geno_lewm.encoder.cache_build import (
+    CACHE_BUILD_REPORT_NAME,
+    CACHE_BUILD_SCHEMA_VERSION,
+    CacheBuildReport,
+    build_window_cache,
 )
 from geno_lewm.encoder.carbon import CarbonStateEncoder
 from geno_lewm.encoder.pooling import (
@@ -53,6 +61,8 @@ from geno_lewm.encoder.windowing import (
 )
 
 __all__ = [
+    "CACHE_BUILD_REPORT_NAME",
+    "CACHE_BUILD_SCHEMA_VERSION",
     "CACHE_SCHEMA_VERSION",
     "CARBON_DNA_CLOSE_TAG",
     "CARBON_DNA_OPEN_TAG",
@@ -65,21 +75,25 @@ __all__ = [
     "POOL_GLOBAL_MEAN",
     "SUPPORTED_POOL_TYPES",
     "SUPPORTED_WINDOW_BP",
+    "CacheBuildReport",
     "CacheLookupResult",
     "CacheProvenance",
     "CacheReadPolicy",
     "CacheReindexReport",
     "CacheRepairReport",
+    "CacheShardInspection",
     "CarbonStateEncoder",
     "ExtractedWindow",
     "PoolingResult",
     "WindowCacheKey",
     "WindowCacheRecord",
+    "build_window_cache",
     "canonicalize_dna",
     "centered_mean",
     "default_cache_dir",
     "extract_window",
     "global_mean",
+    "inspect_cache_shard",
     "pad_for_carbon_tokenizer",
     "pool_hidden_states",
     "read_cache_entries",
