@@ -18,7 +18,7 @@ from typing import Final
 from geno_lewm.encoder import CarbonStateEncoder
 from geno_lewm.encoder._identity import encoder_runtime_hash, encoder_weights_hash
 from geno_lewm.encoder._normalization import l2_normalize_state
-from geno_lewm.encoder.windowing import CARBON_TOKEN_BP
+from geno_lewm.encoder.windowing import CARBON_TOKEN_BP, SUPPORTED_WINDOW_BP
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 
 SCHEMA_VERSION: Final = "1.0.0"
@@ -52,6 +52,7 @@ def build_state_contract_report(
     resolved_center_token: int | None,
     expected_center_token: int,
     execution_device: str,
+    window_bp: int,
     state_layer: int,
     pool_radius: int,
     dtype: str,
@@ -200,6 +201,7 @@ def build_state_contract_report(
             "trainable_parameter_count": encoder_trainable_parameter_count,
             "parameters_frozen": parameters_frozen,
             "expected_d_state": expected_d_state,
+            "window_bp": window_bp,
             "state_layer": state_layer,
             "pool_type": "centered_mean",
             "pool_radius": pool_radius,
@@ -252,8 +254,7 @@ def run_state_contract_audit(
             },
             remediation="set HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1",
         )
-    if window_bp <= 0 or window_bp % 6 != 0:
-        raise InputError("window_bp must be a positive multiple of six")
+    validate_audit_window_bp(window_bp)
     observed_carbon_weights_hash = verify_encoder_weights(
         carbon_model_dir,
         expected_hash=expected_carbon_weights_hash,
@@ -311,6 +312,7 @@ def run_state_contract_audit(
         resolved_center_token=resolved_center_token,
         expected_center_token=expected_center_token,
         execution_device=encoder.device,
+        window_bp=window_bp,
         state_layer=state_layer,
         pool_radius=pool_radius,
         dtype=dtype,
@@ -318,6 +320,19 @@ def run_state_contract_audit(
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return report
+
+
+def validate_audit_window_bp(window_bp: int) -> None:
+    """Require one encoder-supported window width for audit/train parity."""
+    if (
+        isinstance(window_bp, bool)
+        or not isinstance(window_bp, int)
+        or window_bp not in SUPPORTED_WINDOW_BP
+    ):
+        raise InputError(
+            "state-contract audit window_bp is unsupported",
+            details={"window_bp": window_bp, "supported": list(SUPPORTED_WINDOW_BP)},
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

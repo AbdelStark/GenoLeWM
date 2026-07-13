@@ -34,6 +34,10 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
 
     expected = {
         "bench/inference.py",
+        "configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json",
+        "configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml",
+        "configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json",
+        "configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json",
         "configs/first_experiment/dataset-snapshot-snv.json",
         "configs/first_experiment/eval-clinvar-snv.yaml",
         "configs/first_experiment/train-carbon-500m-snv.yaml",
@@ -44,9 +48,11 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/jobs/eval_run.sh",
         "tools/jobs/planning_demo_run.sh",
         "tools/jobs/proof_run.sh",
+        "tools/jobs/v03_stage_gnomad.sh",
         "tools/jobs/v02_suite_run.sh",
         "tools/demo/terminal_inference.py",
         "tools/lint/check_scope_language.py",
+        "tools/release/atomic_hub_publish.py",
         "tools/release/batch_receipt_report.py",
         "tools/release/clean_machine_demo.py",
         "tools/release/dataset_integrity.py",
@@ -68,9 +74,16 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/release/rollout_state_examples.py",
         "tools/release/rollout_state_rows.py",
         "tools/release/rollout_speed_scope.py",
+        "tools/release/training_reproducibility.py",
         "tools/release/training_run.py",
         "tools/release/v02_benchmark_readiness.py",
         "tools/release/v02_benchmark_suite.py",
+        "tools/research/correction_control_model_manifest.py",
+        "tools/research/correction_control_postflight.py",
+        "tools/research/correction_control_preflight.py",
+        "tools/research/correction_control_replay.py",
+        "tools/research/state_contract_audit.py",
+        "tools/data/v03_gnomad_lock.py",
     }
 
     assert expected <= assets

@@ -1,0 +1,71 @@
+# H200 non-deterministic arm for the issue #47 N-D-D-N reproducibility suite.
+# This bounded engineering benchmark measures replay and training throughput;
+# it does not establish model quality or scientific validity.
+
+run_id: training-reproducibility-h200-nddn-500-v2
+seed: 104729
+phase: phase1
+deterministic: false
+schema_version: 1.1.0
+
+encoder:
+  model_id: /carbon
+  revision: 5d31d59b3c845b288a13aedb1358934196852eec
+  dtype: bf16
+  state_layer: 20
+  pool_type: centered_mean
+  pool_radius: 8
+  normalize: true
+  state_contract_version: l2_normalized_v2
+  trust_remote_code: false
+
+predictor:
+  architecture: cross_attention
+  n_layers: 6
+  n_heads: 8
+  d_state: 1024
+  d_action: 64
+  dtype: fp32
+
+action:
+  d_action: 64
+  max_len: 16
+  sub_encoders:
+    - snv
+
+training:
+  max_steps: 500
+  collapse_log_every_steps: 10
+
+optimizer:
+  name: adamw
+  lr: 3.0e-5
+  beta1: 0.9
+  beta2: 0.95
+  weight_decay: 0.1
+  grad_clip: 1.0
+  warmup_steps: 10
+  schedule: wsd
+
+data:
+  corpus_id: HuggingFaceBio/carbon-pretraining-corpus
+  corpus_revision: cb4c13a78102933b3a6ac65734d326f7b431d9b7
+  batch_size: 8
+  num_workers: 0
+  shuffle_buffer: 0
+
+eval:
+  benchmarks:
+    - clinvar_coding
+    - clinvar_noncoding
+    - rollout
+  smoke_variants: 100
+
+observability:
+  log_level: info
+  redaction_strict: true
+  wandb_project: null
+
+runtime:
+  backend: torch
+  device: cuda
