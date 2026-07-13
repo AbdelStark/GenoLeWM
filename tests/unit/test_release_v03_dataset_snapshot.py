@@ -199,7 +199,7 @@ def test_snapshot_copy_opens_source_and_target_in_binary_mode(
     observed_flags: list[int] = []
     os_open = os.open
 
-    def tracking_open(path: str | os.PathLike[str], flags: int, mode: int = 0o777) -> int:
+    def tracking_open(path: str | os.PathLike[str], flags: int, mode: int = 0o600) -> int:
         observed_flags.append(flags)
         return os_open(path, flags & ~binary_flag, mode)
 
