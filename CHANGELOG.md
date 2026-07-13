@@ -127,13 +127,29 @@ or incompatible command changes require an explicit compatibility note.
   negative benchmark labels and train-chromosome P/LP rows remaining eligible
   anchors;
   gnomAD variant membership is not represented as a phased-haplotype holdout.
-  No real v0.3 memberships or split evidence are published by this contract
-  change.
+  The contract and fixtures alone are not publication evidence.
 - Added a digest-pinned, exact-source Hugging Face Job runner for the first real
   membership build. It keeps all inputs outside the provenance-clean checkout,
   pins the independently audited 2,335,042-row semantic digest and split/class
   cross-tabs, publishes only a checksum-closed successful bundle, and
   re-downloads the immutable Hub commit for byte and semantic verification.
+- Published and independently verified the first real v0.3 variant-membership
+  candidate at exact Hub commit
+  `96e97a7ffe1e9ad8f9a98f690b220a32ac75ddc2`. The closed 15-file bundle
+  contains 2,335,042 rows and 2,259,268 distinct variants with exact semantic,
+  physical, rowset, lineage, source, and build identities. It is an unphased
+  variant-membership candidate, not a released v0.3 snapshot or model/clinical
+  result.
+- Added a closed v0.3 membership split-evidence contract and exporter for
+  deterministic chr20 validation and chr21 evaluation ClinVar label/VCF
+  streams. It binds a verified membership store and exact placed GRCh38
+  training-window artifact through the captured dataset manifest, requires
+  exhaustive policy and indexed-overlap checks plus a reproducible
+  SHA-256-priority sample, and publishes atomically with an exact report schema
+  and checksum closure. Official evidence additionally binds a clean exact
+  producer commit and digest-pinned container; fixture runs are explicitly not
+  publication eligible. Training/package wiring and phased-haplotype evidence
+  remain follow-on work.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as

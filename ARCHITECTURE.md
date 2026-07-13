@@ -231,7 +231,7 @@ be described as active regularization.
 ### v0.3 staging lineage boundary
 
 The v0.3 data path separates remote staging verification, offline lineage
-assembly, and future membership construction:
+assembly, downstream membership construction, and split evidence:
 
 ```text
 generation-pinned gnomAD source lock
@@ -270,8 +270,10 @@ and the exact fields materialized from gnomAD and ClinVar. These records are
 provenance and policy metadata, not a transfer of upstream rights.
 
 The lineage assembler deliberately has no membership writer or network client.
-A lineage candidate cannot be described as a dataset snapshot until a separate
-downstream step constructs, audits, and commits memberships and leakage controls.
+Lineage alone cannot be described as a dataset snapshot. The first real
+variant-membership candidate is a separate downstream artifact, and it remains
+a candidate until placed training windows, exported held-role streams, and
+leakage controls are bound and published without broadening the claim.
 See the [operator guide](docs/data-v03-snapshot-lineage.md) for required
 evidence and failure behavior.
 
@@ -302,9 +304,17 @@ lineage, and receipt bytes. Full verification rejects layout drift and scans
 both row encodings independently with bounded memory.
 
 PyArrow is loaded only by build and verification adapters. Manifest parsing
-and read-only SQLite lookups stay on core dependencies. The current repository
-ships this contract and synthetic tests only: it does not contain or claim a
-real v0.3 membership store, split result, or phased-haplotype membership.
+and read-only SQLite lookups stay on core dependencies. A real store candidate
+was built from source commit `fd7f4bbde476a1608b6dec236e65be9ea6568342`
+and published at exact dataset commit
+`96e97a7ffe1e9ad8f9a98f690b220a32ac75ddc2`. Its checksum-closed bundle was
+independently downloaded and verified at that immutable revision: 2,335,042
+rows, 2,259,268 distinct variants, semantic identity
+`sha256:7fa661eefacf70258b8392aff88a6faea2749c812680d4a2bfc41376d061ff7a`,
+and physical identity
+`sha256:d7ea2c4b8413768c9128c70a299a11f4adf35140102778a71cf56e69fb4db536`.
+That evidence establishes a real deterministic variant-membership candidate,
+not a released v0.3 snapshot, a split result, or phased-haplotype membership.
 ClinVar membership derivation admits normalized B/LB/LP/P rows as labeled
 memberships: benign-family rows are negative benchmark labels, while P/LP rows
 on training chromosomes remain eligible training anchors. The gnomAD variant
@@ -318,6 +328,57 @@ runtime depends on the verifier and storage. The membership lineage adapter
 depends on the installable snapshot-lineage verifier, never on the operational
 tool package. This keeps source ingestion, physical encoding, independent
 verification, and online lookup separately testable without import cycles.
+
+### Membership split-evidence boundary
+
+The split-evidence tool consumes the verified store and a separately pinned
+placed-window artifact. It does not change store membership or construct a
+training dataset package:
+
+```text
+verified membership store ──┬── chr20 unique ClinVar labels + matching VCF
+                            ├── chr21 unique ClinVar labels + matching VCF
+placed GRCh38 train windows ┴── exhaustive policy + indexed-overlap audit
+                                      │
+                                      ├── deterministic SHA-256-priority sample
+                                      └── closed report + schema + SHA256SUMS
+```
+
+The tool opens the store with full verification and requires its expected
+semantic, physical, rowset, and official-lineage identities. It records the
+operator-supplied repository, revision, and artifact paths; those origin fields
+are assertions, not a network lookup. For the placed-window input, the tool
+captures both the dataset manifest and one regular data file. It requires their
+expected identities and snapshot ID, cross-checks path, SHA-256, byte size,
+record count, and upstream split against the manifest, then derives the actual
+row count and chromosomes while enforcing the eight-field row contract. Every
+window must be assigned to a train chromosome and accepted both by
+`MembershipStoreHoldoutPolicy` and the store's validation/evaluation interval
+index. The exhaustive scan is authoritative; the deterministic sample is a
+compact independently reproducible cross-check over the same verified
+universe.
+
+Publication-eligible runs additionally require an exact clean producer commit,
+canonical HTTPS origin, tracked tool and schema, and a digest-pinned container
+value equal to the trusted launcher environment binding. The report records the
+producer fields and distinguishes successful official invocation from reduced
+fixture execution; fixture reports are structurally valid but never publication
+eligible. The environment-to-CLI container equality is an invocation binding,
+not cryptographic runtime attestation.
+
+Validation and evaluation JSONL files use the evaluator's canonical
+`chrom`, `pos`, `ref`, `alt`, and `clinical_significance` fields. Each companion
+VCF contains the same ordered unique variant keys. The closed evidence report
+binds both streams' file identities, class and binary counts, keyset digests,
+the exhaustive result, and the sample identity. Publication is atomic,
+no-clobber, and checksum-closed.
+
+Package schema changes and training-loop wiring are follow-on boundaries. The
+current dataset-package model cannot distinguish split data, companions, and
+evidence without double-counting records, and the trainer does not yet open the
+package-bound membership store and pass its holdout policy to tuple streaming.
+This evidence remains variant-level and unphased; it does not satisfy a
+phased-haplotype requirement.
 
 ## Inference Data Flow
 
