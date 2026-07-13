@@ -13,6 +13,7 @@ from pathlib import Path
 
 from geno_lewm.data._membership_store_contract import (
     MEMBERSHIP_STORE_SCHEMA_VERSION,
+    LabeledClinVarMembership,
     MembershipSourceBinding,
     MembershipSourceInput,
     MembershipStoreFile,
@@ -33,6 +34,7 @@ from geno_lewm.data._membership_store_writer import (
 
 __all__ = [
     "MEMBERSHIP_STORE_SCHEMA_VERSION",
+    "LabeledClinVarMembership",
     "MembershipSourceBinding",
     "MembershipSourceInput",
     "MembershipStore",
@@ -75,6 +77,7 @@ def verify_membership_store(store_dir: Path) -> MembershipStoreVerification:
 
 for _public_type in (
     MembershipSourceBinding,
+    LabeledClinVarMembership,
     MembershipSourceInput,
     MembershipStore,
     MembershipStoreFile,

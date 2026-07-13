@@ -7,6 +7,16 @@
       },
       "type": "object"
     },
+    "roleCountMap": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation": {"minimum": 0, "type": "integer"},
+        "train": {"minimum": 0, "type": "integer"},
+        "validation": {"minimum": 0, "type": "integer"}
+      },
+      "required": ["train", "validation", "evaluation"],
+      "type": "object"
+    },
     "file": {
       "additionalProperties": false,
       "properties": {
@@ -310,6 +320,32 @@
     "source_counts": {
       "$ref": "#/$defs/countMap"
     },
+    "source_role_counts": {
+      "additionalProperties": {"$ref": "#/$defs/roleCountMap"},
+      "maxProperties": 23,
+      "minProperties": 23,
+      "type": "object"
+    },
+    "source_kind_role_counts": {
+      "additionalProperties": false,
+      "properties": {
+        "clinvar": {"$ref": "#/$defs/roleCountMap"},
+        "gnomad": {"$ref": "#/$defs/roleCountMap"}
+      },
+      "required": ["gnomad", "clinvar"],
+      "type": "object"
+    },
+    "clinvar_class_role_counts": {
+      "additionalProperties": false,
+      "properties": {
+        "B": {"$ref": "#/$defs/roleCountMap"},
+        "LB": {"$ref": "#/$defs/roleCountMap"},
+        "LP": {"$ref": "#/$defs/roleCountMap"},
+        "P": {"$ref": "#/$defs/roleCountMap"}
+      },
+      "required": ["B", "LB", "LP", "P"],
+      "type": "object"
+    },
     "sources": {
       "items": {
         "$ref": "#/$defs/source"
@@ -334,6 +370,9 @@
     "variant_count",
     "role_counts",
     "source_counts",
+    "source_role_counts",
+    "source_kind_role_counts",
+    "clinvar_class_role_counts",
     "rowset_sha256",
     "files",
     "content_identity",

@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
 import stat
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, cast
 
 from geno_lewm.data._membership_store_contract import (
     _AUTOSOMES,
@@ -24,7 +26,6 @@ from geno_lewm.data._membership_store_contract import (
     _parse_count_mapping,
     _read_json_mapping,
     _require_exact_keys,
-    _require_list,
     _require_mapping,
     _require_positive_int,
     _require_sha256,
@@ -44,10 +45,34 @@ class _ExpectedSource:
     chromosome: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _CapturedSnapshotLineage:
+    payload: bytes
+    lineage: Mapping[str, object]
+    payload_sha256: str
+    size_bytes: int
+
+
+class _OfficialVerifiedSnapshotLineage(Protocol):
+    payload: bytes
+    lineage: Mapping[str, object]
+    payload_sha256: str
+    size_bytes: int
+
+
+class _OfficialCaptureFunction(Protocol):
+    def __call__(self, path: Path) -> _OfficialVerifiedSnapshotLineage: ...
+
+
+_OFFICIAL_LINEAGE_MODULE = "tools.data.v03_snapshot_lineage"
+
+
 def _load_snapshot_lineage(
     path: Path,
 ) -> tuple[SnapshotLineageBinding, dict[str, _ExpectedSource], bytes]:
-    raw_bytes, payload = _read_json_mapping(path, "snapshot lineage")
+    capture, is_fixture = _capture_snapshot_lineage(path)
+    raw_bytes = capture.payload
+    payload = capture.lineage
     _require_exact_keys(
         payload,
         {
@@ -72,28 +97,34 @@ def _load_snapshot_lineage(
         raise InputError("snapshot lineage reference genome must be GRCh38")
     if payload.get("membership_status") != "not_created":
         raise InputError("snapshot lineage must precede membership creation")
-    declared_lineage_id = _require_text(payload.get("lineage_id"), "snapshot lineage_id")
-    identity_payload = {key: value for key, value in payload.items() if key != "lineage_id"}
-    computed_lineage_id = canonical_json_sha256(identity_payload)
-    if declared_lineage_id != computed_lineage_id:
-        raise InputError(
-            "snapshot lineage identity mismatch",
-            details={"declared": declared_lineage_id, "computed": computed_lineage_id},
-        )
+    assembly_inputs = _require_mapping(
+        payload.get("assembly_inputs"), "snapshot lineage assembly_inputs"
+    )
+    if is_fixture != (assembly_inputs == {"fixture": True}):
+        raise InputError("snapshot lineage fixture status changed after capture")
+    declared_lineage_id = _require_sha256(payload.get("lineage_id"), "snapshot lineage_id")
+    if is_fixture:
+        identity_payload = {key: value for key, value in payload.items() if key != "lineage_id"}
+        computed_lineage_id = canonical_json_sha256(identity_payload)
+        if declared_lineage_id != computed_lineage_id:
+            raise InputError(
+                "snapshot lineage identity mismatch",
+                details={"declared": declared_lineage_id, "computed": computed_lineage_id},
+            )
     candidate_id = _require_text(
         payload.get("candidate_snapshot_id"), "snapshot candidate_snapshot_id"
     )
     binding = SnapshotLineageBinding(
         lineage_id=declared_lineage_id,
-        sha256="sha256:" + hashlib.sha256(raw_bytes).hexdigest(),
-        size_bytes=len(raw_bytes),
+        sha256=capture.payload_sha256,
+        size_bytes=capture.size_bytes,
         candidate_snapshot_id=candidate_id,
     )
     gnomad = _require_mapping(payload.get("gnomad"), "snapshot lineage gnomad")
     clinvar = _require_mapping(payload.get("clinvar"), "snapshot lineage clinvar")
     expected: dict[str, _ExpectedSource] = {}
     repo = _require_text(gnomad.get("repo"), "gnomAD repository")
-    shards = _require_list(gnomad.get("shards"), "gnomAD shards")
+    shards = _require_sequence(gnomad.get("shards"), "gnomAD shards")
     if len(shards) != 22:
         raise InputError("snapshot lineage must contain exactly 22 gnomAD shards")
     for index, item in enumerate(shards):
@@ -111,13 +142,14 @@ def _load_snapshot_lineage(
             raise InputError("snapshot lineage gnomAD role drifts from v0.3 split")
         output = _require_mapping(shard.get("output"), "gnomAD output")
         postflight = _require_mapping(shard.get("remote_postflight"), "gnomAD postflight")
-        _validate_reduced_remote_postflight(
-            postflight,
-            field=f"gnomAD chr{chromosome} remote_postflight",
-            schema_version="geno-lewm.gnomad-remote-postflight.v1",
-            verified_files=_GNOMAD_REMOTE_POSTFLIGHT_FILES,
-            checks=_GNOMAD_REMOTE_POSTFLIGHT_CHECKS,
-        )
+        if is_fixture:
+            _validate_reduced_remote_postflight(
+                postflight,
+                field=f"gnomAD chr{chromosome} remote_postflight",
+                schema_version="geno-lewm.gnomad-remote-postflight.v1",
+                verified_files=_GNOMAD_REMOTE_POSTFLIGHT_FILES,
+                checks=_GNOMAD_REMOTE_POSTFLIGHT_CHECKS,
+            )
         artifact_schema_version = _require_text(
             output.get("schema_version"), "gnomAD artifact schema"
         )
@@ -161,14 +193,15 @@ def _load_snapshot_lineage(
     )
     source_id = "clinvar-2026-04-15"
     artifact_rows = _require_positive_int(clinvar_output.get("records"), "ClinVar rows")
-    _validate_reduced_remote_postflight(
-        clinvar_postflight,
-        field="ClinVar remote_postflight",
-        schema_version="geno-lewm.clinvar-remote-postflight.v1",
-        verified_files=_CLINVAR_REMOTE_POSTFLIGHT_FILES,
-        checks=_CLINVAR_REMOTE_POSTFLIGHT_CHECKS,
-        clinvar_rows=artifact_rows,
-    )
+    if is_fixture:
+        _validate_reduced_remote_postflight(
+            clinvar_postflight,
+            field="ClinVar remote_postflight",
+            schema_version="geno-lewm.clinvar-remote-postflight.v1",
+            verified_files=_CLINVAR_REMOTE_POSTFLIGHT_FILES,
+            checks=_CLINVAR_REMOTE_POSTFLIGHT_CHECKS,
+            clinvar_rows=artifact_rows,
+        )
     expected[source_id] = _ExpectedSource(
         binding=MembershipSourceBinding(
             source_id=source_id,
@@ -195,6 +228,89 @@ def _load_snapshot_lineage(
         chromosome=None,
     )
     return binding, expected, raw_bytes
+
+
+def _capture_snapshot_lineage(path: Path) -> tuple[_CapturedSnapshotLineage, bool]:
+    """Use the official one-read verifier, with a closed synthetic-fixture fallback."""
+    try:
+        return _capture_official_snapshot_lineage(path), False
+    except ModuleNotFoundError as exc:
+        missing = exc.name or ""
+        if not (
+            missing == _OFFICIAL_LINEAGE_MODULE
+            or _OFFICIAL_LINEAGE_MODULE.startswith(f"{missing}.")
+        ):
+            raise InputError("official snapshot-lineage verifier cannot be imported") from exc
+        official_error: Exception = exc
+    except ValueError as exc:
+        official_error = exc
+    except OSError as exc:
+        raise InputError(
+            "failed to read snapshot lineage",
+            details={"path": str(path)},
+        ) from exc
+
+    raw_bytes, payload = _read_json_mapping(path, "snapshot lineage fixture")
+    assembly_inputs = _require_mapping(
+        payload.get("assembly_inputs"), "snapshot lineage fixture assembly_inputs"
+    )
+    if assembly_inputs != {"fixture": True}:
+        raise InputError(
+            "non-fixture snapshot lineage failed official verification",
+            details={"path": str(path), "reason": str(official_error)},
+            remediation="regenerate and verify the v0.3 snapshot-lineage artifact",
+        ) from official_error
+    return (
+        _CapturedSnapshotLineage(
+            payload=raw_bytes,
+            lineage=payload,
+            payload_sha256="sha256:" + hashlib.sha256(raw_bytes).hexdigest(),
+            size_bytes=len(raw_bytes),
+        ),
+        True,
+    )
+
+
+def _capture_official_snapshot_lineage(path: Path) -> _CapturedSnapshotLineage:
+    module = importlib.import_module(_OFFICIAL_LINEAGE_MODULE)
+    capture_function = cast(
+        _OfficialCaptureFunction,
+        module.capture_verified_snapshot_lineage,
+    )
+    verified = capture_function(path)
+    payload = verified.payload
+    if not isinstance(payload, bytes):
+        raise InputError("official snapshot-lineage capture payload must be bytes")
+    lineage = _require_mapping(verified.lineage, "official verified snapshot lineage")
+    sha256 = _require_sha256(
+        verified.payload_sha256,
+        "official snapshot-lineage capture payload_sha256",
+    )
+    size_bytes = _require_positive_int(
+        verified.size_bytes,
+        "official snapshot-lineage capture size_bytes",
+    )
+    observed_sha256 = "sha256:" + hashlib.sha256(payload).hexdigest()
+    if sha256 != observed_sha256 or size_bytes != len(payload):
+        raise InputError(
+            "official snapshot-lineage capture identity mismatch",
+            details={
+                "declared": {"sha256": sha256, "size_bytes": size_bytes},
+                "observed": {"sha256": observed_sha256, "size_bytes": len(payload)},
+            },
+        )
+    return _CapturedSnapshotLineage(
+        payload=payload,
+        lineage=lineage,
+        payload_sha256=sha256,
+        size_bytes=size_bytes,
+    )
+
+
+def _require_sequence(value: object, field: str) -> Sequence[object]:
+    if isinstance(value, str | bytes | bytearray) or not isinstance(value, Sequence):
+        raise InputError(f"{field} must be an array")
+    return value
 
 
 def _capture_source_artifact(

@@ -26,10 +26,17 @@ from geno_lewm.data._membership_store_contract import (
 )
 from geno_lewm.data._membership_store_lineage import _load_snapshot_lineage
 from geno_lewm.data._membership_store_receipt import _verify_build_receipt
+from geno_lewm.data._membership_store_snapshot import (
+    _capture_membership_store,
+    _CapturedMembershipStore,
+)
 from geno_lewm.data._membership_store_storage import (
     _ORDER_BY,
     _SELECT_INDEX_ROWS,
+    _clinvar_class_role_counts,
+    _empty_role_crosstab,
     _membership_schema,
+    _require_no_clinvar_label_conflicts,
     _require_no_cross_role_leakage,
     _require_pyarrow,
     _ScanSummary,
@@ -43,28 +50,22 @@ from geno_lewm.data._membership_store_storage import (
 )
 from geno_lewm.data.membership import REQUIRED_MEMBERSHIP_ROLES
 from geno_lewm.errors import InputError
-from geno_lewm.provenance.hashing import sha256_file
 
 
 def verify_membership_store(store_dir: Path) -> MembershipStoreVerification:
     """Independently verify manifest, files, Parquet rows, and SQLite rows."""
-    root = Path(store_dir)
-    _verify_exact_layout(root)
+    with _capture_membership_store(Path(store_dir)) as captured:
+        return _verify_captured_membership_store(captured)
+
+
+def _verify_captured_membership_store(
+    captured: _CapturedMembershipStore,
+) -> MembershipStoreVerification:
+    root = captured.root
     manifest = _read_manifest(root / _MANIFEST_NAME)
     for binding in manifest.files:
-        path = root / binding.path
-        if not path.is_file():
-            raise InputError(
-                "membership store bound file is missing",
-                details={"path": binding.path},
-            )
-        try:
-            observed = {"sha256": sha256_file(path), "size_bytes": path.stat().st_size}
-        except OSError as exc:
-            raise InputError(
-                "membership store bound file cannot be read",
-                details={"path": binding.path},
-            ) from exc
+        identity = captured.files[binding.path]
+        observed = {"sha256": identity.sha256, "size_bytes": identity.size_bytes}
         expected = {"sha256": binding.sha256, "size_bytes": binding.size_bytes}
         if observed != expected:
             raise InputError(
@@ -154,6 +155,8 @@ def _scan_parquet_unchecked(path: Path, manifest: MembershipStoreManifest) -> _S
         raise InputError("membership Parquet metadata row count mismatch")
     role_counts = dict.fromkeys(REQUIRED_MEMBERSHIP_ROLES, 0)
     source_counts = dict.fromkeys(manifest.source_counts, 0)
+    source_role_counts = _empty_role_crosstab(tuple(manifest.source_counts))
+    source_kind_role_counts = _empty_role_crosstab(("gnomad", "clinvar"))
     source_bindings = {binding.source_id: binding for binding in manifest.sources}
     digest = hashlib.sha256()
     previous: tuple[object, ...] | None = None
@@ -165,6 +168,10 @@ def _scan_parquet_unchecked(path: Path, manifest: MembershipStoreManifest) -> _S
             variants.execute(
                 "CREATE TABLE identities (variant_key TEXT, source TEXT, source_row_id TEXT, "
                 "PRIMARY KEY (variant_key, source, source_row_id)) WITHOUT ROWID"
+            )
+            variants.execute(
+                "CREATE TABLE labels (variant_key TEXT, role TEXT, clinical_significance TEXT, "
+                "source_row_id TEXT)"
             )
             for batch in parquet.iter_batches(batch_size=_PARQUET_BATCH_ROWS):
                 for raw in batch.to_pylist():
@@ -189,9 +196,30 @@ def _scan_parquet_unchecked(path: Path, manifest: MembershipStoreManifest) -> _S
                         ) from exc
                     role_counts[str(payload["role"])] += 1
                     source_counts[str(payload["source"])] += 1
+                    source_role_counts[str(payload["source"])][str(payload["role"])] += 1
+                    source_kind = source_bindings[str(payload["source"])].kind
+                    source_kind_role_counts[source_kind][str(payload["role"])] += 1
+                    if payload["clinical_significance"] is not None:
+                        variants.execute(
+                            "INSERT INTO labels VALUES (?, ?, ?, ?)",
+                            (
+                                payload["variant_key"],
+                                payload["role"],
+                                payload["clinical_significance"],
+                                payload["source_row_id"],
+                            ),
+                        )
                     _update_rowset_digest(digest, payload)
                     row_count += 1
             variant_count = int(variants.execute("SELECT COUNT(*) FROM variants").fetchone()[0])
+            conflict = variants.execute(
+                "SELECT variant_key FROM labels GROUP BY variant_key "
+                "HAVING MIN(clinical_significance IN ('LP', 'P')) "
+                "!= MAX(clinical_significance IN ('LP', 'P')) LIMIT 1"
+            ).fetchone()
+            if conflict is not None:
+                raise InputError("ClinVar memberships contain conflicting binary targets")
+            clinvar_class_role_counts = _clinvar_class_role_counts(variants, table="labels")
         finally:
             variants.close()
     return _ScanSummary(
@@ -199,6 +227,9 @@ def _scan_parquet_unchecked(path: Path, manifest: MembershipStoreManifest) -> _S
         variant_count=variant_count,
         role_counts=role_counts,
         source_counts=source_counts,
+        source_role_counts=source_role_counts,
+        source_kind_role_counts=source_kind_role_counts,
+        clinvar_class_role_counts=clinvar_class_role_counts,
         rowset_sha256="sha256:" + digest.hexdigest(),
     )
 
@@ -214,6 +245,7 @@ def _scan_sqlite(path: Path, manifest: MembershipStoreManifest) -> _ScanSummary:
         _verify_index_metadata(connection, manifest)
         summary = _scan_index_rows(connection, manifest)
         _require_no_cross_role_leakage(connection)
+        _require_no_clinvar_label_conflicts(connection)
         _verify_interval_index(connection)
         return summary
     except sqlite3.DatabaseError as exc:
@@ -229,6 +261,8 @@ def _scan_index_rows(
     source_bindings = {binding.source_id: binding for binding in manifest.sources}
     role_counts = dict.fromkeys(REQUIRED_MEMBERSHIP_ROLES, 0)
     source_counts = dict.fromkeys(manifest.source_counts, 0)
+    source_role_counts = _empty_role_crosstab(tuple(manifest.source_counts))
+    source_kind_role_counts = _empty_role_crosstab(("gnomad", "clinvar"))
     digest = hashlib.sha256()
     previous_order: tuple[object, ...] | None = None
     previous_identity: tuple[str, str, str] | None = None
@@ -251,6 +285,7 @@ def _scan_index_rows(
                     "reason_mask": raw[12],
                     "source": raw[13],
                     "source_row_id": raw[14],
+                    "clinical_significance": raw[15],
                 },
                 manifest,
                 source_bindings,
@@ -283,6 +318,9 @@ def _scan_index_rows(
                 previous_variant = variant_key
             role_counts[str(payload["role"])] += 1
             source_counts[str(payload["source"])] += 1
+            source_role_counts[str(payload["source"])][str(payload["role"])] += 1
+            source_kind = source_bindings[str(payload["source"])].kind
+            source_kind_role_counts[source_kind][str(payload["role"])] += 1
             _update_rowset_digest(digest, payload)
             row_count += 1
     return _ScanSummary(
@@ -290,6 +328,9 @@ def _scan_index_rows(
         variant_count=variant_count,
         role_counts=role_counts,
         source_counts=source_counts,
+        source_role_counts=source_role_counts,
+        source_kind_role_counts=source_kind_role_counts,
+        clinvar_class_role_counts=_clinvar_class_role_counts(connection),
         rowset_sha256="sha256:" + digest.hexdigest(),
     )
 
@@ -302,6 +343,9 @@ def _require_summary_matches_manifest(
         "variant_count": manifest.variant_count,
         "role_counts": manifest.role_counts,
         "source_counts": manifest.source_counts,
+        "source_role_counts": manifest.source_role_counts,
+        "source_kind_role_counts": manifest.source_kind_role_counts,
+        "clinvar_class_role_counts": manifest.clinvar_class_role_counts,
         "rowset_sha256": manifest.rowset_sha256,
     }
     observed = _summary_dict(summary)

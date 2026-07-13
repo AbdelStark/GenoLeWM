@@ -72,6 +72,7 @@ from geno_lewm.data.membership import (
 )
 from geno_lewm.data.membership_store import (
     MEMBERSHIP_STORE_SCHEMA_VERSION,
+    LabeledClinVarMembership,
     MembershipSourceBinding,
     MembershipSourceInput,
     MembershipStore,
@@ -128,6 +129,7 @@ __all__ = [
     "GnomadVariant",
     "HoldoutInterval",
     "HoldoutPolicy",
+    "LabeledClinVarMembership",
     "MembershipArtifact",
     "MembershipArtifactBinding",
     "MembershipHoldoutPolicy",

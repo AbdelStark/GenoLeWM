@@ -101,7 +101,11 @@ or incompatible command changes require an explicit compatibility note.
   Parquet identities, and type-strict fresh Parquet audit. Added source-specific
   gnomAD and ClinVar license, attribution, terms, restriction, and materialized
   field metadata to the content-addressed lineage.
-- Added a fixture-validated scalable v0.3 membership-store contract. It
+- Added a scalable v0.3 membership-store contract with synthetic fixture
+  coverage. Its non-fixture path consumes the official one-capture lineage
+  verifier, derives source bindings from its deeply immutable verified
+  semantics, and persists the exact captured lineage bytes without reopening
+  the input path. It
   verifies exact snapshot-lineage source bytes, derives canonical rows through
   source-specific streaming adapters, performs disk-backed ordering/dedup and
   split-leakage checks, writes a closed Parquet/SQLite/JSON artifact, and

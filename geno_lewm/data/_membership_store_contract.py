@@ -14,6 +14,7 @@ from geno_lewm.data.membership import (
     REQUIRED_MEMBERSHIP_ROLES,
     V03_CHROMOSOME_ROLES,
     ChromosomeRoles,
+    MembershipRow,
 )
 from geno_lewm.data.variant_identity import canonicalize_chromosome
 from geno_lewm.errors import InputError, SchemaCompatError
@@ -38,7 +39,7 @@ _GNOMAD_REASON_MASK: Final = 1
 _CLINVAR_REASON_MASK: Final = 2
 _AUTOSOMES: Final = frozenset(str(chromosome) for chromosome in range(1, 23))
 _CLINVAR_CLASSES: Final = frozenset({"B", "LB", "LP", "OTHER", "P", "VUS"})
-_CLINVAR_HOLDOUT_CLASSES: Final = frozenset({"LP", "P"})
+_CLINVAR_LABELED_CLASSES: Final = frozenset({"B", "LB", "LP", "P"})
 _GNOMAD_REMOTE_POSTFLIGHT_FILES: Final = (
     "data/gnomad/v4.1/variants.parquet",
     "evidence/gcs-metadata-verification.json",
@@ -95,6 +96,25 @@ _CHROMOSOME_RANK: Final = {
 _COMMIT: Final = re.compile(r"[0-9a-f]{40}")
 _SOURCE_ID: Final = re.compile(r"[a-z0-9][a-z0-9._:-]*")
 _ARTIFACT_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+@dataclass(frozen=True, slots=True)
+class LabeledClinVarMembership:
+    """One chromosome-assigned binary ClinVar label and its membership identity."""
+
+    membership: MembershipRow
+    clinical_significance: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.membership, MembershipRow):
+            raise InputError("labeled ClinVar membership requires a MembershipRow")
+        if self.clinical_significance not in _CLINVAR_LABELED_CLASSES:
+            raise InputError("labeled ClinVar membership class must be B, LB, LP, or P")
+
+    @property
+    def is_pathogenic(self) -> bool:
+        """Return the closed binary target for this normalized ClinVar class."""
+        return self.clinical_significance in {"LP", "P"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,6 +358,9 @@ class MembershipStoreManifest:
     variant_count: int
     role_counts: dict[str, int]
     source_counts: dict[str, int]
+    source_role_counts: dict[str, dict[str, int]]
+    source_kind_role_counts: dict[str, dict[str, int]]
+    clinvar_class_role_counts: dict[str, dict[str, int]]
     rowset_sha256: str
     files: tuple[MembershipStoreFile, ...]
     content_identity: str
@@ -382,6 +405,49 @@ class MembershipStoreManifest:
         for source in sources:
             if self.source_counts[source.source_id] != source.membership_row_count:
                 raise InputError("membership store source count drifted from source binding")
+        source_role_counts = _require_role_crosstab(
+            self.source_role_counts,
+            source_ids,
+            "source_role_counts",
+        )
+        for source_id, expected_total in self.source_counts.items():
+            if sum(source_role_counts[source_id].values()) != expected_total:
+                raise InputError("membership store source-role counts drift from source rows")
+        for role in REQUIRED_MEMBERSHIP_ROLES:
+            if (
+                sum(counts[role] for counts in source_role_counts.values())
+                != self.role_counts[role]
+            ):
+                raise InputError("membership store source-role counts drift from role counts")
+        source_kind_role_counts = _require_role_crosstab(
+            self.source_kind_role_counts,
+            {"gnomad", "clinvar"},
+            "source_kind_role_counts",
+        )
+        sources_by_id = {source.source_id: source for source in sources}
+        for kind in source_kind_role_counts:
+            for role in REQUIRED_MEMBERSHIP_ROLES:
+                expected = sum(
+                    source_role_counts[source_id][role]
+                    for source_id, source in sources_by_id.items()
+                    if source.kind == kind
+                )
+                if source_kind_role_counts[kind][role] != expected:
+                    raise InputError(
+                        "membership store source-kind-role counts drift from source roles"
+                    )
+        class_role_counts = _require_role_crosstab(
+            self.clinvar_class_role_counts,
+            set(_CLINVAR_LABELED_CLASSES),
+            "clinvar_class_role_counts",
+        )
+        for role in REQUIRED_MEMBERSHIP_ROLES:
+            unique_labels = sum(class_role_counts[label][role] for label in class_role_counts)
+            if unique_labels > source_kind_role_counts["clinvar"][role]:
+                raise InputError("unique ClinVar class counts exceed raw ClinVar memberships")
+        object.__setattr__(self, "source_role_counts", source_role_counts)
+        object.__setattr__(self, "source_kind_role_counts", source_kind_role_counts)
+        object.__setattr__(self, "clinvar_class_role_counts", class_role_counts)
         _require_sha256(self.rowset_sha256, "membership store rowset_sha256")
         files = tuple(sorted(self.files, key=lambda item: item.path))
         if (
@@ -410,6 +476,9 @@ class MembershipStoreManifest:
             "variant_count": self.variant_count,
             "role_counts": {role: self.role_counts[role] for role in REQUIRED_MEMBERSHIP_ROLES},
             "source_counts": dict(sorted(self.source_counts.items())),
+            "source_role_counts": self.source_role_counts,
+            "source_kind_role_counts": self.source_kind_role_counts,
+            "clinvar_class_role_counts": self.clinvar_class_role_counts,
             "rowset_sha256": self.rowset_sha256,
         }
 
@@ -445,6 +514,9 @@ class MembershipStoreManifest:
             "variant_count",
             "role_counts",
             "source_counts",
+            "source_role_counts",
+            "source_kind_role_counts",
+            "clinvar_class_role_counts",
             "rowset_sha256",
             "files",
             "content_identity",
@@ -482,6 +554,17 @@ class MembershipStoreManifest:
             ),
             role_counts=role_counts,
             source_counts=source_counts,
+            source_role_counts=_parse_role_crosstab(
+                payload.get("source_role_counts"), "membership source_role_counts"
+            ),
+            source_kind_role_counts=_parse_role_crosstab(
+                payload.get("source_kind_role_counts"),
+                "membership source_kind_role_counts",
+            ),
+            clinvar_class_role_counts=_parse_role_crosstab(
+                payload.get("clinvar_class_role_counts"),
+                "membership clinvar_class_role_counts",
+            ),
             rowset_sha256=_require_text(payload.get("rowset_sha256"), "membership rowset_sha256"),
             files=tuple(
                 MembershipStoreFile.from_dict(_require_mapping(item, f"membership files[{index}]"))
@@ -521,6 +604,9 @@ class MembershipStoreVerification:
             "variant_count": self.manifest.variant_count,
             "role_counts": dict(self.manifest.role_counts),
             "source_counts": dict(sorted(self.manifest.source_counts.items())),
+            "source_role_counts": self.manifest.source_role_counts,
+            "source_kind_role_counts": self.manifest.source_kind_role_counts,
+            "clinvar_class_role_counts": self.manifest.clinvar_class_role_counts,
         }
 
 
@@ -660,6 +746,33 @@ def _require_count_mapping(value: Mapping[str, int], expected_keys: set[str], fi
         )
     for key, count in value.items():
         _require_positive_int(count, f"membership store {field}.{key}")
+
+
+def _parse_role_crosstab(value: object, field: str) -> dict[str, dict[str, int]]:
+    mapping = _require_mapping(value, field)
+    parsed: dict[str, dict[str, int]] = {}
+    for key, counts in mapping.items():
+        if not isinstance(key, str) or not key:
+            raise InputError(f"{field} keys must be non-empty strings")
+        parsed[key] = _parse_count_mapping(counts, f"{field}.{key}")
+    return parsed
+
+
+def _require_role_crosstab(
+    value: Mapping[str, Mapping[str, int]], expected_keys: set[str], field: str
+) -> dict[str, dict[str, int]]:
+    if set(value) != expected_keys:
+        raise InputError(f"membership store {field} outer keys do not match")
+    normalized: dict[str, dict[str, int]] = {}
+    for key in sorted(expected_keys):
+        counts = value[key]
+        if set(counts) != set(REQUIRED_MEMBERSHIP_ROLES):
+            raise InputError(f"membership store {field}.{key} role keys do not match")
+        normalized[key] = {
+            role: _require_nonnegative_int(counts[role], f"membership store {field}.{key}.{role}")
+            for role in REQUIRED_MEMBERSHIP_ROLES
+        }
+    return normalized
 
 
 def _write_json(path: Path, payload: Mapping[str, object]) -> None:

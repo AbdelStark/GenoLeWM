@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from geno_lewm.data._membership_store_contract import (
@@ -17,7 +17,7 @@ from geno_lewm.data._membership_store_contract import (
     _AUTOSOMES,
     _CHROMOSOME_RANK,
     _CLINVAR_CLASSES,
-    _CLINVAR_HOLDOUT_CLASSES,
+    _CLINVAR_LABELED_CLASSES,
     _CLINVAR_REASON_MASK,
     _GNOMAD_REASON_MASK,
     _INDEX_NAME,
@@ -41,15 +41,18 @@ from geno_lewm.data._membership_store_lineage import (
     _ExpectedSource,
     _load_snapshot_lineage,
 )
+from geno_lewm.data._membership_store_publish import _publish_directory_noreplace
 from geno_lewm.data._membership_store_receipt import (
     _create_build_receipt,
     _require_container_image,
+    _verify_build_invocation,
 )
 from geno_lewm.data._membership_store_storage import (
     _clinvar_schema,
     _create_index,
     _create_lookup_indexes,
     _gnomad_schema,
+    _require_no_clinvar_label_conflicts,
     _require_no_cross_role_leakage,
     _require_pyarrow,
     _summarize_index,
@@ -67,6 +70,12 @@ from geno_lewm.data.membership import (
 from geno_lewm.data.variant_identity import CanonicalVariant, canonicalize_chromosome
 from geno_lewm.errors import InputError
 from geno_lewm.provenance.hashing import canonical_json_sha256, sha256_file
+
+
+@dataclass(frozen=True, slots=True)
+class _StagedMembership:
+    membership: MembershipRow
+    clinical_significance: str | None
 
 
 def build_membership_store(
@@ -89,6 +98,7 @@ def build_membership_store(
         raise InputError("membership store artifact_id is not canonical")
     _require_commit(builder_git_commit, "membership builder git_commit")
     _require_container_image(container_image)
+    _verify_build_invocation(builder_git_commit, container_image)
     pa, _pq = _require_pyarrow()
     expected_lineage_sha256 = _require_sha256(
         expected_snapshot_lineage_sha256,
@@ -168,6 +178,7 @@ def build_membership_store(
         summary = _summarize_index(connection)
         _require_nonvacuous_roles(summary.role_counts)
         _require_no_cross_role_leakage(connection)
+        _require_no_clinvar_label_conflicts(connection)
         rowset_sha256 = _write_membership_parquet(connection, parquet_path)
         if rowset_sha256 != summary.rowset_sha256:
             raise InputError("membership Parquet row digest drifted from SQLite staging")
@@ -186,6 +197,9 @@ def build_membership_store(
             "variant_count": summary.variant_count,
             "role_counts": summary.role_counts,
             "source_counts": dict(sorted(summary.source_counts.items())),
+            "source_role_counts": summary.source_role_counts,
+            "source_kind_role_counts": summary.source_kind_role_counts,
+            "clinvar_class_role_counts": summary.clinvar_class_role_counts,
             "rowset_sha256": rowset_sha256,
         }
         content_identity = canonical_json_sha256(semantic_payload)
@@ -196,6 +210,7 @@ def build_membership_store(
         connection = None
 
         (temporary / _LINEAGE_NAME).write_bytes(lineage_bytes)
+        _verify_build_invocation(builder_git_commit, container_image)
         receipt = _create_build_receipt(
             artifact_id=artifact_id,
             content_identity=content_identity,
@@ -230,6 +245,9 @@ def build_membership_store(
             variant_count=summary.variant_count,
             role_counts=summary.role_counts,
             source_counts=summary.source_counts,
+            source_role_counts=summary.source_role_counts,
+            source_kind_role_counts=summary.source_kind_role_counts,
+            clinvar_class_role_counts=summary.clinvar_class_role_counts,
             rowset_sha256=rowset_sha256,
             files=files,
             content_identity=content_identity,
@@ -242,7 +260,7 @@ def build_membership_store(
                 "membership store output appeared before publication",
                 details={"path": str(output)},
             )
-        temporary.rename(output)
+        _publish_directory_noreplace(temporary, output)
         _fsync_directory(output.parent)
         return verified.manifest
     except InputError:
@@ -301,14 +319,15 @@ def _ingest_source(
 ) -> tuple[int, int]:
     rows = _iter_source_memberships(source_input, expected)
     membership_count = 0
-    for row in rows:
+    for staged in rows:
+        row = staged.membership
         try:
             connection.execute(
                 "INSERT INTO memberships ("
                 "schema_version, variant_key, variant_digest, chrom, chrom_rank, pos, "
-                "start_bp, end_bp, ref, alt, role, role_rank, reason_mask, source, source_row_id"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                _sqlite_row(row),
+                "start_bp, end_bp, ref, alt, role, role_rank, reason_mask, source, source_row_id, "
+                "clinical_significance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                _sqlite_row(staged),
             )
         except sqlite3.IntegrityError as exc:
             raise InputError(
@@ -352,12 +371,15 @@ def _iter_source_memberships(
         )
     filtered_count = 0
 
-    def _rows() -> Iterator[MembershipRow]:
+    def _rows() -> Iterator[_StagedMembership]:
         nonlocal filtered_count
         for batch in parquet.iter_batches(batch_size=_PARQUET_BATCH_ROWS):
             for raw in batch.to_pylist():
                 if source_input.kind == "gnomad":
-                    yield _gnomad_membership(raw, source_input, expected)
+                    yield _StagedMembership(
+                        membership=_gnomad_membership(raw, source_input, expected),
+                        clinical_significance=None,
+                    )
                     continue
                 row = _clinvar_membership(raw, source_input)
                 if row is None:
@@ -370,15 +392,15 @@ def _iter_source_memberships(
     return _CountedIterator(_rows(), lambda: filtered_count)
 
 
-class _CountedIterator(Iterator[MembershipRow]):
-    def __init__(self, rows: Iterator[MembershipRow], filtered: Callable[[], int]) -> None:
+class _CountedIterator(Iterator[_StagedMembership]):
+    def __init__(self, rows: Iterator[_StagedMembership], filtered: Callable[[], int]) -> None:
         self._rows = rows
         self._filtered = filtered
 
     def __iter__(self) -> _CountedIterator:
         return self
 
-    def __next__(self) -> MembershipRow:
+    def __next__(self) -> _StagedMembership:
         return next(self._rows)
 
     @property
@@ -415,13 +437,13 @@ def _gnomad_membership(
 
 def _clinvar_membership(
     raw: Mapping[str, object], source_input: MembershipSourceInput
-) -> MembershipRow | None:
+) -> _StagedMembership | None:
     if raw.get("schema_version") != CLINVAR_SCHEMA_VERSION:
         raise InputError("ClinVar membership row schema version mismatch")
     significance = _required_row_text(raw, "clinical_significance", source_input.source_id)
     if significance not in _CLINVAR_CLASSES:
         raise InputError("ClinVar membership row has an unknown normalized class")
-    if significance not in _CLINVAR_HOLDOUT_CLASSES:
+    if significance not in _CLINVAR_LABELED_CLASSES:
         return None
     raw_chromosome = _required_row_text(raw, "chrom", source_input.source_id)
     try:
@@ -438,12 +460,15 @@ def _clinvar_membership(
     if isinstance(clinvar_id, bool) or not isinstance(clinvar_id, int) or clinvar_id < 1:
         raise InputError("ClinVar membership row clinvar_id must be positive")
     raw_identity = f"{clinvar_id}:{raw['chrom']}:{raw['pos']}:{raw['ref']}:{raw['alt']}"
-    return MembershipRow(
-        variant=variant,
-        role=V03_CHROMOSOME_ROLES.role_for(variant.chrom),
-        reason_mask=_CLINVAR_REASON_MASK,
-        source=source_input.source_id,
-        source_row_id=raw_identity,
+    return _StagedMembership(
+        membership=MembershipRow(
+            variant=variant,
+            role=V03_CHROMOSOME_ROLES.role_for(variant.chrom),
+            reason_mask=_CLINVAR_REASON_MASK,
+            source=source_input.source_id,
+            source_row_id=raw_identity,
+        ),
+        clinical_significance=significance,
     )
 
 
@@ -462,7 +487,8 @@ def _variant_from_source_row(raw: Mapping[str, object], source_id: str) -> Canon
     )
 
 
-def _sqlite_row(row: MembershipRow) -> tuple[object, ...]:
+def _sqlite_row(staged: _StagedMembership) -> tuple[object, ...]:
+    row = staged.membership
     variant = row.variant
     return (
         MEMBERSHIP_STORE_SCHEMA_VERSION,
@@ -480,6 +506,7 @@ def _sqlite_row(row: MembershipRow) -> tuple[object, ...]:
         row.reason_mask,
         row.source,
         row.source_row_id,
+        staged.clinical_significance,
     )
 
 

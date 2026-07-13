@@ -16,21 +16,28 @@ from geno_lewm.data._membership_store_contract import (
     _INDEX_NAME,
     _MANIFEST_NAME,
     MEMBERSHIP_STORE_SCHEMA_VERSION,
+    LabeledClinVarMembership,
     MembershipStoreManifest,
     _read_manifest,
     _require_nonnegative_int,
     _require_positive_int,
 )
+from geno_lewm.data._membership_store_snapshot import (
+    _capture_membership_store,
+    _CapturedMembershipStore,
+)
 from geno_lewm.data._membership_store_storage import (
     _ORDER_BY,
     _SELECT_ROWS,
+    _SELECT_UNIQUE_CLINVAR_ROWS,
+    _labeled_clinvar_membership_from_sql,
     _membership_row_from_sql,
     _verify_index_metadata,
     _verify_index_schema,
 )
 from geno_lewm.data._membership_store_verifier import (
+    _verify_captured_membership_store,
     _verify_exact_layout,
-    verify_membership_store,
 )
 from geno_lewm.data.builder import HoldoutPolicy, WindowContext
 from geno_lewm.data.membership import REQUIRED_MEMBERSHIP_ROLES, MembershipRow
@@ -42,20 +49,42 @@ from geno_lewm.provenance.hashing import canonical_json_sha256
 class MembershipStore:
     """Read-only, indexed membership lookup without a PyArrow dependency."""
 
-    __slots__ = ("_closed", "_connections", "_lock", "_owner_pid", "manifest", "root")
+    __slots__ = (
+        "_capture",
+        "_capture_owner_pid",
+        "_closed",
+        "_connections",
+        "_lock",
+        "_lookup_root",
+        "_owner_pid",
+        "manifest",
+        "root",
+    )
 
     def __init__(self, store_dir: Path, *, verify: bool = True) -> None:
         root = Path(store_dir).absolute()
+        capture: _CapturedMembershipStore | None = None
         if verify:
-            manifest = verify_membership_store(root).manifest
+            capture = _capture_membership_store(root)
+            try:
+                manifest = _verify_captured_membership_store(capture).manifest
+            except Exception:
+                capture.close()
+                raise
+            capture.retain_only({_INDEX_NAME})
+            lookup_root = capture.root
         else:
             _verify_exact_layout(root)
             manifest = _read_manifest(root / _MANIFEST_NAME)
-        path = root / _INDEX_NAME
+            lookup_root = root
+        path = lookup_root / _INDEX_NAME
         if not path.is_file():
             raise InputError("membership lookup index is missing", details={"path": str(path)})
         self.root = root
         self.manifest = manifest
+        self._lookup_root = lookup_root
+        self._capture = capture
+        self._capture_owner_pid = os.getpid() if capture is not None else None
         self._closed = False
         self._connections: dict[tuple[int, threading.Thread], sqlite3.Connection] = {}
         self._lock = threading.Lock()
@@ -74,6 +103,9 @@ class MembershipStore:
                     connection.close()
                 self._connections.clear()
             self._closed = True
+            if self._capture is not None and self._capture_owner_pid == os.getpid():
+                self._capture.close()
+            self._capture = None
 
     def __getstate__(self) -> dict[str, object]:
         """Serialize stable bindings only; live SQLite handles never cross processes."""
@@ -93,6 +125,26 @@ class MembershipStore:
             raise InputError("pickled membership store manifest is invalid")
         self.manifest = manifest
         self._closed = bool(state["closed"])
+        self._capture = None
+        self._capture_owner_pid = None
+        self._lookup_root = self.root
+        if not self._closed:
+            capture = _capture_membership_store(self.root)
+            try:
+                verified = _verify_captured_membership_store(capture).manifest
+            except Exception:
+                capture.close()
+                raise
+            if verified.physical_identity != self.manifest.physical_identity:
+                capture.close()
+                raise InputError(
+                    "pickled membership store physical identity is no longer available"
+                )
+            self.manifest = verified
+            capture.retain_only({_INDEX_NAME})
+            self._capture = capture
+            self._capture_owner_pid = os.getpid()
+            self._lookup_root = capture.root
         self._connections = {}
         self._lock = threading.Lock()
         self._owner_pid = os.getpid()
@@ -207,6 +259,21 @@ class MembershipStore:
             for raw in batch:
                 yield _membership_row_from_sql(raw)
 
+    def iter_labeled_clinvar(
+        self, role: str, *, batch_size: int = 65_536
+    ) -> Iterator[LabeledClinVarMembership]:
+        """Stream binary-labeled ClinVar rows for one chromosome-assigned role."""
+        self._require_open()
+        selected_role = _normalize_roles((role,))[0]
+        _require_positive_int(batch_size, "membership iteration batch_size")
+        cursor = self._connection().execute(
+            _SELECT_UNIQUE_CLINVAR_ROWS,
+            (selected_role,),
+        )
+        while batch := cursor.fetchmany(batch_size):
+            for raw in batch:
+                yield _labeled_clinvar_membership_from_sql(raw)
+
     def _require_open(self) -> None:
         if self._closed:
             raise InputError("membership store is closed")
@@ -229,7 +296,7 @@ class MembershipStore:
             connection = self._connections.get(key)
             if connection is not None:
                 return connection
-            path = self.root / _INDEX_NAME
+            path = self._lookup_root / _INDEX_NAME
             try:
                 connection = sqlite3.connect(
                     f"{path.as_uri()}?mode=ro&immutable=1",
@@ -254,9 +321,8 @@ class MembershipStore:
 class MembershipStoreHoldoutPolicy(HoldoutPolicy):
     """Existing tuple-builder holdout adapter backed by :class:`MembershipStore`."""
 
-    __slots__ = ("_clinvar_sources", "store")
+    __slots__ = ("store",)
     store: MembershipStore
-    _clinvar_sources: tuple[str, ...]
 
     def __init__(self, store: MembershipStore) -> None:
         if not isinstance(store, MembershipStore):
@@ -268,13 +334,6 @@ class MembershipStoreHoldoutPolicy(HoldoutPolicy):
             )
         )
         object.__setattr__(self, "store", store)
-        object.__setattr__(
-            self,
-            "_clinvar_sources",
-            tuple(
-                source.source_id for source in store.manifest.sources if source.kind == "clinvar"
-            ),
-        )
 
     def __reduce__(self) -> tuple[object, tuple[MembershipStore]]:
         return type(self), (self.store,)
@@ -291,16 +350,8 @@ class MembershipStoreHoldoutPolicy(HoldoutPolicy):
         """Exclude every validation/evaluation chromosome before tuple emission."""
         if not isinstance(window, WindowContext):
             raise InputError("window must be a WindowContext")
-        chromosome, role = self._placed_role(window)
-        if role != "train":
-            return True
-        return self.store.overlaps_interval(
-            chromosome,
-            start_bp=window.start_bp,
-            end_bp=window.end_bp,
-            roles=REQUIRED_MEMBERSHIP_ROLES,
-            sources=self._clinvar_sources,
-        )
+        _chromosome, role = self._placed_role(window)
+        return role != "train"
 
     def excludes_edit(self, window: WindowContext, edit: RelEdit) -> bool:
         """Exclude a held chromosome or a validation/evaluation variant lookup."""
@@ -308,21 +359,8 @@ class MembershipStoreHoldoutPolicy(HoldoutPolicy):
             raise InputError("window must be a WindowContext")
         if not isinstance(edit, RelEdit):
             raise InputError("edit must be a RelEdit")
-        chromosome, role = self._placed_role(window)
-        if role != "train":
-            return True
-        variant = CanonicalVariant(
-            assembly=self.store.manifest.assembly,
-            chrom=chromosome,
-            pos=window.start_bp + edit.rel_pos + 1,
-            ref=edit.ref_bases,
-            alt=edit.alt_bases,
-        )
-        return self.store.contains_variant(
-            variant,
-            roles=REQUIRED_MEMBERSHIP_ROLES,
-            sources=self._clinvar_sources,
-        )
+        _chromosome, role = self._placed_role(window)
+        return role != "train"
 
     def _placed_role(self, window: WindowContext) -> tuple[str, str]:
         if window.chrom is None:
@@ -345,7 +383,7 @@ class MembershipStoreHoldoutPolicy(HoldoutPolicy):
             "schema_version": MEMBERSHIP_STORE_SCHEMA_VERSION,
             "membership_content_identity": self.store.manifest.content_identity,
             "excluded_chromosomes": list(self.holdout_chroms),
-            "excluded_source_kinds": ["clinvar"],
+            "selection": "chromosome_roles",
             "lookup": _INDEX_NAME,
         }
 

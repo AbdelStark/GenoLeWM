@@ -55,6 +55,9 @@ def main(argv: list[str] | None = None) -> int:
                 "content_identity": manifest.content_identity,
                 "physical_identity": manifest.physical_identity,
                 "row_count": manifest.row_count,
+                "source_role_counts": manifest.source_role_counts,
+                "source_kind_role_counts": manifest.source_kind_role_counts,
+                "clinvar_class_role_counts": manifest.clinvar_class_role_counts,
                 "output_dir": str(args.output_dir),
             }
         else:

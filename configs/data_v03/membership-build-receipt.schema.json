@@ -21,12 +21,24 @@
         "git_commit": {
           "pattern": "^[0-9a-f]{40}$",
           "type": "string"
+        },
+        "verification": {
+          "additionalProperties": false,
+          "properties": {
+            "container_image": {
+              "const": "environment:GENO_LEWM_VERIFIED_BUILD_CONTAINER_IMAGE"
+            },
+            "git_commit": {"const": "git-rev-parse-head-clean-tree"}
+          },
+          "required": ["git_commit", "container_image"],
+          "type": "object"
         }
       },
       "required": [
         "git_commit",
         "container_image",
-        "geno_lewm_version"
+        "geno_lewm_version",
+        "verification"
       ],
       "type": "object"
     },
