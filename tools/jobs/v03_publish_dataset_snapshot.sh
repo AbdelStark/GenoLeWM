@@ -56,7 +56,7 @@ log "validate immutable source, container, timestamp, attempt, and clean checkou
   || fatal "CONTAINER_IMAGE must be digest-pinned"
 [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] \
   || fatal "RUN_ATTEMPT must be a positive canonical integer"
-[[ "$GENERATED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$ ]] \
+[[ "$GENERATED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z$ ]] \
   || fatal "GENERATED_AT must be an explicit UTC ISO-8601 timestamp ending in Z"
 [[ "$RUN_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
   || fatal "RUN_NAME is not a safe immutable namespace component"
@@ -198,9 +198,12 @@ python -m tools.release.v03_dataset_snapshot assemble \
   > "$WORK/assembly-report.json"
 python -m tools.release.v03_dataset_snapshot verify \
   --dataset-dir "$PUBLIC_DIR" \
+  --gnomad-root "$GNOMAD_ROOT" \
+  --clinvar-root "$CLINVAR_ROOT" \
   > "$WORK/local-verification-report.json"
 cmp "$WORK/assembly-report.json" "$WORK/local-verification-report.json" \
   || fatal "assembly report differs from independent local verification"
+echo "LOCAL_STRICT_UPSTREAM_REPLAY_OK"
 (
   cd "$PUBLIC_DIR"
   sha256sum -c SHA256SUMS
@@ -232,9 +235,12 @@ cmp "$PUBLIC_DIR/SHA256SUMS" "$REMOTE_BUNDLE/SHA256SUMS" \
   || fatal "remote checksum manifest differs from the local verified snapshot"
 python -m tools.release.v03_dataset_snapshot verify \
   --dataset-dir "$REMOTE_BUNDLE" \
+  --gnomad-root "$GNOMAD_ROOT" \
+  --clinvar-root "$CLINVAR_ROOT" \
   > "$WORK/remote-verification-report.json"
 cmp "$WORK/local-verification-report.json" "$WORK/remote-verification-report.json" \
   || fatal "remote verification report differs from local verification"
+echo "REMOTE_STRICT_UPSTREAM_REPLAY_OK"
 (
   cd "$REMOTE_BUNDLE"
   sha256sum -c SHA256SUMS
@@ -242,4 +248,3 @@ cmp "$WORK/local-verification-report.json" "$WORK/remote-verification-report.jso
 
 printf '%s\n' "$PUBLISH_REPORT"
 echo "GENO_LEWM_V03_SNAPSHOT_OK $HUB_REVISION $PUBLISH_NAMESPACE"
-

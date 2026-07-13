@@ -15,6 +15,8 @@ import tools.release.dataset_package as dataset_package_module
 import tools.release.v03_dataset_snapshot as snapshot_module
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_file
+from geno_lewm.training.preflight import TrainingPreflightIssue, _inspect_dataset
+from tools.release.paper_package import PackageIssue, _verify_dataset_dir
 from tools.release.v03_dataset_snapshot import (
     assemble_v03_dataset_snapshot,
     filter_membership_parquet,
@@ -63,9 +65,7 @@ def test_filter_membership_parquet_rejects_missing_membership_row(tmp_path: Path
     pq = pytest.importorskip("pyarrow.parquet")
     source = tmp_path / "source.parquet"
     pq.write_table(
-        pa.Table.from_pylist(
-            [{"chrom": "1", "pos": 10, "ref": "A", "alt": "C"}]
-        ),
+        pa.Table.from_pylist([{"chrom": "1", "pos": 10, "ref": "A", "alt": "C"}]),
         source,
     )
 
@@ -102,9 +102,7 @@ def test_filter_membership_parquet_rejects_symlink_source(tmp_path: Path) -> Non
     source = tmp_path / "source.parquet"
     alias = tmp_path / "alias.parquet"
     pq.write_table(
-        pa.Table.from_pylist(
-            [{"chrom": "1", "pos": 10, "ref": "A", "alt": "C"}]
-        ),
+        pa.Table.from_pylist([{"chrom": "1", "pos": 10, "ref": "A", "alt": "C"}]),
         source,
     )
     try:
@@ -180,22 +178,182 @@ def test_assembler_builds_and_reverifies_a_closed_role_bound_snapshot(
         container_image="ghcr.io/example/uv@sha256:" + "f" * 64,
     )
     verified = verify_v03_dataset_snapshot(output)
+    strict_verified = verify_v03_dataset_snapshot(
+        output,
+        gnomad_root=fixture.gnomad_root,
+        clinvar_root=fixture.clinvar_root,
+    )
 
     assert report.to_dict() == verified.to_dict()
+    assert strict_verified.to_dict() == verified.to_dict()
     manifest = json.loads((output / "dataset_manifest.json").read_text(encoding="utf-8"))
+    snapshot_report = json.loads(
+        (output / "dataset_snapshot_report.json").read_text(encoding="utf-8")
+    )
     assert manifest["schema_version"] == "1.1.0"
-    assert manifest["splits"]["train_gnomad_common"]["records"] == 20
+    assert manifest["splits"]["train_gnomad_common"]["records"] == 21
     assert manifest["splits"]["train_clinvar"]["records"] == 1
     assert manifest["splits"]["validation"]["records"] == 2
     assert manifest["splits"]["evaluation"]["records"] == 2
-    clinvar_rows = pq.read_table(
-        output / "clinvar/2026-04-15/train.variants.parquet"
-    ).to_pylist()
+    assert snapshot_report["v03"]["observed_splits"]["validation"]["observed_records"] == 2
+    assert snapshot_report["v03"]["observed_splits"]["validation"]["label_counts"] == {
+        "B": 1,
+        "P": 1,
+    }
+    assert snapshot_report["v03"]["observed_splits"]["evaluation"]["observed_records"] == 2
+    assert snapshot_report["v03"]["observed_splits"]["evaluation"]["label_counts"] == {
+        "B": 1,
+        "P": 1,
+    }
+    claim_boundary = snapshot_report["v03"]["claim_boundary"]
+    assert claim_boundary["variant_membership"] is True
+    assert claim_boundary["standalone_upstream_nonidentity_value_replay"] is False
+    assert any(
+        "does not re-download prepared upstream Parquets" in limitation
+        for limitation in claim_boundary["limitations"]
+    )
+    clinvar_rows = pq.read_table(output / "clinvar/2026-04-15/train.variants.parquet").to_pylist()
     assert [(row["chrom"], row["clinvar_id"]) for row in clinvar_rows] == [("1", 9001)]
     assert "## Membership and Split Evidence" in (output / "data_card.md").read_text(
         encoding="utf-8"
     )
     assert not any(path.is_symlink() for path in output.rglob("*"))
+    paper_package_issues: list[PackageIssue] = []
+    _verify_dataset_dir(output, paper_package_issues)
+    assert paper_package_issues == []
+    training_preflight_issues: list[TrainingPreflightIssue] = []
+    _inspect_dataset(output, True, training_preflight_issues)
+    assert training_preflight_issues == []
+
+
+def test_assembler_rejects_split_lineage_for_a_different_candidate_snapshot(
+    tmp_path: Path,
+) -> None:
+    fixture = _write_assembly_fixture(tmp_path)
+    report_path = fixture.split_bundle / "evidence/membership-split-evidence.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["membership_store"]["lineage"]["candidate_snapshot_id"] = (
+        "geno-lewm-data-v0.3.0-other-r1"
+    )
+    report_path.write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
+    _write_checksums(fixture.split_bundle)
+
+    with pytest.raises(InputError, match="candidate_snapshot_id"):
+        assemble_v03_dataset_snapshot(
+            membership_bundle_dir=fixture.membership_bundle,
+            split_bundle_dir=fixture.split_bundle,
+            gnomad_root=fixture.gnomad_root,
+            clinvar_root=fixture.clinvar_root,
+            training_windows_path=fixture.training_windows,
+            dataset_dir=tmp_path / "output",
+            split_repository="owner/data",
+            split_revision="d" * 40,
+            split_artifact_path="candidates/v0.3/splits/r1/success",
+            snapshot_id="geno-lewm-data-v0.3.0-fixture-r1",
+            generated_at="2026-07-13T18:00:00Z",
+            producer_git_commit="e" * 40,
+            container_image="ghcr.io/example/uv@sha256:" + "f" * 64,
+        )
+
+
+def test_assembler_rejects_a_structurally_valid_but_impossible_utc_timestamp(
+    tmp_path: Path,
+) -> None:
+    fixture = _write_assembly_fixture(tmp_path)
+
+    with pytest.raises(InputError, match="valid calendar timestamp"):
+        assemble_v03_dataset_snapshot(
+            membership_bundle_dir=fixture.membership_bundle,
+            split_bundle_dir=fixture.split_bundle,
+            gnomad_root=fixture.gnomad_root,
+            clinvar_root=fixture.clinvar_root,
+            training_windows_path=fixture.training_windows,
+            dataset_dir=tmp_path / "output",
+            split_repository="owner/data",
+            split_revision="d" * 40,
+            split_artifact_path="candidates/v0.3/splits/r1/success",
+            snapshot_id="geno-lewm-data-v0.3.0-fixture-r1",
+            generated_at="2026-99-99T99:99:99Z",
+            producer_git_commit="e" * 40,
+            container_image="ghcr.io/example/uv@sha256:" + "f" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    ("2026-07-13T18:00:00Z", "2026-07-13T18:00:00.1Z", "2026-07-13T18:00:00.123456Z"),
+)
+def test_utc_timestamp_accepts_canonical_whole_and_fractional_seconds(timestamp: str) -> None:
+    assert snapshot_module._utc_timestamp(timestamp, "generated_at") == timestamp
+
+
+@pytest.mark.parametrize(
+    ("tamper", "expected_error"),
+    (
+        ("missing", "do not exactly match bound store memberships"),
+        ("duplicate", "duplicate source_row_id"),
+        ("substituted", "do not exactly match bound store memberships"),
+    ),
+)
+def test_standalone_verifier_rejects_coherently_repackaged_train_row_tampering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper: str,
+    expected_error: str,
+) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    fixture = _write_assembly_fixture(tmp_path)
+    _patch_membership_store(monkeypatch, fixture.manifest, fixture.train_rows)
+    output = tmp_path / "published-snapshot"
+    _assemble_fixture_snapshot(fixture, output)
+    shard = output / "gnomad/v4.1/train/chr1.variants.parquet"
+    table = pq.read_table(shard)
+    rows = table.to_pylist()
+    if tamper == "missing":
+        rows = rows[:1]
+    elif tamper == "duplicate":
+        rows = [rows[0], rows[0]]
+    else:
+        substituted = dict(rows[0])
+        substituted["pos"] = int(substituted["pos"]) + 1
+        rows = [substituted, *rows[1:]]
+    pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), shard)
+    _rewrite_snapshot_identities_after_tamper(output)
+
+    with pytest.raises(InputError, match=expected_error):
+        verify_v03_dataset_snapshot(output)
+
+
+def test_strict_upstream_replay_rejects_nonidentity_value_tampering_that_default_declares(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    fixture = _write_assembly_fixture(tmp_path)
+    _patch_membership_store(monkeypatch, fixture.manifest, fixture.train_rows)
+    output = tmp_path / "published-snapshot"
+    _assemble_fixture_snapshot(fixture, output)
+    shard = output / "gnomad/v4.1/train/chr1.variants.parquet"
+    table = pq.read_table(shard)
+    rows = table.to_pylist()
+    rows[0] = {**rows[0], "af_global": 0.999}
+    pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), shard)
+    _rewrite_snapshot_identities_after_tamper(output)
+
+    verify_v03_dataset_snapshot(output)
+    with pytest.raises(InputError, match="strict upstream replay output differs"):
+        verify_v03_dataset_snapshot(
+            output,
+            gnomad_root=fixture.gnomad_root,
+            clinvar_root=fixture.clinvar_root,
+        )
+
+
+def test_strict_upstream_replay_requires_both_prepared_source_roots(tmp_path: Path) -> None:
+    with pytest.raises(InputError, match="requires both"):
+        verify_v03_dataset_snapshot(tmp_path, gnomad_root=tmp_path)
 
 
 def test_assembler_rejects_an_extra_membership_bundle_file(tmp_path: Path) -> None:
@@ -237,6 +395,10 @@ def test_snapshot_job_is_exact_revision_fail_closed_and_remotely_reverified() ->
         "9e1a2b279681177a7ca00b30b9eb8048b511d1cb",
         "tools.release.v03_dataset_snapshot assemble",
         "tools.release.v03_dataset_snapshot verify",
+        '--gnomad-root "$GNOMAD_ROOT"',
+        '--clinvar-root "$CLINVAR_ROOT"',
+        "LOCAL_STRICT_UPSTREAM_REPLAY_OK",
+        "REMOTE_STRICT_UPSTREAM_REPLAY_OK",
         "tools.data.v03_gnomad_lock publish",
         'HUB_REVISION="${PUBLISH_REPORT#uploaded commit: }"',
         '--revision "$HUB_REVISION"',
@@ -277,7 +439,8 @@ def _write_assembly_fixture(root: Path) -> SimpleNamespace:
         physical_identity="sha256:" + "2" * 64,
         rowset_sha256="sha256:" + "3" * 64,
         chromosome_roles=roles,
-        role_counts={"train": 21, "validation": 2, "evaluation": 2},
+        snapshot_lineage=SimpleNamespace(candidate_snapshot_id="geno-lewm-data-v0.3.0-fixture-r1"),
+        role_counts={"train": 22, "validation": 2, "evaluation": 2},
     )
     store = membership_bundle / "store"
     store.mkdir()
@@ -319,23 +482,20 @@ def _write_assembly_fixture(root: Path) -> SimpleNamespace:
         path = gnomad_root / artifact_path
         path.parent.mkdir(parents=True)
         pos = int(chromosome) * 100
-        pq.write_table(
-            pa.Table.from_pylist(
-                [
-                    {
-                        "chrom": chromosome,
-                        "pos": pos,
-                        "ref": "A",
-                        "alt": "C",
-                        "af_global": 0.1,
-                        "filter": "PASS",
-                        "schema_version": "2.0.0",
-                    }
-                ],
-                schema=gnomad_schema,
-            ),
-            path,
-        )
+        shard_rows = [
+            {
+                "chrom": chromosome,
+                "pos": pos,
+                "ref": "A",
+                "alt": "C",
+                "af_global": 0.1,
+                "filter": "PASS",
+                "schema_version": "2.0.0",
+            }
+        ]
+        if chromosome == "1":
+            shard_rows.append({**shard_rows[0], "pos": pos + 1, "alt": "G"})
+        pq.write_table(pa.Table.from_pylist(shard_rows, schema=gnomad_schema), path)
         source_entries.append(
             {
                 "kind": "gnomad",
@@ -354,12 +514,13 @@ def _write_assembly_fixture(root: Path) -> SimpleNamespace:
             }
         )
         if chromosome not in {"20", "21"}:
-            train_rows.append(
+            train_rows.extend(
                 SimpleNamespace(
                     role="train",
                     source=f"gnomad-v4.1-chr{chromosome}",
-                    source_row_id=f"{chromosome}:{pos}:A:C",
+                    source_row_id=f"{row['chrom']}:{row['pos']}:{row['ref']}:{row['alt']}",
                 )
+                for row in shard_rows
             )
 
     clinvar_artifact = "staging/clinvar/clinvar/2026-04-15/variants.parquet"
@@ -422,6 +583,7 @@ def _write_assembly_fixture(root: Path) -> SimpleNamespace:
     contract.mkdir()
     source_payload = {
         "ok": True,
+        "candidate_snapshot_id": "geno-lewm-data-v0.3.0-fixture-r1",
         "source_count": 23,
         "files": source_entries,
         "repositories": {
@@ -582,6 +744,92 @@ def _write_assembly_fixture(root: Path) -> SimpleNamespace:
     )
 
 
+def _assemble_fixture_snapshot(fixture: SimpleNamespace, output: Path) -> None:
+    assemble_v03_dataset_snapshot(
+        membership_bundle_dir=fixture.membership_bundle,
+        split_bundle_dir=fixture.split_bundle,
+        gnomad_root=fixture.gnomad_root,
+        clinvar_root=fixture.clinvar_root,
+        training_windows_path=fixture.training_windows,
+        dataset_dir=output,
+        split_repository="owner/data",
+        split_revision="d" * 40,
+        split_artifact_path="candidates/v0.3/splits/r1/success",
+        snapshot_id="geno-lewm-data-v0.3.0-fixture-r1",
+        generated_at="2026-07-13T18:00:00Z",
+        producer_git_commit="e" * 40,
+        container_image="ghcr.io/example/uv@sha256:" + "f" * 64,
+    )
+
+
+def _rewrite_snapshot_identities_after_tamper(root: Path) -> None:
+    pq = pytest.importorskip("pyarrow.parquet")
+    metadata_path = root / "dataset_package.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    tampered_relative = "gnomad/v4.1/train/chr1.variants.parquet"
+    tampered_records = int(pq.ParquetFile(root / tampered_relative).metadata.num_rows)
+    for item in metadata["files"]:
+        if item["path"] == tampered_relative:
+            previous_records = int(item["records"])
+            item["records"] = tampered_records
+            break
+    else:
+        raise AssertionError("tampered fixture shard is absent from package metadata")
+    metadata["splits"]["train_gnomad_common"]["records"] += tampered_records - previous_records
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    dataset_package_module.build_dataset_package(root, root / "dataset_package.json")
+    integrity_path = root / "split_integrity.json"
+    integrity = json.loads(integrity_path.read_text(encoding="utf-8"))
+    integrity["generated_at"] = metadata["generated_at"]
+    integrity_path.write_text(
+        json.dumps(integrity, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    package_model = dataset_package_module.load_dataset_package(root, metadata_path)
+    (root / "data_card.md").write_text(
+        dataset_package_module.render_data_card(package_model, integrity_report=integrity),
+        encoding="utf-8",
+    )
+    manifest = json.loads((root / "dataset_manifest.json").read_text(encoding="utf-8"))
+    report_path = root / snapshot_module.REPORT_NAME
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["v03"]["observed_splits"] = integrity["splits"]
+    old_files = {item["path"]: item for item in report["files"]}
+    report["files"] = [
+        {
+            **manifest_file,
+            **{
+                key: old_files[manifest_file["path"]][key]
+                for key in (
+                    "source_path",
+                    "source_sha256",
+                    "source_size_bytes",
+                    "already_exists",
+                )
+            },
+        }
+        for manifest_file in manifest["files"]
+    ]
+    package = report["package"]
+    package["schema_version"] = manifest["schema_version"]
+    package["metadata"] = _identity(root / "dataset_package.json", "dataset_package.json")
+    package["manifest"] = _identity(root / "dataset_manifest.json", "dataset_manifest.json")
+    package["data_card"] = _identity(root / "data_card.md", "data_card.md")
+    package["integrity"] = _identity(root / "split_integrity.json", "split_integrity.json")
+    package["files"] = manifest["files"]
+    package["membership_and_split_evidence"] = manifest["membership_and_split_evidence"]
+    manifest_index = {item["path"]: item for item in manifest["files"]}
+    for transformation in report["v03"]["transformations"]:
+        output = transformation["output"]
+        manifest_file = manifest_index[output["path"]]
+        output["sha256"] = manifest_file["sha256"]
+        output["size_bytes"] = manifest_file["size_bytes"]
+        output["records"] = manifest_file["records"]
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    snapshot_module._write_snapshot_checksums(root)
+
+
 def _write_stream(
     root: Path,
     *,
@@ -608,9 +856,7 @@ def _write_stream(
         },
     ]
     labels.write_text(
-        "".join(
-            json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows
-        ),
+        "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows),
         encoding="utf-8",
     )
     vcf.write_text(
