@@ -3,10 +3,12 @@
 #
 # Exact-SHA correction-control smoke run for Hugging Face Jobs.
 #
-# This job proves only that the corrected L2-normalized Phase-1 pipeline can
-# execute 50 finite optimizer steps from immutable upstream inputs and archive
-# coherent artifacts. It is not a convergence, determinism, benchmark, or
-# clinical-validity result.
+# A standalone run proves only that the corrected L2-normalized Phase-1 pipeline
+# can execute 50 finite optimizer steps from immutable upstream inputs and
+# archive coherent artifacts. REPLAY_REFERENCE_ATTEMPT additionally validates
+# only bit-exact deterministic-pair evidence against one completed prior run;
+# neither mode establishes convergence, deterministic throughput, benchmark
+# performance, or clinical validity.
 set -euo pipefail
 
 WORK="${WORK:-/tmp/geno-correction-control}"
@@ -21,6 +23,8 @@ RUN_ID="correction-control-l2-p1-smoke-v1"
 SNAPSHOT_ID="geno-lewm-data-correction-control-l2-p1-proof-v1"
 RUN_ATTEMPT="${RUN_ATTEMPT:-1}"
 RUN_NAME="${RUN_NAME:-geno-lewm-l2-p1-smoke-${COMMIT_SHA:0:12}-50-r${RUN_ATTEMPT}}"
+REPLAY_REFERENCE_ATTEMPT="${REPLAY_REFERENCE_ATTEMPT:-}"
+REFERENCE_RUN_NAME=""
 UPLOAD_REPO="${UPLOAD_REPO:-abdelstark/geno-lewm-runs}"
 
 CORPUS_REVISION="${CORPUS_REVISION:-cb4c13a78102933b3a6ac65734d326f7b431d9b7}"
@@ -136,6 +140,34 @@ case "$REMOTE_STATUS" in
     exit 1
     ;;
 esac
+
+if [ -n "$REPLAY_REFERENCE_ATTEMPT" ]; then
+  case "$REPLAY_REFERENCE_ATTEMPT" in
+    *[!0-9]* | 0 | 0*)
+      echo "FATAL: REPLAY_REFERENCE_ATTEMPT must be a positive integer" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$REPLAY_REFERENCE_ATTEMPT" -ge "$RUN_ATTEMPT" ]; then
+    echo "FATAL: REPLAY_REFERENCE_ATTEMPT must precede RUN_ATTEMPT" >&2
+    exit 1
+  fi
+
+  REFERENCE_RUN_NAME="geno-lewm-l2-p1-smoke-${COMMIT_SHA:0:12}-50-r${REPLAY_REFERENCE_ATTEMPT}"
+  REFERENCE_POSTFLIGHT_PATH="$REFERENCE_RUN_NAME/run/correction_control/correction_control_postflight.json"
+  REFERENCE_POSTFLIGHT_URL="https://huggingface.co/$UPLOAD_REPO/resolve/main/$REFERENCE_POSTFLIGHT_PATH"
+  REFERENCE_POSTFLIGHT_STATUS="$(
+    curl -sS -L --retry 3 \
+      -H "Authorization: Bearer $HF_TOKEN" \
+      -o /dev/null \
+      -w '%{http_code}' \
+      "$REFERENCE_POSTFLIGHT_URL"
+  )"
+  if [ "$REFERENCE_POSTFLIGHT_STATUS" != "200" ]; then
+    echo "FATAL: completed replay reference is unavailable (HTTP $REFERENCE_POSTFLIGHT_STATUS)" >&2
+    exit 1
+  fi
+fi
 
 test -d "$CARBON_DIR" || { echo "FATAL: Carbon checkpoint is not mounted at $CARBON_DIR" >&2; exit 1; }
 python - "$MIN_CUDA_VRAM_GB" <<'PY'
@@ -456,23 +488,42 @@ python -m tools.research.correction_control_postflight \
   --expected-dataset-snapshot-id "$SNAPSHOT_ID" \
   --output-json "$WORK/run/correction_control/correction_control_postflight.json"
 
+if [ -n "$REPLAY_REFERENCE_ATTEMPT" ]; then
+  log "validate deterministic replay against completed reference $REFERENCE_RUN_NAME"
+  hf download "$UPLOAD_REPO" \
+    --repo-type model \
+    --include "$REFERENCE_RUN_NAME/run/**" \
+    --local-dir "$WORK/replay-reference"
+  python -m tools.research.correction_control_replay \
+    --reference-run-dir "$WORK/replay-reference/$REFERENCE_RUN_NAME/run" \
+    --candidate-run-dir "$WORK/run" \
+    --reference-run-name "$REFERENCE_RUN_NAME" \
+    --candidate-run-name "$RUN_NAME" \
+    --expected-commit-sha "$COMMIT_SHA" \
+    --output-json "$WORK/run/correction_control/deterministic_replay_report.json"
+fi
+
 log "export validated deploy checkpoint"
 geno-lewm-export \
   --checkpoint "$WORK/run/predictor_checkpoint.pt" \
   --output-dir "$WORK/model" \
   --no-banner --quiet
 
+CONTROL_ARTIFACTS=(
+  job_contract_preflight.json
+  source_identity_report.json
+  state_contract_audit.json
+  dataset_snapshot_report.json
+  dataset_input_check_report.json
+  tuple_throughput_report.json
+  correction_control_postflight.json
+)
+if [ -n "$REPLAY_REFERENCE_ATTEMPT" ]; then
+  CONTROL_ARTIFACTS+=(deterministic_replay_report.json)
+fi
 (
   cd "$WORK/run/correction_control"
-  sha256sum \
-    job_contract_preflight.json \
-    source_identity_report.json \
-    state_contract_audit.json \
-    dataset_snapshot_report.json \
-    dataset_input_check_report.json \
-    tuple_throughput_report.json \
-    correction_control_postflight.json \
-    > SHA256SUMS
+  sha256sum "${CONTROL_ARTIFACTS[@]}" > SHA256SUMS
 )
 
 log "upload deploy and dataset artifacts"

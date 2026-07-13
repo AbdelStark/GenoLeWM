@@ -91,3 +91,39 @@ def test_proof_job_validates_before_writes_and_uploads_only_after_postflight() -
     training_invocation = script[training:postflight]
     for override_flag in ("--set", "--seed", "--run-id", "--deterministic"):
         assert override_flag not in training_invocation
+
+
+def test_proof_job_replay_uses_only_completed_reference_before_final_upload() -> None:
+    script = PROOF_RUN.read_text(encoding="utf-8")
+
+    postflight = script.index("python -m tools.research.correction_control_postflight")
+    replay = script.index("python -m tools.research.correction_control_replay")
+    export = script.index("geno-lewm-export")
+    completed_run_upload = script.index(
+        'hf upload "$UPLOAD_REPO" "$WORK/run" "$RUN_NAME/run" --repo-type model'
+    )
+
+    assert postflight < replay < export < completed_run_upload
+    assert 'REPLAY_REFERENCE_ATTEMPT="${REPLAY_REFERENCE_ATTEMPT:-}"' in script
+    assert (
+        'REFERENCE_RUN_NAME="geno-lewm-l2-p1-smoke-${COMMIT_SHA:0:12}-50-r${REPLAY_REFERENCE_ATTEMPT}"'
+        in script
+    )
+    assert '"$REFERENCE_RUN_NAME/run/**"' in script
+    assert (
+        '"$REFERENCE_RUN_NAME/run/correction_control/correction_control_postflight.json"' in script
+    )
+
+    replay_block = script[replay:export]
+    assert "run-partial" not in replay_block
+    for flag in (
+        "--reference-run-dir",
+        "--candidate-run-dir",
+        "--reference-run-name",
+        "--candidate-run-name",
+        "--expected-commit-sha",
+        "--output-json",
+    ):
+        assert flag in replay_block
+    assert "deterministic_replay_report.json" in script
+    assert "CONTROL_ARTIFACTS+=(deterministic_replay_report.json)" in script
