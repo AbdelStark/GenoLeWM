@@ -1045,7 +1045,7 @@ def _replace_after_first_binary_read(
     def open_fd_and_replace(
         path: Any,
         flags: int,
-        mode: int = 0o777,
+        mode: int = 0o600,
         *,
         dir_fd: int | None = None,
     ) -> int:

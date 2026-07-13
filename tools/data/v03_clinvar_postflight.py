@@ -221,8 +221,11 @@ def _validate_request(
         raise ClinvarPostflightError(
             "expected source commit must be a full lowercase 40-character Git SHA"
         )
+    release_to_parse = expected_release
+    if len(expected_release) == 8 and expected_release.isascii() and expected_release.isdigit():
+        release_to_parse = f"{expected_release[:4]}-{expected_release[4:6]}-{expected_release[6:]}"
     try:
-        parsed_release = date.fromisoformat(expected_release)
+        parsed_release = date.fromisoformat(release_to_parse)
     except ValueError as exc:
         raise ClinvarPostflightError("expected release must be an ISO YYYY-MM-DD date") from exc
     if parsed_release.isoformat() != expected_release:
