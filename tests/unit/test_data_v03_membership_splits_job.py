@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Static contract for the exact-revision v0.3 membership-split HF Job."""
 
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 JOB = Path("tools/jobs/v03_publish_membership_splits.sh")
 
@@ -205,5 +208,6 @@ def test_split_job_preserves_claim_boundary_and_exact_submission_recipe() -> Non
         assert token in script
 
 
+@pytest.mark.skipif(os.name == "nt", reason="HF Jobs executes this Bash contract on Linux")
 def test_split_job_is_valid_bash() -> None:
     subprocess.run(("bash", "-n", str(JOB)), check=True)

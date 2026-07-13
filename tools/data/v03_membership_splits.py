@@ -878,7 +878,10 @@ def _validate_report(report: Mapping[str, object], schema: Mapping[str, object])
 def _fsync_tree(root: Path) -> None:
     binary = getattr(os, "O_BINARY", 0)
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | binary)
+        # Windows' ``os.fsync`` delegates to ``_commit`` and rejects read-only
+        # descriptors. These are producer-owned staged files, so open them for
+        # writing without truncation before the durability barrier.
+        descriptor = os.open(path, os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | binary)
         try:
             os.fsync(descriptor)
         finally:

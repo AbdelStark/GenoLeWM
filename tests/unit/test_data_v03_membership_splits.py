@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -695,6 +696,29 @@ def test_builder_never_clobbers_an_existing_output_directory(
 
     assert _relative_files(output) == {"owner-data.txt"}
     assert sentinel.read_bytes() == b"do not replace\n"
+
+
+def test_durability_barrier_uses_a_write_capable_file_descriptor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "staged"
+    root.mkdir()
+    payload = root / "evidence.json"
+    payload.write_bytes(b"{}\n")
+    observed_flags: list[int] = []
+    real_open = os.open
+
+    def _record_open(path: str | bytes | Path, flags: int, *args: int) -> int:
+        if Path(path) == payload:
+            observed_flags.append(flags)
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(os, "open", _record_open)
+    membership_splits._fsync_tree(root)
+
+    assert len(observed_flags) == 1
+    assert observed_flags[0] & (os.O_WRONLY | os.O_RDWR)
 
 
 def test_cli_returns_typed_input_error_without_publishing_partial_output(
