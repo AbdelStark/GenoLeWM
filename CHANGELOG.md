@@ -17,6 +17,12 @@ or incompatible command changes require an explicit compatibility note.
 - Replaced the ambiguous cache v1 key with cache schema `2.0.0`. Centered
   pooling now commits `center_token`; legacy Parquet shards are rejected and
   legacy SQLite indexes are invalidated because they can collide across loci.
+- Added cache schema `3.0.0`: new shards separate logical compute dtype from
+  truthful fixed-size FP32 storage, namespace paths by the full cache identity,
+  validate staged Parquet before atomic installation, rebuild SQLite indexes
+  atomically, and support grouped row-group lookup. Schema-2 shards remain
+  readable and reindexable for replay but are no longer written; their legacy
+  dtype label is not evidence that non-FP16 values were stored faithfully.
 - Corrected the Carbon token-coordinate mapping. Historical centered pooling
   used `edit_locus // 6` directly against hidden states even though the first
   hidden token is `<dna>`, shifting every intended center one hidden token left
@@ -49,6 +55,12 @@ or incompatible command changes require an explicit compatibility note.
 
 - `WindowCacheKey` and `WindowCacheRecord` now require `center_token`, and
   cache schema `1.0.0` is intentionally not reusable.
+- New cache writes use schema `3.0.0`. Schema-2 Parquet remains read-only
+  compatible; callers that emit schema-bound rollout artifacts must regenerate
+  those artifacts with the schema-3 version.
+- `shard_path_for` accepts optional `encoder_hash` and `dtype` identity fields
+  for schema-3 paths. Omitting both retains the schema-2 path calculation for
+  locating legacy artifacts; callers predicting a new writer path must pass both.
 - Rollout state specs/examples move to schema `1.2.0` and bind cache schema,
   raw-storage semantics, materialized state contract, encoder identity,
   pooling locus, and state width. Older ambiguous rows must be regenerated.

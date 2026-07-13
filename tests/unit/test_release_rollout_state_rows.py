@@ -66,7 +66,7 @@ def test_rollout_state_rows_generate_ranked_jsonl_and_report(
         "dtype": "bf16",
         "normalize": False,
         "d_state": 2,
-        "cache_schema_version": "2.0.0",
+        "cache_schema_version": "3.0.0",
         "cached_state_value_contract": "raw_pooled_v1",
         "validated_against_examples": True,
     }
@@ -226,7 +226,7 @@ def _example_row(
     row: dict[str, object] = {
         "schema_version": "1.2.0",
         "generated_by": "tools.release.rollout_state_examples",
-        "cache_schema_version": "2.0.0",
+        "cache_schema_version": "3.0.0",
         "cached_state_value_contract": "raw_pooled_v1",
         "materialized_state_contract": ("l2_normalized_v2" if normalize else "legacy_raw_v1"),
         "id": "phased-k2-a",

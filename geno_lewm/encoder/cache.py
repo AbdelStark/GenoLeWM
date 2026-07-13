@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Parquet raw pooled window-embedding cache and SQLite index.
 
-Implements the on-disk cache contract from encoder contract and
-``public API contract``.
+New writes use the collision-safe schema-3 contract; schema-2 shards remain
+read-only compatible for lookup, repair, and reindexing.
 Parquet support is intentionally imported lazily so the base package
 keeps its minimal dependency surface; install ``geno-lewm[train]`` or
 the development extra to use this module.
@@ -10,12 +10,16 @@ the development extra to use this module.
 
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
+import struct
+import tempfile
 import time
+from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +35,7 @@ __all__ = [
     "WindowCacheRecord",
     "default_cache_dir",
     "read_embedding",
+    "read_embeddings",
     "reindex_cache",
     "repair_cache",
     "shard_path_for",
@@ -38,11 +43,14 @@ __all__ = [
 ]
 
 
-CACHE_SCHEMA_VERSION = "2.0.0"
+CACHE_SCHEMA_VERSION = "3.0.0"
+_LEGACY_CACHE_SCHEMA_VERSION = "2.0.0"
 INDEX_DB_NAME = "index.sqlite"
 _INDEX_SCHEMA_VERSION = 2
 _EMBEDDINGS_DIR = "embeddings"
 _QUARANTINE_DIR = ".quarantine"
+_STORAGE_DTYPE = "fp32"
+_ROW_GROUP_SIZE = 1_024
 _SUPPORTED_DTYPES = frozenset({"bf16", "fp16", "fp32"})
 _SUPPORTED_POOL_TYPES = frozenset({POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN, "attention"})
 
@@ -102,15 +110,23 @@ class WindowCacheRecord:
         if not self.embedding:
             raise InputError("embedding must contain at least one value")
         for idx, value in enumerate(self.embedding):
-            if not isinstance(value, int | float):
+            if isinstance(value, bool) or not isinstance(value, int | float):
                 raise InputError(
                     "embedding values must be numeric",
                     details={"index": idx, "value": repr(value)},
                 )
-        if self.schema_version != CACHE_SCHEMA_VERSION:
+            if not math.isfinite(value):
+                raise InputError(
+                    "embedding values must be finite",
+                    details={"index": idx, "value": repr(value)},
+                )
+        if self.schema_version not in {CACHE_SCHEMA_VERSION, _LEGACY_CACHE_SCHEMA_VERSION}:
             raise InputError(
                 "unsupported cache schema_version",
-                details={"schema_version": self.schema_version, "supported": CACHE_SCHEMA_VERSION},
+                details={
+                    "schema_version": self.schema_version,
+                    "supported": [CACHE_SCHEMA_VERSION, _LEGACY_CACHE_SCHEMA_VERSION],
+                },
             )
         WindowCacheKey(
             window_hash=self.window_hash,
@@ -189,8 +205,15 @@ def shard_path_for(
     pool_radius: int,
     contig: str,
     stride_block: int,
+    encoder_hash: bytes | None = None,
+    dtype: str | None = None,
 ) -> Path:
-    """Return the canonical Parquet shard path for a cache block."""
+    """Return the canonical Parquet shard path for a cache block.
+
+    Supplying ``encoder_hash`` and ``dtype`` selects the collision-safe v3
+    namespace. Omitting both preserves the legacy v2 path contract for
+    callers that need to locate existing artifacts.
+    """
     _validate_state_layer(state_layer)
     _validate_pool(pool_type, pool_radius)
     if not contig:
@@ -202,6 +225,22 @@ def shard_path_for(
         )
     root = Path(cache_dir)
     encoder_part = _path_part(encoder_id)
+    if (encoder_hash is None) != (dtype is None):
+        raise InputError("encoder_hash and dtype must be supplied together")
+    if encoder_hash is not None and dtype is not None:
+        _validate_hash("encoder_hash", encoder_hash)
+        _validate_dtype(dtype)
+        return (
+            root
+            / _EMBEDDINGS_DIR
+            / "v3"
+            / encoder_part
+            / encoder_hash.hex()
+            / f"{dtype}_as_{_STORAGE_DTYPE}"
+            / str(state_layer)
+            / f"{pool_type}_{pool_radius}"
+            / f"chr{_path_part(contig)}_{stride_block}.parquet"
+        )
     return (
         root
         / _EMBEDDINGS_DIR
@@ -228,8 +267,14 @@ def write_shard(
     """
     if not records:
         raise InputError("records must contain at least one cache row")
-    normalized = tuple(record.with_created_at() for record in records)
+    requested = tuple(records)
+    normalized = tuple(_record_for_storage(record.with_created_at()) for record in requested)
     first = normalized[0]
+    if first.schema_version != CACHE_SCHEMA_VERSION:
+        raise InputError(
+            "write_shard only writes the current cache schema",
+            details={"schema_version": first.schema_version, "supported": CACHE_SCHEMA_VERSION},
+        )
     if any(record.chrom != contig for record in normalized):
         raise InputError("all records in a shard must match the contig argument")
     if any(record.state_layer != first.state_layer for record in normalized):
@@ -238,6 +283,17 @@ def write_shard(
         raise InputError("all records in a shard must share pool_type")
     if any(record.pool_radius != first.pool_radius for record in normalized):
         raise InputError("all records in a shard must share pool_radius")
+    if any(record.encoder_hash != first.encoder_hash for record in normalized):
+        raise InputError("all records in a shard must share encoder_hash")
+    if any(record.dtype != first.dtype for record in normalized):
+        raise InputError("all records in a shard must share dtype")
+    if any(record.schema_version != first.schema_version for record in normalized):
+        raise InputError("all records in a shard must share schema_version")
+    if any(len(record.embedding) != len(first.embedding) for record in normalized):
+        raise InputError("all records in a shard must share embedding width")
+    keys = tuple(record.key for record in normalized)
+    if len(set(keys)) != len(keys):
+        raise InputError("records must not contain a duplicate cache key")
 
     root = Path(cache_dir)
     path = shard_path_for(
@@ -248,63 +304,120 @@ def write_shard(
         pool_radius=first.pool_radius,
         contig=contig,
         stride_block=stride_block,
+        encoder_hash=first.encoder_hash,
+        dtype=first.dtype,
     )
     if path.exists():
         existing = _read_records_from_shard(path)
-        _assert_existing_shard_equivalent(path, existing, normalized)
+        comparable = normalized
+        if len(existing) == len(normalized):
+            comparable = tuple(
+                replace(incoming, created_at=prior.created_at)
+                if requested[index].created_at == 0
+                else incoming
+                for index, (prior, incoming) in enumerate(zip(existing, normalized, strict=True))
+            )
+        _assert_existing_shard_equivalent(path, existing, comparable)
         _index_records(root, path, existing)
         return path
 
     _assert_index_keys_available(root, normalized)
     path.parent.mkdir(parents=True, exist_ok=True)
-    _write_records_to_parquet(path, normalized)
+    file_descriptor, temp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    os.close(file_descriptor)
+    temp_path = Path(temp_name)
+    try:
+        _write_records_to_parquet(temp_path, normalized)
+        _fsync_file(temp_path)
+        staged = _read_records_from_shard(temp_path)
+        _assert_existing_shard_equivalent(temp_path, staged, normalized)
+        temp_path.replace(path)
+        _fsync_directory(path.parent)
+    finally:
+        temp_path.unlink(missing_ok=True)
     _index_records(root, path, normalized)
     return path
 
 
 def read_embedding(cache_dir: Path | str, key: WindowCacheKey) -> tuple[float, ...] | None:
     """Return a raw pooled embedding by content key, or ``None`` on cache miss."""
+    return read_embeddings(cache_dir, (key,))[0]
+
+
+def read_embeddings(
+    cache_dir: Path | str,
+    keys: Sequence[WindowCacheKey],
+) -> tuple[tuple[float, ...] | None, ...]:
+    """Return raw embeddings for ``keys`` in order, grouping reads by shard.
+
+    Duplicate keys and misses are preserved in the returned tuple. Only the
+    Parquet row groups containing requested rows are read.
+    """
+    if not keys:
+        return ()
     root = Path(cache_dir)
     index_path = _index_path(root)
     if not index_path.exists():
-        return None
+        return tuple(None for _key in keys)
+    locations: dict[WindowCacheKey, tuple[Path, int]] = {}
+    indexed_paths: dict[str, Path] = {}
     with closing(sqlite3.connect(index_path)) as conn:
         _ensure_index_schema(conn)
-        row = conn.execute(
-            """
-            SELECT shard_path, row_offset
-            FROM window_index
-            WHERE window_hash = ?
-              AND encoder_hash = ?
-              AND state_layer = ?
-              AND pool_type = ?
-              AND pool_radius = ?
-              AND center_token = ?
-              AND dtype = ?
-            """,
-            _index_key_params(key),
-        ).fetchone()
+        for key in dict.fromkeys(keys):
+            row = conn.execute(
+                """
+                SELECT shard_path, row_offset
+                FROM window_index
+                WHERE window_hash = ?
+                  AND encoder_hash = ?
+                  AND state_layer = ?
+                  AND pool_type = ?
+                  AND pool_radius = ?
+                  AND center_token = ?
+                  AND dtype = ?
+                """,
+                _index_key_params(key),
+            ).fetchone()
+            if row is not None:
+                relative_path = str(row[0])
+                shard_path = indexed_paths.get(relative_path)
+                if shard_path is None:
+                    shard_path = _indexed_shard_path(root, relative_path)
+                    indexed_paths[relative_path] = shard_path
+                locations[key] = (shard_path, int(row[1]))
         conn.commit()
-    if row is None:
-        return None
-    shard_path = root / str(row[0])
-    row_offset = int(row[1])
-    try:
-        records = _read_records_from_shard(shard_path)
-    except CacheCorruptError:
-        raise
-    if row_offset < 0 or row_offset >= len(records):
-        raise CacheCorruptError(
-            "cache index row_offset points outside shard",
-            details={"shard_path": str(shard_path), "row_offset": row_offset},
-        )
-    record = records[row_offset]
-    if record.key != key:
-        raise CacheCorruptError(
-            "cache index key does not match shard row",
-            details={"shard_path": str(shard_path), "row_offset": row_offset},
-        )
-    return record.embedding
+    requests_by_shard: dict[Path, list[tuple[int, WindowCacheKey, int]]] = defaultdict(list)
+    for result_index, key in enumerate(keys):
+        location = locations.get(key)
+        if location is not None:
+            shard_path, row_offset = location
+            requests_by_shard[shard_path].append((result_index, key, row_offset))
+    results: list[tuple[float, ...] | None] = [None] * len(keys)
+    for shard_path, requests in requests_by_shard.items():
+        requested_offsets = {request[2] for request in requests}
+        records = _read_records_at_offsets(shard_path, requested_offsets)
+        missing_offsets = requested_offsets - records.keys()
+        if missing_offsets:
+            raise CacheCorruptError(
+                "cache index row_offset could not be resolved in shard",
+                details={
+                    "shard_path": str(shard_path),
+                    "row_offsets": sorted(missing_offsets),
+                },
+            )
+        for result_index, key, row_offset in requests:
+            record = records[row_offset]
+            if record.key != key:
+                raise CacheCorruptError(
+                    "cache index key does not match shard row",
+                    details={"shard_path": str(shard_path), "row_offset": row_offset},
+                )
+            results[result_index] = record.embedding
+    return tuple(results)
 
 
 def reindex_cache(cache_dir: Path | str) -> CacheReindexReport:
@@ -312,18 +425,35 @@ def reindex_cache(cache_dir: Path | str) -> CacheReindexReport:
     root = Path(cache_dir)
     index_path = _index_path(root)
     index_path.parent.mkdir(parents=True, exist_ok=True)
-    if index_path.exists():
-        index_path.unlink()
     indexed_shards = 0
     indexed_rows = 0
-    with closing(sqlite3.connect(index_path)) as conn:
-        _ensure_index_schema(conn)
-        for shard in _iter_shards(root):
-            records = _read_records_from_shard(shard)
-            _insert_index_records(conn, root, shard, records)
-            indexed_shards += 1
-            indexed_rows += len(records)
-        conn.commit()
+    file_descriptor, temp_name = tempfile.mkstemp(
+        dir=index_path.parent,
+        prefix=f".{index_path.name}.",
+        suffix=".tmp",
+    )
+    os.close(file_descriptor)
+    temp_path = Path(temp_name)
+    try:
+        with closing(sqlite3.connect(temp_path)) as conn:
+            _ensure_index_schema(conn)
+            for shard in _iter_shards(root):
+                records = _read_records_from_shard(shard)
+                _insert_index_records(conn, root, shard, records)
+                indexed_shards += 1
+                indexed_rows += len(records)
+            conn.commit()
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()
+            if integrity is None or str(integrity[0]) != "ok":
+                raise CacheCorruptError(
+                    "rebuilt cache index failed SQLite integrity_check",
+                    details={"index_path": str(index_path), "result": integrity},
+                )
+        _fsync_file(temp_path)
+        temp_path.replace(index_path)
+        _fsync_directory(index_path.parent)
+    finally:
+        temp_path.unlink(missing_ok=True)
     return CacheReindexReport(
         indexed_shards=indexed_shards,
         indexed_rows=indexed_rows,
@@ -376,18 +506,25 @@ def _write_records_to_parquet(path: Path, records: Sequence[WindowCacheRecord]) 
             "pool_radius": [record.pool_radius for record in records],
             "center_token": [record.center_token for record in records],
             "dtype": [record.dtype for record in records],
+            "storage_dtype": [_STORAGE_DTYPE for _record in records],
             "embedding": [list(record.embedding) for record in records],
             "untargeted": [record.untargeted for record in records],
             "created_at": [record.created_at for record in records],
             "schema_version": [record.schema_version for record in records],
         },
-        schema=_arrow_schema(pa),
+        schema=_arrow_schema(pa, embedding_size=len(records[0].embedding)),
     )
-    pq.write_table(table, path, compression="zstd", compression_level=9)
+    pq.write_table(
+        table,
+        path,
+        compression="zstd",
+        compression_level=9,
+        row_group_size=_ROW_GROUP_SIZE,
+    )
 
 
 def _read_records_from_shard(path: Path) -> tuple[WindowCacheRecord, ...]:
-    _pa, pq = _require_pyarrow()
+    pa, pq = _require_pyarrow()
     try:
         table = pq.read_table(path)
     except Exception as exc:
@@ -395,33 +532,10 @@ def _read_records_from_shard(path: Path) -> tuple[WindowCacheRecord, ...]:
             "cache shard could not be read",
             details={"shard_path": str(path), "error": str(exc)},
         ) from exc
-    required = set(_column_names())
-    observed = set(table.column_names)
-    if required - observed:
-        raise CacheCorruptError(
-            "cache shard is missing required column(s)",
-            details={"shard_path": str(path), "missing": sorted(required - observed)},
-        )
+    schema_version = _schema_version_from_table(table, path=path)
+    _validate_physical_schema(pa, table, path=path, schema_version=schema_version)
     try:
-        return tuple(
-            WindowCacheRecord(
-                chrom=str(row["chrom"]),
-                start_bp=int(row["start_bp"]),
-                end_bp=int(row["end_bp"]),
-                window_hash=bytes(row["window_hash"]),
-                encoder_hash=bytes(row["encoder_hash"]),
-                state_layer=int(row["state_layer"]),
-                pool_type=str(row["pool_type"]),
-                pool_radius=int(row["pool_radius"]),
-                center_token=(None if row["center_token"] is None else int(row["center_token"])),
-                dtype=str(row["dtype"]),
-                embedding=tuple(float(value) for value in row["embedding"]),
-                untargeted=bool(row["untargeted"]),
-                created_at=int(row["created_at"]),
-                schema_version=str(row["schema_version"]),
-            )
-            for row in table.to_pylist()
-        )
+        return tuple(_record_from_row(row) for row in table.to_pylist())
     except (InputError, TypeError, ValueError) as exc:
         raise CacheCorruptError(
             "cache shard contains an invalid row",
@@ -429,7 +543,158 @@ def _read_records_from_shard(path: Path) -> tuple[WindowCacheRecord, ...]:
         ) from exc
 
 
-def _arrow_schema(pa: Any) -> Any:
+def _read_records_at_offsets(
+    path: Path,
+    row_offsets: set[int],
+) -> dict[int, WindowCacheRecord]:
+    pa, pq = _require_pyarrow()
+    try:
+        parquet = pq.ParquetFile(path)
+    except Exception as exc:
+        raise CacheCorruptError(
+            "cache shard could not be read",
+            details={"shard_path": str(path), "error": str(exc)},
+        ) from exc
+    row_count = parquet.metadata.num_rows
+    invalid = sorted(offset for offset in row_offsets if offset < 0 or offset >= row_count)
+    if invalid:
+        raise CacheCorruptError(
+            "cache index row_offset points outside shard",
+            details={"shard_path": str(path), "row_offsets": invalid, "rows": row_count},
+        )
+    records: dict[int, WindowCacheRecord] = {}
+    group_start = 0
+    sorted_offsets = sorted(row_offsets)
+    offset_cursor = 0
+    try:
+        for group_index in range(parquet.num_row_groups):
+            group_rows = parquet.metadata.row_group(group_index).num_rows
+            group_end = group_start + group_rows
+            selected: list[int] = []
+            while offset_cursor < len(sorted_offsets) and sorted_offsets[offset_cursor] < group_end:
+                selected.append(sorted_offsets[offset_cursor])
+                offset_cursor += 1
+            if selected:
+                table = parquet.read_row_group(group_index)
+                schema_version = _schema_version_from_table(table, path=path)
+                _validate_physical_schema(
+                    pa,
+                    table,
+                    path=path,
+                    schema_version=schema_version,
+                )
+                for offset in selected:
+                    local_offset = offset - group_start
+                    row = table.slice(local_offset, 1).to_pylist()[0]
+                    records[offset] = _record_from_row(row)
+            group_start = group_end
+    except CacheCorruptError:
+        raise
+    except Exception as exc:
+        raise CacheCorruptError(
+            "cache shard contains an invalid indexed row",
+            details={"shard_path": str(path), "error": str(exc)},
+        ) from exc
+    return records
+
+
+def _schema_version_from_table(table: Any, *, path: Path) -> str:
+    required = set(_column_names(schema_version=_LEGACY_CACHE_SCHEMA_VERSION))
+    observed = set(table.column_names)
+    if required - observed:
+        raise CacheCorruptError(
+            "cache shard is missing required column(s)",
+            details={"shard_path": str(path), "missing": sorted(required - observed)},
+        )
+    schema_versions = set(table.column("schema_version").to_pylist())
+    if len(schema_versions) != 1:
+        raise CacheCorruptError(
+            "cache shard must contain one schema_version",
+            details={
+                "shard_path": str(path),
+                "schema_versions": sorted(repr(value) for value in schema_versions),
+            },
+        )
+    schema_version = str(next(iter(schema_versions)))
+    if schema_version not in {CACHE_SCHEMA_VERSION, _LEGACY_CACHE_SCHEMA_VERSION}:
+        raise CacheCorruptError(
+            "cache shard uses an unsupported schema_version",
+            details={"shard_path": str(path), "schema_version": schema_version},
+        )
+    required = set(_column_names(schema_version=schema_version))
+    if required - observed:
+        raise CacheCorruptError(
+            "cache shard is missing required column(s)",
+            details={"shard_path": str(path), "missing": sorted(required - observed)},
+        )
+    if schema_version == CACHE_SCHEMA_VERSION:
+        storage_dtypes = set(table.column("storage_dtype").to_pylist())
+        if storage_dtypes != {_STORAGE_DTYPE}:
+            raise CacheCorruptError(
+                "cache shard storage_dtype does not match its physical schema",
+                details={
+                    "shard_path": str(path),
+                    "storage_dtypes": sorted(repr(value) for value in storage_dtypes),
+                },
+            )
+    return schema_version
+
+
+def _record_from_row(row: dict[str, Any]) -> WindowCacheRecord:
+    return WindowCacheRecord(
+        chrom=str(row["chrom"]),
+        start_bp=int(row["start_bp"]),
+        end_bp=int(row["end_bp"]),
+        window_hash=bytes(row["window_hash"]),
+        encoder_hash=bytes(row["encoder_hash"]),
+        state_layer=int(row["state_layer"]),
+        pool_type=str(row["pool_type"]),
+        pool_radius=int(row["pool_radius"]),
+        center_token=(None if row["center_token"] is None else int(row["center_token"])),
+        dtype=str(row["dtype"]),
+        embedding=tuple(float(value) for value in row["embedding"]),
+        untargeted=bool(row["untargeted"]),
+        created_at=int(row["created_at"]),
+        schema_version=str(row["schema_version"]),
+    )
+
+
+def _record_for_storage(record: WindowCacheRecord) -> WindowCacheRecord:
+    try:
+        embedding = tuple(
+            struct.unpack("<f", struct.pack("<f", float(value)))[0] for value in record.embedding
+        )
+    except (OverflowError, struct.error) as exc:
+        raise InputError(
+            "embedding values must be representable as fp32 storage",
+            details={"storage_dtype": _STORAGE_DTYPE},
+        ) from exc
+    return replace(record, embedding=embedding)
+
+
+def _arrow_schema(pa: Any, *, embedding_size: int) -> Any:
+    return pa.schema(
+        [
+            ("chrom", pa.string()),
+            ("start_bp", pa.int64()),
+            ("end_bp", pa.int64()),
+            ("window_hash", pa.binary(32)),
+            ("encoder_hash", pa.binary(32)),
+            ("state_layer", pa.int8()),
+            ("pool_type", pa.string()),
+            ("pool_radius", pa.int32()),
+            ("center_token", pa.int32()),
+            ("dtype", pa.string()),
+            ("storage_dtype", pa.string()),
+            ("embedding", pa.list_(pa.float32(), embedding_size)),
+            ("untargeted", pa.bool_()),
+            ("created_at", pa.int64()),
+            ("schema_version", pa.string()),
+        ]
+    )
+
+
+def _legacy_arrow_schema(pa: Any) -> Any:
     return pa.schema(
         [
             ("chrom", pa.string()),
@@ -450,8 +715,51 @@ def _arrow_schema(pa: Any) -> Any:
     )
 
 
-def _column_names() -> tuple[str, ...]:
-    return (
+def _validate_physical_schema(
+    pa: Any,
+    table: Any,
+    *,
+    path: Path,
+    schema_version: str,
+) -> None:
+    if schema_version == _LEGACY_CACHE_SCHEMA_VERSION:
+        expected = _legacy_arrow_schema(pa)
+        embedding_type = table.schema.field("embedding").type
+        embedding_matches = pa.types.is_list(embedding_type) and embedding_type.value_type.equals(
+            pa.float16()
+        )
+    else:
+        embedding_type = table.schema.field("embedding").type
+        if not pa.types.is_fixed_size_list(embedding_type):
+            raise CacheCorruptError(
+                "cache shard physical schema does not use fixed-width embeddings",
+                details={"shard_path": str(path), "embedding_type": str(embedding_type)},
+            )
+        expected = _arrow_schema(pa, embedding_size=embedding_type.list_size)
+        embedding_matches = embedding_type.value_type.equals(pa.float32())
+    non_embedding_matches = all(
+        table.schema.field(name).type.equals(expected.field(name).type)
+        for name in expected.names
+        if name != "embedding" and name in table.schema.names
+    )
+    if (
+        table.schema.names != expected.names
+        or not embedding_matches
+        or not non_embedding_matches
+        or table.schema.metadata != expected.metadata
+    ):
+        raise CacheCorruptError(
+            "cache shard physical schema does not match its schema_version",
+            details={
+                "shard_path": str(path),
+                "expected": str(expected),
+                "observed": str(table.schema),
+            },
+        )
+
+
+def _column_names(*, schema_version: str = CACHE_SCHEMA_VERSION) -> tuple[str, ...]:
+    common = (
         "chrom",
         "start_bp",
         "end_bp",
@@ -462,6 +770,11 @@ def _column_names() -> tuple[str, ...]:
         "pool_radius",
         "center_token",
         "dtype",
+    )
+    storage = ("storage_dtype",) if schema_version == CACHE_SCHEMA_VERSION else ()
+    return (
+        *common,
+        *storage,
         "embedding",
         "untargeted",
         "created_at",
@@ -474,19 +787,15 @@ def _assert_existing_shard_equivalent(
     existing: Sequence[WindowCacheRecord],
     incoming: Sequence[WindowCacheRecord],
 ) -> None:
-    existing_by_key = {record.key: record for record in existing}
-    for record in incoming:
-        prior = existing_by_key.get(record.key)
-        if prior is None:
-            raise CacheCorruptError(
-                "cache shard already exists; refusing in-place append",
-                details={"shard_path": str(path), "window_hash": record.window_hash.hex()},
-            )
-        if prior.embedding != record.embedding:
-            raise CacheCorruptError(
-                "cache shard contains conflicting row for key",
-                details={"shard_path": str(path), "window_hash": record.window_hash.hex()},
-            )
+    if tuple(existing) != tuple(incoming):
+        raise CacheCorruptError(
+            "existing cache shard must exactly match incoming rows and metadata",
+            details={
+                "shard_path": str(path),
+                "existing_rows": len(existing),
+                "incoming_rows": len(incoming),
+            },
+        )
 
 
 def _assert_index_keys_available(cache_dir: Path, records: Sequence[WindowCacheRecord]) -> None:
@@ -691,9 +1000,41 @@ def _index_path(cache_dir: Path) -> Path:
     return cache_dir / _EMBEDDINGS_DIR / INDEX_DB_NAME
 
 
+def _indexed_shard_path(cache_dir: Path, relative_path: str) -> Path:
+    candidate = Path(relative_path)
+    root = cache_dir.resolve()
+    if candidate.is_absolute():
+        raise CacheCorruptError(
+            "cache index shard path points outside cache root",
+            details={"shard_path": relative_path},
+        )
+    resolved = (root / candidate).resolve()
+    if not resolved.is_relative_to(root):
+        raise CacheCorruptError(
+            "cache index shard path points outside cache root",
+            details={"shard_path": relative_path},
+        )
+    return resolved
+
+
+def _fsync_file(path: Path) -> None:
+    with path.open("rb") as handle:
+        os.fsync(handle.fileno())
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":  # Directory handles cannot be fsynced this way on Windows.
+        return
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _path_part(value: str) -> str:
-    if not value:
-        raise InputError("cache path component must be non-empty")
+    if not value or value in {".", ".."}:
+        raise InputError("cache path component must be non-empty and not a dot segment")
     return value.replace("/", "__").replace("\\", "__")
 
 

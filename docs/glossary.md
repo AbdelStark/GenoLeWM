@@ -46,9 +46,12 @@ leading `<dna>` control token. Correct centered pooling uses
 `dna_content_start`, shifting every intended center one hidden token left and
 sometimes centering on the control token.
 
-**Cache schema 2.** Raw post-pooling, pre-normalization Carbon states keyed by
-encoder runtime identity, layer, pooling mode/radius, `center_token`, and dtype.
-Cache v1 omitted `center_token` and is intentionally invalidated.
+**Cache schema 3.** Raw post-pooling, pre-normalization Carbon states keyed by
+encoder runtime identity, layer, pooling mode/radius, `center_token`, and
+logical compute dtype. New Parquet shards separately declare fixed-size `fp32`
+physical storage and use a collision-safe identity namespace. Cache v2 remains
+readable for compatibility; cache v1 omitted `center_token` and is intentionally
+invalidated.
 
 **Surprise.** A candidate residual between predicted and encoded post-edit
 states under the same validated state contract. Published `legacy_raw_v1`

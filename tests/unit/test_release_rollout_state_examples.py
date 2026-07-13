@@ -32,7 +32,7 @@ def test_rollout_state_examples_generate_jsonl_and_report(tmp_path: Path) -> Non
 
     row = json.loads(output.read_text(encoding="utf-8"))
     assert row["schema_version"] == "1.2.0"
-    assert row["cache_schema_version"] == "2.0.0"
+    assert row["cache_schema_version"] == "3.0.0"
     assert row["cached_state_value_contract"] == "raw_pooled_v1"
     assert row["materialized_state_contract"] == "legacy_raw_v1"
     assert row["generated_by"] == "tools.release.rollout_state_examples"
@@ -173,7 +173,7 @@ def _spec_row(
     row: dict[str, object] = {
         "schema_version": "1.2.0",
         "generated_by": "tools.release.rollout_state_example_specs",
-        "cache_schema_version": "2.0.0",
+        "cache_schema_version": "3.0.0",
         "cached_state_value_contract": "raw_pooled_v1",
         "id": "phased-k2-a",
         "split": "rollout_phased_haplotypes",

@@ -36,12 +36,25 @@ optional local state caching. `l2_normalized_v2` applies L2 normalization
 after pooling. `legacy_raw_v1` preserves the historical raw pooled state
 contract for compatibility only.
 
-Cache schema `2.0.0` stores raw post-pooling, pre-normalization vectors. Its
+Cache schema `3.0.0` stores raw post-pooling, pre-normalization vectors. Its
 identity includes the encoder runtime hash, layer, pooling mode/radius,
-`center_token`, and dtype. Normalization is a consumer-side view, so raw cache
-rows can serve either contract without colliding. Cache v1 omitted the pooling
-center and is deliberately invalidated; its SQLite index is rebuilt empty and
-its Parquet shards must be regenerated or quarantined.
+`center_token`, and logical compute dtype. The physical Parquet representation
+is recorded separately as fixed-size `fp32`, which losslessly represents
+states produced in BF16, FP16, or FP32 without labeling FP16 bytes as another
+dtype. New shard paths include the schema generation, encoder hash, logical
+dtype, physical dtype, layer, and pooling identity. Schema-2 shards remain
+readable and reindexable but are never written by the schema-3 writer. Their
+historical `dtype` column did not always describe the FP16 physical payload,
+so compatibility reads support replay only; dtype-faithful evidence requires
+regenerating the shard as schema 3.
+
+Shard writes stage to a same-directory temporary file, reopen and validate the
+complete schema and rows, then atomically install the shard. Index rebuilds are
+also staged and replace the prior SQLite index only after `integrity_check`
+passes. Batched lookup groups keys by shard and reads each required Parquet row
+group once. Normalization remains a consumer-side view, so raw cache rows can
+serve either state contract without colliding. Cache v1 omitted the pooling
+center and remains deliberately invalidated.
 
 The corrected Carbon path does not execute the upstream custom tokenizer. The
 pinned upstream `tokenizer.py` delegated to an unpinned, network-capable
