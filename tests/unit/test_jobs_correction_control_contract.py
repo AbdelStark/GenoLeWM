@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 PROOF_RUN = Path("tools/jobs/proof_run.sh")
+PROOF_CONFIG = Path("configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml")
+
+
+def test_proof_job_pins_reduced_normalized_state_learning_rate() -> None:
+    config = yaml.safe_load(PROOF_CONFIG.read_text(encoding="utf-8"))
+
+    assert config["optimizer"]["lr"] == 3.0e-5
 
 
 def test_proof_job_uses_only_correction_control_config_and_immutable_sources() -> None:
