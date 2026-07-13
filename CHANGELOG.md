@@ -91,6 +91,13 @@ or incompatible command changes require an explicit compatibility note.
 - Made unsupported export targets fail closed until a backed runtime
   implementation exists.
 
+### Fixed
+
+- Replaced bounded retry sampling for synthetic SNVs with exact uniform
+  sampling over valid A/C/G/T interior anchors. Sparse Carbon windows can no
+  longer fail nondeterministically after eleven draws land on ambiguous bases;
+  windows with no valid interior anchor still fail closed.
+
 ## [0.2.1] - 2026-06-09
 
 ### Added
