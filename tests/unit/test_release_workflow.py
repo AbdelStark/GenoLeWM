@@ -84,7 +84,7 @@ def test_ci_workflow_runs_dedicated_ml_smoke_gate() -> None:
     assert "needs.ml-smoke.result != 'success'" in text
 
 
-def test_ci_windows_coverage_excludes_only_the_posix_cache_module() -> None:
+def test_ci_windows_coverage_excludes_the_posix_cache_modules() -> None:
     text = CI_WORKFLOW.read_text(encoding="utf-8")
     pytest_step = text.split("      - name: pytest", maxsplit=1)[1].split(
         "      - name: Upload pytest output", maxsplit=1
@@ -93,7 +93,10 @@ def test_ci_windows_coverage_excludes_only_the_posix_cache_module() -> None:
 
     assert "--cov-fail-under=0" in windows_branch
     assert "coverage report --show-missing --fail-under=84" in windows_branch
-    assert '--omit="*/encoder/cache.py"' in windows_branch
+    assert (
+        '--omit="*/encoder/cache.py,*/encoder/cache_build.py,*/cli/cache_windows.py"'
+        in windows_branch
+    )
     assert "coverage report" not in non_windows_branch
     assert "--cov-report=xml" in non_windows_branch
     assert "--omit=" not in non_windows_branch
