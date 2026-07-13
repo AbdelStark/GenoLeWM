@@ -732,18 +732,9 @@ expected_claim_flags = {
 for field, value in expected_claim_flags.items():
     if claim.get(field) != value:
         fail(f"claim-boundary field {field} drifted")
-limitations = " ".join(claim.get("limitations", [])).lower()
-for phrase in (
-    "variant memberships",
-    "phased haplotypes",
-    "released v0.3 snapshot",
-    "dataset representativeness",
-    "model quality",
-    "benchmark performance",
-    "clinical validity",
-):
-    if phrase not in limitations:
-        fail(f"claim-boundary limitation is missing: {phrase}")
+expected_limitations = schema["properties"]["claim_boundary"]["properties"]["limitations"]["const"]
+if claim.get("limitations") != expected_limitations:
+    fail("claim-boundary limitations differ from the bundled schema")
 if report.get("artifact_id") != artifact_id or report.get("ok") is not True:
     fail("top-level artifact identity or status drifted")
 PY
