@@ -36,7 +36,7 @@ from geno_lewm.data.membership_store import (
     verify_membership_store,
 )
 from geno_lewm.data.variant_identity import CanonicalVariant
-from geno_lewm.errors import InputError, ResourceError, RuntimeSetupError
+from geno_lewm.errors import InputError, ResourceError, RuntimeSetupError, SchemaCompatError
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from tools.data.v03_membership_store import main
 
@@ -618,6 +618,28 @@ def test_verifier_hashes_and_scans_one_private_capture_per_published_artifact(
     ]
 
 
+def test_windows_path_capture_fallback_copies_exact_files_and_cleans_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    built_store: Path,
+) -> None:
+    snapshot = importlib.import_module("geno_lewm.data._membership_store_snapshot")
+    monkeypatch.setattr(snapshot.platform, "system", lambda: "Windows")
+
+    with snapshot._capture_membership_store(built_store) as captured:
+        capture_root = captured.root
+        assert capture_root != built_store
+        assert set(captured.files) == {path.name for path in built_store.iterdir()}
+        for name, identity in captured.files.items():
+            source = built_store / name
+            private_copy = capture_root / name
+            assert private_copy.read_bytes() == source.read_bytes()
+            assert identity.sha256 == sha256_file(source)
+            assert identity.size_bytes == source.stat().st_size
+
+    assert not capture_root.exists()
+
+
 def test_runtime_queries_use_indexes_without_role_stream_resort(built_store: Path) -> None:
     connection = sqlite3.connect(built_store / "lookup.sqlite")
     try:
@@ -782,6 +804,33 @@ def test_verifier_rejects_extra_files_symlinks_and_duplicate_bindings(
     _rebind_manifest_file(receipt_drift, "build-receipt.json")
     with pytest.raises(InputError, match="build receipt keys do not match"):
         verify_membership_store(receipt_drift)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("artifact_id", "different-artifact", "artifact_id mismatch"),
+        ("content_identity", "sha256:" + "0" * 64, "content identity mismatch"),
+        ("created_at", "2026-07-13T12:00:00", "must include a timezone"),
+    ],
+)
+def test_verifier_rejects_receipt_identity_and_timestamp_drift(
+    tmp_path: Path,
+    built_store: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    drifted = tmp_path / f"receipt-{field.replace('_', '-')}"
+    shutil.copytree(built_store, drifted)
+    receipt_path = drifted / "build-receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt[field] = value
+    _write_json(receipt_path, receipt)
+    _rebind_manifest_file(drifted, "build-receipt.json")
+
+    with pytest.raises(InputError, match=message):
+        verify_membership_store(drifted)
 
 
 def test_verifier_rejects_tampered_lookup_columns_even_when_file_is_rebound(
@@ -1127,6 +1176,63 @@ def test_official_lineage_capture_adapter_rejects_incoherent_returned_identity(
         membership_store_lineage._capture_official_snapshot_lineage(tmp_path / "lineage.json")
 
 
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("schema", "schema version mismatch"),
+        ("generator", "generator is not recognized"),
+        ("reference", "reference genome must be GRCh38"),
+        ("membership_status", "must precede membership creation"),
+        ("lineage_id", "lineage identity mismatch"),
+        ("shard_count", "exactly 22 gnomAD shards"),
+        ("chromosome", "chromosome must be one of 1..22"),
+        ("duplicate_chromosome", "duplicate gnomAD chromosome"),
+        ("split_role", "role drifts from v0.3 split"),
+        ("artifact_schema", "artifact schema version mismatch"),
+        ("repository", "source repositories differ"),
+    ],
+)
+def test_fixture_lineage_rejects_scientific_contract_drift(
+    tmp_path: Path,
+    source_bundle: tuple[Path, tuple[MembershipSourceInput, ...]],
+    case: str,
+    message: str,
+) -> None:
+    lineage_path, _sources = source_bundle
+    payload = json.loads(lineage_path.read_text(encoding="utf-8"))
+    shards = payload["gnomad"]["shards"]
+    if case == "schema":
+        payload["schema_version"] = "geno-lewm.snapshot-lineage.invalid"
+    elif case == "generator":
+        payload["generated_by"] = "untrusted.generator"
+    elif case == "reference":
+        payload["reference_genome"] = "GRCh37"
+    elif case == "membership_status":
+        payload["membership_status"] = "created"
+    elif case == "shard_count":
+        shards.pop()
+    elif case == "chromosome":
+        shards[0]["chromosome"] = "X"
+    elif case == "duplicate_chromosome":
+        shards[1]["chromosome"] = shards[0]["chromosome"]
+    elif case == "split_role":
+        shards[0]["split_role"] = "evaluation"
+    elif case == "artifact_schema":
+        shards[0]["output"]["schema_version"] = "invalid"
+    elif case == "repository":
+        payload["clinvar"]["repo"] = "different/repository"
+    payload["lineage_id"] = canonical_json_sha256(
+        {key: value for key, value in payload.items() if key != "lineage_id"}
+    )
+    if case == "lineage_id":
+        payload["lineage_id"] = "sha256:" + "0" * 64
+    drifted = tmp_path / f"lineage-{case}.json"
+    _write_json(drifted, payload)
+
+    with pytest.raises((InputError, SchemaCompatError), match=message):
+        membership_store_lineage._load_snapshot_lineage(drifted)
+
+
 def test_builder_rejects_duplicate_source_membership_and_leaves_no_partial_store(
     tmp_path: Path,
 ) -> None:
@@ -1356,6 +1462,71 @@ def test_atomic_publication_never_replaces_a_concurrently_created_empty_director
     assert output.is_dir()
     assert not tuple(output.iterdir())
     assert not tuple(tmp_path.glob(".store.tmp-*"))
+
+
+def test_atomic_publication_fails_closed_across_platform_contracts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    publish = importlib.import_module("geno_lewm.data._membership_store_publish")
+    unsupported_source = tmp_path / "unsupported-source"
+    unsupported_source.mkdir()
+    monkeypatch.setattr(publish.platform, "system", lambda: "Plan9")
+    with pytest.raises(InputError, match="publication is unavailable") as unsupported:
+        publish._publish_directory_noreplace(unsupported_source, tmp_path / "unsupported-output")
+    assert unsupported.value.details == {"platform": "Plan9"}
+
+    class _SuccessfulRename:
+        argtypes: object = None
+        restype: object = None
+        call: tuple[object, ...] | None = None
+
+        def __call__(self, *args: object) -> int:
+            self.call = args
+            return 0
+
+    linux_rename = _SuccessfulRename()
+    monkeypatch.setattr(publish.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        publish.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: SimpleNamespace(renameat2=linux_rename),
+    )
+    linux_source = tmp_path / "linux-source"
+    linux_output = tmp_path / "linux-output"
+    publish._publish_directory_noreplace(linux_source, linux_output)
+    assert linux_rename.call == (
+        publish._AT_FDCWD,
+        os.fsencode(linux_source),
+        publish._AT_FDCWD,
+        os.fsencode(linux_output),
+        publish._RENAME_NOREPLACE,
+    )
+
+    windows_source = tmp_path / "windows-source"
+    windows_source.mkdir()
+    (windows_source / "marker").write_text("complete", encoding="utf-8")
+    windows_output = tmp_path / "windows-output"
+    monkeypatch.setattr(publish.platform, "system", lambda: "Windows")
+    publish._publish_directory_noreplace(windows_source, windows_output)
+    assert (windows_output / "marker").read_text(encoding="utf-8") == "complete"
+
+    collision_source = tmp_path / "collision-source"
+    collision_source.mkdir()
+
+    def _raise_collision(_source: Path, _destination: Path) -> None:
+        raise FileExistsError("injected no-clobber collision")
+
+    with monkeypatch.context() as collision_patch:
+        collision_patch.setattr(Path, "rename", _raise_collision)
+        with pytest.raises(InputError, match="appeared before publication") as collision:
+            publish._publish_directory_noreplace(collision_source, tmp_path / "collision-output")
+    assert isinstance(collision.value.__cause__, FileExistsError)
+
+    monkeypatch.setattr(publish.ctypes, "get_errno", lambda: publish.errno.EPERM)
+    with pytest.raises(InputError, match="publication failed") as failed:
+        publish._require_rename_success(-1, tmp_path / "failed-output")
+    assert failed.value.details["errno"] == publish.errno.EPERM
 
 
 @pytest.mark.parametrize(
