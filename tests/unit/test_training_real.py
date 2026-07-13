@@ -14,6 +14,7 @@ from geno_lewm.action import EditSpec, EditType
 from geno_lewm.config import load_config
 from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import (
+    MEMBERSHIP_STORE_SCHEMA_VERSION,
     SOURCE_CLINVAR,
     SOURCE_GNOMAD_COMMON,
     SOURCE_SYNTHETIC_INDEL,
@@ -24,7 +25,7 @@ from geno_lewm.data import (
     synthetic_snv_provider,
 )
 from geno_lewm.errors import InputError, RuntimeSetupError
-from geno_lewm.provenance import sha256_file
+from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from geno_lewm.training.preflight import REPORT_NAME, AcceleratorProbe, TrainingPreflightReport
 from geno_lewm.training.real import (
     _collapse_var_min,
@@ -54,6 +55,34 @@ _MEMBERSHIP_BINDING = {
     "physical_identity": "sha256:" + ("c" * 64),
     "rowset_sha256": "sha256:" + ("d" * 64),
 }
+_REPORT_BINDING = {
+    "path": "evidence/membership-split-evidence.json",
+    "schema_path": "contract/membership-split-evidence.schema.json",
+    "artifact_id": "geno-lewm-v03-membership-splits-fixture-r1",
+    "schema_version": "geno-lewm.membership-split-evidence.v1",
+}
+
+
+def _membership_dataset_binding() -> dict[str, object]:
+    return {
+        "membership_store": dict(_MEMBERSHIP_BINDING),
+        "report": dict(_REPORT_BINDING),
+    }
+
+
+def _membership_runtime_binding() -> dict[str, object]:
+    holdout_policy = {
+        "schema_version": MEMBERSHIP_STORE_SCHEMA_VERSION,
+        "membership_content_identity": _MEMBERSHIP_BINDING["content_identity"],
+        "excluded_chromosomes": ["20", "21"],
+        "selection": "chromosome_roles",
+        "lookup": "lookup.sqlite",
+    }
+    return {
+        **_membership_dataset_binding(),
+        "holdout_policy": holdout_policy,
+        "holdout_policy_identity": canonical_json_sha256(holdout_policy),
+    }
 
 
 def _step_result(*, loss: float, var: float, step: int = 1) -> TorchTrainerStepResult:
@@ -121,10 +150,7 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
         _step_result(loss=0.3, var=0.9, step=3),
     ]
     path = tmp_path / "metrics.json"
-    membership_identity = {
-        "membership_store": dict(_MEMBERSHIP_BINDING),
-        "holdout_policy_identity": "sha256:" + ("e" * 64),
-    }
+    membership_identity = _membership_runtime_binding()
     _write_metrics(
         path,
         config=config,
@@ -172,10 +198,7 @@ def test_write_training_metadata_records_artifact_identities(tmp_path: Path) -> 
         (tmp_path / name).write_text(f"{name}\n", encoding="utf-8")
 
     metadata_path = tmp_path / "training_run.json"
-    membership_identity = {
-        "membership_store": dict(_MEMBERSHIP_BINDING),
-        "holdout_policy_identity": "sha256:" + ("e" * 64),
-    }
+    membership_identity = _membership_runtime_binding()
     _write_training_metadata(
         metadata_path,
         config=config,
@@ -202,6 +225,7 @@ def test_write_training_metadata_records_artifact_identities(tmp_path: Path) -> 
     assert identities["logs"] == [_identity(tmp_path, "train.log")]
     assert identities["checkpoint_files"] == [_identity(tmp_path, "predictor_checkpoint.pt")]
     assert identities["training_preflight_report"] == _identity(tmp_path, REPORT_NAME)
+    assert metadata["schema_version"] == "1.1.0"
     assert metadata["membership_and_split_evidence"] == membership_identity
 
 
@@ -299,16 +323,19 @@ def test_schema_1_1_variant_loader_reads_only_split_data(
 
     monkeypatch.setattr(real_module, "iter_gnomad_shard", fake_iter)
 
-    assert tuple(
-        real_module._load_gnomad_edits(
-            tmp_path,
-            (
-                {"path": "gnomad/train.parquet", "artifact_role": "split_data"},
-                {"path": "gnomad/labels.parquet", "artifact_role": "split_companion"},
-            ),
-            schema_version="1.1.0",
+    assert (
+        tuple(
+            real_module._load_gnomad_edits(
+                tmp_path,
+                (
+                    {"path": "gnomad/train.parquet", "artifact_role": "split_data"},
+                    {"path": "gnomad/labels.parquet", "artifact_role": "split_companion"},
+                ),
+                schema_version="1.1.0",
+            )
         )
-    ) == ()
+        == ()
+    )
     assert observed == [(gnomad / "train.parquet").resolve()]
 
 
@@ -321,7 +348,9 @@ def test_membership_holdout_policy_opens_once_and_closes_on_success(
     events: list[object] = []
 
     class FakeStore:
-        manifest = SimpleNamespace(**{key: value for key, value in _MEMBERSHIP_BINDING.items() if key != "path"})
+        manifest = SimpleNamespace(
+            **{key: value for key, value in _MEMBERSHIP_BINDING.items() if key != "path"}
+        )
 
         @classmethod
         def open(cls, path: Path, *, verify: bool):
@@ -337,13 +366,44 @@ def test_membership_holdout_policy_opens_once_and_closes_on_success(
 
     monkeypatch.setattr(real_module, "MembershipStore", FakeStore)
     monkeypatch.setattr(real_module, "MembershipStoreHoldoutPolicy", FakePolicy)
-    manifest = {"membership_and_split_evidence": {"membership_store": _MEMBERSHIP_BINDING}}
+    manifest = {
+        "schema_version": "1.1.0",
+        "membership_and_split_evidence": _membership_dataset_binding(),
+    }
 
     with real_module._membership_holdout_policy(tmp_path, manifest) as policy:
         assert isinstance(policy, FakePolicy)
         assert [event[0] for event in events if isinstance(event, tuple)].count("open") == 1
 
     assert events[-1] == "close"
+
+
+def test_membership_runtime_identity_carries_full_dataset_binding_and_policy() -> None:
+    store = object.__new__(real_module.MembershipStore)
+    object.__setattr__(
+        store,
+        "manifest",
+        SimpleNamespace(
+            chromosome_roles=SimpleNamespace(validation=("20",), evaluation=("21",)),
+            content_identity=_MEMBERSHIP_BINDING["content_identity"],
+        ),
+    )
+    policy = real_module.MembershipStoreHoldoutPolicy(store)
+    dataset_binding = _membership_dataset_binding()
+
+    identity = real_module._membership_runtime_identity(
+        {
+            "schema_version": "1.1.0",
+            "membership_and_split_evidence": dataset_binding,
+        },
+        policy,
+    )
+
+    assert identity == {
+        **dataset_binding,
+        "holdout_policy": policy.to_dict(),
+        "holdout_policy_identity": policy.identity(),
+    }
 
 
 def test_membership_holdout_policy_rejects_identity_drift_and_closes(
@@ -372,7 +432,10 @@ def test_membership_holdout_policy_rejects_identity_drift_and_closes(
             events.append("close")
 
     monkeypatch.setattr(real_module, "MembershipStore", FakeStore)
-    manifest = {"membership_and_split_evidence": {"membership_store": _MEMBERSHIP_BINDING}}
+    manifest = {
+        "schema_version": "1.1.0",
+        "membership_and_split_evidence": _membership_dataset_binding(),
+    }
 
     with pytest.raises(InputError, match="identity does not match"):
         with real_module._membership_holdout_policy(tmp_path, manifest):
@@ -398,6 +461,20 @@ def test_legacy_manifest_does_not_open_membership_store(
         {"schema_version": "1.0.0"},
     ) as policy:
         assert policy is None
+
+
+def test_membership_evidence_section_requires_membership_store() -> None:
+    with pytest.raises(InputError, match="membership_store is required"):
+        real_module._membership_store_binding(
+            {"membership_and_split_evidence": {"report": {"path": "evidence/report.json"}}}
+        )
+
+
+def test_membership_evidence_section_requires_report() -> None:
+    with pytest.raises(InputError, match="report is required"):
+        real_module._membership_store_binding(
+            {"membership_and_split_evidence": {"membership_store": _MEMBERSHIP_BINDING}}
+        )
 
 
 def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
@@ -806,10 +883,7 @@ def test_validate_resume_checkpoint_rejects_config_mismatch(tmp_path: Path) -> N
 def test_validate_resume_checkpoint_rejects_membership_identity_drift(tmp_path: Path) -> None:
     config = load_config(_write_training_config(tmp_path))
     seeds = TrainerSeeds.from_base_seed(config.seed)
-    expected = {
-        "membership_store": dict(_MEMBERSHIP_BINDING),
-        "holdout_policy_identity": "sha256:" + ("e" * 64),
-    }
+    expected = _membership_runtime_binding()
     payload = _resume_payload(config, seeds, steps_completed=3)
     payload_config = payload["config"]
     assert isinstance(payload_config, dict)
@@ -894,10 +968,7 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
     action_encoder = torch.nn.Linear(2, 2)
     optimizer = torch.optim.AdamW(list(predictor.parameters()) + list(action_encoder.parameters()))
     path = tmp_path / "predictor_checkpoint.pt"
-    membership_identity = {
-        "membership_store": dict(_MEMBERSHIP_BINDING),
-        "holdout_policy_identity": "sha256:" + ("e" * 64),
-    }
+    membership_identity = _membership_runtime_binding()
 
     _write_checkpoint(
         path,

@@ -49,7 +49,8 @@ from geno_lewm.encoder._identity import encoder_identity_hash
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
-from geno_lewm.provenance import sha256_file
+from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from geno_lewm.provenance.hashing import looks_like_sha256
 from geno_lewm.training._phase_contract import require_executable_training_phase
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
 from geno_lewm.training.trainer import (
@@ -82,6 +83,10 @@ _DATASET_ARTIFACT_ROLES = frozenset({"split_data", "split_companion", "evidence"
 _MEMBERSHIP_STORE_BINDING_KEYS = frozenset(
     {"path", "artifact_id", "content_identity", "physical_identity", "rowset_sha256"}
 )
+_MEMBERSHIP_REPORT_BINDING_KEYS = frozenset(
+    {"path", "schema_path", "artifact_id", "schema_version"}
+)
+_MEMBERSHIP_EVIDENCE_BINDING_KEYS = frozenset({"membership_store", "report"})
 _ALL_V1_SUB_ENCODERS = ("snv", "ins", "del", "mnv")
 _SNV_ONLY_EDIT_SOURCE_COUNTS = (
     EditSourceCount(SOURCE_GNOMAD_COMMON, 3),
@@ -207,9 +212,7 @@ def _run_carbon_training_with_dataset(
     dataset_snapshot_id = _required_text(dataset_manifest, "snapshot_id")
     schema_version = _required_text(dataset_manifest, "schema_version")
     dataset_files = _dataset_files(dataset_manifest)
-    windows = tuple(
-        _load_windows(dataset_dir, dataset_files, schema_version=schema_version)
-    )
+    windows = tuple(_load_windows(dataset_dir, dataset_files, schema_version=schema_version))
     if not windows:
         raise InputError("Carbon training requires at least one source window")
     gnomad_edits = tuple(
@@ -733,42 +736,103 @@ def _membership_holdout_policy(
 
 
 def _membership_store_binding(manifest: dict[str, Any]) -> dict[str, str] | None:
+    binding = _membership_evidence_binding(manifest)
+    return None if binding is None else dict(binding["membership_store"])
+
+
+def _membership_evidence_binding(
+    manifest: dict[str, Any],
+) -> dict[str, dict[str, str]] | None:
     section = manifest.get("membership_and_split_evidence")
     if section is None:
         return None
     if not isinstance(section, dict):
         raise InputError("membership_and_split_evidence must be an object")
-    raw = section.get("membership_store")
-    if raw is None:
-        return None
-    if not isinstance(raw, dict):
+    if "membership_store" not in section:
+        raise InputError("membership_and_split_evidence.membership_store is required")
+    if "report" not in section:
+        raise InputError("membership_and_split_evidence.report is required")
+    section_keys = frozenset(section)
+    if section_keys != _MEMBERSHIP_EVIDENCE_BINDING_KEYS:
+        raise InputError(
+            "membership_and_split_evidence fields do not match the runtime contract",
+            details={
+                "missing": sorted(_MEMBERSHIP_EVIDENCE_BINDING_KEYS - section_keys),
+                "unexpected": sorted(section_keys - _MEMBERSHIP_EVIDENCE_BINDING_KEYS),
+            },
+        )
+    raw_store = section["membership_store"]
+    if not isinstance(raw_store, dict):
         raise InputError("membership_and_split_evidence.membership_store must be an object")
-    keys = frozenset(raw)
-    if keys != _MEMBERSHIP_STORE_BINDING_KEYS:
+    store_keys = frozenset(raw_store)
+    if store_keys != _MEMBERSHIP_STORE_BINDING_KEYS:
         raise InputError(
             "membership store binding fields do not match the runtime contract",
             details={
-                "missing": sorted(_MEMBERSHIP_STORE_BINDING_KEYS - keys),
-                "unexpected": sorted(keys - _MEMBERSHIP_STORE_BINDING_KEYS),
+                "missing": sorted(_MEMBERSHIP_STORE_BINDING_KEYS - store_keys),
+                "unexpected": sorted(store_keys - _MEMBERSHIP_STORE_BINDING_KEYS),
             },
         )
-    return {key: _required_text(raw, key) for key in sorted(_MEMBERSHIP_STORE_BINDING_KEYS)}
+    store = {key: _required_text(raw_store, key) for key in sorted(_MEMBERSHIP_STORE_BINDING_KEYS)}
+    for key in ("content_identity", "physical_identity", "rowset_sha256"):
+        if not looks_like_sha256(store[key]):
+            raise InputError(
+                "membership store binding identity must be a canonical SHA-256",
+                details={"field": key, "observed": store[key]},
+            )
+
+    raw_report = section["report"]
+    if not isinstance(raw_report, dict):
+        raise InputError("membership_and_split_evidence.report must be an object")
+    report_keys = frozenset(raw_report)
+    if report_keys != _MEMBERSHIP_REPORT_BINDING_KEYS:
+        raise InputError(
+            "membership split report binding fields do not match the runtime contract",
+            details={
+                "missing": sorted(_MEMBERSHIP_REPORT_BINDING_KEYS - report_keys),
+                "unexpected": sorted(report_keys - _MEMBERSHIP_REPORT_BINDING_KEYS),
+            },
+        )
+    report = {
+        key: _required_text(raw_report, key) for key in sorted(_MEMBERSHIP_REPORT_BINDING_KEYS)
+    }
+    if manifest.get("schema_version") != _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION:
+        raise InputError(
+            "membership and split evidence requires dataset manifest schema 1.1.0",
+            details={"schema_version": manifest.get("schema_version")},
+        )
+    return {"membership_store": store, "report": report}
 
 
 def _membership_runtime_identity(
     manifest: dict[str, Any],
     holdouts: HoldoutPolicy | None,
 ) -> dict[str, object] | None:
-    binding = _membership_store_binding(manifest)
+    binding = _membership_evidence_binding(manifest)
     if binding is None:
         if holdouts is not None:
             raise InputError("membership holdouts require a dataset manifest binding")
         return None
     if not isinstance(holdouts, MembershipStoreHoldoutPolicy):
         raise InputError("membership store binding requires indexed membership holdouts")
+    policy = holdouts.to_dict()
+    policy_identity = canonical_json_sha256(policy)
+    if holdouts.identity() != policy_identity:
+        raise InputError("membership holdout policy identity is not canonical")
+    content_identity = binding["membership_store"]["content_identity"]
+    if policy.get("membership_content_identity") != content_identity:
+        raise InputError(
+            "membership holdout policy content identity does not match dataset binding",
+            details={
+                "dataset": content_identity,
+                "policy": policy.get("membership_content_identity"),
+            },
+        )
     return {
-        "membership_store": dict(binding),
-        "holdout_policy_identity": holdouts.identity(),
+        "membership_store": dict(binding["membership_store"]),
+        "report": dict(binding["report"]),
+        "holdout_policy": policy,
+        "holdout_policy_identity": policy_identity,
     }
 
 
@@ -1119,9 +1183,7 @@ def _validate_resume_checkpoint_payload(
                     "config": expected,
                 },
             )
-    checkpoint_membership_identity = checkpoint_config.get(
-        "data.membership_and_split_evidence"
-    )
+    checkpoint_membership_identity = checkpoint_config.get("data.membership_and_split_evidence")
     if checkpoint_membership_identity != membership_identity:
         raise InputError(
             "resume checkpoint membership and split evidence does not match dataset package",
@@ -1270,7 +1332,11 @@ def _write_training_metadata(
 ) -> None:
     artifact_identities = _training_artifact_identities(path.parent, artifacts)
     payload = {
-        "schema_version": _SCHEMA_VERSION,
+        "schema_version": (
+            _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION
+            if membership_identity is not None
+            else _SCHEMA_VERSION
+        ),
         "run_id": config.run_id,
         "generated_by": _TRAINING_RUN_PACKAGE_GENERATED_BY,
         "command": command,
