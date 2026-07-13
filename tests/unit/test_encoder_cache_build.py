@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
+import geno_lewm.encoder.cache_build as cache_build_module
 from geno_lewm.encoder import POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN, inspect_cache_shard
-from geno_lewm.encoder.cache_build import build_window_cache
+from geno_lewm.encoder.cache_build import build_window_cache as _build_window_cache
 from geno_lewm.errors import CacheCorruptError, InputError
 from geno_lewm.observability import get_logger, shutdown_run
 from geno_lewm.provenance import canonical_json_sha256
@@ -27,6 +29,7 @@ class FakeRawEncoder:
     pool_radius = 8
     dtype = "bf16"
     normalize = False
+    device = "cpu"
 
     def __init__(self) -> None:
         self.encoded_batches: list[tuple[tuple[str, ...], tuple[int | None, ...]]] = []
@@ -81,6 +84,16 @@ class InterruptBeforeAnyShard(FakeRawEncoder):
         raise RuntimeError("simulated interruption before first shard")
 
 
+def build_window_cache(**kwargs: object):  # type: ignore[no-untyped-def]
+    """Supply the explicit fixture runtime identity required by the public API."""
+    kwargs.setdefault("hardware", "fixture CPU")
+    kwargs.setdefault(
+        "resolved_config",
+        {"encoder": {"revision": "fixture", "state_contract_version": "l2_normalized_v2"}},
+    )
+    return _build_window_cache(**kwargs)  # type: ignore[arg-type]
+
+
 def _write_requests(path: Path) -> None:
     rows = (
         {
@@ -108,6 +121,13 @@ def _write_requests(path: Path) -> None:
             "edit_locus": 0,
         },
     )
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def _write_request_rows(path: Path, rows: tuple[dict[str, object], ...]) -> None:
     path.write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
@@ -145,6 +165,12 @@ def test_build_window_cache_keeps_distinct_centers_and_deduplicates_exact_keys(
     assert payload["build"]["completed_shards"] == 2
     assert len(encoder.encoded_batches) == 2
     assert payload["cache_contract"]["normalized_states_persisted"] is False
+    assert payload["configuration"]["hardware"] == {
+        "description": "fixture CPU",
+        "encoder_device": "cpu",
+    }
+    assert "inside encoder.encode_batch calls" in payload["throughput"]["measurement_scope"]
+    assert "sha256" not in payload["cache_artifacts"]["index"]
     assert payload["claim_boundary"]["ten_percent_corpus_completed"] is False
     inspections = [
         inspect_cache_shard(tmp_path / "cache", shard["path"])
@@ -410,9 +436,9 @@ def test_resume_adopts_crash_gap_shard_without_reencoding(tmp_path: Path) -> Non
 
     assert report["build"]["encoded_rows"] == 0
     assert report["build"]["resumed_rows"] == 2
-    repaired = {entry["shard_id"]: entry for entry in repaired_state["completed_shards"]}
-    assert repaired[removed["shard_id"]]["origin"] == "adopted_after_interruption"
-    assert repaired[removed["shard_id"]]["sha256"] == removed["sha256"]
+    repaired = {entry["plan_shard_id"]: entry for entry in repaired_state["completed_shards"]}
+    assert repaired[removed["plan_shard_id"]]["origin"] == "adopted_after_interruption"
+    assert repaired[removed["plan_shard_id"]]["sha256"] == removed["sha256"]
 
 
 def test_resume_rejects_missing_shard_named_complete_before_encoder_work(tmp_path: Path) -> None:
@@ -458,7 +484,10 @@ def test_existing_evidence_input_is_never_replaced(tmp_path: Path) -> None:
         )
 
     assert collision.read_bytes() == b"do-not-replace\n"
-    assert not (evidence / "cache_build_plan.json").exists()
+    # The exact immutable plan is installed before staging is attempted. The
+    # conflicting request copy remains untouched and no state/report is born.
+    assert (evidence / "cache_build_plan.json").is_file()
+    assert not (evidence / "cache_build_state.json").exists()
 
 
 def test_plan_only_resume_rederives_pooling_identity_before_encoder_work(tmp_path: Path) -> None:
@@ -494,5 +523,356 @@ def test_plan_only_resume_rederives_pooling_identity_before_encoder_work(tmp_pat
     plan_path.chmod(0o644)
     plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    with pytest.raises(InputError, match="pooling identity"):
+    with pytest.raises(InputError, match="exact plan rederived from immutable inputs"):
         build_window_cache(encoder=FailIfEncoded(), **kwargs)
+
+
+def test_plan_only_resume_rejects_self_consistent_repartition_from_immutable_inputs(
+    tmp_path: Path,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_requests(requests)
+    evidence = tmp_path / "evidence"
+    kwargs = {
+        "requests_jsonl": requests,
+        "cache_dir": tmp_path / "cache",
+        "evidence_dir": evidence,
+        "encoder_id": "HuggingFaceBio/Carbon-500M",
+        "batch_size": 2,
+        "rows_per_shard": 1,
+        "created_at_ns": 1_750_000_000_000_000_000,
+    }
+    with pytest.raises(RuntimeError, match="before first shard"):
+        build_window_cache(encoder=InterruptBeforeAnyShard(), **kwargs)
+    (evidence / "cache_build_state.json").unlink()
+    plan_path = evidence / "cache_build_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    first, second = plan["shards"]
+    first["rows"], second["rows"] = second["rows"], first["rows"]
+    for shard in (first, second):
+        shard["shard_id"] = canonical_json_sha256(
+            {
+                "path": shard["path"],
+                "keys": [row["key"] for row in shard["rows"]],
+            }
+        )
+    plan_path.chmod(0o644)
+    plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="exact plan rederived from immutable inputs"):
+        build_window_cache(encoder=FailIfEncoded(), **kwargs)
+
+
+def test_overlapping_request_namespace_reuses_unique_key_and_survives_index_growth(
+    tmp_path: Path,
+) -> None:
+    first_requests = tmp_path / "first.jsonl"
+    second_requests = tmp_path / "second.jsonl"
+    growth_requests = tmp_path / "growth.jsonl"
+    common = {
+        "chrom": "22",
+        "start_bp": 100,
+        "end_bp": 112,
+        "window": "ACGTACGTACGT",
+        "edit_locus": 0,
+    }
+    _write_request_rows(first_requests, ({"request_id": "first", **common},))
+    _write_request_rows(second_requests, ({"request_id": "overlap", **common},))
+    _write_request_rows(
+        growth_requests,
+        (
+            {
+                "request_id": "growth",
+                "chrom": "22",
+                "start_bp": 200,
+                "end_bp": 212,
+                "window": "TTTTTTTTTTTT",
+                "edit_locus": 0,
+            },
+        ),
+    )
+    cache = tmp_path / "cache"
+    first = build_window_cache(
+        requests_jsonl=first_requests,
+        cache_dir=cache,
+        evidence_dir=tmp_path / "first-evidence",
+        encoder=FakeRawEncoder(),
+        encoder_id="HuggingFaceBio/Carbon-500M",
+        batch_size=1,
+        rows_per_shard=4,
+        created_at_ns=1_750_000_000_000_000_000,
+    ).to_dict()
+    second_report = build_window_cache(
+        requests_jsonl=second_requests,
+        cache_dir=cache,
+        evidence_dir=tmp_path / "second-evidence",
+        encoder=FailIfEncoded(),
+        encoder_id="HuggingFaceBio/Carbon-500M",
+        batch_size=1,
+        rows_per_shard=4,
+        created_at_ns=1_750_000_000_000_000_001,
+    )
+    second = second_report.to_dict()
+    second_checksums = second_report.checksums_path.read_bytes()
+
+    assert first["configuration"]["cache_namespace"] != second["configuration"]["cache_namespace"]
+    assert second["build"]["encoded_rows"] == 0
+    assert second["build"]["resumed_rows"] == 1
+    assert (
+        second["cache_artifacts"]["shards"][0]["path"]
+        == first["cache_artifacts"]["shards"][0]["path"]
+    )
+
+    build_window_cache(
+        requests_jsonl=growth_requests,
+        cache_dir=cache,
+        evidence_dir=tmp_path / "growth-evidence",
+        encoder=FakeRawEncoder(),
+        encoder_id="HuggingFaceBio/Carbon-500M",
+        batch_size=1,
+        rows_per_shard=4,
+        created_at_ns=1_750_000_000_000_000_002,
+    )
+    verified = build_window_cache(
+        requests_jsonl=second_requests,
+        cache_dir=cache,
+        evidence_dir=tmp_path / "second-evidence",
+        encoder=FailIfEncoded(),
+        encoder_id="HuggingFaceBio/Carbon-500M",
+        batch_size=1,
+        rows_per_shard=4,
+        created_at_ns=1_750_000_000_000_000_001,
+    )
+
+    assert verified.to_dict() == second
+    assert verified.checksums_path.read_bytes() == second_checksums
+
+
+def test_partial_overlap_encodes_only_misses_in_the_new_namespace(tmp_path: Path) -> None:
+    first_requests = tmp_path / "first.jsonl"
+    mixed_requests = tmp_path / "mixed.jsonl"
+    shared = {
+        "request_id": "shared-first",
+        "chrom": "22",
+        "start_bp": 100,
+        "end_bp": 112,
+        "window": "ACGTACGTACGT",
+        "edit_locus": 0,
+    }
+    novel = {
+        "request_id": "novel",
+        "chrom": "22",
+        "start_bp": 200,
+        "end_bp": 212,
+        "window": "TTTTTTTTTTTT",
+        "edit_locus": 0,
+    }
+    _write_request_rows(first_requests, (shared,))
+    _write_request_rows(
+        mixed_requests,
+        ({**shared, "request_id": "shared-second"}, novel),
+    )
+    cache = tmp_path / "cache"
+    build_window_cache(
+        requests_jsonl=first_requests,
+        cache_dir=cache,
+        evidence_dir=tmp_path / "first-evidence",
+        encoder=FakeRawEncoder(),
+        encoder_id="HuggingFaceBio/Carbon-500M",
+        batch_size=2,
+        rows_per_shard=4,
+        created_at_ns=1_750_000_000_000_000_000,
+    )
+    mixed_encoder = FakeRawEncoder()
+    mixed = build_window_cache(
+        requests_jsonl=mixed_requests,
+        cache_dir=cache,
+        evidence_dir=tmp_path / "mixed-evidence",
+        encoder=mixed_encoder,
+        encoder_id="HuggingFaceBio/Carbon-500M",
+        batch_size=2,
+        rows_per_shard=4,
+        created_at_ns=1_750_000_000_000_000_001,
+    ).to_dict()
+
+    assert mixed_encoder.encoded_batches == [(("TTTTTTTTTTTT",), (0,))]
+    assert mixed["build"]["encoded_rows"] == 1
+    assert mixed["build"]["resumed_rows"] == 1
+    assert mixed["build"]["resolved_unique_rows"] == 2
+    assert len(mixed["cache_artifacts"]["shards"]) == 2
+    state = json.loads(
+        (tmp_path / "mixed-evidence/cache_build_state.json").read_text(encoding="utf-8")
+    )
+    assert state["completed_shards"][0]["encoded_rows"] == 1
+    assert len(state["completed_shards"][0]["row_keys"]) == 1
+
+    resumed = build_window_cache(
+        requests_jsonl=mixed_requests,
+        cache_dir=cache,
+        evidence_dir=tmp_path / "mixed-evidence",
+        encoder=FailIfEncoded(),
+        encoder_id="HuggingFaceBio/Carbon-500M",
+        batch_size=2,
+        rows_per_shard=4,
+        created_at_ns=1_750_000_000_000_000_001,
+    )
+    assert resumed.to_dict() == mixed
+
+
+@pytest.mark.parametrize("drift", ["batch_size", "hardware", "resolved_config", "device"])
+def test_resume_rejects_execution_identity_drift_before_encoder_work(
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_requests(requests)
+    kwargs: dict[str, object] = {
+        "requests_jsonl": requests,
+        "cache_dir": tmp_path / "cache",
+        "evidence_dir": tmp_path / "evidence",
+        "encoder_id": "HuggingFaceBio/Carbon-500M",
+        "batch_size": 2,
+        "rows_per_shard": 1,
+        "created_at_ns": 1_750_000_000_000_000_000,
+        "hardware": "fixture CPU",
+        "resolved_config": {"seed": 17},
+    }
+    _build_window_cache(encoder=FakeRawEncoder(), **kwargs)  # type: ignore[arg-type]
+    plan_before = (tmp_path / "evidence/cache_build_plan.json").read_bytes()
+    encoder = FailIfEncoded()
+    if drift == "batch_size":
+        kwargs["batch_size"] = 1
+    elif drift == "hardware":
+        kwargs["hardware"] = "different CPU"
+    elif drift == "resolved_config":
+        kwargs["resolved_config"] = {"seed": 18}
+    else:
+        encoder.device = "cuda"
+
+    with pytest.raises(InputError, match="exact plan rederived from immutable inputs"):
+        _build_window_cache(encoder=encoder, **kwargs)  # type: ignore[arg-type]
+
+    assert (tmp_path / "evidence/cache_build_plan.json").read_bytes() == plan_before
+
+
+def test_plan_validation_precedes_input_artifact_staging(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"
+    config = tmp_path / "source-config.yaml"
+    _write_requests(requests)
+    config.write_text("seed: 17\n", encoding="utf-8")
+    kwargs = {
+        "requests_jsonl": requests,
+        "cache_dir": tmp_path / "cache",
+        "evidence_dir": tmp_path / "evidence",
+        "encoder_id": "HuggingFaceBio/Carbon-500M",
+        "batch_size": 2,
+        "rows_per_shard": 1,
+        "created_at_ns": 1_750_000_000_000_000_000,
+        "input_artifacts": {"source-config.yaml": config},
+    }
+    build_window_cache(encoder=FakeRawEncoder(), **kwargs)
+    staged = tmp_path / "evidence/inputs/source-config.yaml"
+    staged_before = staged.read_bytes()
+    config.write_text("seed: 18\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="exact plan rederived from immutable inputs"):
+        build_window_cache(encoder=FailIfEncoded(), **kwargs)
+
+    assert staged.read_bytes() == staged_before
+
+
+def test_unexpected_evidence_file_is_rejected_instead_of_dynamically_checksummed(
+    tmp_path: Path,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    evidence = tmp_path / "evidence"
+    _write_requests(requests)
+    evidence.mkdir()
+    (evidence / "mutable.log").write_text("not evidence\n", encoding="utf-8")
+
+    with pytest.raises(CacheCorruptError, match="unexpected artifact"):
+        build_window_cache(
+            requests_jsonl=requests,
+            cache_dir=tmp_path / "cache",
+            evidence_dir=evidence,
+            encoder=FailIfEncoded(),
+            encoder_id="HuggingFaceBio/Carbon-500M",
+            batch_size=1,
+            rows_per_shard=1,
+            created_at_ns=1_750_000_000_000_000_000,
+        )
+
+    assert not (evidence / "SHA256SUMS").exists()
+    assert not (evidence / "cache_build_plan.json").exists()
+
+
+def test_completed_bundle_rejects_posthoc_unclosed_artifact(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"
+    evidence = tmp_path / "evidence"
+    _write_requests(requests)
+    kwargs = {
+        "requests_jsonl": requests,
+        "cache_dir": tmp_path / "cache",
+        "evidence_dir": evidence,
+        "encoder_id": "HuggingFaceBio/Carbon-500M",
+        "batch_size": 2,
+        "rows_per_shard": 1,
+        "created_at_ns": 1_750_000_000_000_000_000,
+    }
+    build_window_cache(encoder=FakeRawEncoder(), **kwargs)
+    (evidence / "late-report.json").write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(CacheCorruptError, match="unexpected artifact"):
+        build_window_cache(encoder=FailIfEncoded(), **kwargs)
+
+
+def test_builder_does_not_retain_decoded_embeddings_for_all_shards(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    rows = tuple(
+        {
+            "request_id": f"row-{index}",
+            "chrom": "22",
+            "start_bp": index * 12,
+            "end_bp": index * 12 + 12,
+            "window": format(index, "012b").translate(str.maketrans("01", "AC")),
+            "edit_locus": 0,
+        }
+        for index in range(12)
+    )
+    _write_request_rows(requests, rows)
+    real_inspect = cache_build_module.inspect_cache_shard
+
+    class TrackedInspection:
+        live: ClassVar[int] = 0
+        peak: ClassVar[int] = 0
+
+        def __init__(self, base: object) -> None:
+            type(self).live += 1
+            type(self).peak = max(type(self).peak, type(self).live)
+            self.path = base.path  # type: ignore[attr-defined]
+            self.records = base.records  # type: ignore[attr-defined]
+            self.sha256 = base.sha256  # type: ignore[attr-defined]
+            self.size_bytes = base.size_bytes  # type: ignore[attr-defined]
+
+        def __del__(self) -> None:
+            type(self).live -= 1
+
+    def tracked_inspect(cache_dir: Path, shard_path: str) -> TrackedInspection:
+        return TrackedInspection(real_inspect(cache_dir, shard_path))
+
+    monkeypatch.setattr(cache_build_module, "inspect_cache_shard", tracked_inspect)
+    build_window_cache(
+        requests_jsonl=requests,
+        cache_dir=tmp_path / "cache",
+        evidence_dir=tmp_path / "evidence",
+        encoder=FakeRawEncoder(),
+        encoder_id="HuggingFaceBio/Carbon-500M",
+        batch_size=1,
+        rows_per_shard=1,
+        created_at_ns=1_750_000_000_000_000_000,
+    )
+
+    assert TrackedInspection.peak <= 2

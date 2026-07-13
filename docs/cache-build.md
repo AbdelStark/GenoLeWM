@@ -47,32 +47,57 @@ geno-lewm-cache-windows \
   --batch-size 8 \
   --rows-per-shard 1024 \
   --device cuda \
+  --hardware "NVIDIA H200 141GB; CUDA 12.8; single GPU" \
   --run-id cache-proof-example
 ```
 
-The request SHA-256 is part of the cache namespace, so independently planned
-finite slices cannot reuse the same shard paths accidentally.
+The CLI verifies the local Carbon identity with the rule selected by the
+resolved state contract. In particular, `l2_normalized_v2` requires the full
+corrected runtime identity, not merely matching weight bytes. The request
+SHA-256 remains part of paths for newly encoded misses. Logical keys already
+present in the shared schema-3 index are fully inspected and reused, so
+overlapping request slices preserve global key uniqueness instead of attempting
+to publish duplicate rows under different request namespaces.
 
 ## Resume and evidence
 
 The evidence directory contains:
 
 - `cache_build_requests.jsonl`: the exact input bytes;
-- `cache_build_plan.json`: deterministic keys, aliases, shard paths, and fixed
-  creation timestamp committed before the first forward pass;
-- `cache_build_state.json`: per-shard byte identities and measured encoder time,
-  atomically updated after each verified shard;
-- `cache_build_report.json`: counts, cache/index/shard identities, throughput,
-  event contract, and explicit claim boundary;
+- `cache_build_plan.json`: the exact plan rederived from immutable requests,
+  pooling identities, batch size, hardware/device identity, resolved-config
+  identity, shard size, and fixed creation timestamp;
+- `cache_build_state.json`: evidence-owned shard byte identities and wall time
+  measured strictly inside `encoder.encode_batch`, atomically updated after each
+  verified shard;
+- `resolved_config.json`: canonical resolved configuration after CLI overrides;
+- `cache_build_report.json`: counts, request-scoped logical index mappings,
+  immutable shard identities, narrowly labeled timing, event contract, and
+  explicit claim boundary;
 - `inputs/encoder_config.yaml` and `inputs/model_manifest.json`: exact CLI
   contract inputs copied into the bundle;
-- `SHA256SUMS`: checksum closure over every regular evidence file above.
+- `SHA256SUMS`: checksum closure over the exact fixed evidence inventory above.
+
+The plan is validated or installed before caller-provided artifacts are staged.
+Unexpected files, directories, symlinks, logs, or report copies in the evidence
+tree are rejected rather than dynamically added to `SHA256SUMS`; `--log-dir`
+and `--json-report` must be outside `--evidence-dir`.
 
 On resume, every existing planned shard is opened without following symlinks,
 hashed and fully decoded through the same held file descriptor, compared
-row-for-row with the plan, and re-indexed without encoding. Any missing shard
-named as complete, digest drift, schema drift, metadata drift, or fixed-time
-drift fails before `encode_batch` processes missing work.
+row-for-row with the plan, and re-indexed without encoding. The builder then
+resolves every requested logical key, inspects referenced shared shards one at
+a time, and encodes only true misses. It retains row/provenance metadata, not
+all decoded embedding vectors. Any missing shard named as complete, digest
+drift, schema drift, metadata drift, fixed-time drift, changed batch/hardware/
+device/resolved config, or noncanonical recovered partition fails before
+`encode_batch` processes missing work.
+
+The report deliberately excludes the byte identity of the shared mutable
+`embeddings/index.sqlite`. It instead binds each requested key to an immutable
+shard, row offset, and shard digest after validating the current strict index.
+Unrelated legitimate cache growth therefore does not invalidate a completed
+finite-build report.
 
 Progress uses the registered JSONL events `data.cache.build.start`,
 `data.cache.build.progress`, `data.shard.write`, and `data.cache.build.end`.

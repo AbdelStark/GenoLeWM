@@ -23,6 +23,7 @@ from geno_lewm.cli._dispatch import (
 )
 from geno_lewm.config import GenoLeWMConfig, config_to_dict, load_config
 from geno_lewm.encoder import CarbonStateEncoder, build_window_cache
+from geno_lewm.encoder._identity import encoder_identity_hash
 from geno_lewm.encoder.cache import (
     CacheReindexReport,
     CacheRepairReport,
@@ -113,6 +114,13 @@ def main(
         str,
         typer.Option("--device", help="Carbon device (auto, cpu, cuda, or accelerator-specific)."),
     ] = "auto",
+    hardware: Annotated[
+        str | None,
+        typer.Option(
+            "--hardware",
+            help="Exact accelerator/host description bound to cache-build timing evidence.",
+        ),
+    ] = None,
     config: Annotated[str | None, _S["config"]] = None,
     set_overrides: Annotated[list[str] | None, _S["set_overrides"]] = None,
     seed: Annotated[int | None, _S["seed"]] = None,
@@ -149,7 +157,14 @@ def main(
     )
     if opts is None:
         return
-    build_inputs = (requests_jsonl, evidence_dir, model_manifest, carbon_model_dir, created_at_ns)
+    build_inputs = (
+        requests_jsonl,
+        evidence_dir,
+        model_manifest,
+        carbon_model_dir,
+        created_at_ns,
+        hardware,
+    )
     if sum((reindex, repair)) > 1:
         raise InputError("choose only one of --reindex or --repair")
     if (reindex or repair) and any(value is not None for value in build_inputs):
@@ -203,6 +218,7 @@ def main(
             ("--model-manifest", model_manifest),
             ("--carbon-model-dir", carbon_model_dir),
             ("--created-at-ns", created_at_ns),
+            ("--hardware", hardware),
             ("--config", opts.config),
         )
         if value is None
@@ -217,7 +233,14 @@ def main(
     assert model_manifest is not None
     assert carbon_model_dir is not None
     assert created_at_ns is not None
+    assert hardware is not None
     assert opts.config is not None
+    _reject_evidence_output_overlap(evidence_dir, json_report, option="--json-report")
+    _reject_evidence_output_overlap(
+        evidence_dir,
+        None if opts.log_dir is None else Path(opts.log_dir),
+        option="--log-dir",
+    )
     resolved_config = _resolve_build_config(
         config_path=Path(opts.config),
         set_overrides=opts.set_overrides,
@@ -247,6 +270,8 @@ def main(
         batch_size=batch_size,
         rows_per_shard=rows_per_shard,
         created_at_ns=created_at_ns,
+        hardware=hardware,
+        resolved_config=cast(dict[str, object], config_to_dict(resolved_config)),
         input_artifacts={
             "encoder_config.yaml": Path(opts.config),
             "model_manifest.json": model_manifest,
@@ -327,6 +352,20 @@ def _build_encoder(
         )
     if not device:
         raise InputError("--device must be non-empty")
+    observed_identity = encoder_identity_hash(
+        carbon_model_dir,
+        state_contract_version=config.encoder.state_contract_version,
+    )
+    if observed_identity != manifest.encoder.hash:
+        raise InputError(
+            "local Carbon runtime identity does not match the model manifest",
+            details={
+                "state_contract_version": config.encoder.state_contract_version,
+                "expected": manifest.encoder.hash,
+                "observed": observed_identity,
+            },
+            remediation="mount the exact corrected Carbon runtime committed by the manifest",
+        )
     return CarbonStateEncoder(
         str(carbon_model_dir),
         manifest.encoder.revision,
@@ -339,6 +378,26 @@ def _build_encoder(
         local_files_only=True,
         trust_remote_code=config.encoder.trust_remote_code,
         device=device,
+    )
+
+
+def _reject_evidence_output_overlap(
+    evidence_dir: Path,
+    output: Path | None,
+    *,
+    option: str,
+) -> None:
+    if output is None:
+        return
+    evidence = evidence_dir.absolute()
+    candidate = output.absolute()
+    try:
+        candidate.relative_to(evidence)
+    except ValueError:
+        return
+    raise InputError(
+        f"{option} must be outside --evidence-dir",
+        details={"evidence_dir": str(evidence), "output": str(candidate)},
     )
 
 

@@ -11,12 +11,14 @@ import pytest
 import geno_lewm.cli.cache_windows as cache_cli
 from geno_lewm.cli._dispatch import run_app
 from geno_lewm.cli.cache_windows import app
+from geno_lewm.config import load_config
 from geno_lewm.encoder import (
     POOL_CENTERED_MEAN,
     POOL_GLOBAL_MEAN,
     WindowCacheRecord,
     write_shard,
 )
+from geno_lewm.errors import InputError
 from geno_lewm.observability import shutdown_run
 from geno_lewm.provenance import (
     SCHEMA_VERSION,
@@ -24,6 +26,7 @@ from geno_lewm.provenance import (
     ManifestArtifact,
     ManifestEncoder,
     ManifestTraining,
+    load_manifest,
     sha256_file,
     write_manifest,
 )
@@ -63,6 +66,7 @@ class _FakeRawEncoder:
     pool_radius = 8
     dtype = "bf16"
     normalize = False
+    device = "cpu"
 
     def pooling_identity(self, window: str, edit_locus: int | None) -> tuple[str, int, int | None]:
         del window
@@ -280,6 +284,8 @@ def test_cache_windows_build_cli_writes_finite_evidence_bundle(
             str(config),
             "--created-at-ns",
             "1750000000000000000",
+            "--hardware",
+            "fixture CPU",
             "--rows-per-shard",
             "1",
             "--json-report",
@@ -318,3 +324,76 @@ def test_cache_windows_build_cli_requires_all_immutable_inputs(
 
     assert rc == 2
     assert "cache build mode requires explicit immutable inputs" in captured.err
+
+
+def test_build_encoder_rejects_corrected_runtime_identity_at_cli_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _requests, config_path, manifest_path = _write_build_inputs(tmp_path)
+    config = load_config(config_path)
+    manifest = load_manifest(manifest_path)
+    carbon = tmp_path / "carbon"
+    carbon.mkdir()
+    monkeypatch.setattr(
+        cache_cli, "encoder_identity_hash", lambda *_args, **_kwargs: "sha256:" + "00" * 32
+    )
+
+    def must_not_construct(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("runtime mismatch must fail before Carbon construction")
+
+    monkeypatch.setattr(cache_cli, "CarbonStateEncoder", must_not_construct)
+
+    with pytest.raises(InputError, match="runtime identity does not match"):
+        cache_cli._build_encoder(
+            config=config,
+            manifest=manifest,
+            carbon_model_dir=carbon,
+            device="cpu",
+        )
+
+
+@pytest.mark.parametrize(
+    ("option", "relative_output"),
+    [("--json-report", "copy.json"), ("--log-dir", "logs")],
+)
+def test_cache_windows_build_cli_rejects_mutable_outputs_inside_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+    relative_output: str,
+) -> None:
+    requests, config, manifest = _write_build_inputs(tmp_path)
+    monkeypatch.setattr(cache_cli, "_build_encoder", lambda **_kwargs: _FakeRawEncoder())
+    evidence = tmp_path / "evidence"
+    rc = run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--requests-jsonl",
+            str(requests),
+            "--evidence-dir",
+            str(evidence),
+            "--model-manifest",
+            str(manifest),
+            "--carbon-model-dir",
+            str(tmp_path / "carbon"),
+            "--config",
+            str(config),
+            "--created-at-ns",
+            "1750000000000000000",
+            "--hardware",
+            "fixture CPU",
+            option,
+            str(evidence / relative_output),
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert f"{option} must be outside --evidence-dir" in captured.err
+    assert not evidence.exists()

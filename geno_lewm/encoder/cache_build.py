@@ -28,11 +28,14 @@ from pathlib import Path
 from typing import cast
 
 from geno_lewm.encoder.cache import (
+    CACHE_SCHEMA_VERSION,
     INDEX_DB_NAME,
+    CacheProvenance,
     CacheShardInspection,
     WindowCacheKey,
     WindowCacheRecord,
     inspect_cache_shard,
+    resolve_cache_provenances,
     shard_path_for,
     write_shard,
 )
@@ -50,12 +53,13 @@ __all__ = [
 ]
 
 
-CACHE_BUILD_SCHEMA_VERSION = "1.0.0"
+CACHE_BUILD_SCHEMA_VERSION = "1.1.0"
 CACHE_BUILD_REPORT_NAME = "cache_build_report.json"
 _GENERATED_BY = "geno_lewm.encoder.cache_build"
 _REQUEST_COPY_NAME = "cache_build_requests.jsonl"
 _PLAN_NAME = "cache_build_plan.json"
 _STATE_NAME = "cache_build_state.json"
+_RESOLVED_CONFIG_NAME = "resolved_config.json"
 _CHECKSUMS_NAME = "SHA256SUMS"
 _REQUEST_KEYS = frozenset({"request_id", "chrom", "start_bp", "end_bp", "window", "edit_locus"})
 _HASH_PREFIX = "sha256:"
@@ -116,6 +120,40 @@ class _EncoderContract:
     dtype: str
 
 
+@dataclass(frozen=True, slots=True)
+class _InputArtifact:
+    name: str
+    body: bytes
+    identity: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _ShardSummary:
+    path: str
+    sha256: str
+    size_bytes: int
+    row_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedRow:
+    provenance: CacheProvenance
+    created_at_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedCache:
+    rows: Mapping[WindowCacheKey, _ResolvedRow]
+    shards: Mapping[str, _ShardSummary]
+
+
+@dataclass(frozen=True, slots=True)
+class _EncodeResult:
+    records: tuple[WindowCacheRecord, ...]
+    encode_batch_calls: int
+    encode_batch_seconds: float
+
+
 def build_window_cache(
     *,
     requests_jsonl: Path | str,
@@ -126,6 +164,8 @@ def build_window_cache(
     batch_size: int,
     rows_per_shard: int,
     created_at_ns: int,
+    hardware: str,
+    resolved_config: Mapping[str, object],
     input_artifacts: Mapping[str, Path | str] | None = None,
     logger: GenoLeWMLogger | None = None,
 ) -> CacheBuildReport:
@@ -145,8 +185,12 @@ def build_window_cache(
         raise InputError("created_at_ns must be fixed to a positive UTC nanosecond value")
     if type(encoder_id) is not str or not encoder_id:
         raise InputError("encoder_id must be non-empty text")
+    hardware = _text(hardware, field="hardware")
+    resolved_config_payload = _json_object_copy(resolved_config, field="resolved_config")
+    resolved_config_bytes = _pretty_json_bytes(resolved_config_payload)
 
     contract = _encoder_contract(encoder)
+    encoder_device = _text(getattr(encoder, "device", None), field="encoder.device")
     request_path = Path(requests_jsonl)
     request_bytes = _read_regular_bytes(request_path, label="cache build requests")
     requests = _parse_requests(request_bytes)
@@ -158,78 +202,103 @@ def build_window_cache(
     cache_root = Path(cache_dir).absolute()
     evidence_root = Path(evidence_dir).absolute()
     _ensure_real_directory(evidence_root)
-    input_identities = _stage_input_artifacts(evidence_root, input_artifacts or {})
+    staged_inputs = _read_input_artifacts(input_artifacts or {})
+    input_identities = tuple(item.identity for item in staged_inputs)
     request_copy_path = evidence_root / _REQUEST_COPY_NAME
     plan_path = evidence_root / _PLAN_NAME
     state_path = evidence_root / _STATE_NAME
     report_path = evidence_root / CACHE_BUILD_REPORT_NAME
     checksums_path = evidence_root / _CHECKSUMS_NAME
-    _write_once(request_copy_path, request_bytes, label="cache build request copy")
+    resolved_config_path = evidence_root / _RESOLVED_CONFIG_NAME
+    resolved_config_identity = {
+        "path": _RESOLVED_CONFIG_NAME,
+        "sha256": sha256_bytes(resolved_config_bytes),
+        "size_bytes": len(resolved_config_bytes),
+    }
+    expected_evidence_names = _expected_evidence_names(input_identities)
+    _assert_evidence_inventory(
+        evidence_root,
+        expected_names=expected_evidence_names,
+        require_complete=False,
+    )
 
     namespace = f"{encoder_id}::requests::{request_identity['sha256']}"
+    expected_plan = _create_plan(
+        requests=requests,
+        request_identity=request_identity,
+        cache_root=cache_root,
+        encoder=encoder,
+        encoder_id=encoder_id,
+        namespace=namespace,
+        contract=contract,
+        batch_size=batch_size,
+        rows_per_shard=rows_per_shard,
+        created_at_ns=created_at_ns,
+        hardware=hardware,
+        encoder_device=encoder_device,
+        resolved_config=resolved_config_identity,
+        input_artifacts=input_identities,
+    )
     if os.path.lexists(plan_path):
         plan_payload = _read_json_object(plan_path, label="cache build plan")
         plan = _load_plan(
             plan_payload,
-            requests=requests,
-            request_identity=request_identity,
-            cache_root=cache_root,
-            encoder=encoder,
-            encoder_id=encoder_id,
-            namespace=namespace,
-            contract=contract,
-            rows_per_shard=rows_per_shard,
-            created_at_ns=created_at_ns,
-            input_artifacts=input_identities,
+            expected=expected_plan,
         )
     else:
-        plan = _create_plan(
-            requests=requests,
-            request_identity=request_identity,
-            cache_root=cache_root,
-            encoder=encoder,
-            encoder_id=encoder_id,
-            namespace=namespace,
-            contract=contract,
-            rows_per_shard=rows_per_shard,
-            created_at_ns=created_at_ns,
-            input_artifacts=input_identities,
-        )
+        plan = expected_plan
         _write_once(plan_path, _pretty_json_bytes(plan.payload), label="cache build plan")
+    # The immutable plan is validated or installed before any caller-provided
+    # artifact is staged. A failed invocation therefore cannot seed files that
+    # a later, differently configured invocation would accidentally close.
+    _write_once(request_copy_path, request_bytes, label="cache build request copy")
+    _write_once(
+        resolved_config_path,
+        resolved_config_bytes,
+        label="cache build resolved config",
+    )
+    _stage_input_artifacts(evidence_root, staged_inputs)
     plan_sha256 = sha256_file(plan_path)
 
     state = _load_or_initialize_state(state_path, plan_sha256=plan_sha256)
     completed = _completed_by_id(state, plan=plan)
-    inspections: dict[str, CacheShardInspection] = {}
-    resumed_rows = 0
     adopted_or_changed = False
 
-    # Resume preflight: finish this entire pass before the first encode_batch.
+    # Resume preflight: verify every evidence-owned shard and repair its index
+    # rows before resolving shared-cache hits or calling encode_batch.
     for shard in plan.shards:
         absolute_path = cache_root / shard.relative_path
         prior = completed.get(shard.shard_id)
-        if not os.path.lexists(absolute_path):
-            if prior is not None:
-                raise CacheCorruptError(
-                    "cache build state names a completed shard that is missing",
-                    details={"shard_id": shard.shard_id, "path": shard.relative_path},
-                )
+        if prior is None and not os.path.lexists(absolute_path):
             continue
+        if prior is not None and not os.path.lexists(absolute_path):
+            raise CacheCorruptError(
+                "cache build state names a completed shard that is missing",
+                details={"shard_id": shard.shard_id, "path": shard.relative_path},
+            )
         inspection = inspect_cache_shard(cache_root, shard.relative_path)
+        execution_shard = _execution_shard_from_records(shard, inspection.records)
         _assert_inspection_matches_plan(
             inspection,
-            shard=shard,
+            shard=execution_shard,
             created_at_ns=created_at_ns,
         )
         if prior is not None:
-            _assert_state_identity(prior, inspection, shard=shard)
+            _assert_state_identity(
+                prior,
+                inspection,
+                shard=execution_shard,
+                plan_shard=shard,
+            )
         else:
             completed[shard.shard_id] = _completed_entry(
-                shard,
+                execution_shard,
                 inspection,
+                plan_shard_id=shard.shard_id,
                 origin="adopted_after_interruption",
                 encoded_rows=0,
-                encoder_seconds=None,
+                encode_batch_calls=0,
+                encode_batch_seconds=None,
             )
             adopted_or_changed = True
         # Re-publishing observed rows is a no-op on the immutable shard and
@@ -241,20 +310,20 @@ def build_window_cache(
             stride_block=shard.stride_block,
             records=inspection.records,
         )
-        inspections[shard.shard_id] = inspection
-        resumed_rows += len(shard.rows)
 
     if adopted_or_changed or not os.path.lexists(state_path):
         state = _state_payload(plan_sha256=plan_sha256, completed=completed)
         _atomic_write(state_path, _pretty_json_bytes(state))
 
+    resolved_before = _resolve_plan_cache(cache_root, plan, require_all=False)
+    resumed_rows = len(resolved_before.rows)
     if os.path.lexists(checksums_path):
         return _verify_completed_bundle(
             evidence_root=evidence_root,
             cache_root=cache_root,
             plan=plan,
             plan_sha256=plan_sha256,
-            inspections=inspections,
+            expected_evidence_names=expected_evidence_names,
         )
 
     if logger is not None:
@@ -269,11 +338,12 @@ def build_window_cache(
     encoded_rows = 0
     encoded_shards = 0
     for shard in plan.shards:
-        if shard.shard_id in inspections:
+        missing_rows = tuple(row for row in shard.rows if row.key not in resolved_before.rows)
+        if not missing_rows:
             _emit_progress(
                 logger,
                 shard=shard,
-                completed_shards=len(inspections),
+                completed_shards=_resolved_plan_shard_count(plan, resolved_before.rows),
                 total_shards=len(plan.shards),
                 encoded_rows=encoded_rows,
                 resumed_rows=resumed_rows,
@@ -281,44 +351,52 @@ def build_window_cache(
                 status="resumed",
             )
             continue
-        encode_started = time.perf_counter()
-        records = _encode_shard(
-            shard,
+        execution_shard = _execution_shard(shard, rows=missing_rows)
+        encoded = _encode_shard(
+            execution_shard,
             encoder=encoder,
             contract=contract,
             batch_size=batch_size,
             created_at_ns=created_at_ns,
         )
-        encoder_seconds = time.perf_counter() - encode_started
-        path = write_shard(
-            cache_root,
-            encoder_id=plan.namespace,
-            contig=shard.contig,
-            stride_block=shard.stride_block,
-            records=records,
-        )
+        try:
+            path = write_shard(
+                cache_root,
+                encoder_id=plan.namespace,
+                contig=execution_shard.contig,
+                stride_block=execution_shard.stride_block,
+                records=encoded.records,
+            )
+        except CacheCorruptError:
+            # A concurrent builder may have published the same logical misses
+            # after our preflight but before the serialized write reservation.
+            # Accept only byte-equivalent logical winners; write_shard checks
+            # key availability before publishing, so no orphan is created.
+            _assert_encoded_rows_match_cache(cache_root, encoded.records)
+            continue
         inspection = inspect_cache_shard(cache_root, shard.relative_path)
         _assert_inspection_matches_plan(
             inspection,
-            shard=shard,
+            shard=execution_shard,
             created_at_ns=created_at_ns,
         )
         if tuple(record.embedding for record in inspection.records) != tuple(
-            _fp32_vector(record.embedding) for record in records
+            _fp32_vector(record.embedding) for record in encoded.records
         ):
             raise CacheCorruptError(
                 "published cache shard embeddings do not match encoded rows",
                 details={"shard_id": shard.shard_id, "path": shard.relative_path},
             )
         completed[shard.shard_id] = _completed_entry(
-            shard,
+            execution_shard,
             inspection,
+            plan_shard_id=shard.shard_id,
             origin="encoded",
-            encoded_rows=len(shard.rows),
-            encoder_seconds=encoder_seconds,
+            encoded_rows=len(execution_shard.rows),
+            encode_batch_calls=encoded.encode_batch_calls,
+            encode_batch_seconds=encoded.encode_batch_seconds,
         )
-        inspections[shard.shard_id] = inspection
-        encoded_rows += len(shard.rows)
+        encoded_rows += len(execution_shard.rows)
         encoded_shards += 1
         state = _state_payload(plan_sha256=plan_sha256, completed=completed)
         _atomic_write(state_path, _pretty_json_bytes(state))
@@ -327,14 +405,19 @@ def build_window_cache(
                 "data.shard.write",
                 shard_id=shard.shard_id,
                 path=path.relative_to(cache_root).as_posix(),
-                n_rows=len(shard.rows),
+                n_rows=len(execution_shard.rows),
                 size_bytes=inspection.size_bytes,
             )
-        rate = None if encoder_seconds <= 0 else len(shard.rows) / encoder_seconds
+        rate = (
+            None
+            if encoded.encode_batch_seconds <= 0
+            else len(execution_shard.rows) / encoded.encode_batch_seconds
+        )
         _emit_progress(
             logger,
             shard=shard,
-            completed_shards=len(inspections),
+            completed_shards=_resolved_plan_shard_count(plan, resolved_before.rows)
+            + encoded_shards,
             total_shards=len(plan.shards),
             encoded_rows=encoded_rows,
             resumed_rows=resumed_rows,
@@ -342,11 +425,7 @@ def build_window_cache(
             status="encoded",
         )
 
-    if len(inspections) != len(plan.shards):
-        raise CacheCorruptError(
-            "cache build ended without inspecting every planned shard",
-            details={"inspected": len(inspections), "planned": len(plan.shards)},
-        )
+    resolved = _resolve_plan_cache(cache_root, plan, require_all=True)
     state = _state_payload(plan_sha256=plan_sha256, completed=completed)
     _atomic_write(state_path, _pretty_json_bytes(state))
     report_payload = _report_payload(
@@ -357,7 +436,7 @@ def build_window_cache(
         request_identity=request_identity,
         request_count=len(requests),
         cache_root=cache_root,
-        inspections=inspections,
+        resolved=resolved,
         completed=completed,
         encoded_rows=encoded_rows,
         encoded_shards=encoded_shards,
@@ -366,11 +445,14 @@ def build_window_cache(
         batch_size=batch_size,
         rows_per_shard=rows_per_shard,
         created_at_ns=created_at_ns,
+        hardware=hardware,
+        encoder_device=encoder_device,
+        resolved_config=resolved_config_identity,
         logger=logger,
         input_artifacts=input_identities,
     )
     _atomic_write(report_path, _pretty_json_bytes(report_payload))
-    _write_checksums(evidence_root)
+    _write_checksums(evidence_root, expected_names=expected_evidence_names)
 
     if logger is not None:
         throughput = cast(Mapping[str, object], report_payload["throughput"])
@@ -399,8 +481,12 @@ def _create_plan(
     encoder_id: str,
     namespace: str,
     contract: _EncoderContract,
+    batch_size: int,
     rows_per_shard: int,
     created_at_ns: int,
+    hardware: str,
+    encoder_device: str,
+    resolved_config: Mapping[str, object],
     input_artifacts: tuple[Mapping[str, object], ...],
 ) -> _BuildPlan:
     resolver = getattr(encoder, "pooling_identity", None)
@@ -449,8 +535,12 @@ def _create_plan(
         encoder_id=encoder_id,
         namespace=namespace,
         contract=contract,
+        batch_size=batch_size,
         rows_per_shard=rows_per_shard,
         created_at_ns=created_at_ns,
+        hardware=hardware,
+        encoder_device=encoder_device,
+        resolved_config=resolved_config,
         input_artifacts=input_artifacts,
     )
     return _BuildPlan(payload=payload, shards=shards, namespace=namespace)
@@ -510,8 +600,12 @@ def _plan_payload(
     encoder_id: str,
     namespace: str,
     contract: _EncoderContract,
+    batch_size: int,
     rows_per_shard: int,
     created_at_ns: int,
+    hardware: str,
+    encoder_device: str,
+    resolved_config: Mapping[str, object],
     input_artifacts: tuple[Mapping[str, object], ...],
 ) -> dict[str, object]:
     unique_rows = sum(len(shard.rows) for shard in shards)
@@ -535,6 +629,18 @@ def _plan_payload(
             "normalize": False,
         },
         "created_at_ns": created_at_ns,
+        "execution": {
+            "batch_size": batch_size,
+            "hardware": {
+                "description": hardware,
+                "encoder_device": encoder_device,
+            },
+            "resolved_config": dict(resolved_config),
+            "timing_scope": (
+                "wall time inside encoder.encode_batch calls only; excludes planning, "
+                "record materialization, Parquet publication, indexing, and verification"
+            ),
+        },
         "input_artifacts": [dict(identity) for identity in input_artifacts],
         "sharding": {
             "rows_per_shard": rows_per_shard,
@@ -575,223 +681,24 @@ def _plan_payload(
 def _load_plan(
     payload: Mapping[str, object],
     *,
-    requests: tuple[_Request, ...],
-    request_identity: Mapping[str, object],
-    cache_root: Path,
-    encoder: object,
-    encoder_id: str,
-    namespace: str,
-    contract: _EncoderContract,
-    rows_per_shard: int,
-    created_at_ns: int,
-    input_artifacts: tuple[Mapping[str, object], ...],
+    expected: _BuildPlan,
 ) -> _BuildPlan:
-    resolver = getattr(encoder, "pooling_identity", None)
-    if not callable(resolver):
-        raise RuntimeSetupError(
-            "cache build encoder must expose pooling_identity(window, edit_locus)",
-            remediation="use CarbonStateEncoder so cache center_token values come from token IDs",
-        )
-    if set(payload) != {
-        "schema_version",
-        "generated_by",
-        "requests",
-        "encoder",
-        "created_at_ns",
-        "input_artifacts",
-        "sharding",
-        "shards",
-        "claim_boundary",
-    }:
-        raise InputError("cache build plan has an invalid top-level schema")
-    if (
-        payload.get("schema_version") != CACHE_BUILD_SCHEMA_VERSION
-        or payload.get("generated_by") != _GENERATED_BY
-    ):
-        raise InputError("cache build plan has an unsupported schema or producer")
-    request_block = _mapping(payload.get("requests"), field="plan.requests")
-    for field, expected in request_identity.items():
-        if request_block.get(field) != expected:
-            raise InputError(
-                "cache build requests do not match the existing plan",
-                details={
-                    "field": field,
-                    "expected": expected,
-                    "observed": request_block.get(field),
-                },
-            )
-    if request_block.get("input_rows") != len(requests):
-        raise InputError("cache build request count does not match the existing plan")
-    encoder_block = _mapping(payload.get("encoder"), field="plan.encoder")
-    expected_encoder = {
-        "id": encoder_id,
-        "cache_namespace": namespace,
-        "hash": _hash_text(contract.encoder_hash),
-        "state_layer": contract.state_layer,
-        "pool_type": contract.pool_type,
-        "pool_radius": contract.pool_radius,
-        "dtype": contract.dtype,
-        "normalize": False,
-    }
-    if dict(encoder_block) != expected_encoder:
-        raise InputError(
-            "cache build encoder contract does not match the existing plan",
-            details={"expected": expected_encoder, "observed": dict(encoder_block)},
-        )
-    if payload.get("created_at_ns") != created_at_ns:
-        raise InputError("created_at_ns does not match the existing cache build plan")
-    if payload.get("input_artifacts") != [dict(identity) for identity in input_artifacts]:
-        raise InputError("input artifacts do not match the existing cache build plan")
-    sharding = _mapping(payload.get("sharding"), field="plan.sharding")
-    if sharding.get("rows_per_shard") != rows_per_shard:
-        raise InputError("rows_per_shard does not match the existing cache build plan")
+    """Accept only the exact plan rederived from immutable build inputs.
 
-    by_id = {request.request_id: request for request in requests}
-    observed_ids: list[str] = []
-    shards: list[_PlannedShard] = []
-    raw_shards = payload.get("shards")
-    if type(raw_shards) is not list:
-        raise InputError("cache build plan shards must be a list")
-    for raw_shard in raw_shards:
-        block = _mapping(raw_shard, field="plan.shard")
-        shard_id = _text(block.get("shard_id"), field="plan.shard.shard_id")
-        relative_path = _safe_relative_path(block.get("path"), field="plan.shard.path")
-        contig = _text(block.get("contig"), field="plan.shard.contig")
-        stride_block = _non_negative_int("plan.shard.stride_block", block.get("stride_block"))
-        raw_rows = block.get("rows")
-        if type(raw_rows) is not list or not raw_rows:
-            raise InputError("cache build plan shard rows must be a non-empty list")
-        if len(raw_rows) > rows_per_shard:
-            raise InputError("cache build plan shard exceeds rows_per_shard")
-        rows: list[_PlannedRow] = []
-        for raw_row in raw_rows:
-            row_block = _mapping(raw_row, field="plan.shard.row")
-            representative_id = _text(
-                row_block.get("representative_request_id"),
-                field="plan.shard.row.representative_request_id",
-            )
-            raw_ids = row_block.get("request_ids")
-            if (
-                type(raw_ids) is not list
-                or not raw_ids
-                or any(type(value) is not str for value in raw_ids)
-            ):
-                raise InputError("cache build plan request_ids must contain text")
-            request_ids = tuple(cast(list[str], raw_ids))
-            if (
-                request_ids != tuple(sorted(set(request_ids)))
-                or representative_id not in request_ids
-            ):
-                raise InputError("cache build plan request_ids are not canonical")
-            try:
-                representative = by_id[representative_id]
-                aliases = tuple(by_id[request_id] for request_id in request_ids)
-            except KeyError as exc:
-                raise InputError(
-                    "cache build plan references an unknown request_id",
-                    details={"request_id": str(exc)},
-                ) from exc
-            key = _key_from_payload(row_block.get("key"))
-            if key.window_hash != window_sha256(representative.window):
-                raise InputError("cache build plan window hash does not match its request")
-            if (
-                key.encoder_hash != contract.encoder_hash
-                or key.state_layer != contract.state_layer
-                or key.dtype != contract.dtype
-            ):
-                raise InputError("cache build plan key does not match the encoder contract")
-            if any(window_sha256(alias.window) != key.window_hash for alias in aliases):
-                raise InputError("cache build plan aliases do not share the planned window hash")
-            expected_pooling = (key.pool_type, key.pool_radius, key.center_token)
-            if any(
-                _resolve_pooling_identity(resolver(alias.window, alias.edit_locus))
-                != expected_pooling
-                for alias in aliases
-            ):
-                raise InputError(
-                    "cache build plan pooling identity does not match the encoder",
-                    details={"representative_request_id": representative_id},
-                )
-            record = _mapping(row_block.get("record"), field="plan.shard.row.record")
-            if dict(record) != {
-                "chrom": representative.chrom,
-                "start_bp": representative.start_bp,
-                "end_bp": representative.end_bp,
-                "untargeted": representative.edit_locus is None,
-            }:
-                raise InputError("cache build plan record metadata does not match its request")
-            rows.append(
-                _PlannedRow(
-                    representative=representative,
-                    request_ids=request_ids,
-                    key=key,
-                )
-            )
-            observed_ids.extend(request_ids)
-        shard = _PlannedShard(
-            shard_id=shard_id,
-            relative_path=relative_path,
-            contig=contig,
-            stride_block=stride_block,
-            rows=tuple(rows),
+    Parsing a persisted plan and validating identities derived from that same
+    plan is circular: an altered partition can remain self-consistent. The
+    caller therefore recomputes the complete canonical payload from requests,
+    encoder pooling identities, runtime/config identity, and sharding inputs.
+    """
+    if dict(payload) != dict(expected.payload):
+        raise InputError(
+            "cache build plan does not match the exact plan rederived from immutable inputs",
+            details={
+                "expected_sha256": canonical_json_sha256(expected.payload),
+                "observed_sha256": canonical_json_sha256(payload),
+            },
         )
-        expected_path = (
-            shard_path_for(
-                cache_root,
-                encoder_id=namespace,
-                state_layer=rows[0].key.state_layer,
-                pool_type=rows[0].key.pool_type,
-                pool_radius=rows[0].key.pool_radius,
-                contig=contig,
-                stride_block=stride_block,
-                encoder_hash=rows[0].key.encoder_hash,
-                dtype=rows[0].key.dtype,
-            )
-            .relative_to(cache_root)
-            .as_posix()
-        )
-        expected_id = canonical_json_sha256(
-            {"path": expected_path, "keys": [_key_payload(row.key) for row in rows]}
-        )
-        if relative_path != expected_path or shard_id != expected_id:
-            raise InputError("cache build plan shard identity is not deterministic")
-        shards.append(shard)
-    if sorted(observed_ids) != sorted(by_id):
-        raise InputError("cache build plan does not account for every request exactly once")
-    if len({row.key for shard in shards for row in shard.rows}) != sum(
-        len(shard.rows) for shard in shards
-    ):
-        raise InputError("cache build plan contains a duplicate cache key")
-    if sharding.get("planned_shards") != len(shards):
-        raise InputError("cache build plan shard count is inconsistent")
-    unique_rows = sum(len(shard.rows) for shard in shards)
-    if (
-        request_block.get("unique_cache_keys") != unique_rows
-        or request_block.get("duplicate_rows") != len(requests) - unique_rows
-    ):
-        raise InputError("cache build plan request counts are inconsistent")
-    loaded_shards = tuple(shards)
-    if loaded_shards != tuple(sorted(loaded_shards, key=lambda shard: shard.relative_path)):
-        raise InputError("cache build plan shards are not in canonical order")
-    if any(
-        shard.rows != tuple(sorted(shard.rows, key=_planned_row_sort_key))
-        for shard in loaded_shards
-    ):
-        raise InputError("cache build plan rows are not in canonical order")
-    expected_payload = _plan_payload(
-        shards=loaded_shards,
-        request_identity=request_identity,
-        request_count=len(requests),
-        encoder_id=encoder_id,
-        namespace=namespace,
-        contract=contract,
-        rows_per_shard=rows_per_shard,
-        created_at_ns=created_at_ns,
-        input_artifacts=input_artifacts,
-    )
-    if dict(payload) != expected_payload:
-        raise InputError("cache build plan payload is not canonical")
-    return _BuildPlan(payload=payload, shards=loaded_shards, namespace=namespace)
+    return expected
 
 
 def _encode_shard(
@@ -801,16 +708,21 @@ def _encode_shard(
     contract: _EncoderContract,
     batch_size: int,
     created_at_ns: int,
-) -> tuple[WindowCacheRecord, ...]:
+) -> _EncodeResult:
     encode_batch = getattr(encoder, "encode_batch", None)
     if not callable(encode_batch):
         raise RuntimeSetupError("cache build encoder must expose encode_batch(windows, edit_loci)")
     records: list[WindowCacheRecord] = []
+    encode_batch_calls = 0
+    encode_batch_seconds = 0.0
     for offset in range(0, len(shard.rows), batch_size):
         rows = shard.rows[offset : offset + batch_size]
         windows = [row.representative.window for row in rows]
         edit_loci = [row.representative.edit_locus for row in rows]
+        batch_started = time.perf_counter()
         encoded = encode_batch(windows, edit_loci)
+        encode_batch_seconds += time.perf_counter() - batch_started
+        encode_batch_calls += 1
         if not isinstance(encoded, Sequence) or isinstance(encoded, str | bytes):
             raise InputError("encoder.encode_batch must return a sequence of state vectors")
         if len(encoded) != len(rows):
@@ -843,7 +755,11 @@ def _encode_shard(
             "encoder returned inconsistent state widths within a shard",
             details={"widths": sorted(widths)},
         )
-    return tuple(records)
+    return _EncodeResult(
+        records=tuple(records),
+        encode_batch_calls=encode_batch_calls,
+        encode_batch_seconds=encode_batch_seconds,
+    )
 
 
 def _assert_inspection_matches_plan(
@@ -883,6 +799,167 @@ def _assert_inspection_matches_plan(
             )
 
 
+def _execution_shard(
+    plan_shard: _PlannedShard,
+    *,
+    rows: tuple[_PlannedRow, ...],
+) -> _PlannedShard:
+    if not rows:
+        raise CacheCorruptError("cache build execution shard must contain at least one row")
+    planned_keys = {row.key for row in plan_shard.rows}
+    if any(row.key not in planned_keys for row in rows) or len({row.key for row in rows}) != len(
+        rows
+    ):
+        raise CacheCorruptError("cache build execution shard is not a unique plan subset")
+    canonical = tuple(row for row in plan_shard.rows if row.key in {item.key for item in rows})
+    if rows != canonical:
+        raise CacheCorruptError("cache build execution shard rows are not in plan order")
+    return _PlannedShard(
+        shard_id=canonical_json_sha256(
+            {
+                "plan_shard_id": plan_shard.shard_id,
+                "path": plan_shard.relative_path,
+                "keys": [_key_payload(row.key) for row in rows],
+            }
+        ),
+        relative_path=plan_shard.relative_path,
+        contig=plan_shard.contig,
+        stride_block=plan_shard.stride_block,
+        rows=rows,
+    )
+
+
+def _execution_shard_from_records(
+    plan_shard: _PlannedShard,
+    records: Sequence[WindowCacheRecord],
+) -> _PlannedShard:
+    by_key = {row.key: row for row in plan_shard.rows}
+    try:
+        rows = tuple(by_key[record.key] for record in records)
+    except KeyError as exc:
+        raise CacheCorruptError(
+            "evidence-owned cache shard contains a key outside its immutable plan",
+            details={"plan_shard_id": plan_shard.shard_id},
+        ) from exc
+    if len({record.key for record in records}) != len(records):
+        raise CacheCorruptError("evidence-owned cache shard contains a duplicate key")
+    return _execution_shard(plan_shard, rows=rows)
+
+
+def _resolve_plan_cache(
+    cache_root: Path,
+    plan: _BuildPlan,
+    *,
+    require_all: bool,
+) -> _ResolvedCache:
+    planned_rows = tuple(row for shard in plan.shards for row in shard.rows)
+    provenances = resolve_cache_provenances(
+        cache_root,
+        tuple(row.key for row in planned_rows),
+        policy="require_v3",
+    )
+    by_path: dict[str, list[tuple[_PlannedRow, CacheProvenance]]] = defaultdict(list)
+    missing: list[str] = []
+    for row, provenance in zip(planned_rows, provenances, strict=True):
+        if provenance is None:
+            missing.extend(row.request_ids)
+            continue
+        if provenance.cache_schema_version != CACHE_SCHEMA_VERSION:
+            raise CacheCorruptError(
+                "finite cache build resolved a non-schema-3 cache row",
+                details={"request_ids": list(row.request_ids)},
+            )
+        try:
+            relative = provenance.shard_path.absolute().relative_to(cache_root).as_posix()
+        except ValueError as exc:
+            raise CacheCorruptError("cache index resolved a shard outside the cache root") from exc
+        by_path[relative].append((row, provenance))
+    if require_all and missing:
+        raise CacheCorruptError(
+            "cache build ended without resolving every planned logical key",
+            details={"missing_request_ids": sorted(missing)},
+        )
+
+    resolved_rows: dict[WindowCacheKey, _ResolvedRow] = {}
+    summaries: dict[str, _ShardSummary] = {}
+    for relative in sorted(by_path):
+        inspection = inspect_cache_shard(cache_root, relative)
+        summaries[relative] = _summary(inspection, cache_root=cache_root)
+        seen_offsets: set[int] = set()
+        for row, provenance in by_path[relative]:
+            offset = provenance.row_offset
+            if offset in seen_offsets or offset < 0 or offset >= len(inspection.records):
+                raise CacheCorruptError(
+                    "cache index resolved an invalid or duplicate row offset",
+                    details={"path": relative, "row_offset": offset},
+                )
+            seen_offsets.add(offset)
+            record = inspection.records[offset]
+            if record.key != row.key or record.schema_version != CACHE_SCHEMA_VERSION:
+                raise CacheCorruptError(
+                    "cache index logical key does not match the referenced schema-3 row",
+                    details={"path": relative, "row_offset": offset},
+                )
+            resolved_rows[row.key] = _ResolvedRow(
+                provenance=provenance,
+                created_at_ns=record.created_at,
+            )
+        # Drop the fully decoded inspection before opening the next shard. The
+        # retained evidence is O(number of keys + shards), not O(rows*d_state).
+        del inspection
+    return _ResolvedCache(rows=resolved_rows, shards=summaries)
+
+
+def _summary(inspection: CacheShardInspection, *, cache_root: Path) -> _ShardSummary:
+    return _ShardSummary(
+        path=inspection.path.absolute().relative_to(cache_root).as_posix(),
+        sha256=inspection.sha256,
+        size_bytes=inspection.size_bytes,
+        row_count=len(inspection.records),
+    )
+
+
+def _resolved_plan_shard_count(
+    plan: _BuildPlan,
+    resolved: Mapping[WindowCacheKey, _ResolvedRow],
+) -> int:
+    return sum(all(row.key in resolved for row in shard.rows) for shard in plan.shards)
+
+
+def _assert_encoded_rows_match_cache(
+    cache_root: Path,
+    encoded: Sequence[WindowCacheRecord],
+) -> None:
+    provenances = resolve_cache_provenances(
+        cache_root,
+        tuple(record.key for record in encoded),
+        policy="require_v3",
+    )
+    if any(provenance is None for provenance in provenances):
+        raise CacheCorruptError(
+            "cache shard publication failed without a complete logical-key winner"
+        )
+    by_path: dict[str, list[tuple[WindowCacheRecord, CacheProvenance]]] = defaultdict(list)
+    for record, raw_provenance in zip(encoded, provenances, strict=True):
+        assert raw_provenance is not None
+        relative = raw_provenance.shard_path.absolute().relative_to(cache_root).as_posix()
+        by_path[relative].append((record, raw_provenance))
+    for relative, rows in by_path.items():
+        inspection = inspect_cache_shard(cache_root, relative)
+        for expected, provenance in rows:
+            if provenance.row_offset >= len(inspection.records):
+                raise CacheCorruptError("concurrent cache winner has an invalid row offset")
+            observed = inspection.records[provenance.row_offset]
+            if observed.key != expected.key or observed.embedding != _fp32_vector(
+                expected.embedding
+            ):
+                raise CacheCorruptError(
+                    "concurrent cache winner does not match the encoded logical row",
+                    details={"path": relative, "row_offset": provenance.row_offset},
+                )
+        del inspection
+
+
 def _report_payload(
     *,
     plan: _BuildPlan,
@@ -892,7 +969,7 @@ def _report_payload(
     request_identity: Mapping[str, object],
     request_count: int,
     cache_root: Path,
-    inspections: Mapping[str, CacheShardInspection],
+    resolved: _ResolvedCache,
     completed: Mapping[str, Mapping[str, object]],
     encoded_rows: int,
     encoded_shards: int,
@@ -901,18 +978,21 @@ def _report_payload(
     batch_size: int,
     rows_per_shard: int,
     created_at_ns: int,
+    hardware: str,
+    encoder_device: str,
+    resolved_config: Mapping[str, object],
     logger: GenoLeWMLogger | None,
     input_artifacts: tuple[Mapping[str, object], ...],
 ) -> dict[str, object]:
     measured_rows = sum(
         cast(int, entry["encoded_rows"])
         for entry in completed.values()
-        if entry.get("encoder_seconds") is not None
+        if entry.get("encode_batch_seconds") is not None
     )
     measured_seconds = sum(
-        cast(float, entry["encoder_seconds"])
+        cast(float, entry["encode_batch_seconds"])
         for entry in completed.values()
-        if entry.get("encoder_seconds") is not None
+        if entry.get("encode_batch_seconds") is not None
     )
     rate = None if measured_seconds <= 0.0 else measured_rows / measured_seconds
     index_path = cache_root / "embeddings" / INDEX_DB_NAME
@@ -936,20 +1016,35 @@ def _report_payload(
             "rows_per_shard": rows_per_shard,
             "created_at_ns": created_at_ns,
             "cache_namespace": plan.namespace,
+            "hardware": {
+                "description": hardware,
+                "encoder_device": encoder_device,
+            },
+            "resolved_config": dict(resolved_config),
         },
         "build": {
             "planned_shards": len(plan.shards),
-            "completed_shards": len(inspections),
+            "completed_shards": len(plan.shards),
             "encoded_shards": encoded_shards,
             "encoded_rows": encoded_rows,
             "resumed_rows": resumed_rows,
+            "resolved_unique_rows": len(resolved.rows),
         },
         "throughput": {
             "invocation_elapsed_seconds": round(max(elapsed_seconds, 0.0), 6),
             "measured_encoded_rows": measured_rows,
             "measured_encoder_seconds": round(measured_seconds, 6),
             "measured_encoded_rows_per_second": rate,
-            "measurement_scope": "encoder.encode_batch wall time for rows encoded by this evidence state",
+            "measurement_scope": (
+                "wall time inside encoder.encode_batch calls for evidence-owned encoded rows; "
+                "excludes planning, Python record materialization, Parquet publication, indexing, "
+                "verification, and reused shared-cache rows"
+            ),
+            "measurement_hardware": {
+                "description": hardware,
+                "encoder_device": encoder_device,
+            },
+            "measurement_batch_size": batch_size,
             "ten_percent_24h_target_evaluated": False,
         },
         "cache_contract": {
@@ -960,22 +1055,21 @@ def _report_payload(
             "deduplication_key_includes_center_token": True,
         },
         "cache_artifacts": {
-            "index": _file_identity(index_path, root=cache_root),
-            "shards": [
-                {
-                    "shard_id": shard.shard_id,
-                    "path": shard.relative_path,
-                    "sha256": inspections[shard.shard_id].sha256,
-                    "size_bytes": inspections[shard.shard_id].size_bytes,
-                    "row_count": len(inspections[shard.shard_id].records),
-                }
-                for shard in plan.shards
-            ],
+            "index": {
+                "path": index_path.relative_to(cache_root).as_posix(),
+                "schema_version": 4,
+                "verified_logical_keys": len(resolved.rows),
+                "identity_scope": (
+                    "request-scoped logical-key mappings; mutable shared index bytes are excluded"
+                ),
+            },
+            "shards": _resolved_shard_payloads(plan, resolved, cache_root=cache_root),
         },
         "evidence_artifacts": {
             "requests": _file_identity(request_copy_path, root=request_copy_path.parent),
             "plan": _file_identity(plan_path, root=plan_path.parent),
             "state": _file_identity(state_path, root=state_path.parent),
+            "resolved_config": dict(resolved_config),
             "inputs": [dict(identity) for identity in input_artifacts],
         },
         "progress_events": [
@@ -1034,50 +1128,86 @@ def _completed_by_id(
     for raw in raw_entries:
         entry = _corrupt_mapping(raw, field="state.completed_shard")
         if set(entry) != {
-            "shard_id",
+            "plan_shard_id",
+            "execution_shard_id",
             "path",
+            "row_keys",
             "sha256",
             "size_bytes",
             "row_count",
             "origin",
             "encoded_rows",
-            "encoder_seconds",
+            "encode_batch_calls",
+            "encode_batch_seconds",
         }:
             raise CacheCorruptError("cache build state shard entry has an invalid schema")
-        shard_id = entry.get("shard_id")
-        if type(shard_id) is not str or shard_id not in planned or shard_id in completed:
+        plan_shard_id = entry.get("plan_shard_id")
+        if (
+            type(plan_shard_id) is not str
+            or plan_shard_id not in planned
+            or plan_shard_id in completed
+        ):
             raise CacheCorruptError(
                 "cache build state contains an unknown or duplicate shard",
-                details={"shard_id": repr(shard_id)},
+                details={"plan_shard_id": repr(plan_shard_id)},
             )
-        shard = planned[shard_id]
-        if entry.get("path") != shard.relative_path or entry.get("row_count") != len(shard.rows):
+        plan_shard = planned[plan_shard_id]
+        raw_keys = entry.get("row_keys")
+        if type(raw_keys) is not list or not raw_keys:
+            raise CacheCorruptError("cache build state row_keys must be a non-empty list")
+        try:
+            keys = tuple(_key_from_payload(raw_key) for raw_key in raw_keys)
+        except InputError as exc:
+            raise CacheCorruptError("cache build state row_keys are invalid") from exc
+        by_key = {row.key: row for row in plan_shard.rows}
+        try:
+            execution = _execution_shard(
+                plan_shard,
+                rows=tuple(by_key[key] for key in keys),
+            )
+        except (KeyError, CacheCorruptError) as exc:
+            raise CacheCorruptError(
+                "cache build state row_keys are not an ordered plan subset"
+            ) from exc
+        if (
+            entry.get("execution_shard_id") != execution.shard_id
+            or entry.get("path") != execution.relative_path
+            or entry.get("row_count") != len(execution.rows)
+        ):
             raise CacheCorruptError("cache build state shard metadata does not match the plan")
         _validate_artifact_identity(entry, label="state.completed_shard")
         encoded_rows = entry.get("encoded_rows")
-        encoder_seconds = entry.get("encoder_seconds")
+        encode_batch_calls = entry.get("encode_batch_calls")
+        encode_batch_seconds = entry.get("encode_batch_seconds")
         origin = entry.get("origin")
         if origin not in {"encoded", "adopted_after_interruption"}:
             raise CacheCorruptError("cache build state shard origin is invalid")
-        if type(encoded_rows) is not int or encoded_rows < 0 or encoded_rows > len(shard.rows):
+        if type(encoded_rows) is not int or encoded_rows < 0 or encoded_rows > len(execution.rows):
             raise CacheCorruptError("cache build state encoded_rows is invalid")
-        if encoder_seconds is not None and (
-            isinstance(encoder_seconds, bool)
-            or not isinstance(encoder_seconds, int | float)
-            or not math.isfinite(float(encoder_seconds))
-            or encoder_seconds < 0
+        if type(encode_batch_calls) is not int or encode_batch_calls < 0:
+            raise CacheCorruptError("cache build state encode_batch_calls is invalid")
+        if encode_batch_seconds is not None and (
+            isinstance(encode_batch_seconds, bool)
+            or not isinstance(encode_batch_seconds, int | float)
+            or not math.isfinite(float(encode_batch_seconds))
+            or encode_batch_seconds < 0
         ):
-            raise CacheCorruptError("cache build state encoder_seconds is invalid")
+            raise CacheCorruptError("cache build state encode_batch_seconds is invalid")
         if (
-            origin == "encoded" and (encoded_rows != len(shard.rows) or encoder_seconds is None)
+            origin == "encoded"
+            and (
+                encoded_rows != len(execution.rows)
+                or encode_batch_calls <= 0
+                or encode_batch_seconds is None
+            )
         ) or (
             origin == "adopted_after_interruption"
-            and (encoded_rows != 0 or encoder_seconds is not None)
+            and (encoded_rows != 0 or encode_batch_calls != 0 or encode_batch_seconds is not None)
         ):
             raise CacheCorruptError(
                 "cache build state shard origin and measurements are inconsistent"
             )
-        completed[shard_id] = entry
+        completed[plan_shard_id] = entry
     return completed
 
 
@@ -1098,19 +1228,24 @@ def _completed_entry(
     shard: _PlannedShard,
     inspection: CacheShardInspection,
     *,
+    plan_shard_id: str,
     origin: str,
     encoded_rows: int,
-    encoder_seconds: float | None,
+    encode_batch_calls: int,
+    encode_batch_seconds: float | None,
 ) -> dict[str, object]:
     return {
-        "shard_id": shard.shard_id,
+        "plan_shard_id": plan_shard_id,
+        "execution_shard_id": shard.shard_id,
         "path": shard.relative_path,
+        "row_keys": [_key_payload(row.key) for row in shard.rows],
         "sha256": inspection.sha256,
         "size_bytes": inspection.size_bytes,
         "row_count": len(inspection.records),
         "origin": origin,
         "encoded_rows": encoded_rows,
-        "encoder_seconds": encoder_seconds,
+        "encode_batch_calls": encode_batch_calls,
+        "encode_batch_seconds": encode_batch_seconds,
     }
 
 
@@ -1119,12 +1254,80 @@ def _assert_state_identity(
     inspection: CacheShardInspection,
     *,
     shard: _PlannedShard,
+    plan_shard: _PlannedShard,
 ) -> None:
-    if state.get("sha256") != inspection.sha256 or state.get("size_bytes") != inspection.size_bytes:
+    if (
+        state.get("plan_shard_id") != plan_shard.shard_id
+        or state.get("execution_shard_id") != shard.shard_id
+        or state.get("row_keys") != [_key_payload(row.key) for row in shard.rows]
+        or state.get("sha256") != inspection.sha256
+        or state.get("size_bytes") != inspection.size_bytes
+    ):
         raise CacheCorruptError(
             "completed cache shard bytes do not match the durable build state",
             details={"shard_id": shard.shard_id, "path": shard.relative_path},
         )
+
+
+def _resolved_shard_payloads(
+    plan: _BuildPlan,
+    resolved: _ResolvedCache,
+    *,
+    cache_root: Path,
+) -> list[dict[str, object]]:
+    rows_by_path: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for shard in plan.shards:
+        for row in shard.rows:
+            resolved_row = resolved.rows.get(row.key)
+            if resolved_row is None:
+                raise CacheCorruptError("cache artifact payload is missing a planned logical key")
+            provenance = resolved_row.provenance
+            relative = provenance.shard_path.absolute().relative_to(cache_root).as_posix()
+            rows_by_path[relative].append(
+                {
+                    "key": _key_payload(row.key),
+                    "row_offset": provenance.row_offset,
+                    "created_at_ns": resolved_row.created_at_ns,
+                    "request_ids": list(row.request_ids),
+                }
+            )
+    payloads: list[dict[str, object]] = []
+    for relative in sorted(rows_by_path):
+        summary = resolved.shards.get(relative)
+        if summary is None:
+            raise CacheCorruptError("cache artifact payload is missing a shard summary")
+        payloads.append(
+            {
+                "path": summary.path,
+                "sha256": summary.sha256,
+                "size_bytes": summary.size_bytes,
+                "row_count": summary.row_count,
+                "request_rows": sorted(
+                    rows_by_path[relative],
+                    key=lambda item: cast(int, item["row_offset"]),
+                ),
+            }
+        )
+    return payloads
+
+
+def _expected_evidence_names(
+    input_artifacts: tuple[Mapping[str, object], ...],
+) -> tuple[str, ...]:
+    names = {
+        _REQUEST_COPY_NAME,
+        _PLAN_NAME,
+        _STATE_NAME,
+        _RESOLVED_CONFIG_NAME,
+        CACHE_BUILD_REPORT_NAME,
+        _CHECKSUMS_NAME,
+    }
+    for identity in input_artifacts:
+        path = identity.get("path")
+        if type(path) is not str:
+            raise InputError("cache build input artifact identity is missing its path")
+        names.add(path)
+    return tuple(sorted(names))
 
 
 def _verify_completed_bundle(
@@ -1133,14 +1336,14 @@ def _verify_completed_bundle(
     cache_root: Path,
     plan: _BuildPlan,
     plan_sha256: str,
-    inspections: Mapping[str, CacheShardInspection],
+    expected_evidence_names: tuple[str, ...],
 ) -> CacheBuildReport:
-    if len(inspections) != len(plan.shards):
-        raise CacheCorruptError(
-            "completed evidence bundle exists but planned cache shards are missing",
-            details={"inspected": len(inspections), "planned": len(plan.shards)},
-        )
-    _verify_checksums(evidence_root)
+    _assert_evidence_inventory(
+        evidence_root,
+        expected_names=expected_evidence_names,
+        require_complete=True,
+    )
+    _verify_checksums(evidence_root, expected_names=expected_evidence_names)
     report_path = evidence_root / CACHE_BUILD_REPORT_NAME
     payload = _read_json_object(report_path, label="cache build report")
     if payload.get("schema_version") != CACHE_BUILD_SCHEMA_VERSION or payload.get("ok") is not True:
@@ -1148,24 +1351,24 @@ def _verify_completed_bundle(
     plan_identity = _corrupt_mapping(payload.get("plan"), field="report.plan")
     if plan_identity.get("sha256") != plan_sha256:
         raise CacheCorruptError("completed cache build report is bound to another plan")
+    resolved = _resolve_plan_cache(cache_root, plan, require_all=True)
     artifacts = _corrupt_mapping(payload.get("cache_artifacts"), field="report.cache_artifacts")
     raw_shards = artifacts.get("shards")
-    expected_shards = [
-        {
-            "shard_id": shard.shard_id,
-            "path": shard.relative_path,
-            "sha256": inspections[shard.shard_id].sha256,
-            "size_bytes": inspections[shard.shard_id].size_bytes,
-            "row_count": len(inspections[shard.shard_id].records),
-        }
-        for shard in plan.shards
-    ]
+    expected_shards = _resolved_shard_payloads(plan, resolved, cache_root=cache_root)
     if raw_shards != expected_shards:
         raise CacheCorruptError("completed cache build report shard identities have drifted")
     index_identity = _corrupt_mapping(artifacts.get("index"), field="report.cache_artifacts.index")
     index_path = cache_root / "embeddings" / INDEX_DB_NAME
-    if index_identity != _file_identity(index_path, root=cache_root):
-        raise CacheCorruptError("completed cache build index identity has drifted")
+    expected_index = {
+        "path": index_path.relative_to(cache_root).as_posix(),
+        "schema_version": 4,
+        "verified_logical_keys": len(resolved.rows),
+        "identity_scope": (
+            "request-scoped logical-key mappings; mutable shared index bytes are excluded"
+        ),
+    }
+    if dict(index_identity) != expected_index:
+        raise CacheCorruptError("completed cache build index mapping evidence has drifted")
     return CacheBuildReport(
         report_path=report_path,
         checksums_path=evidence_root / _CHECKSUMS_NAME,
@@ -1173,8 +1376,13 @@ def _verify_completed_bundle(
     )
 
 
-def _write_checksums(evidence_root: Path) -> None:
-    names = _evidence_file_names(evidence_root)
+def _write_checksums(evidence_root: Path, *, expected_names: tuple[str, ...]) -> None:
+    _assert_evidence_inventory(
+        evidence_root,
+        expected_names=expected_names,
+        require_complete=False,
+    )
+    names = tuple(name for name in expected_names if name != _CHECKSUMS_NAME)
     body = "".join(
         f"{sha256_file(evidence_root / name).removeprefix(_HASH_PREFIX)}  {name}\n"
         for name in names
@@ -1182,14 +1390,14 @@ def _write_checksums(evidence_root: Path) -> None:
     _write_once(evidence_root / _CHECKSUMS_NAME, body, label="cache build checksums")
 
 
-def _verify_checksums(evidence_root: Path) -> None:
+def _verify_checksums(evidence_root: Path, *, expected_names: tuple[str, ...]) -> None:
     path = evidence_root / _CHECKSUMS_NAME
     body = _read_regular_bytes(path, label="cache build checksums").decode("ascii")
-    expected_names = _evidence_file_names(evidence_root)
+    checksum_names = tuple(name for name in expected_names if name != _CHECKSUMS_NAME)
     lines = body.splitlines()
-    if len(lines) != len(expected_names):
+    if len(lines) != len(checksum_names):
         raise CacheCorruptError("cache build SHA256SUMS has the wrong entry count")
-    for line, name in zip(lines, expected_names, strict=True):
+    for line, name in zip(lines, checksum_names, strict=True):
         parts = line.split("  ")
         if len(parts) != 2 or parts[1] != name or len(parts[0]) != 64:
             raise CacheCorruptError("cache build SHA256SUMS has an invalid entry")
@@ -1201,8 +1409,18 @@ def _verify_checksums(evidence_root: Path) -> None:
             )
 
 
-def _evidence_file_names(evidence_root: Path) -> tuple[str, ...]:
-    names: list[str] = []
+def _assert_evidence_inventory(
+    evidence_root: Path,
+    *,
+    expected_names: tuple[str, ...],
+    require_complete: bool,
+) -> None:
+    observed_names: list[str] = []
+    allowed_directories = {
+        Path(name).parent.as_posix()
+        for name in expected_names
+        if Path(name).parent.as_posix() != "."
+    }
     for path in sorted(evidence_root.rglob("*")):
         relative = path.relative_to(evidence_root).as_posix()
         mode = path.lstat().st_mode
@@ -1212,21 +1430,29 @@ def _evidence_file_names(evidence_root: Path) -> tuple[str, ...]:
                 details={"path": relative},
             )
         if stat.S_ISDIR(mode):
+            if relative not in allowed_directories:
+                raise CacheCorruptError(
+                    "cache build evidence contains an unexpected directory",
+                    details={"path": relative},
+                )
             continue
         if not stat.S_ISREG(mode):
             raise CacheCorruptError(
                 "cache build evidence contains a non-regular artifact",
                 details={"path": relative},
             )
-        if relative != _CHECKSUMS_NAME:
-            names.append(relative)
-    required = {_REQUEST_COPY_NAME, _PLAN_NAME, _STATE_NAME, CACHE_BUILD_REPORT_NAME}
-    if not required.issubset(names):
+        observed_names.append(relative)
+    unexpected = set(observed_names) - set(expected_names)
+    if unexpected:
+        raise CacheCorruptError(
+            "cache build evidence contains an unexpected artifact",
+            details={"unexpected": sorted(unexpected)},
+        )
+    if require_complete and set(observed_names) != set(expected_names):
         raise CacheCorruptError(
             "cache build evidence is missing a required artifact",
-            details={"missing": sorted(required - set(names))},
+            details={"missing": sorted(set(expected_names) - set(observed_names))},
         )
-    return tuple(sorted(names))
 
 
 def _parse_requests(body: bytes) -> tuple[_Request, ...]:
@@ -1480,13 +1706,12 @@ def _emit_progress(
     )
 
 
-def _stage_input_artifacts(
-    evidence_root: Path,
+def _read_input_artifacts(
     artifacts: Mapping[str, Path | str],
-) -> tuple[Mapping[str, object], ...]:
+) -> tuple[_InputArtifact, ...]:
     if any(type(name) is not str for name in artifacts):
         raise InputError("cache build input artifact names must be text")
-    identities: list[Mapping[str, object]] = []
+    staged: list[_InputArtifact] = []
     for name in sorted(artifacts):
         if (
             not name
@@ -1498,6 +1723,7 @@ def _stage_input_artifacts(
                 _REQUEST_COPY_NAME,
                 _PLAN_NAME,
                 _STATE_NAME,
+                _RESOLVED_CONFIG_NAME,
                 CACHE_BUILD_REPORT_NAME,
                 _CHECKSUMS_NAME,
             }
@@ -1508,11 +1734,32 @@ def _stage_input_artifacts(
             )
         source = Path(artifacts[name])
         body = _read_regular_bytes(source, label=f"cache build input artifact {name}")
-        destination = evidence_root / "inputs" / name
+        staged.append(
+            _InputArtifact(
+                name=name,
+                body=body,
+                identity={
+                    "path": f"inputs/{name}",
+                    "sha256": sha256_bytes(body),
+                    "size_bytes": len(body),
+                },
+            )
+        )
+    return tuple(staged)
+
+
+def _stage_input_artifacts(
+    evidence_root: Path,
+    artifacts: tuple[_InputArtifact, ...],
+) -> None:
+    for artifact in artifacts:
+        destination = evidence_root / cast(str, artifact.identity["path"])
         _ensure_real_directory(destination.parent)
-        _write_once(destination, body, label=f"cache build input artifact copy {name}")
-        identities.append(_file_identity(destination, root=evidence_root))
-    return tuple(identities)
+        _write_once(
+            destination,
+            artifact.body,
+            label=f"cache build input artifact copy {artifact.name}",
+        )
 
 
 def _file_identity(path: Path, *, root: Path) -> dict[str, object]:
@@ -1537,6 +1784,19 @@ def _validate_artifact_identity(payload: Mapping[str, object], *, label: str) ->
         or size < 0
     ):
         raise CacheCorruptError(f"{label} has an invalid artifact identity")
+
+
+def _json_object_copy(value: Mapping[str, object], *, field: str) -> dict[str, object]:
+    if not isinstance(value, Mapping) or any(type(key) is not str for key in value):
+        raise InputError(f"{field} must be a JSON object with text keys")
+    try:
+        encoded = json.dumps(value, sort_keys=True, allow_nan=False)
+        decoded = json.loads(encoded, object_pairs_hook=_reject_duplicate_keys)
+    except (TypeError, ValueError, InputError) as exc:
+        raise InputError(f"{field} must contain only finite JSON-native values") from exc
+    if type(decoded) is not dict:
+        raise InputError(f"{field} must be a JSON object")
+    return cast(dict[str, object], decoded)
 
 
 def _pretty_json_bytes(payload: Mapping[str, object]) -> bytes:

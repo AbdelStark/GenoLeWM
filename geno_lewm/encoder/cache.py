@@ -49,6 +49,7 @@ __all__ = [
     "read_embeddings",
     "reindex_cache",
     "repair_cache",
+    "resolve_cache_provenances",
     "shard_path_for",
     "write_shard",
 ]
@@ -1101,6 +1102,72 @@ def read_cache_entries(
     policy: CacheReadPolicy = "require_v3",
 ) -> tuple[CacheLookupResult | None, ...]:
     """Return cache entries in request order under an explicit provenance policy."""
+    locations = resolve_cache_provenances(cache_dir, keys, policy=policy)
+    if not keys:
+        return ()
+    root = Path(cache_dir)
+    locations_by_key = {
+        key: provenance
+        for key, provenance in zip(keys, locations, strict=True)
+        if provenance is not None
+    }
+    requests_by_shard: dict[Path, list[tuple[int, WindowCacheKey, int]]] = defaultdict(list)
+    for result_index, key in enumerate(keys):
+        provenance = locations_by_key.get(key)
+        if provenance is not None:
+            requests_by_shard[provenance.shard_path].append(
+                (result_index, key, provenance.row_offset)
+            )
+    results: list[CacheLookupResult | None] = [None] * len(keys)
+    for shard_path, requests in requests_by_shard.items():
+        requested_offsets = {request[2] for request in requests}
+        records = _read_records_at_offsets(
+            shard_path,
+            requested_offsets,
+            cache_dir=root,
+        )
+        missing_offsets = requested_offsets - records.keys()
+        if missing_offsets:
+            raise CacheCorruptError(
+                "cache index row_offset could not be resolved in shard",
+                details={
+                    "shard_path": str(shard_path),
+                    "row_offsets": sorted(missing_offsets),
+                },
+            )
+        for result_index, key, row_offset in requests:
+            record = records[row_offset]
+            if record.key != key:
+                raise CacheCorruptError(
+                    "cache index key does not match shard row",
+                    details={"shard_path": str(shard_path), "row_offset": row_offset},
+                )
+            provenance = locations_by_key[key]
+            if record.schema_version != provenance.cache_schema_version:
+                raise CacheCorruptError(
+                    "cache index provenance does not match shard row",
+                    details={"shard_path": str(shard_path), "row_offset": row_offset},
+                )
+            results[result_index] = CacheLookupResult(
+                embedding=record.embedding,
+                provenance=provenance,
+            )
+    return tuple(results)
+
+
+def resolve_cache_provenances(
+    cache_dir: Path | str,
+    keys: Sequence[WindowCacheKey],
+    *,
+    policy: CacheReadPolicy = "require_v3",
+) -> tuple[CacheProvenance | None, ...]:
+    """Resolve physical locations without materializing embedding vectors.
+
+    This is the bounded-memory index boundary for finite cache builders and
+    auditors. Duplicate keys and misses are preserved in request order. The
+    returned locations are index claims; callers that need evidence must still
+    inspect the referenced immutable shard bytes and validate each row.
+    """
     _validate_read_policy(policy)
     if not keys:
         return ()
@@ -1143,48 +1210,7 @@ def read_cache_entries(
                     shard_path=shard_path,
                     row_offset=row_offset,
                 )
-    requests_by_shard: dict[Path, list[tuple[int, WindowCacheKey, int]]] = defaultdict(list)
-    for result_index, key in enumerate(keys):
-        provenance = locations.get(key)
-        if provenance is not None:
-            requests_by_shard[provenance.shard_path].append(
-                (result_index, key, provenance.row_offset)
-            )
-    results: list[CacheLookupResult | None] = [None] * len(keys)
-    for shard_path, requests in requests_by_shard.items():
-        requested_offsets = {request[2] for request in requests}
-        records = _read_records_at_offsets(
-            shard_path,
-            requested_offsets,
-            cache_dir=root,
-        )
-        missing_offsets = requested_offsets - records.keys()
-        if missing_offsets:
-            raise CacheCorruptError(
-                "cache index row_offset could not be resolved in shard",
-                details={
-                    "shard_path": str(shard_path),
-                    "row_offsets": sorted(missing_offsets),
-                },
-            )
-        for result_index, key, row_offset in requests:
-            record = records[row_offset]
-            if record.key != key:
-                raise CacheCorruptError(
-                    "cache index key does not match shard row",
-                    details={"shard_path": str(shard_path), "row_offset": row_offset},
-                )
-            provenance = locations[key]
-            if record.schema_version != provenance.cache_schema_version:
-                raise CacheCorruptError(
-                    "cache index provenance does not match shard row",
-                    details={"shard_path": str(shard_path), "row_offset": row_offset},
-                )
-            results[result_index] = CacheLookupResult(
-                embedding=record.embedding,
-                provenance=provenance,
-            )
-    return tuple(results)
+    return tuple(locations.get(key) for key in keys)
 
 
 def reindex_cache(cache_dir: Path | str) -> CacheReindexReport:
