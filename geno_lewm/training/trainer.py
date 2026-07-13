@@ -233,7 +233,7 @@ def configure_torch_reproducibility(
     torch.manual_seed(seed)
     if torch.cuda.is_available():  # pragma: no cover - depends on host accelerator.
         torch.cuda.manual_seed_all(seed)
-    cublas_config: str | None = None
+    cublas_config = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
     if deterministic:
         cublas_config = os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.use_deterministic_algorithms(True)

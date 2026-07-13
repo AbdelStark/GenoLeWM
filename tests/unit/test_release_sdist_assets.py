@@ -52,6 +52,7 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/jobs/v02_suite_run.sh",
         "tools/demo/terminal_inference.py",
         "tools/lint/check_scope_language.py",
+        "tools/release/atomic_hub_publish.py",
         "tools/release/batch_receipt_report.py",
         "tools/release/clean_machine_demo.py",
         "tools/release/dataset_integrity.py",

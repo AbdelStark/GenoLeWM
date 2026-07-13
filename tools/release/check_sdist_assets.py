@@ -36,6 +36,7 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "tools/demo/terminal_inference.py",
     "tools/data/v03_gnomad_lock.py",
     "tools/lint/check_scope_language.py",
+    "tools/release/atomic_hub_publish.py",
     "tools/release/batch_receipt_report.py",
     "tools/release/check_sdist_assets.py",
     "tools/release/clean_machine_demo.py",
