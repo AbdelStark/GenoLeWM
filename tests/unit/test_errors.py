@@ -28,6 +28,7 @@ LEAF_CLASSES: tuple[tuple[type[err.GenoLeWMError], str], ...] = (
     (err.VcfParseError, "INPUT.VCF_PARSE"),
     # Resource
     (err.CacheCorruptError, "RESOURCE.CACHE_CORRUPT"),
+    (err.CacheKeyAlreadyIndexedError, "RESOURCE.CACHE_KEY_ALREADY_INDEXED"),
     (err.DiskFullError, "RESOURCE.DISK_FULL"),
     (err.OutOfMemoryError, "RESOURCE.OOM"),
     (err.ModelNotFoundError, "RESOURCE.MODEL_NOT_FOUND"),

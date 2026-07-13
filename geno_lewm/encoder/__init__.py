@@ -14,9 +14,11 @@ from geno_lewm.encoder.cache import (
     CacheReadPolicy,
     CacheReindexReport,
     CacheRepairReport,
+    CacheShardInspection,
     WindowCacheKey,
     WindowCacheRecord,
     default_cache_dir,
+    inspect_cache_shard,
     read_cache_entries,
     read_cache_entry,
     read_embedding,
@@ -25,6 +27,12 @@ from geno_lewm.encoder.cache import (
     repair_cache,
     shard_path_for,
     write_shard,
+)
+from geno_lewm.encoder.cache_build import (
+    CACHE_BUILD_REPORT_NAME,
+    CACHE_BUILD_SCHEMA_VERSION,
+    CacheBuildReport,
+    build_window_cache,
 )
 from geno_lewm.encoder.carbon import CarbonStateEncoder
 from geno_lewm.encoder.pooling import (
@@ -36,6 +44,12 @@ from geno_lewm.encoder.pooling import (
     centered_mean,
     global_mean,
     pool_hidden_states,
+)
+from geno_lewm.encoder.runtime_identity import (
+    ENCODER_RUNTIME_IDENTITY_SCHEMA_VERSION,
+    SUPPORTED_ENCODER_STATE_CONTRACTS,
+    EncoderRuntimeIdentity,
+    parse_encoder_runtime_identity_bytes,
 )
 from geno_lewm.encoder.windowing import (
     CARBON_DNA_CLOSE_TAG,
@@ -53,6 +67,8 @@ from geno_lewm.encoder.windowing import (
 )
 
 __all__ = [
+    "CACHE_BUILD_REPORT_NAME",
+    "CACHE_BUILD_SCHEMA_VERSION",
     "CACHE_SCHEMA_VERSION",
     "CARBON_DNA_CLOSE_TAG",
     "CARBON_DNA_OPEN_TAG",
@@ -60,27 +76,35 @@ __all__ = [
     "DEFAULT_EDIT_MARGIN_BP",
     "DEFAULT_POOL_RADIUS_TOKENS",
     "DEFAULT_WINDOW_BP",
+    "ENCODER_RUNTIME_IDENTITY_SCHEMA_VERSION",
     "INDEX_DB_NAME",
     "POOL_CENTERED_MEAN",
     "POOL_GLOBAL_MEAN",
+    "SUPPORTED_ENCODER_STATE_CONTRACTS",
     "SUPPORTED_POOL_TYPES",
     "SUPPORTED_WINDOW_BP",
+    "CacheBuildReport",
     "CacheLookupResult",
     "CacheProvenance",
     "CacheReadPolicy",
     "CacheReindexReport",
     "CacheRepairReport",
+    "CacheShardInspection",
     "CarbonStateEncoder",
+    "EncoderRuntimeIdentity",
     "ExtractedWindow",
     "PoolingResult",
     "WindowCacheKey",
     "WindowCacheRecord",
+    "build_window_cache",
     "canonicalize_dna",
     "centered_mean",
     "default_cache_dir",
     "extract_window",
     "global_mean",
+    "inspect_cache_shard",
     "pad_for_carbon_tokenizer",
+    "parse_encoder_runtime_identity_bytes",
     "pool_hidden_states",
     "read_cache_entries",
     "read_cache_entry",

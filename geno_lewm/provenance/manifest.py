@@ -36,6 +36,7 @@ __all__ = [
     "ManifestEncoder",
     "ManifestTraining",
     "load_manifest",
+    "parse_manifest_bytes",
     "write_manifest",
 ]
 
@@ -235,12 +236,21 @@ def write_manifest(manifest: Manifest, path: str | Path) -> Path:
 def load_manifest(path: str | Path) -> Manifest:
     """Load and validate a manifest from disk."""
     p = Path(path)
-    raw = p.read_bytes()
+    return parse_manifest_bytes(p.read_bytes(), source=str(p))
+
+
+def parse_manifest_bytes(raw: bytes, *, source: str = "<bytes>") -> Manifest:
+    """Validate one already-captured immutable manifest byte snapshot."""
     try:
         d = json.loads(raw.decode("utf-8"))
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise InputError(
             "manifest is not valid JSON",
-            details={"path": str(p), "error": str(exc)},
+            details={"path": source, "error": str(exc)},
         ) from exc
+    if type(d) is not dict:
+        raise InputError(
+            "manifest must contain one JSON object",
+            details={"path": source, "got": type(d).__name__},
+        )
     return _from_dict(d)

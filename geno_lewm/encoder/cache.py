@@ -28,7 +28,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from geno_lewm.encoder.pooling import POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN
-from geno_lewm.errors import CacheCorruptError, InputError, RuntimeSetupError
+from geno_lewm.errors import (
+    CacheCorruptError,
+    CacheKeyAlreadyIndexedError,
+    InputError,
+    RuntimeSetupError,
+)
 
 __all__ = [
     "CACHE_SCHEMA_VERSION",
@@ -38,15 +43,18 @@ __all__ = [
     "CacheReadPolicy",
     "CacheReindexReport",
     "CacheRepairReport",
+    "CacheShardInspection",
     "WindowCacheKey",
     "WindowCacheRecord",
     "default_cache_dir",
+    "inspect_cache_shard",
     "read_cache_entries",
     "read_cache_entry",
     "read_embedding",
     "read_embeddings",
     "reindex_cache",
     "repair_cache",
+    "resolve_cache_provenances",
     "shard_path_for",
     "write_shard",
 ]
@@ -70,6 +78,7 @@ _DIR_FD_PRIMITIVES_AVAILABLE = all(
     operation in getattr(os, "supports_dir_fd", set())
     for operation in (os.open, os.mkdir, os.stat, os.unlink, os.link, os.rename)
 )
+
 
 _WINDOW_INDEX_SQL = """
 CREATE TABLE window_index (
@@ -319,6 +328,16 @@ class CacheRepairReport:
 
 
 @dataclass(frozen=True, slots=True)
+class CacheShardInspection:
+    """Fully decoded immutable shard bytes and their exact file identity."""
+
+    path: Path
+    records: tuple[WindowCacheRecord, ...]
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class CacheProvenance:
     """Physical source selected for one logical cache-key lookup."""
 
@@ -345,6 +364,71 @@ class _RecoveredPublication:
 def default_cache_dir() -> Path:
     """Return ``$GENO_LEWM_CACHE`` or the documented local default."""
     return Path(os.environ.get("GENO_LEWM_CACHE", ".geno-lewm-cache")).expanduser()
+
+
+def inspect_cache_shard(
+    cache_dir: Path | str,
+    shard_path: Path | str,
+) -> CacheShardInspection:
+    """Decode and hash one shard through one no-follow file descriptor.
+
+    The caller may pass a cache-relative path or an absolute path inside the
+    cache root. Every physical row and embedding is decoded and validated.
+    The digest and size describe the same held inode, so resume checks do not
+    rely on a path-following time-of-check/time-of-use sequence.
+    """
+    root = Path(cache_dir).absolute()
+    supplied = Path(shard_path)
+    path = supplied if supplied.is_absolute() else root / supplied
+    _require_secure_cache_io()
+    _assert_safe_namespace_path(root, path, final_kind="regular file")
+    with _secure_parent_directory(root, path, create=False) as parent_fd:
+        if parent_fd is None:
+            raise CacheCorruptError(
+                "cache shard parent disappeared during inspection",
+                details={"shard_path": str(path)},
+            )
+        descriptor = _open_regular_at(parent_fd, path.name, label="cache shard")
+        if descriptor is None:
+            raise CacheCorruptError(
+                "cache shard disappeared during inspection",
+                details={"shard_path": str(path)},
+            )
+        try:
+            before = os.fstat(descriptor)
+            digest = _sha256_descriptor(descriptor)
+            records = _read_records_from_descriptor(descriptor, path=path)
+            after = os.fstat(descriptor)
+            _verify_directory_binding(path.parent, parent_fd)
+            _verify_regular_name_binding(
+                parent_fd,
+                path.name,
+                descriptor,
+                label="cache shard",
+            )
+        finally:
+            os.close(descriptor)
+    if (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    ) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    ):
+        raise CacheCorruptError(
+            "cache shard changed during inspection",
+            details={"shard_path": str(path)},
+        )
+    return CacheShardInspection(
+        path=path,
+        records=records,
+        sha256=digest,
+        size_bytes=before.st_size,
+    )
 
 
 def shard_path_for(
@@ -910,6 +994,28 @@ def _verify_directory_binding(path: Path, descriptor: int) -> None:
         raise CacheCorruptError("cache namespace directory binding changed during operation")
 
 
+def _verify_regular_name_binding(
+    parent_fd: int,
+    name: str,
+    descriptor: int,
+    *,
+    label: str,
+) -> None:
+    """Require ``name`` to remain bound to the held regular-file descriptor."""
+    held = os.fstat(descriptor)
+    try:
+        observed = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise CacheCorruptError(
+            f"{label} name binding changed during operation",
+            details={"name": name, "error": str(exc)},
+        ) from exc
+    if stat.S_ISLNK(observed.st_mode) or not stat.S_ISREG(observed.st_mode):
+        raise CacheCorruptError(f"{label} name became a symlink or unsafe file")
+    if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
+        raise CacheCorruptError(f"{label} name binding changed during operation")
+
+
 @contextmanager
 def _cache_publication_lock(cache_dir: Path) -> Iterator[None]:
     """Serialize shard/path/key publication across cooperating processes."""
@@ -1031,6 +1137,72 @@ def read_cache_entries(
     policy: CacheReadPolicy = "require_v3",
 ) -> tuple[CacheLookupResult | None, ...]:
     """Return cache entries in request order under an explicit provenance policy."""
+    locations = resolve_cache_provenances(cache_dir, keys, policy=policy)
+    if not keys:
+        return ()
+    root = Path(cache_dir)
+    locations_by_key = {
+        key: provenance
+        for key, provenance in zip(keys, locations, strict=True)
+        if provenance is not None
+    }
+    requests_by_shard: dict[Path, list[tuple[int, WindowCacheKey, int]]] = defaultdict(list)
+    for result_index, key in enumerate(keys):
+        provenance = locations_by_key.get(key)
+        if provenance is not None:
+            requests_by_shard[provenance.shard_path].append(
+                (result_index, key, provenance.row_offset)
+            )
+    results: list[CacheLookupResult | None] = [None] * len(keys)
+    for shard_path, requests in requests_by_shard.items():
+        requested_offsets = {request[2] for request in requests}
+        records = _read_records_at_offsets(
+            shard_path,
+            requested_offsets,
+            cache_dir=root,
+        )
+        missing_offsets = requested_offsets - records.keys()
+        if missing_offsets:
+            raise CacheCorruptError(
+                "cache index row_offset could not be resolved in shard",
+                details={
+                    "shard_path": str(shard_path),
+                    "row_offsets": sorted(missing_offsets),
+                },
+            )
+        for result_index, key, row_offset in requests:
+            record = records[row_offset]
+            if record.key != key:
+                raise CacheCorruptError(
+                    "cache index key does not match shard row",
+                    details={"shard_path": str(shard_path), "row_offset": row_offset},
+                )
+            provenance = locations_by_key[key]
+            if record.schema_version != provenance.cache_schema_version:
+                raise CacheCorruptError(
+                    "cache index provenance does not match shard row",
+                    details={"shard_path": str(shard_path), "row_offset": row_offset},
+                )
+            results[result_index] = CacheLookupResult(
+                embedding=record.embedding,
+                provenance=provenance,
+            )
+    return tuple(results)
+
+
+def resolve_cache_provenances(
+    cache_dir: Path | str,
+    keys: Sequence[WindowCacheKey],
+    *,
+    policy: CacheReadPolicy = "require_v3",
+) -> tuple[CacheProvenance | None, ...]:
+    """Resolve physical locations without materializing embedding vectors.
+
+    This is the bounded-memory index boundary for finite cache builders and
+    auditors. Duplicate keys and misses are preserved in request order. The
+    returned locations are index claims; callers that need evidence must still
+    inspect the referenced immutable shard bytes and validate each row.
+    """
     _validate_read_policy(policy)
     if not keys:
         return ()
@@ -1073,48 +1245,7 @@ def read_cache_entries(
                     shard_path=shard_path,
                     row_offset=row_offset,
                 )
-    requests_by_shard: dict[Path, list[tuple[int, WindowCacheKey, int]]] = defaultdict(list)
-    for result_index, key in enumerate(keys):
-        provenance = locations.get(key)
-        if provenance is not None:
-            requests_by_shard[provenance.shard_path].append(
-                (result_index, key, provenance.row_offset)
-            )
-    results: list[CacheLookupResult | None] = [None] * len(keys)
-    for shard_path, requests in requests_by_shard.items():
-        requested_offsets = {request[2] for request in requests}
-        records = _read_records_at_offsets(
-            shard_path,
-            requested_offsets,
-            cache_dir=root,
-        )
-        missing_offsets = requested_offsets - records.keys()
-        if missing_offsets:
-            raise CacheCorruptError(
-                "cache index row_offset could not be resolved in shard",
-                details={
-                    "shard_path": str(shard_path),
-                    "row_offsets": sorted(missing_offsets),
-                },
-            )
-        for result_index, key, row_offset in requests:
-            record = records[row_offset]
-            if record.key != key:
-                raise CacheCorruptError(
-                    "cache index key does not match shard row",
-                    details={"shard_path": str(shard_path), "row_offset": row_offset},
-                )
-            provenance = locations[key]
-            if record.schema_version != provenance.cache_schema_version:
-                raise CacheCorruptError(
-                    "cache index provenance does not match shard row",
-                    details={"shard_path": str(shard_path), "row_offset": row_offset},
-                )
-            results[result_index] = CacheLookupResult(
-                embedding=record.embedding,
-                provenance=provenance,
-            )
-    return tuple(results)
+    return tuple(locations.get(key) for key in keys)
 
 
 def reindex_cache(cache_dir: Path | str) -> CacheReindexReport:
@@ -1235,6 +1366,14 @@ def _read_records_from_descriptor(
         return _read_records_from_source(handle, path=path)
 
 
+def _sha256_descriptor(descriptor: int) -> str:
+    digest = sha256()
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    while chunk := os.read(descriptor, 1 << 20):
+        digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
 def _read_records_from_cache_shard(cache_dir: Path, path: Path) -> tuple[WindowCacheRecord, ...]:
     with _secure_parent_directory(cache_dir, path, create=False) as parent_fd:
         if parent_fd is None:
@@ -1261,7 +1400,11 @@ def _read_records_from_source(
 ) -> tuple[WindowCacheRecord, ...]:
     pa, pq = _require_pyarrow()
     try:
-        table = pq.read_table(source)
+        # Cache shards are bounded and decoded inside short-lived worker
+        # processes during concurrent publication checks. Avoid Arrow's global
+        # background pool here so a completed read cannot abort interpreter
+        # shutdown while another process publishes the competing shard.
+        table = pq.read_table(source, use_threads=False)
     except Exception as exc:
         raise CacheCorruptError(
             "cache shard could not be read",
@@ -1707,7 +1850,7 @@ def _assert_index_keys_available(
         if row is not None:
             existing_path = _decode_index_shard_path(row[0])
             existing_offset = _decode_index_row_offset(row[1])
-            raise CacheCorruptError(
+            raise CacheKeyAlreadyIndexedError(
                 "cache key is already indexed; refusing duplicate shard write",
                 details={
                     "window_hash": record.window_hash.hex(),

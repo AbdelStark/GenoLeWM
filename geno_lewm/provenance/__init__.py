@@ -19,6 +19,7 @@ from geno_lewm.provenance.manifest import (
     ManifestEncoder,
     ManifestTraining,
     load_manifest,
+    parse_manifest_bytes,
     write_manifest,
 )
 from geno_lewm.provenance.receipt import (
@@ -52,6 +53,7 @@ __all__ = [
     "compute_input_commitment",
     "compute_output_commitment",
     "load_manifest",
+    "parse_manifest_bytes",
     "parse_receipt_payload",
     "read_receipt",
     "sha256_bytes",
