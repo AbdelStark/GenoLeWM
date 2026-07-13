@@ -40,11 +40,14 @@ The resulting report records:
 
 The closed Draft 2020-12 report schema is
 [`configs/data_v03/clinvar-remote-postflight.schema.json`](https://github.com/AbdelStark/GenoLeWM/blob/main/configs/data_v03/clinvar-remote-postflight.schema.json).
-Downstream snapshot assembly should store the report as a file identity
-(relative path, SHA-256, and size), validate it against that schema, and
-type-strictly reconcile its Hub revision, namespace, source commit, release,
-Parquet identity, row count, schema, classes, and chromosomes. Copying report
-fields into another manifest without binding the report bytes is not enough.
+The v0.3 snapshot-lineage assembler requires the report's relative path and
+prefixed SHA-256 in its input spec, verifies the exact report bytes, and
+type-strictly reconciles the Hub revision, namespace, source commit, release,
+audit and Parquet identities, row counts, schema, classes, chromosomes, null
+counts, and ranges. The lineage preserves the report SHA-256, size, verified
+files, checks, and recomputed Parquet audit under `clinvar.remote_postflight`.
+Copying report fields into another manifest without binding the report bytes is
+not enough.
 
 ## Verification boundary
 

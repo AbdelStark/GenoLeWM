@@ -60,8 +60,10 @@ or incompatible command changes require an explicit compatibility note.
   and full-scans the corrected Parquet shard with a closed JSON report schema.
 - Added closed, versioned v0.3 snapshot-lineage schemas and an offline
   fail-closed assembler for reconciling all 22 gnomAD staging receipts,
-  immutable-revision remote postflights, and the corrected ClinVar audit.
-  Lineage output remains explicitly `membership_status=not_created`.
+  immutable-revision remote postflights, and the corrected ClinVar audit plus
+  its four-file exact-revision postflight. Lineage output preserves the fresh
+  ClinVar Parquet audit while remaining explicitly
+  `membership_status=not_created`.
 - Bound each gnomAD shard to the verifier's exact repository, revision,
   namespace, source commit, chromosome, namespace inventory, receipt and
   Parquet identities, and type-strict fresh Parquet audit. Added source-specific
@@ -84,6 +86,9 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Changed
 
+- Made both v0.3 exact-revision postflight verifiers compare JSON values
+  recursively and type-strictly, rejecting Python boolean/integer equality
+  aliases in audit, receipt, runtime, and prepare evidence.
 - Removed obsolete public planning/specification scaffolding from the
   source tree and documentation site. Public docs now center on
   installation, architecture, API, artifacts, model-card evidence,

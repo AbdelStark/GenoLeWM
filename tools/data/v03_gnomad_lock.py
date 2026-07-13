@@ -2012,8 +2012,26 @@ def _require_exact_keys(value: Mapping[str, object], expected: set[str], field: 
 
 
 def _require_equal(observed: object, expected: object, field: str) -> None:
-    if observed != expected:
+    if not _json_equal(observed, expected):
         raise SourceLockError(f"{field} drifted: expected {expected!r}, observed {observed!r}")
+
+
+def _json_equal(observed: object, expected: object) -> bool:
+    """Compare JSON-like values without Python's bool/int equality aliases."""
+    if type(observed) is not type(expected):
+        return False
+    if isinstance(observed, Mapping):
+        if not isinstance(expected, Mapping) or set(observed) != set(expected):
+            return False
+        return all(_json_equal(observed[key], expected[key]) for key in observed)
+    if isinstance(observed, list):
+        if not isinstance(expected, list) or len(observed) != len(expected):
+            return False
+        return all(
+            _json_equal(observed_item, expected_item)
+            for observed_item, expected_item in zip(observed, expected, strict=True)
+        )
+    return observed == expected
 
 
 def _read_json_mapping(path: Path, field: str) -> tuple[bytes, Mapping[str, object]]:

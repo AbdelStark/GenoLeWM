@@ -193,8 +193,8 @@ generation-pinned gnomAD source lock
         ├── per-autosome staging receipt ─┐
         ├── exact-revision postflight ────┼── offline lineage assembler
         │                                 │          │
-corrected ClinVar release audit ──────────┘          ├── content-addressed lineage
-                                                     └── membership_status=not_created
+corrected ClinVar release audit ──────────┤          ├── content-addressed lineage
+ClinVar exact-revision postflight ────────┘          └── membership_status=not_created
 ```
 
 `tools/data/v03_gnomad_lock.py remote-postflight` verifies each complete
@@ -202,8 +202,12 @@ gnomAD namespace at an immutable Hub revision and reruns a full Parquet audit.
 `tools/data/v03_snapshot_lineage.py` then consumes only local evidence. It
 cross-binds the repository, revision, namespace, source commit, chromosome,
 namespace file inventory, receipt identity, Parquet identity, and fresh audit
-for all 22 autosomes. It also binds the corrected ClinVar release audit and
-source/output identities.
+for all 22 autosomes. It also binds the corrected ClinVar release audit to the
+four-file exact-revision postflight, then reconciles its repository, revision,
+namespace, producer commit, release, source/output identities, trusted
+nine-field schema, full-scan counts, and original claim boundary. The existing
+audit validation remains mandatory; postflight evidence augments it rather
+than replacing it.
 
 The input and output formats are closed Draft 2020-12 schemas with stable IDs
 under `configs/data_v03/`. The output includes source-specific data-use terms

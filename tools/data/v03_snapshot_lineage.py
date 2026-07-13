@@ -18,6 +18,9 @@ from pathlib import Path, PureWindowsPath
 from typing import Any, Final
 
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from tools.data.v03_clinvar_postflight import (
+    REMOTE_POSTFLIGHT_SCHEMA_VERSION as CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+)
 from tools.data.v03_gnomad_lock import (
     LOCK_SCHEMA_VERSION,
     REMOTE_POSTFLIGHT_SCHEMA_VERSION,
@@ -49,6 +52,49 @@ _COMMIT: Final = re.compile(r"[0-9a-f]{40}")
 _CONTAINER: Final = re.compile(r"[^@]+@sha256:[0-9a-f]{64}")
 _CANDIDATE_ID: Final = re.compile(r"geno-lewm-data-v0\.3\.[0-9]+-r[1-9][0-9]*")
 _CLINVAR_CLASSES: Final = frozenset({"B", "LB", "LP", "OTHER", "P", "VUS"})
+_CLINVAR_REMOTE_FILES: Final = (
+    "clinvar/2026-04-15/variants.parquet",
+    "evidence/audit.json",
+    "evidence/prepare_report.json",
+    "evidence/runtime_report.json",
+)
+_CLINVAR_REMOTE_CHECKS: Final = (
+    "exact_hub_revision_resolved",
+    "complete_namespace_file_set",
+    "source_contract_loaded_from_exact_git_commit",
+    "source_contract_derived_from_ast",
+    "audit_prepare_runtime_reconciled",
+    "source_release_sha256_and_size_reconciled",
+    "parquet_sha256_and_size_recomputed",
+    "parquet_schema_derived_from_source_commit",
+    "parquet_full_scan_recomputed",
+)
+_CLINVAR_SOURCE_CONTRACT_FILES: Final = (
+    "geno_lewm/cli/_prepare_report.py",
+    "geno_lewm/cli/prepare_clinvar.py",
+    "geno_lewm/data/_vcf.py",
+    "geno_lewm/data/clinvar.py",
+)
+_CLINVAR_PARQUET_SCHEMA: Final = (
+    ("chrom", "string"),
+    ("pos", "int64"),
+    ("ref", "string"),
+    ("alt", "string"),
+    ("clinical_significance", "string"),
+    ("review_status", "string"),
+    ("gene_symbol", "string"),
+    ("clinvar_id", "int64"),
+    ("schema_version", "string"),
+)
+_CLINVAR_SOURCE_SCOPE: Final = (
+    "release_reconciled",
+    "sha256_reconciled",
+    "size_bytes_reconciled",
+)
+_CLINVAR_SOURCE_LIMITATION: Final = (
+    "The source archive is not included in the Hub namespace; its MD5 and URL are "
+    "receipt fields, not bytes recomputed by this postflight."
+)
 _GNOMAD_POPULATION_COLUMNS: Final = frozenset(
     {
         "af_afr",
@@ -674,7 +720,16 @@ def _validate_remote_postflight(
 def _assemble_clinvar(*, spec: Mapping[str, object], spec_dir: Path) -> dict[str, Any]:
     _require_exact_keys(
         spec,
-        {"repo", "repo_type", "revision", "namespace", "audit_file", "audit_sha256"},
+        {
+            "repo",
+            "repo_type",
+            "revision",
+            "namespace",
+            "audit_file",
+            "audit_sha256",
+            "postflight_file",
+            "postflight_sha256",
+        },
         "lineage spec.clinvar",
     )
     repo = _require_repo(spec.get("repo"), "lineage spec.clinvar.repo")
@@ -686,6 +741,13 @@ def _assemble_clinvar(*, spec: Mapping[str, object], spec_dir: Path) -> dict[str
     )
     audit_sha256 = _require_sha256(spec.get("audit_sha256"), "lineage spec.clinvar.audit_sha256")
     _require_equal(sha256_file(audit_path), audit_sha256, "ClinVar audit bytes")
+    postflight_path = _resolve_bundle_file(
+        spec_dir, spec.get("postflight_file"), "lineage spec.clinvar.postflight_file"
+    )
+    postflight_sha256 = _require_sha256(
+        spec.get("postflight_sha256"), "lineage spec.clinvar.postflight_sha256"
+    )
+    _require_equal(sha256_file(postflight_path), postflight_sha256, "ClinVar postflight bytes")
     _audit_bytes, audit = _read_json_mapping(audit_path, "ClinVar audit")
     _require_exact_keys(
         audit,
@@ -777,6 +839,30 @@ def _assemble_clinvar(*, spec: Mapping[str, object], spec_dir: Path) -> dict[str
     _require_positive_number(runtime.get("wall_time_seconds"), "ClinVar wall_time_seconds")
     _require_positive_int(runtime.get("peak_rss_bytes"), "ClinVar peak_rss_bytes")
 
+    _postflight_bytes, postflight = _read_json_mapping(postflight_path, "ClinVar remote postflight")
+    remote_postflight = _validate_clinvar_remote_postflight(
+        postflight=postflight,
+        postflight_sha256=postflight_sha256,
+        postflight_size_bytes=postflight_path.stat().st_size,
+        repo=repo,
+        revision=revision,
+        namespace=namespace,
+        audit=audit,
+        audit_sha256=audit_sha256,
+        audit_size_bytes=audit_path.stat().st_size,
+        commit_sha=commit_sha,
+        source=source,
+        output=output,
+        source_sha256=source_sha256,
+        source_size=source_size,
+        source_md5=source_md5,
+        source_url=source_url,
+        output_sha256=output_sha256,
+        output_size=output_size,
+        records=records,
+        class_balance=class_balance,
+    )
+
     return {
         "release": "2026-04-15",
         "reference_genome": "GRCh38",
@@ -803,9 +889,331 @@ def _assemble_clinvar(*, spec: Mapping[str, object], spec_dir: Path) -> dict[str
             "records": records,
             "class_balance": class_balance,
         },
+        "remote_postflight": remote_postflight,
         "execution": {"commit_sha": commit_sha, "container_image": container_image},
         "evidence_claim_boundary": CLINVAR_REQUIRED_CLAIM_BOUNDARY,
     }
+
+
+def _validate_clinvar_remote_postflight(
+    *,
+    postflight: Mapping[str, object],
+    postflight_sha256: str,
+    postflight_size_bytes: int,
+    repo: str,
+    revision: str,
+    namespace: str,
+    audit: Mapping[str, object],
+    audit_sha256: str,
+    audit_size_bytes: int,
+    commit_sha: str,
+    source: Mapping[str, object],
+    output: Mapping[str, object],
+    source_sha256: str,
+    source_size: int,
+    source_md5: str,
+    source_url: str,
+    output_sha256: str,
+    output_size: int,
+    records: int,
+    class_balance: Mapping[str, int],
+) -> dict[str, object]:
+    """Reconcile the exact-revision ClinVar postflight with local audit bytes."""
+    _require_exact_keys(
+        postflight,
+        {
+            "schema_version",
+            "ok",
+            "repo_id",
+            "repo_type",
+            "revision",
+            "namespace",
+            "source_commit",
+            "release",
+            "verified_files",
+            "file_identities",
+            "trusted_source_contract",
+            "source_identity",
+            "output_identity",
+            "parquet_audit",
+            "claim_boundary",
+            "checks",
+        },
+        "ClinVar remote postflight",
+    )
+    _require_equal(
+        postflight.get("schema_version"),
+        CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+        "ClinVar postflight.schema_version",
+    )
+    _require_equal(postflight.get("ok"), True, "ClinVar postflight.ok")
+    _require_equal(postflight.get("repo_id"), repo, "ClinVar postflight.repo_id")
+    _require_equal(postflight.get("repo_type"), "dataset", "ClinVar postflight.repo_type")
+    _require_equal(postflight.get("revision"), revision, "ClinVar postflight.revision")
+    _require_equal(postflight.get("namespace"), namespace, "ClinVar postflight.namespace")
+    _require_equal(postflight.get("source_commit"), commit_sha, "ClinVar postflight.source_commit")
+    _require_equal(postflight.get("release"), "2026-04-15", "ClinVar postflight.release")
+    expected_namespace = f"staging/clinvar-2026-04-15-archive-{commit_sha[:12]}-r1"
+    _require_equal(namespace, expected_namespace, "ClinVar exact-revision namespace")
+    _require_equal(
+        postflight.get("claim_boundary"),
+        audit.get("claim_boundary"),
+        "ClinVar postflight.claim_boundary",
+    )
+
+    verified_files = _require_exact_string_list(
+        postflight.get("verified_files"), "ClinVar postflight.verified_files"
+    )
+    _require_equal(
+        verified_files,
+        list(_CLINVAR_REMOTE_FILES),
+        "ClinVar postflight verified file set",
+    )
+    file_identities = _require_mapping(
+        postflight.get("file_identities"), "ClinVar postflight.file_identities"
+    )
+    _require_exact_keys(
+        file_identities,
+        set(_CLINVAR_REMOTE_FILES),
+        "ClinVar postflight.file_identities",
+    )
+    normalized_file_identities: dict[str, tuple[str, int]] = {}
+    for relative_path in _CLINVAR_REMOTE_FILES:
+        identity = _require_mapping(
+            file_identities.get(relative_path),
+            f"ClinVar postflight.file_identities[{relative_path!r}]",
+        )
+        _require_exact_keys(
+            identity,
+            {"sha256", "size_bytes"},
+            f"ClinVar postflight.file_identities[{relative_path!r}]",
+        )
+        normalized_file_identities[relative_path] = (
+            _require_bare_sha256(
+                identity.get("sha256"),
+                f"ClinVar postflight.file_identities[{relative_path!r}].sha256",
+            ),
+            _require_positive_int(
+                identity.get("size_bytes"),
+                f"ClinVar postflight.file_identities[{relative_path!r}].size_bytes",
+            ),
+        )
+    _require_equal(
+        normalized_file_identities["evidence/audit.json"],
+        (audit_sha256.removeprefix("sha256:"), audit_size_bytes),
+        "ClinVar postflight audit identity",
+    )
+    _require_equal(
+        normalized_file_identities["clinvar/2026-04-15/variants.parquet"],
+        (output_sha256.removeprefix("sha256:"), output_size),
+        "ClinVar postflight Parquet identity",
+    )
+
+    trusted = _require_mapping(
+        postflight.get("trusted_source_contract"),
+        "ClinVar postflight.trusted_source_contract",
+    )
+    _validate_clinvar_trusted_source_contract(trusted)
+    expected_schema = _clinvar_parquet_schema()
+
+    source_identity = _require_mapping(
+        postflight.get("source_identity"), "ClinVar postflight.source_identity"
+    )
+    _require_exact_keys(
+        source_identity,
+        {
+            "url",
+            "release",
+            "md5",
+            "sha256",
+            "size_bytes",
+            "verification_scope",
+            "verification_limitation",
+        },
+        "ClinVar postflight.source_identity",
+    )
+    expected_source_identity = {
+        "url": source_url,
+        "release": source.get("release"),
+        "md5": source_md5,
+        "sha256": source_sha256.removeprefix("sha256:"),
+        "size_bytes": source_size,
+        "verification_scope": list(_CLINVAR_SOURCE_SCOPE),
+        "verification_limitation": _CLINVAR_SOURCE_LIMITATION,
+    }
+    _require_equal(
+        dict(source_identity), expected_source_identity, "ClinVar postflight source identity"
+    )
+
+    output_identity = _require_mapping(
+        postflight.get("output_identity"), "ClinVar postflight.output_identity"
+    )
+    _require_exact_keys(
+        output_identity,
+        {"path", "sha256", "size_bytes", "records", "class_balance"},
+        "ClinVar postflight.output_identity",
+    )
+    expected_output_identity = {
+        "path": output.get("path"),
+        "sha256": output_sha256.removeprefix("sha256:"),
+        "size_bytes": output_size,
+        "records": records,
+        "class_balance": dict(class_balance),
+    }
+    _require_equal(
+        dict(output_identity), expected_output_identity, "ClinVar postflight output identity"
+    )
+
+    parquet_audit = _require_mapping(
+        postflight.get("parquet_audit"), "ClinVar postflight.parquet_audit"
+    )
+    _validate_clinvar_parquet_audit(
+        parquet_audit,
+        records=records,
+        class_balance=class_balance,
+        trusted_schema=expected_schema,
+    )
+    checks = _require_exact_string_list(postflight.get("checks"), "ClinVar postflight.checks")
+    _require_equal(checks, list(_CLINVAR_REMOTE_CHECKS), "ClinVar postflight checks")
+    return {
+        "schema_version": CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+        "sha256": postflight_sha256,
+        "size_bytes": postflight_size_bytes,
+        "verified_files": verified_files,
+        "checks": checks,
+        "parquet_audit": dict(parquet_audit),
+    }
+
+
+def _validate_clinvar_trusted_source_contract(trusted: Mapping[str, object]) -> None:
+    _require_exact_keys(
+        trusted,
+        {
+            "files",
+            "schema_version",
+            "parquet_schema",
+            "nullable_fields",
+            "normalized_classes",
+            "labelled_classes",
+            "allele_alphabet",
+            "cli_command",
+            "max_allele_len",
+            "output_path_template",
+            "prepare_report_enrichments",
+            "file_identity_fields",
+        },
+        "ClinVar postflight.trusted_source_contract",
+    )
+    files = _require_mapping(trusted.get("files"), "ClinVar trusted source files")
+    _require_exact_keys(files, set(_CLINVAR_SOURCE_CONTRACT_FILES), "ClinVar trusted source files")
+    for path in _CLINVAR_SOURCE_CONTRACT_FILES:
+        identity = _require_mapping(files.get(path), f"ClinVar trusted source files[{path!r}]")
+        _require_exact_keys(
+            identity, {"sha256", "size_bytes"}, f"ClinVar trusted source files[{path!r}]"
+        )
+        _require_bare_sha256(identity.get("sha256"), f"ClinVar trusted source {path} SHA-256")
+        _require_positive_int(identity.get("size_bytes"), f"ClinVar trusted source {path} size")
+    expected_values: dict[str, object] = {
+        "schema_version": "1.0.0",
+        "parquet_schema": _clinvar_parquet_schema(),
+        "nullable_fields": ["gene_symbol"],
+        "normalized_classes": ["B", "LB", "LP", "OTHER", "P", "VUS"],
+        "labelled_classes": ["B", "LB", "LP", "P"],
+        "allele_alphabet": ["A", "C", "G", "T"],
+        "cli_command": "geno-lewm-prepare-clinvar",
+        "max_allele_len": 16,
+        "output_path_template": "clinvar/{release}/variants.parquet",
+        "prepare_report_enrichments": ["command", "input_vcf", "output_parquet", "runtime"],
+        "file_identity_fields": ["path", "sha256", "size_bytes"],
+    }
+    for field, expected in expected_values.items():
+        _require_equal(trusted.get(field), expected, f"ClinVar trusted source {field}")
+
+
+def _validate_clinvar_parquet_audit(
+    parquet_audit: Mapping[str, object],
+    *,
+    records: int,
+    class_balance: Mapping[str, int],
+    trusted_schema: list[dict[str, str]],
+) -> None:
+    _require_exact_keys(
+        parquet_audit,
+        {
+            "metadata_row_count",
+            "scanned_row_count",
+            "class_balance",
+            "chromosome_balance",
+            "schema_version_balance",
+            "null_counts",
+            "position_range",
+            "clinvar_id_range",
+            "schema",
+        },
+        "ClinVar postflight.parquet_audit",
+    )
+    metadata_rows = _require_positive_int(
+        parquet_audit.get("metadata_row_count"), "ClinVar postflight metadata row count"
+    )
+    scanned_rows = _require_positive_int(
+        parquet_audit.get("scanned_row_count"), "ClinVar postflight scanned row count"
+    )
+    _require_equal(metadata_rows, records, "ClinVar postflight metadata row count")
+    _require_equal(scanned_rows, records, "ClinVar postflight scanned row count")
+    _require_equal(
+        parquet_audit.get("class_balance"),
+        dict(class_balance),
+        "ClinVar postflight class balance",
+    )
+    if any(count <= 0 for count in class_balance.values()):
+        raise SnapshotLineageError("ClinVar postflight class counts must be positive")
+
+    chromosome_balance = _require_mapping(
+        parquet_audit.get("chromosome_balance"), "ClinVar postflight chromosome balance"
+    )
+    if not chromosome_balance:
+        raise SnapshotLineageError("ClinVar postflight chromosome balance must not be empty")
+    chromosome_total = 0
+    for chromosome, value in chromosome_balance.items():
+        if not chromosome:
+            raise SnapshotLineageError("ClinVar postflight chromosome names must be non-empty")
+        chromosome_total += _require_positive_int(
+            value, f"ClinVar postflight chromosome {chromosome!r} count"
+        )
+    _require_equal(chromosome_total, records, "ClinVar postflight chromosome total")
+    _require_equal(
+        parquet_audit.get("schema_version_balance"),
+        {"1.0.0": records},
+        "ClinVar postflight schema-version balance",
+    )
+
+    null_counts = _require_mapping(
+        parquet_audit.get("null_counts"), "ClinVar postflight null counts"
+    )
+    field_names = {name for name, _kind in _CLINVAR_PARQUET_SCHEMA}
+    _require_exact_keys(null_counts, field_names, "ClinVar postflight null counts")
+    for field in sorted(field_names):
+        count = _require_nonnegative_int(
+            null_counts.get(field), f"ClinVar postflight null count {field}"
+        )
+        if field != "gene_symbol" and count != 0:
+            raise SnapshotLineageError(
+                f"ClinVar postflight required field {field!r} contains nulls"
+            )
+        if count > records:
+            raise SnapshotLineageError(f"ClinVar postflight null count {field!r} exceeds records")
+    for field in ("position_range", "clinvar_id_range"):
+        bounds = _require_mapping(parquet_audit.get(field), f"ClinVar postflight {field}")
+        _require_exact_keys(bounds, {"min", "max"}, f"ClinVar postflight {field}")
+        minimum = _require_positive_int(bounds.get("min"), f"ClinVar postflight {field}.min")
+        maximum = _require_positive_int(bounds.get("max"), f"ClinVar postflight {field}.max")
+        if minimum > maximum:
+            raise SnapshotLineageError(f"ClinVar postflight {field}.min exceeds max")
+    _require_equal(parquet_audit.get("schema"), trusted_schema, "ClinVar postflight Parquet schema")
+
+
+def _clinvar_parquet_schema() -> list[dict[str, str]]:
+    return [{"name": name, "type": kind} for name, kind in _CLINVAR_PARQUET_SCHEMA]
 
 
 def main(argv: list[str] | None = None) -> int:

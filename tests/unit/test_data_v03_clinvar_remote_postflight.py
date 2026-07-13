@@ -319,6 +319,57 @@ def test_remote_postflight_rejects_an_unbound_audit_field(
     assert "unexpected=['unbound']" in error
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "path", "value", "expected"),
+    [
+        ("evidence/audit.json", ("ok",), 1, "audit.ok drifted"),
+        (
+            "evidence/runtime_report.json",
+            ("returncode",),
+            False,
+            "audit.runtime.returncode drifted",
+        ),
+        (
+            "evidence/prepare_report.json",
+            ("already_exists",),
+            0,
+            "audit.prepare_report drifted",
+        ),
+    ],
+    ids=["audit-ok-int", "runtime-returncode-bool", "already-exists-int"],
+)
+def test_remote_postflight_rejects_bool_int_equality_aliases(
+    relative_path: str,
+    path: tuple[str, ...],
+    value: object,
+    expected: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    evidence_path = _fixture_path(fixture, relative_path)
+    evidence = _read_json(evidence_path)
+    target = evidence
+    for component in path[:-1]:
+        nested = target[component]
+        assert isinstance(nested, dict)
+        target = nested
+    target[path[-1]] = value
+    _write_json(evidence_path, evidence)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "out.json"
+
+    result = main(_postflight_args(fixture, source_commit=source_commit, output=output))
+
+    assert result == 2
+    assert expected in capsys.readouterr().err
+    assert not output.exists()
+
+
 def test_remote_postflight_rejects_weakened_claim_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

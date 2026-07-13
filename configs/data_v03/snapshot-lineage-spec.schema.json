@@ -26,6 +26,15 @@
           "pattern": "^staging/[A-Za-z0-9._/-]+$",
           "type": "string"
         },
+        "postflight_file": {
+          "minLength": 1,
+          "pattern": "^(?!/).+\\.json$",
+          "type": "string"
+        },
+        "postflight_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
         "repo": {
           "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
           "type": "string"
@@ -44,7 +53,9 @@
         "revision",
         "namespace",
         "audit_file",
-        "audit_sha256"
+        "audit_sha256",
+        "postflight_file",
+        "postflight_sha256"
       ],
       "type": "object"
     },

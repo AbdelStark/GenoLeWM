@@ -11,6 +11,9 @@ from typing import Any
 import pytest
 
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from tools.data.v03_clinvar_postflight import (
+    REMOTE_POSTFLIGHT_SCHEMA_VERSION as CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+)
 from tools.data.v03_gnomad_lock import REMOTE_POSTFLIGHT_SCHEMA_VERSION, select_source
 from tools.data.v03_snapshot_lineage import (
     CLINVAR_REQUIRED_CLAIM_BOUNDARY,
@@ -50,6 +53,34 @@ REMOTE_POSTFLIGHT_CHECKS = (
     "receipt_evidence_identities_recomputed",
     "parquet_sha256_and_size_recomputed",
     "parquet_full_scan_recomputed",
+)
+CLINVAR_REMOTE_FILES = (
+    "clinvar/2026-04-15/variants.parquet",
+    "evidence/audit.json",
+    "evidence/prepare_report.json",
+    "evidence/runtime_report.json",
+)
+CLINVAR_REMOTE_CHECKS = (
+    "exact_hub_revision_resolved",
+    "complete_namespace_file_set",
+    "source_contract_loaded_from_exact_git_commit",
+    "source_contract_derived_from_ast",
+    "audit_prepare_runtime_reconciled",
+    "source_release_sha256_and_size_reconciled",
+    "parquet_sha256_and_size_recomputed",
+    "parquet_schema_derived_from_source_commit",
+    "parquet_full_scan_recomputed",
+)
+CLINVAR_PARQUET_SCHEMA = (
+    {"name": "chrom", "type": "string"},
+    {"name": "pos", "type": "int64"},
+    {"name": "ref", "type": "string"},
+    {"name": "alt", "type": "string"},
+    {"name": "clinical_significance", "type": "string"},
+    {"name": "review_status", "type": "string"},
+    {"name": "gene_symbol", "type": "string"},
+    {"name": "clinvar_id", "type": "int64"},
+    {"name": "schema_version", "type": "string"},
 )
 
 
@@ -121,6 +152,14 @@ def test_assembler_builds_deterministic_lineage_without_memberships(tmp_path: Pa
         "VUS": 13,
     }
     assert lineage["clinvar"]["output"]["records"] == 41
+    assert lineage["clinvar"]["remote_postflight"] == {
+        "schema_version": CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+        "sha256": _spec["clinvar"]["postflight_sha256"],
+        "size_bytes": (tmp_path / "clinvar-postflight.json").stat().st_size,
+        "verified_files": list(CLINVAR_REMOTE_FILES),
+        "checks": list(CLINVAR_REMOTE_CHECKS),
+        "parquet_audit": _clinvar_parquet_audit(),
+    }
     commitment_payload = dict(lineage)
     del commitment_payload["lineage_id"]
     assert lineage["lineage_id"] == canonical_json_sha256(commitment_payload)
@@ -192,6 +231,9 @@ def test_checked_schemas_are_closed_and_membership_free() -> None:
     assert shards["items"]["properties"]["postflight_sha256"]["pattern"] == (
         "^sha256:[0-9a-f]{64}$"
     )
+    spec_clinvar = spec_schema["properties"]["clinvar"]
+    assert {"postflight_file", "postflight_sha256"} <= set(spec_clinvar["required"])
+    assert spec_clinvar["properties"]["postflight_sha256"]["pattern"] == ("^sha256:[0-9a-f]{64}$")
     assert lineage_schema["additionalProperties"] is False
     assert lineage_schema["properties"]["schema_version"]["const"] == LINEAGE_SCHEMA_VERSION
     assert lineage_schema["properties"]["membership_status"]["const"] == "not_created"
@@ -213,6 +255,21 @@ def test_checked_schemas_are_closed_and_membership_free() -> None:
     clinvar_schema = lineage_schema["properties"]["clinvar"]
     assert "data_use" in clinvar_schema["required"]
     assert clinvar_schema["properties"]["data_use"]["const"]["license"]["spdx"] == ("NOASSERTION")
+    assert "remote_postflight" in clinvar_schema["required"]
+    clinvar_postflight = clinvar_schema["properties"]["remote_postflight"]
+    assert clinvar_postflight["additionalProperties"] is False
+    assert clinvar_postflight["properties"]["schema_version"]["const"] == (
+        CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION
+    )
+    assert clinvar_postflight["properties"]["verified_files"]["prefixItems"] == [
+        {"const": path} for path in CLINVAR_REMOTE_FILES
+    ]
+    assert clinvar_postflight["properties"]["checks"]["prefixItems"] == [
+        {"const": check} for check in CLINVAR_REMOTE_CHECKS
+    ]
+    assert clinvar_postflight["properties"]["parquet_audit"]["$ref"] == (
+        "#/$defs/clinvarParquetAudit"
+    )
 
 
 def test_assembler_rejects_unknown_nested_receipt_fields(tmp_path: Path) -> None:
@@ -422,6 +479,643 @@ def test_assembler_requires_boolean_clinvar_audit_ok(tmp_path: Path) -> None:
             spec_path=spec_path,
             gnomad_source_lock_path=SOURCE_LOCK,
         )
+
+
+@pytest.mark.parametrize("field", ["postflight_file", "postflight_sha256"])
+def test_assembler_requires_clinvar_postflight_binding(tmp_path: Path, field: str) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    del spec["clinvar"][field]
+    _write_json(spec_path, spec)
+
+    with pytest.raises(
+        SnapshotLineageError,
+        match=rf"lineage spec\.clinvar keys drifted.*{field}",
+    ):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_rejects_clinvar_postflight_byte_tampering(tmp_path: Path) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    postflight_path = tmp_path / "clinvar-postflight.json"
+    postflight_path.write_text(
+        postflight_path.read_text(encoding="utf-8") + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SnapshotLineageError, match="ClinVar postflight bytes drifted"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_prefixed_clinvar_postflight_hash(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    spec["clinvar"]["postflight_sha256"] = spec["clinvar"]["postflight_sha256"].removeprefix(
+        "sha256:"
+    )
+    _write_json(spec_path, spec)
+
+    with pytest.raises(SnapshotLineageError, match="must be a sha256-prefixed lowercase digest"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_keeps_clinvar_postflight_inside_bundle(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    spec["clinvar"]["postflight_file"] = "../outside-postflight.json"
+    _write_json(spec_path, spec)
+
+    with pytest.raises(SnapshotLineageError, match=r"must be a relative in-bundle path"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_rejects_duplicate_clinvar_postflight_keys(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight_path = tmp_path / "clinvar-postflight.json"
+    raw = postflight_path.read_text(encoding="utf-8").replace(
+        '  "ok": true,',
+        '  "ok": false,\n  "ok": true,',
+    )
+    postflight_path.write_text(raw, encoding="utf-8")
+    spec["clinvar"]["postflight_sha256"] = sha256_file(postflight_path)
+    _write_json(spec_path, spec)
+
+    with pytest.raises(SnapshotLineageError, match=r"duplicate JSON key.*ok"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "drifted_value"),
+    [
+        ("schema_version", "geno-lewm.clinvar-remote-postflight.v0"),
+        ("ok", 1),
+        ("repo_id", "other/geno-lewm-data"),
+        ("repo_type", "model"),
+        ("revision", "a" * 40),
+        ("namespace", "staging/clinvar-2026-04-15-archive-other-r1"),
+        ("source_commit", "f" * 40),
+        ("release", "2026-04-14"),
+        ("claim_boundary", "unbounded claim"),
+    ],
+)
+def test_assembler_reconciles_every_clinvar_postflight_declaration(
+    tmp_path: Path,
+    field: str,
+    drifted_value: object,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight[field] = drifted_value
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=rf"ClinVar postflight\.{field} drifted"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_exact_clinvar_postflight_surface(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["unreviewed_claim"] = "looks good"
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(
+        SnapshotLineageError,
+        match=r"ClinVar remote postflight keys drifted.*unreviewed_claim",
+    ):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    "verified_files",
+    [
+        list(CLINVAR_REMOTE_FILES[:-1]),
+        [*CLINVAR_REMOTE_FILES, "evidence/unreviewed.json"],
+        list(reversed(CLINVAR_REMOTE_FILES)),
+    ],
+    ids=["missing", "extra", "reordered"],
+)
+def test_assembler_requires_exact_clinvar_verified_files(
+    tmp_path: Path,
+    verified_files: list[str],
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["verified_files"] = verified_files
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match="ClinVar postflight verified file set"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_exact_clinvar_file_identity_set(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    del postflight["file_identities"]["evidence/runtime_report.json"]
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(
+        SnapshotLineageError,
+        match=r"ClinVar postflight\.file_identities keys drifted.*runtime_report",
+    ):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "drifted_value", "match"),
+    [
+        ("sha256", "sha256:" + "a" * 64, "must be a lowercase SHA-256 digest"),
+        ("size_bytes", 0, "must be a positive integer"),
+        ("size_bytes", True, "must be a positive integer"),
+    ],
+    ids=["prefixed-hash", "zero-size", "boolean-size"],
+)
+def test_assembler_validates_every_clinvar_file_identity_field(
+    tmp_path: Path,
+    field: str,
+    drifted_value: object,
+    match: str,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["file_identities"]["evidence/runtime_report.json"][field] = drifted_value
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=match):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_closed_clinvar_file_identity_shape(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["file_identities"]["evidence/runtime_report.json"]["etag"] = "untrusted"
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=r"runtime_report.*keys drifted.*etag"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "field", "drifted_value", "match"),
+    [
+        (
+            "evidence/audit.json",
+            "sha256",
+            "0" * 64,
+            "ClinVar postflight audit identity drifted",
+        ),
+        (
+            "evidence/audit.json",
+            "size_bytes",
+            1,
+            "ClinVar postflight audit identity drifted",
+        ),
+        (
+            "clinvar/2026-04-15/variants.parquet",
+            "sha256",
+            "0" * 64,
+            "ClinVar postflight Parquet identity drifted",
+        ),
+        (
+            "clinvar/2026-04-15/variants.parquet",
+            "size_bytes",
+            1,
+            "ClinVar postflight Parquet identity drifted",
+        ),
+    ],
+    ids=["audit-hash", "audit-size", "parquet-hash", "parquet-size"],
+)
+def test_assembler_reconciles_clinvar_bound_file_identities(
+    tmp_path: Path,
+    relative_path: str,
+    field: str,
+    drifted_value: object,
+    match: str,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["file_identities"][relative_path][field] = drifted_value
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=match):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    "checks",
+    [
+        list(CLINVAR_REMOTE_CHECKS[:-1]),
+        [*CLINVAR_REMOTE_CHECKS, "unreviewed_check"],
+        list(reversed(CLINVAR_REMOTE_CHECKS)),
+    ],
+    ids=["missing", "extra", "reordered"],
+)
+def test_assembler_requires_exact_clinvar_postflight_checks(
+    tmp_path: Path,
+    checks: list[str],
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["checks"] = checks
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match="ClinVar postflight checks drifted"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "drifted_value"),
+    [
+        ("schema_version", "1.0.1"),
+        ("parquet_schema", list(reversed(CLINVAR_PARQUET_SCHEMA))),
+        ("nullable_fields", []),
+        ("normalized_classes", ["VUS", "P", "OTHER", "LP", "LB", "B"]),
+        ("labelled_classes", ["P", "LP", "LB", "B"]),
+        ("allele_alphabet", ["T", "G", "C", "A"]),
+        ("cli_command", "python -m unreviewed"),
+        ("max_allele_len", 16.0),
+        ("output_path_template", "clinvar/{release}/unreviewed.parquet"),
+        ("prepare_report_enrichments", ["runtime", "output_parquet", "input_vcf", "command"]),
+        ("file_identity_fields", ["size_bytes", "sha256", "path"]),
+    ],
+)
+def test_assembler_locks_every_clinvar_trusted_contract_field(
+    tmp_path: Path,
+    field: str,
+    drifted_value: object,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["trusted_source_contract"][field] = drifted_value
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=rf"ClinVar trusted source {field} drifted"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_exact_clinvar_trusted_source_file_set(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    del postflight["trusted_source_contract"]["files"]["geno_lewm/data/clinvar.py"]
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(
+        SnapshotLineageError,
+        match=r"ClinVar trusted source files keys drifted.*geno_lewm/data/clinvar.py",
+    ):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "drifted_value", "match"),
+    [
+        ("sha256", "sha256:" + "a" * 64, "must be a lowercase SHA-256 digest"),
+        ("size_bytes", False, "must be a positive integer"),
+    ],
+    ids=["prefixed-hash", "boolean-size"],
+)
+def test_assembler_validates_clinvar_trusted_source_file_identities(
+    tmp_path: Path,
+    field: str,
+    drifted_value: object,
+    match: str,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    identity = postflight["trusted_source_contract"]["files"]["geno_lewm/data/clinvar.py"]
+    identity[field] = drifted_value
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=match):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_closed_clinvar_trusted_source_identity_shape(
+    tmp_path: Path,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    identity = postflight["trusted_source_contract"]["files"]["geno_lewm/data/clinvar.py"]
+    identity["path"] = "untrusted"
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=r"geno_lewm/data/clinvar.py.*keys drifted"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "drifted_value"),
+    [
+        ("url", "https://example.invalid/clinvar.vcf.gz"),
+        ("release", "2026-04-14"),
+        ("md5", "0" * 32),
+        ("sha256", "0" * 64),
+        ("size_bytes", 1),
+        ("verification_scope", ["size_bytes_reconciled", "sha256_reconciled"]),
+        (
+            "verification_limitation",
+            "The postflight recomputed every upstream source identity from archived bytes.",
+        ),
+    ],
+)
+def test_assembler_reconciles_every_clinvar_source_identity_field(
+    tmp_path: Path,
+    field: str,
+    drifted_value: object,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["source_identity"][field] = drifted_value
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match="ClinVar postflight source identity drifted"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_closed_clinvar_source_identity_shape(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["source_identity"]["archive_bytes_recomputed"] = True
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(
+        SnapshotLineageError,
+        match=r"ClinVar postflight\.source_identity keys drifted.*archive_bytes_recomputed",
+    ):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "drifted_value"),
+    [
+        ("path", "clinvar/2026-04-15/unreviewed.parquet"),
+        ("sha256", "sha256:" + "b" * 64),
+        ("size_bytes", 1),
+        ("records", 40),
+        (
+            "class_balance",
+            {"B": 1, "LB": 3, "LP": 5, "OTHER": 7, "P": 12, "VUS": 13},
+        ),
+    ],
+)
+def test_assembler_reconciles_every_clinvar_output_identity_field(
+    tmp_path: Path,
+    field: str,
+    drifted_value: object,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["output_identity"][field] = drifted_value
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match="ClinVar postflight output identity drifted"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_closed_clinvar_output_identity_shape(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["output_identity"]["schema_version"] = "1.0.0"
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(
+        SnapshotLineageError,
+        match=r"ClinVar postflight\.output_identity keys drifted.*schema_version",
+    ):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "drifted_value", "match"),
+    [
+        ("metadata_row_count", 40, "metadata row count drifted"),
+        ("scanned_row_count", 40, "scanned row count drifted"),
+        (
+            "class_balance",
+            {"B": 1, "LB": 3, "LP": 5, "OTHER": 7, "P": 12, "VUS": 13},
+            "class balance drifted",
+        ),
+        ("chromosome_balance", {"1": 40}, "chromosome total drifted"),
+        ("schema_version_balance", {"1.0.0": 40}, "schema-version balance drifted"),
+        (
+            "null_counts",
+            {"chrom": 0},
+            "null counts keys drifted",
+        ),
+        ("position_range", {"min": 0, "max": 1}, "position_range.min"),
+        ("clinvar_id_range", {"min": 2, "max": 1}, "clinvar_id_range.min exceeds max"),
+        ("schema", list(reversed(CLINVAR_PARQUET_SCHEMA)), "Parquet schema drifted"),
+    ],
+)
+def test_assembler_validates_every_clinvar_recomputed_audit_field(
+    tmp_path: Path,
+    field: str,
+    drifted_value: object,
+    match: str,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["parquet_audit"][field] = drifted_value
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=match):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_requires_closed_clinvar_recomputed_audit_shape(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["parquet_audit"]["audit_method"] = "metadata-only"
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(
+        SnapshotLineageError,
+        match=r"ClinVar postflight\.parquet_audit keys drifted.*audit_method",
+    ):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize("field", [field["name"] for field in CLINVAR_PARQUET_SCHEMA])
+def test_assembler_rejects_boolean_clinvar_null_counts(tmp_path: Path, field: str) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["parquet_audit"]["null_counts"][field] = False
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=rf"null count {field} must be"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [field["name"] for field in CLINVAR_PARQUET_SCHEMA if field["name"] != "gene_symbol"],
+)
+def test_assembler_rejects_nulls_in_required_clinvar_fields(tmp_path: Path, field: str) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["parquet_audit"]["null_counts"][field] = 1
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=rf"required field '{field}' contains nulls"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_rejects_clinvar_nullable_count_above_records(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["parquet_audit"]["null_counts"]["gene_symbol"] = 42
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=r"null count 'gene_symbol' exceeds records"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize("range_field", ["position_range", "clinvar_id_range"])
+@pytest.mark.parametrize(
+    ("minimum", "maximum", "match"),
+    [
+        (0, 1, r"\.min must be a positive integer"),
+        (True, 1, r"\.min must be a positive integer"),
+        (1, 1.5, r"\.max must be a positive integer"),
+        (2, 1, r"\.min exceeds max"),
+    ],
+    ids=["zero", "boolean", "float", "inverted"],
+)
+def test_assembler_validates_clinvar_positive_ranges(
+    tmp_path: Path,
+    range_field: str,
+    minimum: object,
+    maximum: object,
+    match: str,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["parquet_audit"][range_field] = {"min": minimum, "max": maximum}
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=rf"{range_field}{match}"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+@pytest.mark.parametrize(
+    ("chromosome_balance", "match"),
+    [
+        ({}, "must not be empty"),
+        ({"": 41}, "names must be non-empty"),
+        ({"1": 0, "2": 41}, "must be a positive integer"),
+        ({"1": True, "2": 40}, "must be a positive integer"),
+        ({"1": 40}, "chromosome total drifted"),
+    ],
+    ids=["empty", "empty-name", "zero-count", "boolean-count", "wrong-total"],
+)
+def test_assembler_validates_clinvar_chromosome_balance(
+    tmp_path: Path,
+    chromosome_balance: dict[str, object],
+    match: str,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["parquet_audit"]["chromosome_balance"] = chromosome_balance
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    with pytest.raises(SnapshotLineageError, match=match):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
+def test_assembler_preserves_noncanonical_clinvar_chromosome_scope(tmp_path: Path) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    postflight = _read_clinvar_postflight(spec_path)
+    postflight["parquet_audit"]["chromosome_balance"] = {"chrUn_KI270442v1": 41}
+    _write_bound_clinvar_postflight(spec_path, spec, postflight)
+
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+
+    assert lineage["clinvar"]["remote_postflight"]["parquet_audit"]["chromosome_balance"] == {
+        "chrUn_KI270442v1": 41
+    }
 
 
 def test_assembler_compares_postflight_audit_json_types_exactly(tmp_path: Path) -> None:
@@ -678,7 +1372,13 @@ def _write_evidence_bundle(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
         )
 
     clinvar_audit_path = tmp_path / "clinvar-audit.json"
-    _write_json(clinvar_audit_path, _clinvar_audit())
+    clinvar_audit = _clinvar_audit()
+    _write_json(clinvar_audit_path, clinvar_audit)
+    clinvar_postflight_path = tmp_path / "clinvar-postflight.json"
+    _write_json(
+        clinvar_postflight_path,
+        _clinvar_postflight(audit=clinvar_audit, audit_path=clinvar_audit_path),
+    )
     spec: dict[str, Any] = {
         "$schema": "./snapshot-lineage-spec.schema.json",
         "schema_version": "geno-lewm.v03-snapshot-lineage-spec.v1",
@@ -693,9 +1393,11 @@ def _write_evidence_bundle(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
             "repo": "abdelstark/geno-lewm-data",
             "repo_type": "dataset",
             "revision": "d" * 40,
-            "namespace": "staging/clinvar-2026-04-15-corrected-r1",
+            "namespace": "staging/clinvar-2026-04-15-archive-eeeeeeeeeeee-r1",
             "audit_file": "clinvar-audit.json",
             "audit_sha256": sha256_file(clinvar_audit_path),
+            "postflight_file": "clinvar-postflight.json",
+            "postflight_sha256": sha256_file(clinvar_postflight_path),
         },
     }
     spec_path = tmp_path / "lineage-spec.json"
@@ -852,6 +1554,23 @@ def _write_bound_postflight(
     _write_json(spec_path, spec)
 
 
+def _read_clinvar_postflight(spec_path: Path) -> dict[str, Any]:
+    payload = json.loads((spec_path.parent / "clinvar-postflight.json").read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _write_bound_clinvar_postflight(
+    spec_path: Path,
+    spec: dict[str, Any],
+    postflight: dict[str, Any],
+) -> None:
+    postflight_path = spec_path.parent / spec["clinvar"]["postflight_file"]
+    _write_json(postflight_path, postflight)
+    spec["clinvar"]["postflight_sha256"] = sha256_file(postflight_path)
+    _write_json(spec_path, spec)
+
+
 def _clinvar_audit() -> dict[str, object]:
     source_sha256 = "sha256:" + "a" * 64
     output_sha256 = "sha256:" + "b" * 64
@@ -925,6 +1644,135 @@ def _clinvar_audit() -> dict[str, object]:
                 "2026/clinvar_20260415.vcf.gz"
             ),
         },
+    }
+
+
+def _clinvar_postflight(*, audit: dict[str, object], audit_path: Path) -> dict[str, object]:
+    source = audit["source"]
+    output = audit["output"]
+    assert isinstance(source, dict)
+    assert isinstance(output, dict)
+    parquet_schema = _clinvar_parquet_schema()
+    file_identities = {
+        relative_path: {
+            "sha256": hashlib.sha256(relative_path.encode("utf-8")).hexdigest(),
+            "size_bytes": 200 + index,
+        }
+        for index, relative_path in enumerate(CLINVAR_REMOTE_FILES)
+    }
+    file_identities["evidence/audit.json"] = {
+        "sha256": hashlib.sha256(audit_path.read_bytes()).hexdigest(),
+        "size_bytes": audit_path.stat().st_size,
+    }
+    file_identities["clinvar/2026-04-15/variants.parquet"] = {
+        "sha256": str(output["sha256"]).removeprefix("sha256:"),
+        "size_bytes": output["size_bytes"],
+    }
+    trusted_files = {
+        path: {
+            "sha256": hashlib.sha256(path.encode("utf-8")).hexdigest(),
+            "size_bytes": 100 + index,
+        }
+        for index, path in enumerate(
+            (
+                "geno_lewm/cli/_prepare_report.py",
+                "geno_lewm/cli/prepare_clinvar.py",
+                "geno_lewm/data/_vcf.py",
+                "geno_lewm/data/clinvar.py",
+            )
+        )
+    }
+    return {
+        "schema_version": CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+        "ok": True,
+        "repo_id": "abdelstark/geno-lewm-data",
+        "repo_type": "dataset",
+        "revision": "d" * 40,
+        "namespace": "staging/clinvar-2026-04-15-archive-eeeeeeeeeeee-r1",
+        "source_commit": audit["commit_sha"],
+        "release": source["release"],
+        "verified_files": list(CLINVAR_REMOTE_FILES),
+        "file_identities": file_identities,
+        "trusted_source_contract": {
+            "files": trusted_files,
+            "schema_version": "1.0.0",
+            "parquet_schema": parquet_schema,
+            "nullable_fields": ["gene_symbol"],
+            "normalized_classes": ["B", "LB", "LP", "OTHER", "P", "VUS"],
+            "labelled_classes": ["B", "LB", "LP", "P"],
+            "allele_alphabet": ["A", "C", "G", "T"],
+            "cli_command": "geno-lewm-prepare-clinvar",
+            "max_allele_len": 16,
+            "output_path_template": "clinvar/{release}/variants.parquet",
+            "prepare_report_enrichments": [
+                "command",
+                "input_vcf",
+                "output_parquet",
+                "runtime",
+            ],
+            "file_identity_fields": ["path", "sha256", "size_bytes"],
+        },
+        "source_identity": {
+            "url": source["url"],
+            "release": source["release"],
+            "md5": source["md5"],
+            "sha256": str(source["sha256"]).removeprefix("sha256:"),
+            "size_bytes": source["size_bytes"],
+            "verification_scope": [
+                "release_reconciled",
+                "sha256_reconciled",
+                "size_bytes_reconciled",
+            ],
+            "verification_limitation": (
+                "The source archive is not included in the Hub namespace; its MD5 and URL "
+                "are receipt fields, not bytes recomputed by this postflight."
+            ),
+        },
+        "output_identity": {
+            "path": output["path"],
+            "sha256": str(output["sha256"]).removeprefix("sha256:"),
+            "size_bytes": output["size_bytes"],
+            "records": output["records"],
+            "class_balance": output["class_balance"],
+        },
+        "parquet_audit": _clinvar_parquet_audit(),
+        "claim_boundary": audit["claim_boundary"],
+        "checks": list(CLINVAR_REMOTE_CHECKS),
+    }
+
+
+def _clinvar_parquet_schema() -> list[dict[str, str]]:
+    return [dict(field) for field in CLINVAR_PARQUET_SCHEMA]
+
+
+def _clinvar_parquet_audit() -> dict[str, object]:
+    return {
+        "metadata_row_count": 41,
+        "scanned_row_count": 41,
+        "class_balance": {
+            "B": 2,
+            "LB": 3,
+            "LP": 5,
+            "OTHER": 7,
+            "P": 11,
+            "VUS": 13,
+        },
+        "chromosome_balance": {"1": 17, "2": 24},
+        "schema_version_balance": {"1.0.0": 41},
+        "null_counts": {
+            "alt": 0,
+            "chrom": 0,
+            "clinical_significance": 0,
+            "clinvar_id": 0,
+            "gene_symbol": 1,
+            "pos": 0,
+            "ref": 0,
+            "review_status": 0,
+            "schema_version": 0,
+        },
+        "position_range": {"min": 1, "max": 249_250_621},
+        "clinvar_id_range": {"min": 1, "max": 9_999_999},
+        "schema": _clinvar_parquet_schema(),
     }
 
 

@@ -215,6 +215,59 @@ def test_remote_postflight_rejects_an_unprefixed_prepare_hash(
     )
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "field", "value", "binding_field", "expected"),
+    [
+        (
+            "evidence/source-stream-identity.json",
+            "ok",
+            1,
+            "source_identity",
+            "source identity.ok drifted",
+        ),
+        (
+            "evidence/prepare-report.json",
+            "already_exists",
+            0,
+            "prepare_report",
+            "prepare report.already_exists drifted",
+        ),
+        ("evidence/receipt.json", "ok", 1, None, "receipt.ok drifted"),
+    ],
+    ids=["source-ok-int", "already-exists-int", "receipt-ok-int"],
+)
+def test_remote_postflight_rejects_bool_int_equality_aliases(
+    relative_path: str,
+    field: str,
+    value: object,
+    binding_field: str | None,
+    expected: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    namespace_root = fixture.root / fixture.namespace
+    evidence_path = namespace_root / relative_path
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence[field] = value
+    _write_json(evidence_path, evidence)
+    if binding_field is not None:
+        receipt_path = namespace_root / "evidence/receipt.json"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["evidence"][binding_field] = _identity(evidence_path)
+        _write_json(receipt_path, receipt)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert result == 2
+    assert expected in capsys.readouterr().err
+    assert not output.exists()
+
+
 def test_remote_postflight_rejects_expected_source_commit_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

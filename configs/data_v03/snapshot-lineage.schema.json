@@ -40,6 +40,222 @@
         "size_bytes"
       ],
       "type": "object"
+    },
+    "clinvarPositiveRange": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "type": "object"
+    },
+    "clinvarParquetAudit": {
+      "additionalProperties": false,
+      "properties": {
+        "chromosome_balance": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "patternProperties": {
+            "^.+$": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "class_balance": {
+          "additionalProperties": false,
+          "properties": {
+            "B": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "LB": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "LP": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "OTHER": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "P": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "VUS": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "B",
+            "LB",
+            "LP",
+            "OTHER",
+            "P",
+            "VUS"
+          ],
+          "type": "object"
+        },
+        "clinvar_id_range": {
+          "$ref": "#/$defs/clinvarPositiveRange"
+        },
+        "metadata_row_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "null_counts": {
+          "additionalProperties": false,
+          "properties": {
+            "alt": {
+              "const": 0
+            },
+            "chrom": {
+              "const": 0
+            },
+            "clinical_significance": {
+              "const": 0
+            },
+            "clinvar_id": {
+              "const": 0
+            },
+            "gene_symbol": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pos": {
+              "const": 0
+            },
+            "ref": {
+              "const": 0
+            },
+            "review_status": {
+              "const": 0
+            },
+            "schema_version": {
+              "const": 0
+            }
+          },
+          "required": [
+            "alt",
+            "chrom",
+            "clinical_significance",
+            "clinvar_id",
+            "gene_symbol",
+            "pos",
+            "ref",
+            "review_status",
+            "schema_version"
+          ],
+          "type": "object"
+        },
+        "position_range": {
+          "$ref": "#/$defs/clinvarPositiveRange"
+        },
+        "scanned_row_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema": {
+          "items": false,
+          "prefixItems": [
+            {
+              "const": {
+                "name": "chrom",
+                "type": "string"
+              }
+            },
+            {
+              "const": {
+                "name": "pos",
+                "type": "int64"
+              }
+            },
+            {
+              "const": {
+                "name": "ref",
+                "type": "string"
+              }
+            },
+            {
+              "const": {
+                "name": "alt",
+                "type": "string"
+              }
+            },
+            {
+              "const": {
+                "name": "clinical_significance",
+                "type": "string"
+              }
+            },
+            {
+              "const": {
+                "name": "review_status",
+                "type": "string"
+              }
+            },
+            {
+              "const": {
+                "name": "gene_symbol",
+                "type": "string"
+              }
+            },
+            {
+              "const": {
+                "name": "clinvar_id",
+                "type": "int64"
+              }
+            },
+            {
+              "const": {
+                "name": "schema_version",
+                "type": "string"
+              }
+            }
+          ],
+          "type": "array"
+        },
+        "schema_version_balance": {
+          "additionalProperties": false,
+          "properties": {
+            "1.0.0": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "1.0.0"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "metadata_row_count",
+        "scanned_row_count",
+        "class_balance",
+        "chromosome_balance",
+        "schema_version_balance",
+        "null_counts",
+        "position_range",
+        "clinvar_id_range",
+        "schema"
+      ],
+      "type": "object"
     }
   },
   "$id": "https://github.com/AbdelStark/GenoLeWM/raw/main/configs/data_v03/snapshot-lineage.schema.json",
@@ -201,6 +417,85 @@
           ],
           "type": "object"
         },
+        "remote_postflight": {
+          "additionalProperties": false,
+          "properties": {
+            "checks": {
+              "items": false,
+              "prefixItems": [
+                {
+                  "const": "exact_hub_revision_resolved"
+                },
+                {
+                  "const": "complete_namespace_file_set"
+                },
+                {
+                  "const": "source_contract_loaded_from_exact_git_commit"
+                },
+                {
+                  "const": "source_contract_derived_from_ast"
+                },
+                {
+                  "const": "audit_prepare_runtime_reconciled"
+                },
+                {
+                  "const": "source_release_sha256_and_size_reconciled"
+                },
+                {
+                  "const": "parquet_sha256_and_size_recomputed"
+                },
+                {
+                  "const": "parquet_schema_derived_from_source_commit"
+                },
+                {
+                  "const": "parquet_full_scan_recomputed"
+                }
+              ],
+              "type": "array"
+            },
+            "parquet_audit": {
+              "$ref": "#/$defs/clinvarParquetAudit"
+            },
+            "schema_version": {
+              "const": "geno-lewm.clinvar-remote-postflight.v1"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size_bytes": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "verified_files": {
+              "items": false,
+              "prefixItems": [
+                {
+                  "const": "clinvar/2026-04-15/variants.parquet"
+                },
+                {
+                  "const": "evidence/audit.json"
+                },
+                {
+                  "const": "evidence/prepare_report.json"
+                },
+                {
+                  "const": "evidence/runtime_report.json"
+                }
+              ],
+              "type": "array"
+            }
+          },
+          "required": [
+            "schema_version",
+            "sha256",
+            "size_bytes",
+            "verified_files",
+            "checks",
+            "parquet_audit"
+          ],
+          "type": "object"
+        },
         "reference_genome": {
           "const": "GRCh38"
         },
@@ -258,6 +553,7 @@
         "audit",
         "source",
         "output",
+        "remote_postflight",
         "execution",
         "evidence_claim_boundary"
       ],

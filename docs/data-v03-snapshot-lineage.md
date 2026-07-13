@@ -25,6 +25,8 @@ Assembly requires evidence that is not committed to this repository:
 - exactly 22 gnomAD remote-postflight reports, each produced against an
   immutable 40-character Hugging Face dataset revision;
 - one corrected ClinVar `2026-04-15` GRCh38 audit;
+- one ClinVar remote-postflight report for that corrected shard, produced
+  against its immutable 40-character Hugging Face dataset revision;
 - the checked gnomAD source lock in
   `configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json`.
 
@@ -32,7 +34,9 @@ The repository therefore provides the contract and fixture tests, not a
 ready-to-assemble production lineage. Do not substitute fixture evidence for
 live staging evidence.
 
-## Produce each remote postflight
+## Produce the remote postflights
+
+### gnomAD autosomes
 
 After one gnomAD namespace has been published by the staging workflow, verify
 the complete namespace at its immutable Hub revision:
@@ -52,6 +56,31 @@ revision, downloads the complete expected namespace, recomputes every file
 identity, checks the receipt and source-lock evidence, and performs a fresh
 full Parquet scan. A successful report is still evidence about one staging
 namespace; it is not a snapshot-membership record.
+
+### ClinVar corrected shard
+
+Verify the corrected ClinVar namespace at its exact Hub revision. The producer
+commit must be present in the local Git object database because the verifier
+derives the trusted schema and transform contract from those immutable bytes:
+
+```bash
+git fetch origin "$CLINVAR_SOURCE_COMMIT"
+uv run --extra dev --with huggingface-hub \
+  python -m tools.data.v03_clinvar_postflight \
+  --repo-id abdelstark/geno-lewm-data \
+  --revision "$CLINVAR_HUB_REVISION" \
+  --namespace "$CLINVAR_STAGING_NAMESPACE" \
+  --expected-source-commit "$CLINVAR_SOURCE_COMMIT" \
+  --expected-release 2026-04-15 \
+  --output-json evidence/clinvar-remote-postflight.json
+```
+
+The expected namespace is
+`staging/clinvar-2026-04-15-archive-${CLINVAR_SOURCE_COMMIT:0:12}-r1`.
+The verifier requires exactly the release Parquet, audit, prepare report, and
+runtime report; reconciles them; and independently full-scans the Parquet.
+See the [ClinVar staging-verification guide](data-v03-staging-verification.md)
+for the source-byte and scientific claim boundaries.
 
 ## Author the assembly spec
 
@@ -85,9 +114,11 @@ spec must contain all 22 entries and cannot contain the ellipsis:
     "repo": "abdelstark/geno-lewm-data",
     "repo_type": "dataset",
     "revision": "<immutable 40-character Hub commit>",
-    "namespace": "staging/clinvar-2026-04-15-corrected-r1",
+    "namespace": "staging/clinvar-2026-04-15-archive-<source commit prefix>-r1",
     "audit_file": "clinvar-audit.json",
-    "audit_sha256": "sha256:<64 lowercase hex characters>"
+    "audit_sha256": "sha256:<64 lowercase hex characters>",
+    "postflight_file": "clinvar-remote-postflight.json",
+    "postflight_sha256": "sha256:<64 lowercase hex characters>"
   }
 }
 ```
@@ -118,6 +149,21 @@ namespace inventory; the local receipt SHA-256 and size; the receipt's Parquet
 SHA-256 and size; and type-strict equality between the verifier's fresh Parquet
 audit and the local receipt audit. Any mismatch aborts before output is written.
 
+For ClinVar, assembly first performs the existing closed audit validation, then
+type-strictly reconciles the postflight's exact 16-key surface: repository and
+type, Hub revision, namespace, producer commit, release, claim boundary, four
+verified files, nine completed checks, and every nested identity. The audit
+file identity must equal the local audit bytes. The Parquet identity, records,
+and class balance must equal the audit output. Metadata and scanned row counts,
+chromosome totals, schema-version balance, nine-field schema, null counts, and
+positive value ranges are checked again before the recomputed audit and report
+identity are persisted under `clinvar.remote_postflight`.
+
+The ClinVar source archive is not one of the four remote namespace files. Its
+release, SHA-256, and size are receipt-reconciled; its MD5 and URL remain
+receipt-only fields and are not represented as independently recomputed source
+bytes. The lineage preserves this limitation verbatim.
+
 ## Upstream data-use boundary
 
 The assembled lineage records the following source-specific `data_use`
@@ -137,10 +183,10 @@ project does not hold.
 ## Validation for contract changes
 
 ```bash
-uv run pytest tests/unit/test_data_v03_snapshot_lineage.py -q
-uv run ruff check tools/data/v03_snapshot_lineage.py \
+uv run --extra dev pytest tests/unit/test_data_v03_snapshot_lineage.py -q
+uv run --extra dev ruff check tools/data/v03_snapshot_lineage.py \
   tests/unit/test_data_v03_snapshot_lineage.py
-uv run mypy --strict tools/data/v03_snapshot_lineage.py
+uv run --extra dev mypy --strict tools/data/v03_snapshot_lineage.py
 uv run --extra docs mkdocs build --strict
 ```
 
