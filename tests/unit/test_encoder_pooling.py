@@ -15,6 +15,7 @@ from geno_lewm.encoder import (
     global_mean,
     pool_hidden_states,
 )
+from geno_lewm.encoder._canonical import canonical_fp32
 from geno_lewm.errors import InputError
 
 
@@ -39,6 +40,17 @@ def test_pooling_preserves_representable_fp32_subnormal_bits() -> None:
     observed = global_mean(((smallest_subnormal,), (smallest_subnormal,)))
 
     assert struct.pack("<f", observed[0]) == bytes.fromhex("01000000")
+
+
+@pytest.mark.parametrize("value", [1, math.inf, math.nan])
+def test_canonical_fp32_rejects_non_float_or_non_finite_values(value: object) -> None:
+    with pytest.raises(InputError, match="cache state values must be finite"):
+        canonical_fp32(value, field="cache state")  # type: ignore[arg-type]
+
+
+def test_canonical_fp32_rejects_finite_values_outside_binary32_range() -> None:
+    with pytest.raises(InputError, match="representable as canonical fp32"):
+        canonical_fp32(3.5e38)
 
 
 def test_centered_mean_pools_inclusive_radius_span() -> None:
