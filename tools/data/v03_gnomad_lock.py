@@ -13,6 +13,7 @@ import math
 import os
 import re
 import shlex
+import stat
 import struct
 import subprocess
 import sys
@@ -21,11 +22,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
+
+from tools.data._immutable_json import ImmutableJsonError, write_immutable_json
 
 LOCK_SCHEMA_VERSION = "geno-lewm.gnomad-source-lock.v1"
 SELECTION_SCHEMA_VERSION = "geno-lewm.gnomad-stage-selection.v1"
@@ -51,6 +55,22 @@ class SourceLockSnapshot:
     schema_path: Path
     schema_bytes: bytes
     schema: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _BinarySnapshot:
+    stream: BinaryIO
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class _CapturedJson:
+    path: Path
+    payload: bytes
+    value: Mapping[str, object]
+    sha256: str
+    size_bytes: int
 
 
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
@@ -193,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
                 token=os.environ.get("HF_TOKEN"),
             )
             _write_json(args.output_json, payload)
-    except (OSError, json.JSONDecodeError, SourceLockError) as exc:
+    except (OSError, json.JSONDecodeError, ImmutableJsonError, SourceLockError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
@@ -390,15 +410,33 @@ def _audit_remote_gnomad_bundle(
     source_lock_schema_path = paths["evidence/source-lock.schema.json"]
     parquet_path = paths["data/gnomad/v4.1/variants.parquet"]
 
-    lock_bytes, lock = _read_json_mapping(source_lock_path, "remote source lock")
-    schema_bytes, schema = _read_json_mapping(source_lock_schema_path, "remote source lock schema")
+    captures = {
+        "evidence/source-lock.json": _capture_json(source_lock_path, "remote source lock"),
+        "evidence/source-lock.schema.json": _capture_json(
+            source_lock_schema_path, "remote source lock schema"
+        ),
+        "evidence/selection.json": _capture_json(selection_path, "remote selection"),
+        "evidence/gcs-object-metadata.json": _capture_json(metadata_path, "remote GCS metadata"),
+        "evidence/gcs-metadata-verification.json": _capture_json(
+            metadata_verification_path, "remote metadata verification"
+        ),
+        "evidence/source-stream-identity.json": _capture_json(
+            source_identity_path, "remote source identity"
+        ),
+        "evidence/prepare-report.json": _capture_json(prepare_report_path, "remote prepare report"),
+        "evidence/receipt.json": _capture_json(receipt_path, "remote receipt"),
+    }
+    lock_capture = captures["evidence/source-lock.json"]
+    schema_capture = captures["evidence/source-lock.schema.json"]
+    lock = lock_capture.value
+    schema = schema_capture.value
     _require_trusted_blob(
-        lock_bytes,
+        lock_capture.payload,
         trusted_lock_bytes,
         "remote source lock bytes at source commit",
     )
     _require_trusted_blob(
-        schema_bytes,
+        schema_capture.payload,
         trusted_schema_bytes,
         "remote source lock schema bytes at source commit",
     )
@@ -414,80 +452,88 @@ def _audit_remote_gnomad_bundle(
         "remote source lock schema.additionalProperties",
     )
 
-    selection_bytes, selection = _read_json_mapping(selection_path, "remote selection")
+    selection_capture = captures["evidence/selection.json"]
+    selection = selection_capture.value
     _validate_remote_selection(
         selection,
         lock=lock,
-        lock_sha256=hashlib.sha256(lock_bytes).hexdigest(),
-        schema_sha256=hashlib.sha256(schema_bytes).hexdigest(),
+        lock_sha256=lock_capture.sha256,
+        schema_sha256=schema_capture.sha256,
         repo_id=repo_id,
         namespace=namespace,
         expected_source_commit=expected_source_commit,
         expected_chromosome=expected_chromosome,
     )
 
-    _metadata_bytes, metadata_verification = _read_json_mapping(
-        metadata_verification_path, "remote metadata verification"
-    )
-    recomputed_metadata = verify_gcs_metadata(selection_path, metadata_path)
+    metadata_verification = captures["evidence/gcs-metadata-verification.json"].value
+    metadata_capture = captures["evidence/gcs-object-metadata.json"]
+    recomputed_metadata = _verify_gcs_metadata_captures(selection_capture, metadata_capture)
     _require_equal(
         dict(metadata_verification),
         recomputed_metadata,
         "remote metadata verification",
     )
 
-    source_identity_bytes, source_identity = _read_json_mapping(
-        source_identity_path, "remote source identity"
-    )
+    source_identity = captures["evidence/source-stream-identity.json"].value
     _validate_remote_source_identity(
         source_identity,
         selection=selection,
-        selection_sha256=hashlib.sha256(selection_bytes).hexdigest(),
+        selection_sha256=selection_capture.sha256,
     )
-    prepare_report_bytes, prepare_report = _read_json_mapping(
-        prepare_report_path, "remote prepare report"
-    )
-    counts, runtime, output_identity = _validate_remote_prepare_report(
-        prepare_report,
-        selection=selection,
-        source_identity=source_identity,
-        parquet_path=parquet_path,
-    )
+    prepare_report = captures["evidence/prepare-report.json"].value
+    with _private_binary_snapshot(parquet_path) as parquet_snapshot:
+        counts, runtime, output_identity = _validate_remote_prepare_report(
+            prepare_report,
+            selection=selection,
+            source_identity=source_identity,
+            parquet_path=parquet_path,
+            parquet_sha256=parquet_snapshot.sha256,
+            parquet_size_bytes=parquet_snapshot.size_bytes,
+        )
 
-    source = _require_mapping(selection.get("source"), "selection.source")
-    transform = _require_mapping(selection.get("transform"), "selection.transform")
-    parquet_audit = audit_gnomad_parquet(
-        parquet_path,
-        chromosome=_require_str(source.get("chromosome"), "selection.source.chromosome"),
-        expected_records=counts["records_written"],
-        min_af=_require_number(transform.get("min_af"), "selection.transform.min_af"),
-        max_allele_len=_require_int(
-            transform.get("max_allele_len"), "selection.transform.max_allele_len"
-        ),
-    )
-    _receipt_bytes, receipt = _read_json_mapping(receipt_path, "remote receipt")
-    _validate_remote_receipt(
-        receipt,
-        selection=selection,
-        selection_path=selection_path,
-        metadata_verification_path=metadata_verification_path,
-        source_identity_path=source_identity_path,
-        source_identity_bytes=source_identity_bytes,
-        prepare_report_path=prepare_report_path,
-        prepare_report_bytes=prepare_report_bytes,
-        counts=counts,
-        runtime=runtime,
-        output_identity=output_identity,
-        parquet_audit=parquet_audit,
-    )
+        source = _require_mapping(selection.get("source"), "selection.source")
+        transform = _require_mapping(selection.get("transform"), "selection.transform")
+        parquet_audit = _audit_gnomad_parquet_stream(
+            parquet_snapshot.stream,
+            chromosome=_require_str(source.get("chromosome"), "selection.source.chromosome"),
+            expected_records=counts["records_written"],
+            min_af=_require_number(transform.get("min_af"), "selection.transform.min_af"),
+            max_allele_len=_require_int(
+                transform.get("max_allele_len"), "selection.transform.max_allele_len"
+            ),
+        )
+        receipt = captures["evidence/receipt.json"].value
+        _validate_remote_receipt(
+            receipt,
+            selection=selection,
+            source_identity=source_identity,
+            prepare_report=prepare_report,
+            evidence_captures={
+                "selection": selection_capture,
+                "metadata_verification": captures["evidence/gcs-metadata-verification.json"],
+                "source_identity": captures["evidence/source-stream-identity.json"],
+                "prepare_report": captures["evidence/prepare-report.json"],
+            },
+            counts=counts,
+            runtime=runtime,
+            output_identity=output_identity,
+            parquet_audit=parquet_audit,
+        )
 
-    file_identities = {
-        relative: {
-            "sha256": _file_identity(path)["sha256"],
-            "size_bytes": path.stat().st_size,
+        file_identities = {
+            relative: (
+                {
+                    "sha256": parquet_snapshot.sha256,
+                    "size_bytes": parquet_snapshot.size_bytes,
+                }
+                if path == parquet_path
+                else {
+                    "sha256": captures[relative].sha256,
+                    "size_bytes": captures[relative].size_bytes,
+                }
+            )
+            for relative, path in sorted(paths.items())
         }
-        for relative, path in sorted(paths.items())
-    }
     return {
         "schema_version": REMOTE_POSTFLIGHT_SCHEMA_VERSION,
         "ok": True,
@@ -714,6 +760,8 @@ def _validate_remote_prepare_report(
     selection: Mapping[str, object],
     source_identity: Mapping[str, object],
     parquet_path: Path,
+    parquet_sha256: str,
+    parquet_size_bytes: int,
 ) -> tuple[dict[str, int], Mapping[str, object], dict[str, object]]:
     _require_exact_keys(
         prepare_report,
@@ -752,7 +800,11 @@ def _validate_remote_prepare_report(
     expected_output_suffix = f"/data/gnomad/{selection['release']}/variants.parquet"
     if not output_path.endswith(expected_output_suffix):
         raise SourceLockError("prepare report.output_parquet.path drifted from the staging layout")
-    output_identity = _file_identity(parquet_path)
+    output_identity = {
+        "path": str(parquet_path),
+        "sha256": parquet_sha256,
+        "size_bytes": parquet_size_bytes,
+    }
     _require_equal(
         _require_prefixed_sha256(output_report["sha256"], "prepare report.output_parquet.sha256"),
         output_identity["sha256"],
@@ -873,12 +925,9 @@ def _validate_remote_receipt(
     receipt: Mapping[str, object],
     *,
     selection: Mapping[str, object],
-    selection_path: Path,
-    metadata_verification_path: Path,
-    source_identity_path: Path,
-    source_identity_bytes: bytes,
-    prepare_report_path: Path,
-    prepare_report_bytes: bytes,
+    source_identity: Mapping[str, object],
+    prepare_report: Mapping[str, object],
+    evidence_captures: Mapping[str, _CapturedJson],
     counts: Mapping[str, int],
     runtime: Mapping[str, object],
     output_identity: Mapping[str, object],
@@ -921,7 +970,6 @@ def _validate_remote_receipt(
         _require_equal(receipt[field], selection[field], f"receipt.{field}")
 
     selection_source = _require_mapping(selection["source"], "selection.source")
-    source_identity = _decode_json_mapping(source_identity_bytes, "remote source identity")
     expected_receipt_source = {
         "chromosome": selection_source["chromosome"],
         "split_role": selection_source["split_role"],
@@ -953,7 +1001,6 @@ def _validate_remote_receipt(
     _require_equal(receipt_transform["filters"], expected_filters, "receipt.transform.filters")
     _require_equal(receipt_transform["runtime"], runtime, "receipt.transform.runtime")
     _require_equal(receipt_transform["counts"], dict(counts), "receipt.transform.counts")
-    prepare_report = _decode_json_mapping(prepare_report_bytes, "remote prepare report")
     expected_argv = [
         "uv",
         "run",
@@ -981,22 +1028,28 @@ def _validate_remote_receipt(
 
     evidence = _require_mapping(receipt["evidence"], "receipt.evidence")
     expected_evidence = {
-        "selection": (selection_path, "/publish/evidence/selection.json"),
+        "selection": (
+            evidence_captures["selection"],
+            "/publish/evidence/selection.json",
+        ),
         "metadata_verification": (
-            metadata_verification_path,
+            evidence_captures["metadata_verification"],
             "/publish/evidence/gcs-metadata-verification.json",
         ),
         "source_identity": (
-            source_identity_path,
+            evidence_captures["source_identity"],
             "/publish/evidence/source-stream-identity.json",
         ),
-        "prepare_report": (prepare_report_path, "/publish/evidence/prepare-report.json"),
+        "prepare_report": (
+            evidence_captures["prepare_report"],
+            "/publish/evidence/prepare-report.json",
+        ),
     }
     _require_exact_keys(evidence, set(expected_evidence), "receipt.evidence")
-    for field, (path, suffix) in expected_evidence.items():
+    for field, (capture, suffix) in expected_evidence.items():
         _validate_remote_file_binding(
             _require_mapping(evidence[field], f"receipt.evidence.{field}"),
-            path=path,
+            capture=capture,
             expected_path_suffix=suffix,
             field=f"receipt.evidence.{field}",
         )
@@ -1005,7 +1058,7 @@ def _validate_remote_receipt(
 def _validate_remote_file_binding(
     binding: Mapping[str, object],
     *,
-    path: Path,
+    capture: _CapturedJson,
     expected_path_suffix: str,
     field: str,
 ) -> None:
@@ -1013,7 +1066,7 @@ def _validate_remote_file_binding(
     bound_path = _require_str(binding["path"], f"{field}.path")
     if not bound_path.endswith(expected_path_suffix):
         raise SourceLockError(f"{field}.path drifted from the staging layout")
-    identity = _file_identity(path)
+    identity = {"sha256": capture.sha256, "size_bytes": capture.size_bytes}
     for identity_field in ("sha256", "size_bytes"):
         _require_equal(
             binding[identity_field], identity[identity_field], f"{field}.{identity_field}"
@@ -1030,9 +1083,18 @@ def _require_trusted_blob(observed: bytes, expected: bytes, field: str) -> None:
 
 def verify_gcs_metadata(selection_path: Path, metadata_path: Path) -> dict[str, object]:
     """Verify generation, size, and upstream MD5 returned by the GCS JSON API."""
-    selection_bytes = selection_path.read_bytes()
-    selection = _decode_json_mapping(selection_bytes, "selection")
-    metadata = _decode_json_mapping(metadata_path.read_bytes(), "GCS metadata")
+    return _verify_gcs_metadata_captures(
+        _capture_json(selection_path, "selection"),
+        _capture_json(metadata_path, "GCS metadata"),
+    )
+
+
+def _verify_gcs_metadata_captures(
+    selection_capture: _CapturedJson,
+    metadata_capture: _CapturedJson,
+) -> dict[str, object]:
+    selection = selection_capture.value
+    metadata = metadata_capture.value
     _require_equal(
         selection.get("schema_version"), SELECTION_SCHEMA_VERSION, "selection.schema_version"
     )
@@ -1052,7 +1114,7 @@ def verify_gcs_metadata(selection_path: Path, metadata_path: Path) -> dict[str, 
     return {
         "schema_version": METADATA_VERIFICATION_SCHEMA_VERSION,
         "ok": True,
-        "selection_sha256": hashlib.sha256(selection_bytes).hexdigest(),
+        "selection_sha256": selection_capture.sha256,
         "bucket": expected["bucket"],
         "object": expected["name"],
         "generation": expected["generation"],
@@ -1269,6 +1331,27 @@ def audit_gnomad_parquet(
     max_allele_len: int,
 ) -> dict[str, object]:
     """Independently scan a staged gnomAD Parquet shard and verify its row contract."""
+    if not path.is_file():
+        raise SourceLockError(f"Parquet audit input is not a regular file: {path}")
+    with _private_binary_snapshot(path) as snapshot:
+        return _audit_gnomad_parquet_stream(
+            snapshot.stream,
+            chromosome=chromosome,
+            expected_records=expected_records,
+            min_af=min_af,
+            max_allele_len=max_allele_len,
+        )
+
+
+def _audit_gnomad_parquet_stream(
+    stream: BinaryIO,
+    *,
+    chromosome: str,
+    expected_records: int,
+    min_af: float,
+    max_allele_len: int,
+) -> dict[str, object]:
+    """Scan one already captured gnomAD Parquet byte sequence."""
     if chromosome not in _AUTOSOMES:
         raise SourceLockError(f"Parquet audit chromosome must be one of 1..22, got {chromosome!r}")
     if expected_records <= 0:
@@ -1279,12 +1362,11 @@ def audit_gnomad_parquet(
         raise SourceLockError("Parquet audit min_af must be between 0 and 1")
     if max_allele_len <= 0:
         raise SourceLockError("Parquet audit max_allele_len must be positive")
-    if not path.is_file():
-        raise SourceLockError(f"Parquet audit input is not a regular file: {path}")
 
     pa, pq = _require_pyarrow_for_audit()
     expected_schema = _expected_gnomad_schema(pa)
-    parquet = pq.ParquetFile(path)
+    stream.seek(0)
+    parquet = pq.ParquetFile(stream)
     observed_schema = parquet.schema_arrow
     if not observed_schema.equals(expected_schema, check_metadata=False):
         raise SourceLockError(
@@ -1544,22 +1626,11 @@ def author_receipt(
     )
     if not output_parquet.is_file():
         raise SourceLockError(f"transform output is not a regular file: {output_parquet}")
-    output_identity = _file_identity(output_parquet)
     _require_equal(
         output_report.get("path"), str(output_parquet), "prepare report.output_parquet.path"
     )
     prepare_output_sha256 = _require_prefixed_sha256(
         output_report.get("sha256"), "prepare report.output_parquet.sha256"
-    )
-    _require_equal(
-        prepare_output_sha256,
-        output_identity["sha256"],
-        "prepare report.output_parquet.sha256",
-    )
-    _require_equal(
-        output_report.get("size_bytes"),
-        output_identity["size_bytes"],
-        "prepare report.output_parquet.size_bytes",
     )
 
     transform = _require_mapping(selection.get("transform"), "selection.transform")
@@ -1613,13 +1684,29 @@ def author_receipt(
             "prepare report allele counts do not reconcile: "
             f"classified={classified_alleles}, seen={counts['allele_records_seen']}"
         )
-    parquet_audit = audit_gnomad_parquet(
-        output_parquet,
-        chromosome=_require_str(source.get("chromosome"), "selection.source.chromosome"),
-        expected_records=counts["records_written"],
-        min_af=min_af,
-        max_allele_len=max_allele_len,
-    )
+    with _private_binary_snapshot(output_parquet) as snapshot:
+        output_identity = {
+            "path": str(output_parquet),
+            "sha256": snapshot.sha256,
+            "size_bytes": snapshot.size_bytes,
+        }
+        _require_equal(
+            prepare_output_sha256,
+            snapshot.sha256,
+            "prepare report.output_parquet.sha256",
+        )
+        _require_equal(
+            output_report.get("size_bytes"),
+            snapshot.size_bytes,
+            "prepare report.output_parquet.size_bytes",
+        )
+        parquet_audit = _audit_gnomad_parquet_stream(
+            snapshot.stream,
+            chromosome=_require_str(source.get("chromosome"), "selection.source.chromosome"),
+            expected_records=counts["records_written"],
+            min_af=min_af,
+            max_allele_len=max_allele_len,
+        )
 
     runtime = _require_mapping(prepare_report.get("runtime"), "prepare report.runtime")
     elapsed_seconds = _require_number(
@@ -2075,8 +2162,19 @@ def _json_equal(observed: object, expected: object) -> bool:
 
 
 def _read_json_mapping(path: Path, field: str) -> tuple[bytes, Mapping[str, object]]:
-    payload_bytes = path.read_bytes()
-    return payload_bytes, _decode_json_mapping(payload_bytes, field)
+    capture = _capture_json(path, field)
+    return capture.payload, capture.value
+
+
+def _capture_json(path: Path, field: str) -> _CapturedJson:
+    payload = path.read_bytes()
+    return _CapturedJson(
+        path=path,
+        payload=payload,
+        value=_decode_json_mapping(payload, field),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+    )
 
 
 def _decode_json_mapping(payload: bytes, field: str) -> Mapping[str, object]:
@@ -2093,12 +2191,60 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object
     return value
 
 
-def _file_identity(path: Path) -> dict[str, object]:
-    sha256 = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(_HASH_CHUNK_SIZE), b""):
-            sha256.update(chunk)
-    return {"path": str(path), "sha256": sha256.hexdigest(), "size_bytes": path.stat().st_size}
+@contextmanager
+def _private_binary_snapshot(path: Path) -> Iterator[_BinarySnapshot]:
+    digest = hashlib.sha256()
+    size_bytes = 0
+    try:
+        before_open = path.lstat()
+    except OSError as exc:
+        raise SourceLockError(f"cannot inspect binary snapshot input {path}: {exc}") from exc
+    if not stat.S_ISREG(before_open.st_mode):
+        raise SourceLockError(
+            f"binary snapshot input must be a regular file without following symlinks: {path}"
+        )
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise SourceLockError(
+            f"binary snapshot input must be a regular file without following symlinks: {path}"
+        ) from exc
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != before_open.st_dev
+            or opened.st_ino != before_open.st_ino
+        ):
+            raise SourceLockError(
+                f"binary snapshot input must be a stable regular file without following "
+                f"symlinks: {path}"
+            )
+        source = os.fdopen(descriptor, "rb")
+    except Exception:
+        os.close(descriptor)
+        raise
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as snapshot:
+            with source:
+                for chunk in iter(lambda: source.read(_HASH_CHUNK_SIZE), b""):
+                    digest.update(chunk)
+                    size_bytes += len(chunk)
+                    snapshot.write(chunk)
+            snapshot.seek(0)
+            yield _BinarySnapshot(
+                stream=snapshot,
+                sha256=digest.hexdigest(),
+                size_bytes=size_bytes,
+            )
+    finally:
+        source.close()
 
 
 def _bytes_identity(path: Path, payload: bytes) -> dict[str, object]:
@@ -2110,10 +2256,7 @@ def _bytes_identity(path: Path, payload: bytes) -> dict[str, object]:
 
 
 def _write_json(path: Path, payload: Mapping[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    write_immutable_json(path, payload)
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through ``main`` in tests

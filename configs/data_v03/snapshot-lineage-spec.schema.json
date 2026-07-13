@@ -70,7 +70,403 @@
           "const": "dataset"
         },
         "shards": {
+          "allOf": [
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "1"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "2"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "3"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "4"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "5"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "6"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "7"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "8"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "9"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "10"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "11"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "12"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "13"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "14"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "15"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "16"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "17"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "18"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "19"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "20"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "21"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "22"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            }
+          ],
           "items": {
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "chromosome": {
+                      "const": "20"
+                    }
+                  },
+                  "required": [
+                    "chromosome"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "split_role": {
+                      "const": "validation"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "chromosome": {
+                      "const": "21"
+                    }
+                  },
+                  "required": [
+                    "chromosome"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "split_role": {
+                      "const": "evaluation"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "chromosome": {
+                      "not": {
+                        "enum": [
+                          "20",
+                          "21"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "chromosome"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "split_role": {
+                      "const": "train"
+                    }
+                  }
+                }
+              }
+            ],
             "additionalProperties": false,
             "properties": {
               "chromosome": {

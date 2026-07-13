@@ -8,11 +8,17 @@ not create dataset memberships or claim that a publishable snapshot exists.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import math
+import os
 import re
+import stat
+import struct
 import sys
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
@@ -151,6 +157,39 @@ _REMOTE_POSTFLIGHT_CHECKS: Final = (
     "parquet_sha256_and_size_recomputed",
     "parquet_full_scan_recomputed",
 )
+_GNOMAD_PARQUET_SCHEMA: Final = (
+    ("chrom", "string"),
+    ("pos", "int64"),
+    ("ref", "string"),
+    ("alt", "string"),
+    ("af_global", "float"),
+    ("af_afr", "float"),
+    ("af_ami", "float"),
+    ("af_amr", "float"),
+    ("af_asj", "float"),
+    ("af_eas", "float"),
+    ("af_fin", "float"),
+    ("af_mid", "float"),
+    ("af_nfe", "float"),
+    ("af_oth", "float"),
+    ("af_remaining", "float"),
+    ("af_sas", "float"),
+    ("filter", "string"),
+    ("schema_version", "string"),
+)
+_GNOMAD_PARQUET_CHECKS: Final = (
+    "exact_arrow_schema",
+    "canonical_chromosome",
+    "positive_position",
+    "explicit_acgt_alleles",
+    "distinct_ref_alt",
+    "finite_global_af_in_locked_range",
+    "finite_population_af_in_unit_interval_or_null",
+    "pass_filter",
+    "exact_schema_version",
+    "v41_population_columns_nonempty",
+    "metadata_scan_and_preparer_row_counts_equal",
+)
 
 
 class SnapshotLineageError(ValueError):
@@ -237,6 +276,559 @@ def assemble_snapshot_lineage(
     if output_path is not None:
         _write_immutable_json(output_path, lineage)
     return lineage
+
+
+def verify_snapshot_lineage(path: Path) -> dict[str, Any]:
+    """Capture and fail-closed verify one existing lineage candidate.
+
+    JSON Schema validation is structural only. This verifier additionally
+    recomputes the content-addressed ``lineage_id`` and enforces the semantic
+    no-membership and autosome split contracts.
+    """
+    lineage_capture = _capture_json(path, "snapshot lineage")
+    lineage = lineage_capture.value
+    _require_exact_keys(
+        lineage,
+        {
+            "schema_version",
+            "generated_by",
+            "candidate_snapshot_id",
+            "reference_genome",
+            "membership_status",
+            "assembly_inputs",
+            "gnomad",
+            "clinvar",
+            "claim_boundary",
+            "lineage_id",
+        },
+        "snapshot lineage",
+    )
+    observed_lineage_id = _require_sha256(lineage.get("lineage_id"), "lineage.lineage_id")
+    commitment = dict(lineage)
+    del commitment["lineage_id"]
+    _require_equal(
+        observed_lineage_id,
+        canonical_json_sha256(commitment),
+        "lineage_id",
+    )
+
+    _require_equal(lineage.get("schema_version"), LINEAGE_SCHEMA_VERSION, "lineage.schema_version")
+    _require_equal(lineage.get("generated_by"), GENERATED_BY, "lineage.generated_by")
+    candidate_snapshot_id = _require_str(
+        lineage.get("candidate_snapshot_id"), "lineage.candidate_snapshot_id"
+    )
+    if _CANDIDATE_ID.fullmatch(candidate_snapshot_id) is None:
+        raise SnapshotLineageError(
+            "lineage.candidate_snapshot_id must be a versioned v0.3 candidate id"
+        )
+    _require_equal(lineage.get("reference_genome"), "GRCh38", "lineage.reference_genome")
+    _require_equal(lineage.get("membership_status"), MEMBERSHIP_STATUS, "lineage.membership_status")
+    _require_equal(lineage.get("claim_boundary"), LINEAGE_CLAIM_BOUNDARY, "lineage.claim_boundary")
+
+    assembly_source_lock_sha = _verify_lineage_assembly_inputs(
+        _require_mapping(lineage.get("assembly_inputs"), "lineage.assembly_inputs")
+    )
+    gnomad_repo = _verify_gnomad_lineage(
+        _require_mapping(lineage.get("gnomad"), "lineage.gnomad"),
+        assembly_source_lock_sha=assembly_source_lock_sha,
+    )
+    _verify_clinvar_lineage(
+        _require_mapping(lineage.get("clinvar"), "lineage.clinvar"),
+        expected_repo=gnomad_repo,
+    )
+    return dict(lineage)
+
+
+def _verify_lineage_assembly_inputs(assembly_inputs: Mapping[str, object]) -> str:
+    _require_exact_keys(
+        assembly_inputs,
+        {"spec", "gnomad_source_lock"},
+        "lineage.assembly_inputs",
+    )
+    _verify_file_identity(assembly_inputs.get("spec"), "lineage assembly spec")
+    source_lock = _verify_file_identity(
+        assembly_inputs.get("gnomad_source_lock"),
+        "lineage assembly gnomAD source lock",
+    )
+    return _require_sha256(source_lock.get("sha256"), "assembly source-lock sha256")
+
+
+def _verify_file_identity(value: object, field: str) -> Mapping[str, object]:
+    identity = _require_mapping(value, field)
+    _require_exact_keys(identity, {"sha256", "size_bytes"}, field)
+    _require_sha256(identity.get("sha256"), f"{field}.sha256")
+    _require_positive_int(identity.get("size_bytes"), f"{field}.size_bytes")
+    return identity
+
+
+def _verify_artifact_identity(
+    value: object,
+    field: str,
+    *,
+    expected_path: str,
+) -> Mapping[str, object]:
+    identity = _require_mapping(value, field)
+    _require_exact_keys(identity, {"artifact_path", "sha256", "size_bytes"}, field)
+    _require_equal(identity.get("artifact_path"), expected_path, f"{field}.artifact_path")
+    _require_sha256(identity.get("sha256"), f"{field}.sha256")
+    _require_positive_int(identity.get("size_bytes"), f"{field}.size_bytes")
+    return identity
+
+
+def _verify_gnomad_lineage(
+    gnomad: Mapping[str, object],
+    *,
+    assembly_source_lock_sha: str,
+) -> str:
+    _require_exact_keys(
+        gnomad,
+        {
+            "dataset_id",
+            "release",
+            "repo",
+            "repo_type",
+            "data_use",
+            "source_lock",
+            "transform",
+            "common_execution",
+            "split_policy",
+            "total_records",
+            "total_size_bytes",
+            "shards",
+        },
+        "lineage.gnomad",
+    )
+    _require_equal(gnomad.get("dataset_id"), "gnomad-v4.1-exomes-autosomes", "gnomAD dataset")
+    _require_equal(gnomad.get("release"), "v4.1", "gnomAD release")
+    _require_equal(gnomad.get("repo_type"), "dataset", "gnomAD repo_type")
+    _require_equal(gnomad.get("data_use"), _gnomad_data_use(), "gnomAD data_use")
+    repo = _require_repo(gnomad.get("repo"), "gnomAD repo")
+
+    source_lock = _require_mapping(gnomad.get("source_lock"), "gnomAD source_lock")
+    _require_exact_keys(
+        source_lock,
+        {"schema_version", "sha256", "schema_sha256"},
+        "gnomAD source_lock",
+    )
+    _require_equal(
+        source_lock.get("schema_version"), LOCK_SCHEMA_VERSION, "gnomAD source-lock schema version"
+    )
+    source_lock_sha = _require_sha256(source_lock.get("sha256"), "gnomAD source-lock sha256")
+    _require_sha256(source_lock.get("schema_sha256"), "gnomAD source-lock schema sha256")
+    _require_equal(source_lock_sha, assembly_source_lock_sha, "gnomAD assembly source-lock sha256")
+
+    transform = _require_mapping(gnomad.get("transform"), "gnomAD transform")
+    _require_exact_keys(
+        transform, {"command", "filter", "min_af", "max_allele_len"}, "gnomAD transform"
+    )
+    _require_equal(
+        transform,
+        {
+            "command": "geno-lewm-prepare-gnomad",
+            "filter": "PASS",
+            "min_af": 0.01,
+            "max_allele_len": 16,
+        },
+        "gnomAD transform",
+    )
+
+    execution = _require_mapping(gnomad.get("common_execution"), "gnomAD common_execution")
+    _require_exact_keys(
+        execution,
+        {"commit_sha", "container_image", "repository"},
+        "gnomAD common_execution",
+    )
+    commit_sha = _require_commit(execution.get("commit_sha"), "gnomAD execution.commit_sha")
+    _require_container(execution.get("container_image"), "gnomAD execution.container_image")
+    _require_equal(
+        execution.get("repository"),
+        "https://github.com/AbdelStark/GenoLeWM.git",
+        "gnomAD execution.repository",
+    )
+
+    split_policy = _require_mapping(gnomad.get("split_policy"), "lineage.gnomad.split_policy")
+    _require_exact_keys(split_policy, {"train", "validation", "evaluation"}, "split_policy")
+    _require_equal(
+        split_policy,
+        {
+            "train": [*(str(chromosome) for chromosome in range(1, 20)), "22"],
+            "validation": ["20"],
+            "evaluation": ["21"],
+        },
+        "lineage.gnomad.split_policy",
+    )
+
+    shards = _require_list(gnomad.get("shards"), "lineage.gnomad.shards")
+    if len(shards) != 22:
+        raise SnapshotLineageError("lineage.gnomad.shards must contain exactly 22 entries")
+    seen_chromosomes: set[str] = set()
+    seen_namespaces: set[str] = set()
+    total_records = 0
+    total_size_bytes = 0
+    for index, raw_shard in enumerate(shards):
+        records, size_bytes, chromosome, namespace = _verify_gnomad_lineage_shard(
+            raw_shard,
+            index=index,
+            transform=transform,
+            commit_sha=commit_sha,
+            source_lock_sha=source_lock_sha,
+        )
+        if chromosome in seen_chromosomes:
+            raise SnapshotLineageError(f"duplicate lineage gnomAD chromosome: {chromosome}")
+        if namespace in seen_namespaces:
+            raise SnapshotLineageError(f"duplicate lineage gnomAD namespace: {namespace}")
+        seen_chromosomes.add(chromosome)
+        seen_namespaces.add(namespace)
+        total_records += records
+        total_size_bytes += size_bytes
+    if seen_chromosomes != _AUTOSOMES:
+        missing = sorted(_AUTOSOMES - seen_chromosomes, key=int)
+        raise SnapshotLineageError(
+            f"lineage gnomAD autosome coverage incomplete: missing={missing}"
+        )
+    _require_equal(gnomad.get("total_records"), total_records, "gnomAD total_records")
+    _require_equal(gnomad.get("total_size_bytes"), total_size_bytes, "gnomAD total_size_bytes")
+    return repo
+
+
+def _verify_gnomad_lineage_shard(
+    value: object,
+    *,
+    index: int,
+    transform: Mapping[str, object],
+    commit_sha: str,
+    source_lock_sha: str,
+) -> tuple[int, int, str, str]:
+    field = f"lineage.gnomad.shards[{index}]"
+    shard = _require_mapping(value, field)
+    _require_exact_keys(
+        shard,
+        {
+            "chromosome",
+            "split_role",
+            "revision",
+            "namespace",
+            "receipt",
+            "remote_postflight",
+            "source",
+            "transform",
+            "output",
+        },
+        field,
+    )
+    chromosome = _require_str(shard.get("chromosome"), f"{field}.chromosome")
+    if chromosome not in _AUTOSOMES:
+        raise SnapshotLineageError(
+            f"lineage gnomAD chromosome must be one of 1..22: {chromosome!r}"
+        )
+    _require_equal(shard.get("split_role"), _split_role(chromosome), f"chr{chromosome} split_role")
+    _require_commit(shard.get("revision"), f"chr{chromosome} revision")
+    namespace = _require_namespace(shard.get("namespace"), f"chr{chromosome} namespace")
+    _require_equal(shard.get("transform"), transform, f"chr{chromosome} transform")
+
+    source = _require_mapping(shard.get("source"), f"chr{chromosome} source")
+    _require_exact_keys(
+        source,
+        {
+            "bucket",
+            "object",
+            "generation",
+            "size_bytes",
+            "upstream_md5_base64",
+            "upstream_md5_hex",
+            "streamed_sha256",
+        },
+        f"chr{chromosome} source",
+    )
+    _require_equal(source.get("bucket"), "gcp-public-data--gnomad", f"chr{chromosome} bucket")
+    _require_equal(
+        source.get("object"),
+        f"release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr{chromosome}.vcf.bgz",
+        f"chr{chromosome} source object",
+    )
+    generation = _require_str(source.get("generation"), f"chr{chromosome} generation")
+    if not generation.isdigit() or int(generation) <= 0:
+        raise SnapshotLineageError(f"chr{chromosome} generation must be a positive decimal")
+    _require_positive_int(source.get("size_bytes"), f"chr{chromosome} source size_bytes")
+    _require_sha256(source.get("streamed_sha256"), f"chr{chromosome} streamed_sha256")
+    md5_hex = _require_str(source.get("upstream_md5_hex"), f"chr{chromosome} upstream MD5")
+    if re.fullmatch(r"[0-9a-f]{32}", md5_hex) is None:
+        raise SnapshotLineageError(f"chr{chromosome} upstream MD5 must be lowercase hexadecimal")
+    md5_base64 = _require_str(
+        source.get("upstream_md5_base64"), f"chr{chromosome} upstream MD5 base64"
+    )
+    try:
+        decoded_md5 = base64.b64decode(md5_base64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SnapshotLineageError(f"chr{chromosome} upstream MD5 base64 is invalid") from exc
+    _require_equal(decoded_md5.hex(), md5_hex, f"chr{chromosome} upstream MD5 encodings")
+
+    expected_namespace = (
+        "staging/v0.3/gnomad-v4.1-exomes-autosomes/"
+        f"lock-{source_lock_sha.removeprefix('sha256:')[:12]}/"
+        f"chr{chromosome}-g{generation}-{commit_sha[:12]}"
+    )
+    _require_equal(namespace, expected_namespace, f"chr{chromosome} namespace identity")
+    _verify_artifact_identity(
+        shard.get("receipt"),
+        f"chr{chromosome} receipt",
+        expected_path=f"{namespace}/evidence/receipt.json",
+    )
+
+    output = _require_mapping(shard.get("output"), f"chr{chromosome} output")
+    _require_exact_keys(
+        output,
+        {"artifact_path", "sha256", "size_bytes", "records", "schema_version"},
+        f"chr{chromosome} output",
+    )
+    _require_equal(
+        output.get("artifact_path"),
+        f"{namespace}/data/gnomad/v4.1/variants.parquet",
+        f"chr{chromosome} output.artifact_path",
+    )
+    _require_sha256(output.get("sha256"), f"chr{chromosome} output.sha256")
+    size_bytes = _require_positive_int(
+        output.get("size_bytes"), f"chr{chromosome} output.size_bytes"
+    )
+    records = _require_positive_int(output.get("records"), f"chr{chromosome} output.records")
+    _require_equal(output.get("schema_version"), "2.0.0", f"chr{chromosome} schema_version")
+
+    postflight = _require_mapping(
+        shard.get("remote_postflight"), f"chr{chromosome} remote_postflight"
+    )
+    _require_exact_keys(
+        postflight,
+        {"schema_version", "sha256", "size_bytes", "verified_files", "checks", "parquet_audit"},
+        f"chr{chromosome} remote_postflight",
+    )
+    _require_equal(
+        postflight.get("schema_version"),
+        REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+        f"chr{chromosome} postflight schema_version",
+    )
+    _require_sha256(postflight.get("sha256"), f"chr{chromosome} postflight sha256")
+    _require_positive_int(postflight.get("size_bytes"), f"chr{chromosome} postflight size_bytes")
+    _require_equal(
+        _require_exact_string_list(
+            postflight.get("verified_files"), f"chr{chromosome} postflight verified_files"
+        ),
+        list(_REMOTE_NAMESPACE_FILES),
+        f"chr{chromosome} postflight verified files",
+    )
+    _require_equal(
+        _require_exact_string_list(postflight.get("checks"), f"chr{chromosome} postflight checks"),
+        list(_REMOTE_POSTFLIGHT_CHECKS),
+        f"chr{chromosome} postflight checks",
+    )
+    _verify_gnomad_parquet_audit(
+        _require_mapping(
+            postflight.get("parquet_audit"), f"chr{chromosome} postflight parquet_audit"
+        ),
+        chromosome=chromosome,
+        records=records,
+        min_af=transform.get("min_af"),
+    )
+    return records, size_bytes, chromosome, namespace
+
+
+def _verify_gnomad_parquet_audit(
+    audit: Mapping[str, object],
+    *,
+    chromosome: str,
+    records: int,
+    min_af: object,
+) -> None:
+    field = f"chr{chromosome} postflight parquet_audit"
+    _require_exact_keys(
+        audit,
+        {
+            "audit_method",
+            "batch_size_rows",
+            "metadata_row_count",
+            "scanned_row_count",
+            "canonical_chromosome",
+            "position_min",
+            "position_max",
+            "schema_version",
+            "population_af_non_null_counts",
+            "locked_min_af",
+            "stored_min_af_float32",
+            "schema",
+            "checks",
+        },
+        field,
+    )
+    _require_equal(
+        audit.get("audit_method"),
+        "pyarrow_metadata_and_full_iter_batches_scan_v1",
+        f"{field}.audit_method",
+    )
+    _require_equal(audit.get("batch_size_rows"), 131_072, f"{field}.batch_size_rows")
+    _require_equal(audit.get("metadata_row_count"), records, f"{field}.metadata_row_count")
+    _require_equal(audit.get("scanned_row_count"), records, f"{field}.scanned_row_count")
+    _require_equal(audit.get("canonical_chromosome"), chromosome, f"{field}.chromosome")
+    position_min = _require_positive_int(audit.get("position_min"), f"{field}.position_min")
+    position_max = _require_positive_int(audit.get("position_max"), f"{field}.position_max")
+    if position_min > position_max:
+        raise SnapshotLineageError(f"{field} position_min exceeds position_max")
+    _require_equal(audit.get("schema_version"), "2.0.0", f"{field}.schema_version")
+    _require_equal(audit.get("locked_min_af"), min_af, f"{field}.locked_min_af")
+    if isinstance(min_af, bool) or not isinstance(min_af, int | float):
+        raise SnapshotLineageError(f"{field}.locked_min_af must be numeric")
+    expected_stored_min = struct.unpack("<f", struct.pack("<f", float(min_af)))[0]
+    _require_equal(
+        audit.get("stored_min_af_float32"),
+        expected_stored_min,
+        f"{field}.stored_min_af_float32",
+    )
+
+    population_counts = _require_mapping(
+        audit.get("population_af_non_null_counts"), f"{field}.population counts"
+    )
+    _require_exact_keys(
+        population_counts, set(_GNOMAD_POPULATION_COLUMNS), f"{field}.population counts"
+    )
+    for population in sorted(_GNOMAD_POPULATION_COLUMNS):
+        count = _require_nonnegative_int(
+            population_counts.get(population), f"{field}.{population} non-null count"
+        )
+        if count > records:
+            raise SnapshotLineageError(f"{field}.{population} non-null count exceeds records")
+        if population in _GNOMAD_V41_REQUIRED_POPULATIONS and count == 0:
+            raise SnapshotLineageError(f"{field}.{population} required population is empty")
+    expected_schema = [
+        {"name": name, "type": field_type, "nullable": True}
+        for name, field_type in _GNOMAD_PARQUET_SCHEMA
+    ]
+    _require_equal(audit.get("schema"), expected_schema, f"{field}.schema")
+    _require_equal(audit.get("checks"), list(_GNOMAD_PARQUET_CHECKS), f"{field}.checks")
+
+
+def _verify_clinvar_lineage(
+    clinvar: Mapping[str, object],
+    *,
+    expected_repo: str,
+) -> None:
+    _require_exact_keys(
+        clinvar,
+        {
+            "release",
+            "reference_genome",
+            "repo",
+            "repo_type",
+            "data_use",
+            "revision",
+            "namespace",
+            "audit",
+            "source",
+            "output",
+            "remote_postflight",
+            "execution",
+            "evidence_claim_boundary",
+        },
+        "lineage.clinvar",
+    )
+    _require_equal(clinvar.get("release"), "2026-04-15", "ClinVar release")
+    _require_equal(clinvar.get("reference_genome"), "GRCh38", "ClinVar reference_genome")
+    _require_equal(clinvar.get("repo_type"), "dataset", "ClinVar repo_type")
+    _require_equal(clinvar.get("data_use"), _clinvar_data_use(), "ClinVar data_use")
+    _require_equal(clinvar.get("repo"), expected_repo, "ClinVar and gnomAD repository")
+    _require_repo(clinvar.get("repo"), "ClinVar repo")
+    _require_commit(clinvar.get("revision"), "ClinVar revision")
+
+    execution = _require_mapping(clinvar.get("execution"), "ClinVar execution")
+    _require_exact_keys(execution, {"commit_sha", "container_image"}, "ClinVar execution")
+    commit_sha = _require_commit(execution.get("commit_sha"), "ClinVar execution.commit_sha")
+    _require_container(execution.get("container_image"), "ClinVar execution.container_image")
+    namespace = _require_namespace(clinvar.get("namespace"), "ClinVar namespace")
+    _require_equal(
+        namespace,
+        f"staging/clinvar-2026-04-15-archive-{commit_sha[:12]}-r1",
+        "ClinVar exact-revision namespace",
+    )
+    _require_equal(
+        clinvar.get("evidence_claim_boundary"),
+        CLINVAR_REQUIRED_CLAIM_BOUNDARY,
+        "ClinVar evidence_claim_boundary",
+    )
+    _verify_artifact_identity(
+        clinvar.get("audit"),
+        "ClinVar audit",
+        expected_path=f"{namespace}/evidence/audit.json",
+    )
+
+    source = _require_mapping(clinvar.get("source"), "ClinVar source")
+    _require_exact_keys(source, {"url", "md5", "sha256", "size_bytes"}, "ClinVar source")
+    source_url = _require_str(source.get("url"), "ClinVar source.url")
+    if "vcf_GRCh38" not in source_url or not source_url.endswith("clinvar_20260415.vcf.gz"):
+        raise SnapshotLineageError("ClinVar source URL must bind the archived GRCh38 release")
+    source_md5 = _require_str(source.get("md5"), "ClinVar source.md5")
+    if re.fullmatch(r"[0-9a-f]{32}", source_md5) is None:
+        raise SnapshotLineageError("ClinVar source.md5 must be a lowercase MD5 digest")
+    _require_sha256(source.get("sha256"), "ClinVar source.sha256")
+    _require_positive_int(source.get("size_bytes"), "ClinVar source.size_bytes")
+
+    output = _require_mapping(clinvar.get("output"), "ClinVar output")
+    _require_exact_keys(
+        output,
+        {"artifact_path", "sha256", "size_bytes", "records", "class_balance"},
+        "ClinVar output",
+    )
+    _require_equal(
+        output.get("artifact_path"),
+        f"{namespace}/clinvar/2026-04-15/variants.parquet",
+        "ClinVar output.artifact_path",
+    )
+    _require_sha256(output.get("sha256"), "ClinVar output.sha256")
+    _require_positive_int(output.get("size_bytes"), "ClinVar output.size_bytes")
+    records = _require_positive_int(output.get("records"), "ClinVar output.records")
+    class_balance_raw = _require_mapping(output.get("class_balance"), "ClinVar class_balance")
+    _require_exact_keys(class_balance_raw, set(_CLINVAR_CLASSES), "ClinVar class_balance")
+    class_balance = {
+        label: _require_nonnegative_int(
+            class_balance_raw.get(label), f"ClinVar class_balance.{label}"
+        )
+        for label in sorted(_CLINVAR_CLASSES)
+    }
+    _require_equal(sum(class_balance.values()), records, "ClinVar class-balance total")
+    for label in ("B", "LB", "LP", "P"):
+        if class_balance[label] <= 0:
+            raise SnapshotLineageError(f"ClinVar labelled class {label} must be non-empty")
+
+    postflight = _require_mapping(clinvar.get("remote_postflight"), "ClinVar remote_postflight")
+    _require_exact_keys(
+        postflight,
+        {"schema_version", "sha256", "size_bytes", "verified_files", "checks", "parquet_audit"},
+        "ClinVar remote_postflight",
+    )
+    _require_equal(
+        postflight.get("schema_version"),
+        CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+        "ClinVar postflight.schema_version",
+    )
+    _require_sha256(postflight.get("sha256"), "ClinVar postflight.sha256")
+    _require_positive_int(postflight.get("size_bytes"), "ClinVar postflight.size_bytes")
+    _require_equal(
+        _require_exact_string_list(
+            postflight.get("verified_files"), "ClinVar postflight.verified_files"
+        ),
+        list(_CLINVAR_REMOTE_FILES),
+        "ClinVar postflight verified files",
+    )
+    _require_equal(
+        _require_exact_string_list(postflight.get("checks"), "ClinVar postflight.checks"),
+        list(_CLINVAR_REMOTE_CHECKS),
+        "ClinVar postflight checks",
+    )
+    parquet_audit = _require_mapping(
+        postflight.get("parquet_audit"), "ClinVar postflight.parquet_audit"
+    )
+    _validate_clinvar_parquet_audit(
+        parquet_audit,
+        records=records,
+        class_balance=class_balance,
+        trusted_schema=_clinvar_parquet_schema(),
+    )
 
 
 def _assemble_gnomad(
@@ -706,8 +1298,11 @@ def _validate_remote_postflight(
         f"chr{chromosome} postflight Parquet identity",
     )
     receipt_output = _require_mapping(receipt.get("output"), f"chr{chromosome} receipt.output")
+    parquet_audit = _require_mapping(
+        postflight.get("parquet_audit"), f"chr{chromosome} postflight.parquet_audit"
+    )
     _require_equal(
-        postflight.get("parquet_audit"),
+        parquet_audit,
         receipt_output.get("parquet_audit"),
         f"chr{chromosome} postflight fresh Parquet audit",
     )
@@ -725,6 +1320,7 @@ def _validate_remote_postflight(
         "size_bytes": postflight_size_bytes,
         "verified_files": verified_files,
         "checks": checks,
+        "parquet_audit": dict(parquet_audit),
     }
 
 
@@ -1230,21 +1826,36 @@ def _clinvar_parquet_schema() -> list[dict[str, str]]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point for exact-evidence lineage assembly."""
+    """CLI entry point for exact-evidence lineage assembly and verification."""
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     assemble_parser = subparsers.add_parser("assemble", help="assemble one lineage candidate")
     assemble_parser.add_argument("--spec-json", type=Path, required=True)
     assemble_parser.add_argument("--gnomad-source-lock-json", type=Path, required=True)
     assemble_parser.add_argument("--output-json", type=Path, required=True)
+    verify_parser = subparsers.add_parser(
+        "verify", help="recompute and verify one lineage candidate"
+    )
+    verify_parser.add_argument("--lineage-json", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        lineage = assemble_snapshot_lineage(
-            spec_path=args.spec_json,
-            gnomad_source_lock_path=args.gnomad_source_lock_json,
-            output_path=args.output_json,
-        )
-    except (OSError, json.JSONDecodeError, SourceLockError, SnapshotLineageError) as exc:
+        if args.command == "assemble":
+            lineage = assemble_snapshot_lineage(
+                spec_path=args.spec_json,
+                gnomad_source_lock_path=args.gnomad_source_lock_json,
+                output_path=args.output_json,
+            )
+            summary_path = ("output_json", str(args.output_json))
+        else:
+            lineage = verify_snapshot_lineage(args.lineage_json)
+            summary_path = ("input_json", str(args.lineage_json))
+    except (
+        OSError,
+        json.JSONDecodeError,
+        UnicodeError,
+        SourceLockError,
+        SnapshotLineageError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(
@@ -1254,7 +1865,7 @@ def main(argv: list[str] | None = None) -> int:
                 "candidate_snapshot_id": lineage["candidate_snapshot_id"],
                 "lineage_id": lineage["lineage_id"],
                 "membership_status": lineage["membership_status"],
-                "output_json": str(args.output_json),
+                summary_path[0]: summary_path[1],
             },
             sort_keys=True,
         )
@@ -1309,18 +1920,85 @@ def _resolve_bundle_file(root: Path, value: object, field: str) -> Path:
 
 def _write_immutable_json(path: Path, payload: Mapping[str, object]) -> None:
     encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    if path.exists():
-        if not path.is_file():
-            raise SnapshotLineageError(f"lineage output is not a regular file: {path}")
-        if path.read_bytes() != encoded:
-            raise SnapshotLineageError(
-                f"refusing to replace different lineage bytes at immutable output: {path}"
-            )
-        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(encoded)
-    temporary.replace(path)
+    descriptor, temporary_text = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_text)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+        while True:
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                try:
+                    observed = _read_regular_file_without_following_symlinks(path)
+                except FileNotFoundError:
+                    continue
+                if observed != encoded:
+                    raise SnapshotLineageError(
+                        f"refusing to replace different lineage bytes at immutable output: {path}"
+                    ) from None
+                return
+            _fsync_directory(path.parent)
+            return
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+        else:
+            _fsync_directory(path.parent)
+
+
+def _read_regular_file_without_following_symlinks(path: Path) -> bytes:
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode):
+        raise SnapshotLineageError(f"lineage output is a symlink or non-regular file: {path}")
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != metadata.st_dev
+            or opened.st_ino != metadata.st_ino
+        ):
+            raise SnapshotLineageError(
+                f"lineage output is a replaced, symlink, or non-regular file: {path}"
+            )
+        chunks: list[bytes] = []
+        while chunk := os.read(descriptor, 1 << 20):
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_directory(path: Path) -> None:
+    directory_flag = getattr(os, "O_DIRECTORY", None)
+    if directory_flag is None:
+        return
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | directory_flag
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _split_role(chromosome: str) -> str:

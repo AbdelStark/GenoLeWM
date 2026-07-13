@@ -41,6 +41,140 @@
       ],
       "type": "object"
     },
+    "gnomadParquetAudit": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_method": {
+          "const": "pyarrow_metadata_and_full_iter_batches_scan_v1"
+        },
+        "batch_size_rows": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "canonical_chromosome": {
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "20",
+            "21",
+            "22"
+          ]
+        },
+        "checks": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "locked_min_af": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "metadata_row_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "population_af_non_null_counts": {
+          "additionalProperties": false,
+          "properties": {
+            "af_afr": {"minimum": 0, "type": "integer"},
+            "af_ami": {"minimum": 0, "type": "integer"},
+            "af_amr": {"minimum": 0, "type": "integer"},
+            "af_asj": {"minimum": 0, "type": "integer"},
+            "af_eas": {"minimum": 0, "type": "integer"},
+            "af_fin": {"minimum": 0, "type": "integer"},
+            "af_mid": {"minimum": 0, "type": "integer"},
+            "af_nfe": {"minimum": 0, "type": "integer"},
+            "af_oth": {"minimum": 0, "type": "integer"},
+            "af_remaining": {"minimum": 0, "type": "integer"},
+            "af_sas": {"minimum": 0, "type": "integer"}
+          },
+          "required": [
+            "af_afr",
+            "af_ami",
+            "af_amr",
+            "af_asj",
+            "af_eas",
+            "af_fin",
+            "af_mid",
+            "af_nfe",
+            "af_oth",
+            "af_remaining",
+            "af_sas"
+          ],
+          "type": "object"
+        },
+        "position_max": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "position_min": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scanned_row_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {"minLength": 1, "type": "string"},
+              "nullable": {"type": "boolean"},
+              "type": {"minLength": 1, "type": "string"}
+            },
+            "required": ["name", "type", "nullable"],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "2.0.0"
+        },
+        "stored_min_af_float32": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "audit_method",
+        "batch_size_rows",
+        "metadata_row_count",
+        "scanned_row_count",
+        "canonical_chromosome",
+        "position_min",
+        "position_max",
+        "schema_version",
+        "population_af_non_null_counts",
+        "locked_min_af",
+        "stored_min_af_float32",
+        "schema",
+        "checks"
+      ],
+      "type": "object"
+    },
     "clinvarPositiveRange": {
       "additionalProperties": false,
       "properties": {
@@ -262,6 +396,7 @@
   },
   "$id": "https://github.com/AbdelStark/GenoLeWM/raw/main/configs/data_v03/snapshot-lineage.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Structural validation does not recompute lineage_id; consumers must run tools.data.v03_snapshot_lineage verify.",
   "additionalProperties": false,
   "properties": {
     "assembly_inputs": {
@@ -647,7 +782,403 @@
           "const": "dataset"
         },
         "shards": {
+          "allOf": [
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "1"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "2"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "3"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "4"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "5"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "6"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "7"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "8"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "9"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "10"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "11"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "12"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "13"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "14"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "15"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "16"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "17"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "18"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "19"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "20"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "21"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "chromosome": {
+                    "const": "22"
+                  }
+                },
+                "required": [
+                  "chromosome"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            }
+          ],
           "items": {
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "chromosome": {
+                      "const": "20"
+                    }
+                  },
+                  "required": [
+                    "chromosome"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "split_role": {
+                      "const": "validation"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "chromosome": {
+                      "const": "21"
+                    }
+                  },
+                  "required": [
+                    "chromosome"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "split_role": {
+                      "const": "evaluation"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "chromosome": {
+                      "not": {
+                        "enum": [
+                          "20",
+                          "21"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "chromosome"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "split_role": {
+                      "const": "train"
+                    }
+                  }
+                }
+              }
+            ],
             "additionalProperties": false,
             "properties": {
               "chromosome": {
@@ -709,6 +1240,9 @@
                       "parquet_full_scan_recomputed"
                     ]
                   },
+                  "parquet_audit": {
+                    "$ref": "#/$defs/gnomadParquetAudit"
+                  },
                   "schema_version": {
                     "const": "geno-lewm.gnomad-remote-postflight.v1"
                   },
@@ -739,7 +1273,8 @@
                   "sha256",
                   "size_bytes",
                   "verified_files",
-                  "checks"
+                  "checks",
+                  "parquet_audit"
                 ],
                 "type": "object"
               },

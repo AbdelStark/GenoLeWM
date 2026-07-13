@@ -12,6 +12,7 @@ import math
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import BinaryIO
+
+from tools.data._immutable_json import ImmutableJsonError, write_immutable_json
 
 REMOTE_POSTFLIGHT_SCHEMA_VERSION = "geno-lewm.clinvar-remote-postflight.v1"
 _HASH_CHUNK_SIZE = 1 << 20
@@ -93,7 +96,13 @@ def main(argv: list[str] | None = None) -> int:
             token=os.environ.get("HF_TOKEN"),
         )
         _write_json(args.output_json, report)
-    except (OSError, json.JSONDecodeError, UnicodeError, ClinvarPostflightError) as exc:
+    except (
+        OSError,
+        json.JSONDecodeError,
+        UnicodeError,
+        ClinvarPostflightError,
+        ImmutableJsonError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
@@ -1171,18 +1180,56 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object
 def _private_binary_snapshot(path: Path) -> Iterator[_BinarySnapshot]:
     digest = hashlib.sha256()
     size_bytes = 0
-    with tempfile.TemporaryFile(mode="w+b") as snapshot:
-        with path.open("rb") as source:
-            for chunk in iter(lambda: source.read(_HASH_CHUNK_SIZE), b""):
-                digest.update(chunk)
-                size_bytes += len(chunk)
-                snapshot.write(chunk)
-        snapshot.seek(0)
-        yield _BinarySnapshot(
-            stream=snapshot,
-            sha256=digest.hexdigest(),
-            size_bytes=size_bytes,
+    try:
+        before_open = path.lstat()
+    except OSError as exc:
+        raise ClinvarPostflightError(f"cannot inspect binary snapshot input {path}: {exc}") from exc
+    if not stat.S_ISREG(before_open.st_mode):
+        raise ClinvarPostflightError(
+            f"binary snapshot input must be a regular file without following symlinks: {path}"
         )
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ClinvarPostflightError(
+            f"binary snapshot input must be a regular file without following symlinks: {path}"
+        ) from exc
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != before_open.st_dev
+            or opened.st_ino != before_open.st_ino
+        ):
+            raise ClinvarPostflightError(
+                f"binary snapshot input must be a stable regular file without following "
+                f"symlinks: {path}"
+            )
+        source = os.fdopen(descriptor, "rb")
+    except Exception:
+        os.close(descriptor)
+        raise
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as snapshot:
+            with source:
+                for chunk in iter(lambda: source.read(_HASH_CHUNK_SIZE), b""):
+                    digest.update(chunk)
+                    size_bytes += len(chunk)
+                    snapshot.write(chunk)
+            snapshot.seek(0)
+            yield _BinarySnapshot(
+                stream=snapshot,
+                sha256=digest.hexdigest(),
+                size_bytes=size_bytes,
+            )
+    finally:
+        source.close()
 
 
 def _require_mapping(value: object, field: str) -> Mapping[str, object]:
@@ -1269,8 +1316,7 @@ def _json_equal(observed: object, expected: object) -> bool:
 
 
 def _write_json(path: Path, value: Mapping[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_immutable_json(path, value)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -1247,6 +1248,7 @@ def _replace_after_first_binary_read(
     replacement: Path,
 ) -> dict[str, bool]:
     path_open = Path.open
+    os_open = os.open
     state = {"done": False}
 
     class _ReplaceOnClose:
@@ -1270,7 +1272,21 @@ def _replace_after_first_binary_read(
             return _ReplaceOnClose(stream)
         return stream
 
+    def open_fd_and_replace(
+        path: Any,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        descriptor = os_open(path, flags, mode, dir_fd=dir_fd)
+        if Path(path) == target and not state["done"]:
+            replacement.replace(target)
+            state["done"] = True
+        return descriptor
+
     monkeypatch.setattr(Path, "open", open_and_replace)
+    monkeypatch.setattr(os, "open", open_fd_and_replace)
     return state
 
 

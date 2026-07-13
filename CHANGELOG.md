@@ -86,6 +86,11 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Changed
 
+- Hardened v0.3 lineage and postflight evidence against concurrent publication
+  and path replacement: outputs are durable no-clobber writes, remote evidence
+  is verified from one capture per file, and the standalone lineage verifier
+  now recomputes the content ID and all self-contained totals, split, audit,
+  identity, and claim-boundary invariants.
 - Made both v0.3 exact-revision postflight verifiers compare JSON values
   recursively and type-strictly, rejecting Python boolean/integer equality
   aliases in audit, receipt, runtime, and prepare evidence.

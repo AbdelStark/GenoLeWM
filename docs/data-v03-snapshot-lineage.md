@@ -11,11 +11,15 @@ The public contracts are:
 - `configs/data_v03/snapshot-lineage-spec.schema.json` for the local evidence
   bundle specification;
 - `configs/data_v03/snapshot-lineage.schema.json` for the assembled lineage;
-- `tools/data/v03_snapshot_lineage.py` for fail-closed assembly.
+- `tools/data/v03_snapshot_lineage.py` for fail-closed assembly and content-ID
+  verification.
 
 Both schemas use JSON Schema Draft 2020-12 and reject unknown fields. The
 lineage schema fixes `membership_status` to `not_created` and has no membership
-property.
+property. Both schemas require exactly one shard for each autosome and bind
+chromosomes 20 and 21 to validation and evaluation, respectively; all other
+autosomes are training shards. Schema validation alone does **not** recompute
+or verify `lineage_id`. Consumers must run the verifier described below.
 
 ## Prerequisites
 
@@ -54,7 +58,9 @@ uv run python -m tools.data.v03_gnomad_lock remote-postflight \
 Repeat this for chromosomes 1 through 22. The verifier resolves the exact Hub
 revision, downloads the complete expected namespace, recomputes every file
 identity, checks the receipt and source-lock evidence, and performs a fresh
-full Parquet scan. A successful report is still evidence about one staging
+full Parquet scan. Every JSON artifact is captured once, and the Parquet hash,
+identity reconciliation, and scan all use one private byte snapshot opened as
+a non-symlink regular file. A successful report is still evidence about one staging
 namespace; it is not a snapshot-membership record.
 
 ### ClinVar corrected shard
@@ -141,13 +147,18 @@ Success writes the lineage once and prints a compact JSON summary containing
 `lineage_id`, `candidate_snapshot_id`, and
 `"membership_status":"not_created"`. Re-running with identical bytes is
 idempotent. The assembler refuses to replace an existing output with different
-bytes.
+bytes. Publication uses a same-directory unique staging file, file and
+directory `fsync`, and an atomic no-clobber link. Competing writers can only
+observe the winning bytes; a symlink or other non-regular output is rejected.
 
 For every gnomAD shard, assembly cross-checks the postflight's exact repository,
 revision, namespace, source commit, and chromosome; its exact nine-file
 namespace inventory; the local receipt SHA-256 and size; the receipt's Parquet
 SHA-256 and size; and type-strict equality between the verifier's fresh Parquet
 audit and the local receipt audit. Any mismatch aborts before output is written.
+The fresh full-scan audit is persisted verbatim under each shard's
+`remote_postflight.parquet_audit`, so the lineage retains the independently
+recomputed scientific evidence rather than only a report digest.
 
 For ClinVar, assembly first performs the existing closed audit validation, then
 type-strictly reconciles the postflight's exact 16-key surface: repository and
@@ -163,6 +174,26 @@ The ClinVar source archive is not one of the four remote namespace files. Its
 release, SHA-256, and size are receipt-reconciled; its MD5 and URL remain
 receipt-only fields and are not represented as independently recomputed source
 bytes. The lineage preserves this limitation verbatim.
+
+## Verify an existing lineage
+
+Run the semantic verifier before consuming or promoting a lineage candidate:
+
+```bash
+uv run python -m tools.data.v03_snapshot_lineage verify \
+  --lineage-json /path/to/evidence/snapshot-lineage.json
+```
+
+The verifier captures the JSON bytes once, rejects duplicate keys and unknown
+fields throughout the closed artifact, removes `lineage_id`, recomputes the
+canonical SHA-256 commitment, and compares it type-strictly with the recorded
+ID. It also requires `membership_status: not_created`, the exact conservative
+claim boundary, exactly one shard per autosome, the fixed chromosome-to-role
+policy, common source/transform/execution bindings, exact artifact paths,
+gnomAD record and byte totals, and the complete gnomAD and ClinVar postflight
+audit invariants. A recomputed ID cannot legitimize internally inconsistent
+records, balances, totals, or evidence identities. Success prints a
+machine-readable JSON summary and does not modify the lineage.
 
 ## Upstream data-use boundary
 

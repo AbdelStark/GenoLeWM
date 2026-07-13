@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -191,6 +192,120 @@ def test_remote_postflight_rejects_tampered_parquet_bytes(
 
     assert result == 2
     assert "prepare report.output_parquet.sha256 drifted" in capsys.readouterr().err
+
+
+def test_remote_postflight_scans_the_same_gnomad_parquet_bytes_it_hashes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    parquet = fixture.root / fixture.namespace / "data/gnomad/v4.1/variants.parquet"
+    original = parquet.read_bytes()
+    replacement = parquet.with_name("replacement.parquet")
+    _write_gnomad_parquet(replacement, chromosome="21")
+    assert replacement.stat().st_size == len(original)
+    swapped = _replace_after_first_binary_read(
+        monkeypatch,
+        target=parquet,
+        replacement=replacement,
+    )
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert swapped["done"]
+    assert result == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    relative = "data/gnomad/v4.1/variants.parquet"
+    assert report["file_identities"][relative] == {
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "size_bytes": len(original),
+    }
+    assert report["parquet_audit"]["canonical_chromosome"] == "22"
+
+
+def test_remote_postflight_reuses_the_captured_selection_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    selection = fixture.root / fixture.namespace / "evidence/selection.json"
+    original = selection.read_bytes()
+    replacement = original + b" "
+    path_read_bytes = Path.read_bytes
+    replaced = False
+
+    def replace_after_read(path: Path) -> bytes:
+        nonlocal replaced
+        payload = path_read_bytes(path)
+        if path == selection and not replaced:
+            selection.write_bytes(replacement)
+            replaced = True
+        return payload
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert replaced
+    assert result == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["file_identities"]["evidence/selection.json"] == {
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "size_bytes": len(original),
+    }
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "evidence/gcs-object-metadata.json",
+        "evidence/gcs-metadata-verification.json",
+        "evidence/source-stream-identity.json",
+        "evidence/prepare-report.json",
+        "evidence/receipt.json",
+        "evidence/source-lock.json",
+        "evidence/source-lock.schema.json",
+    ],
+)
+def test_remote_postflight_reuses_each_captured_json_evidence_file(
+    relative_path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    evidence = fixture.root / fixture.namespace / relative_path
+    original = evidence.read_bytes()
+    path_read_bytes = Path.read_bytes
+    replaced = False
+
+    def replace_after_read(path: Path) -> bytes:
+        nonlocal replaced
+        payload = path_read_bytes(path)
+        if path == evidence and not replaced:
+            evidence.write_bytes(original + b" ")
+            replaced = True
+        return payload
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert replaced
+    assert result == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["file_identities"][relative_path] == {
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "size_bytes": len(original),
+    }
 
 
 def test_remote_postflight_rejects_an_unprefixed_prepare_hash(
@@ -850,3 +965,52 @@ def _identity(path: Path) -> dict[str, object]:
         "sha256": _sha256(path),
         "size_bytes": path.stat().st_size,
     }
+
+
+def _replace_after_first_binary_read(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    target: Path,
+    replacement: Path,
+) -> dict[str, bool]:
+    path_open = Path.open
+    os_open = os.open
+    state = {"done": False}
+
+    class _ReplaceOnClose:
+        def __init__(self, stream: Any) -> None:
+            self._stream = stream
+
+        def __enter__(self) -> Any:
+            self._stream.__enter__()
+            return self._stream
+
+        def __exit__(self, *args: object) -> object:
+            result = self._stream.__exit__(*args)
+            replacement.replace(target)
+            state["done"] = True
+            return result
+
+    def open_and_replace(path: Path, *args: object, **kwargs: object) -> Any:
+        stream = path_open(path, *args, **kwargs)
+        mode = str(args[0]) if args else str(kwargs.get("mode", "r"))
+        if path == target and mode == "rb" and not state["done"]:
+            return _ReplaceOnClose(stream)
+        return stream
+
+    def open_fd_and_replace(
+        path: Any,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        descriptor = os_open(path, flags, mode, dir_fd=dir_fd)
+        if Path(path) == target and not state["done"]:
+            replacement.replace(target)
+            state["done"] = True
+        return descriptor
+
+    monkeypatch.setattr(Path, "open", open_and_replace)
+    monkeypatch.setattr(os, "open", open_fd_and_replace)
+    return state

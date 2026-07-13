@@ -6,6 +6,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -20,11 +24,14 @@ from tools.data.v03_gnomad_lock import REMOTE_POSTFLIGHT_SCHEMA_VERSION, select_
 from tools.data.v03_snapshot_lineage import (
     CLINVAR_REQUIRED_CLAIM_BOUNDARY,
     GENERATED_BY,
+    LINEAGE_CLAIM_BOUNDARY,
     LINEAGE_SCHEMA_VERSION,
     MEMBERSHIP_STATUS,
     SnapshotLineageError,
+    _fsync_directory,
     assemble_snapshot_lineage,
     main,
+    verify_snapshot_lineage,
 )
 
 SOURCE_LOCK = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json")
@@ -128,6 +135,10 @@ def test_assembler_builds_deterministic_lineage_without_memberships(tmp_path: Pa
     } == {REMOTE_POSTFLIGHT_SCHEMA_VERSION}
     assert all(
         shard["remote_postflight"]["sha256"].startswith("sha256:")
+        for shard in lineage["gnomad"]["shards"]
+    )
+    assert all(
+        shard["remote_postflight"]["parquet_audit"]["canonical_chromosome"] == shard["chromosome"]
         for shard in lineage["gnomad"]["shards"]
     )
     assert lineage["clinvar"]["revision"] == "d" * 40
@@ -237,6 +248,7 @@ def test_checked_schemas_are_closed_and_membership_free() -> None:
     assert {"postflight_file", "postflight_sha256"} <= set(spec_clinvar["required"])
     assert spec_clinvar["properties"]["postflight_sha256"]["pattern"] == ("^sha256:[0-9a-f]{64}$")
     assert lineage_schema["additionalProperties"] is False
+    assert "does not recompute lineage_id" in lineage_schema["$comment"]
     assert lineage_schema["properties"]["schema_version"]["const"] == LINEAGE_SCHEMA_VERSION
     assert lineage_schema["properties"]["membership_status"]["const"] == "not_created"
     assert "memberships" not in lineage_schema["properties"]
@@ -251,6 +263,10 @@ def test_checked_schemas_are_closed_and_membership_free() -> None:
         REMOTE_NAMESPACE_FILES
     )
     assert remote_postflight["properties"]["checks"]["const"] == list(REMOTE_POSTFLIGHT_CHECKS)
+    assert remote_postflight["properties"]["parquet_audit"]["$ref"] == (
+        "#/$defs/gnomadParquetAudit"
+    )
+    assert "parquet_audit" in remote_postflight["required"]
     gnomad_schema = lineage_schema["properties"]["gnomad"]
     assert "data_use" in gnomad_schema["required"]
     assert gnomad_schema["properties"]["data_use"]["const"]["license"]["spdx"] == "CC0-1.0"
@@ -289,6 +305,22 @@ def test_draft_2020_12_schemas_validate_real_artifacts_and_exact_arrays(
     assert not list(Draft202012Validator(spec_schema).iter_errors(spec))
     validator = Draft202012Validator(lineage_schema)
     assert not list(validator.iter_errors(lineage))
+
+    for document, document_validator in (
+        (spec, Draft202012Validator(spec_schema)),
+        (lineage, validator),
+    ):
+        duplicate_autosome = copy.deepcopy(document)
+        duplicate_autosome["gnomad"]["shards"][1]["chromosome"] = "1"
+        assert list(document_validator.iter_errors(duplicate_autosome))
+
+        wrong_validation_role = copy.deepcopy(document)
+        wrong_validation_role["gnomad"]["shards"][19]["split_role"] = "train"
+        assert list(document_validator.iter_errors(wrong_validation_role))
+
+        wrong_evaluation_role = copy.deepcopy(document)
+        wrong_evaluation_role["gnomad"]["shards"][20]["split_role"] = "train"
+        assert list(document_validator.iter_errors(wrong_evaluation_role))
 
     for path in (
         ("clinvar", "remote_postflight", "checks"),
@@ -411,6 +443,206 @@ def test_lineage_output_is_idempotent_but_immutable(tmp_path: Path) -> None:
             gnomad_source_lock_path=SOURCE_LOCK,
             output_path=output_path,
         )
+
+
+def test_lineage_output_rejects_a_symlink_even_when_target_bytes_match(tmp_path: Path) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    target = tmp_path / "target.json"
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+        output_path=target,
+    )
+    alias = tmp_path / "snapshot-lineage.json"
+    alias.symlink_to(target.name)
+
+    with pytest.raises(SnapshotLineageError, match="symlink or non-regular"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+            output_path=alias,
+        )
+
+    assert json.loads(target.read_text(encoding="utf-8")) == lineage
+
+
+def test_lineage_output_rejects_an_existing_non_regular_path(tmp_path: Path) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "snapshot-lineage.json"
+    output_path.mkdir()
+
+    with pytest.raises(SnapshotLineageError, match="symlink or non-regular"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+            output_path=output_path,
+        )
+
+    assert not list(tmp_path.glob(".snapshot-lineage.json.*.tmp"))
+
+
+def test_directory_fsync_is_skipped_when_the_platform_has_no_directory_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delattr("tools.data.v03_snapshot_lineage.os.O_DIRECTORY", raising=False)
+
+    def unexpected_open(*_args: object, **_kwargs: object) -> int:
+        raise AssertionError("directory open must be skipped without O_DIRECTORY")
+
+    monkeypatch.setattr("tools.data.v03_snapshot_lineage.os.open", unexpected_open)
+
+    _fsync_directory(tmp_path)
+
+
+def test_concurrent_different_lineage_writers_never_displace_a_successful_caller(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    first_spec, _first = _write_evidence_bundle(first_root)
+    second_spec, second = _write_evidence_bundle(second_root)
+    second["candidate_snapshot_id"] = "geno-lewm-data-v0.3.0-r2"
+    _write_json(second_spec, second)
+    output = tmp_path / "snapshot-lineage.json"
+    legacy_temporary = output.with_name(output.name + ".tmp")
+    start = threading.Barrier(2)
+    first_written = threading.Event()
+    second_written = threading.Event()
+    first_published = threading.Event()
+    path_write_bytes = Path.write_bytes
+    path_replace = Path.replace
+
+    def coordinated_write(path: Path, data: bytes) -> int:
+        if path != legacy_temporary:
+            return path_write_bytes(path, data)
+        if threading.current_thread().name == "lineage-first":
+            result = path_write_bytes(path, data)
+            first_written.set()
+            assert second_written.wait(timeout=10)
+            return result
+        assert first_written.wait(timeout=10)
+        result = path_write_bytes(path, data)
+        second_written.set()
+        return result
+
+    def coordinated_replace(path: Path, target: Path) -> Path:
+        if path != legacy_temporary:
+            return path_replace(path, target)
+        if threading.current_thread().name == "lineage-first":
+            result = path_replace(path, target)
+            first_published.set()
+            return result
+        assert first_published.wait(timeout=10)
+        return path_replace(path, target)
+
+    monkeypatch.setattr(Path, "write_bytes", coordinated_write)
+    monkeypatch.setattr(Path, "replace", coordinated_replace)
+    outcomes: dict[str, dict[str, Any] | BaseException] = {}
+
+    def write(name: str, spec_path: Path) -> None:
+        start.wait()
+        try:
+            outcomes[name] = assemble_snapshot_lineage(
+                spec_path=spec_path,
+                gnomad_source_lock_path=SOURCE_LOCK,
+                output_path=output,
+            )
+        except BaseException as exc:  # capture the complete competing-writer outcome
+            outcomes[name] = exc
+
+    threads = [
+        threading.Thread(target=write, name="lineage-first", args=("first", first_spec)),
+        threading.Thread(target=write, name="lineage-second", args=("second", second_spec)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+        assert not thread.is_alive()
+
+    successful = {name: value for name, value in outcomes.items() if isinstance(value, dict)}
+    rejected = {name: value for name, value in outcomes.items() if isinstance(value, BaseException)}
+    assert len(successful) == 1
+    assert len(rejected) == 1
+    assert all(isinstance(error, SnapshotLineageError) for error in rejected.values())
+    winner = next(iter(successful.values()))
+    assert json.loads(output.read_text(encoding="utf-8")) == winner
+    assert not legacy_temporary.exists()
+    assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
+
+
+def test_competing_processes_publish_one_immutable_lineage_without_orphans(
+    tmp_path: Path,
+) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    first_spec, _first = _write_evidence_bundle(first_root)
+    second_spec, second = _write_evidence_bundle(second_root)
+    second["candidate_snapshot_id"] = "geno-lewm-data-v0.3.0-r2"
+    _write_json(second_spec, second)
+    output = tmp_path / "snapshot-lineage.json"
+    go = tmp_path / "go"
+    runner = tmp_path / "runner.py"
+    runner.write_text(
+        """from pathlib import Path
+import sys
+import time
+from tools.data.v03_snapshot_lineage import main
+
+ready, go, spec, lock, output = map(Path, sys.argv[1:])
+ready.write_text("ready", encoding="utf-8")
+while not go.exists():
+    time.sleep(0.001)
+raise SystemExit(main([
+    "assemble",
+    "--spec-json", str(spec),
+    "--gnomad-source-lock-json", str(lock),
+    "--output-json", str(output),
+]))
+""",
+        encoding="utf-8",
+    )
+    ready_paths = [tmp_path / "first.ready", tmp_path / "second.ready"]
+    processes = [
+        subprocess.Popen(
+            [
+                sys.executable,
+                str(runner),
+                str(ready),
+                str(go),
+                str(spec),
+                str(SOURCE_LOCK.resolve()),
+                str(output),
+            ],
+            cwd=Path.cwd(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        for ready, spec in zip(ready_paths, (first_spec, second_spec), strict=True)
+    ]
+    deadline = time.monotonic() + 10
+    while not all(path.exists() for path in ready_paths):
+        assert time.monotonic() < deadline
+        time.sleep(0.001)
+    go.write_text("go", encoding="utf-8")
+    results = [process.communicate(timeout=30) for process in processes]
+    returncodes = [process.returncode for process in processes]
+
+    assert sorted(returncodes) == [0, 2]
+    winner_index = returncodes.index(0)
+    summary = json.loads(results[winner_index][0])
+    published = json.loads(output.read_text(encoding="utf-8"))
+    assert published["candidate_snapshot_id"] == summary["candidate_snapshot_id"]
+    assert published["lineage_id"] == summary["lineage_id"]
+    assert "refusing to replace different lineage bytes" in results[1 - winner_index][1]
+    assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
 
 
 def test_assembler_rejects_receipt_byte_tampering(tmp_path: Path) -> None:
@@ -1467,6 +1699,104 @@ def test_assembler_reconciles_all_clinvar_source_checksums(tmp_path: Path) -> No
         )
 
 
+def test_lineage_verifier_recomputes_the_content_id_and_split_semantics(tmp_path: Path) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    expected = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+        output_path=output_path,
+    )
+
+    assert verify_snapshot_lineage(output_path) == expected
+
+    stale = copy.deepcopy(expected)
+    stale["candidate_snapshot_id"] = "geno-lewm-data-v0.3.0-r2"
+    _write_json(output_path, stale)
+    with pytest.raises(SnapshotLineageError, match="lineage_id drifted"):
+        verify_snapshot_lineage(output_path)
+
+    wrong_role = copy.deepcopy(expected)
+    wrong_role["gnomad"]["shards"][19]["split_role"] = "train"
+    commitment = dict(wrong_role)
+    del commitment["lineage_id"]
+    wrong_role["lineage_id"] = canonical_json_sha256(commitment)
+    _write_json(output_path, wrong_role)
+    with pytest.raises(SnapshotLineageError, match=r"chr20 split_role drifted"):
+        verify_snapshot_lineage(output_path)
+
+    wrong_total = copy.deepcopy(expected)
+    wrong_total["gnomad"]["total_records"] += 1
+    commitment = dict(wrong_total)
+    del commitment["lineage_id"]
+    wrong_total["lineage_id"] = canonical_json_sha256(commitment)
+    _write_json(output_path, wrong_total)
+    with pytest.raises(SnapshotLineageError, match="gnomAD total_records drifted"):
+        verify_snapshot_lineage(output_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("membership_status", "created", "membership_status drifted"),
+        ("claim_boundary", "Lineage verified.", "claim_boundary drifted"),
+    ],
+)
+def test_lineage_verifier_rejects_recommitted_claim_expansion(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    error: str,
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+    lineage[field] = value
+    commitment = dict(lineage)
+    del commitment["lineage_id"]
+    lineage["lineage_id"] = canonical_json_sha256(commitment)
+    _write_json(output_path, lineage)
+
+    with pytest.raises(SnapshotLineageError, match=error):
+        verify_snapshot_lineage(output_path)
+
+
+def test_verify_cli_emits_a_machine_readable_summary_and_rejects_stale_ids(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+        output_path=output_path,
+    )
+
+    assert main(["verify", "--lineage-json", str(output_path)]) == 0
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    assert summary == {
+        "candidate_snapshot_id": lineage["candidate_snapshot_id"],
+        "input_json": str(output_path),
+        "lineage_id": lineage["lineage_id"],
+        "membership_status": "not_created",
+        "ok": True,
+    }
+    assert captured.err == ""
+
+    stale = copy.deepcopy(lineage)
+    stale["claim_boundary"] = LINEAGE_CLAIM_BOUNDARY + " Expanded."
+    _write_json(output_path, stale)
+    assert main(["verify", "--lineage-json", str(output_path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "lineage_id drifted" in captured.err
+
+
 def test_cli_writes_machine_readable_lineage_summary(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1655,6 +1985,7 @@ def _gnomad_receipt(selection: dict[str, object], chromosome: int) -> dict[str, 
             "size_bytes": 10_000 + chromosome,
             "parquet_audit": {
                 "audit_method": "pyarrow_metadata_and_full_iter_batches_scan_v1",
+                "batch_size_rows": 131072,
                 "metadata_row_count": records,
                 "scanned_row_count": records,
                 "canonical_chromosome": str(chromosome),
@@ -1676,8 +2007,46 @@ def _gnomad_receipt(selection: dict[str, object], chromosome: int) -> dict[str, 
                 },
                 "locked_min_af": 0.01,
                 "stored_min_af_float32": 0.009999999776482582,
-                "schema": [],
-                "checks": ["exact_arrow_schema"],
+                "schema": [
+                    {
+                        "name": name,
+                        "type": field_type,
+                        "nullable": True,
+                    }
+                    for name, field_type in (
+                        ("chrom", "string"),
+                        ("pos", "int64"),
+                        ("ref", "string"),
+                        ("alt", "string"),
+                        ("af_global", "float"),
+                        ("af_afr", "float"),
+                        ("af_ami", "float"),
+                        ("af_amr", "float"),
+                        ("af_asj", "float"),
+                        ("af_eas", "float"),
+                        ("af_fin", "float"),
+                        ("af_mid", "float"),
+                        ("af_nfe", "float"),
+                        ("af_oth", "float"),
+                        ("af_remaining", "float"),
+                        ("af_sas", "float"),
+                        ("filter", "string"),
+                        ("schema_version", "string"),
+                    )
+                ],
+                "checks": [
+                    "exact_arrow_schema",
+                    "canonical_chromosome",
+                    "positive_position",
+                    "explicit_acgt_alleles",
+                    "distinct_ref_alt",
+                    "finite_global_af_in_locked_range",
+                    "finite_population_af_in_unit_interval_or_null",
+                    "pass_filter",
+                    "exact_schema_version",
+                    "v41_population_columns_nonempty",
+                    "metadata_scan_and_preparer_row_counts_equal",
+                ],
             },
         },
         "execution": selection["execution"],
