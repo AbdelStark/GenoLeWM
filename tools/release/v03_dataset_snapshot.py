@@ -2274,11 +2274,23 @@ def _evidence_file(path: str, description: str) -> dict[str, object]:
 def _json_object(path: Path, label: str) -> dict[str, Any]:
     regular = _regular_file(path, label)
     try:
-        payload = json.loads(regular.read_text(encoding="utf-8"))
+        payload = json.loads(
+            regular.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_pairs,
+        )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise InputError(f"{label} is not valid UTF-8 JSON") from exc
     if not isinstance(payload, dict):
         raise InputError(f"{label} must be a JSON object")
+    return payload
+
+
+def _reject_duplicate_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise InputError("duplicate JSON key is not allowed", details={"key": key})
+        payload[key] = value
     return payload
 
 
@@ -2382,8 +2394,10 @@ def _publish_directory_noreplace(source: Path, target: Path) -> None:
         if result == 0:
             return
     else:
-        source.rename(target)
-        return
+        raise RuntimeSetupError(
+            "atomic no-replace directory publication is unavailable",
+            remediation="run the snapshot assembler on Linux or macOS with no-replace rename support",
+        )
     error = ctypes.get_errno()
     if error in {errno.EEXIST, errno.ENOTEMPTY}:
         raise InputError("immutable snapshot output already exists")

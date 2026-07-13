@@ -356,6 +356,35 @@ def test_strict_upstream_replay_requires_both_prepared_source_roots(tmp_path: Pa
         verify_v03_dataset_snapshot(tmp_path, gnomad_root=tmp_path)
 
 
+def test_json_object_rejects_duplicate_keys(tmp_path: Path) -> None:
+    path = tmp_path / "duplicate.json"
+    path.write_text('{"snapshot_id":"first","snapshot_id":"second"}\n', encoding="utf-8")
+
+    with pytest.raises(InputError, match="duplicate JSON key"):
+        snapshot_module._json_object(path, "duplicate fixture")
+
+
+def test_atomic_publication_fails_closed_without_noreplace_support(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    target = tmp_path / "target"
+    monkeypatch.setattr(snapshot_module.sys, "platform", "unsupported")
+    monkeypatch.setattr(
+        snapshot_module.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: SimpleNamespace(),
+    )
+
+    with pytest.raises(snapshot_module.RuntimeSetupError, match="no-replace"):
+        snapshot_module._publish_directory_noreplace(source, target)
+
+    assert source.is_dir()
+    assert not target.exists()
+
+
 def test_assembler_rejects_an_extra_membership_bundle_file(tmp_path: Path) -> None:
     fixture = _write_assembly_fixture(tmp_path)
     (fixture.membership_bundle / "unexpected.txt").write_text("drift\n", encoding="utf-8")
