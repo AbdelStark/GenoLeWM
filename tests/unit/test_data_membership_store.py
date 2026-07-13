@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import importlib
 import json
@@ -12,6 +13,7 @@ import random
 import shutil
 import sqlite3
 import subprocess
+import threading
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
@@ -162,6 +164,7 @@ def test_builder_streams_sources_into_closed_manifest_parquet_and_lookup(
     assert report.ok is True
     assert manifest.schema_version == MEMBERSHIP_STORE_SCHEMA_VERSION
     assert manifest.snapshot_lineage.candidate_snapshot_id == "geno-lewm-data-v0.3.0-r1"
+    assert manifest.snapshot_lineage.evidence_profile == "synthetic_fixture"
     assert manifest.row_count == 28
     assert manifest.variant_count == 28
     assert manifest.role_counts == {"train": 22, "validation": 3, "evaluation": 3}
@@ -535,6 +538,31 @@ def test_store_uses_distinct_lazy_connections_across_threads_and_fork(
         assert found is True
         queue.close()
         _FORKED_POLICIES.clear()
+    store.close()
+
+
+def test_store_reclaims_connections_from_short_lived_threads(built_store: Path) -> None:
+    store = MembershipStore.open(built_store, verify=False)
+
+    def _run_queries() -> None:
+        threads = [
+            threading.Thread(
+                target=store.contains_variant,
+                args=("GRCh38:1:101:A:G",),
+                kwargs={"roles": ("train",)},
+            )
+            for _ in range(32)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            assert not thread.is_alive()
+
+    _run_queries()
+    gc.collect()
+
+    assert len(store._connections) == 0
     store.close()
 
 
@@ -1072,6 +1100,7 @@ def test_nonfixture_lineage_consumes_one_exact_official_capture_without_rereadin
     assert binding.sha256 == verified_sha256
     assert binding.size_bytes == len(verified_payload)
     assert binding.lineage_id == verified_lineage["lineage_id"]
+    assert binding.evidence_profile == "official"
     assert set(expected_sources) == {
         "clinvar-2026-04-15",
         *(f"gnomad-v4.1-chr{chromosome}" for chromosome in range(1, 23)),
@@ -1378,6 +1407,8 @@ def test_verify_cli_and_checked_schemas_are_closed(
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["row_count"] == 28
+    assert payload["lineage_evidence_profile"] == "synthetic_fixture"
+    assert payload["source_kind_filtered_counts"] == {"clinvar": 3, "gnomad": 0}
     assert payload["source_kind_role_counts"]["gnomad"]["train"] == 20
     assert payload["clinvar_class_role_counts"]["LB"]["evaluation"] == 1
     assert payload["source_kind_role_counts"]["clinvar"] == {
@@ -1433,6 +1464,9 @@ def test_build_cli_consumes_closed_relative_spec(
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["row_count"] == 28
+    assert payload["variant_count"] == 28
+    assert payload["lineage_evidence_profile"] == "synthetic_fixture"
+    assert payload["source_kind_filtered_counts"] == {"clinvar": 3, "gnomad": 0}
     assert payload["source_kind_role_counts"]["clinvar"]["validation"] == 2
     assert payload["clinvar_class_role_counts"]["LP"]["validation"] == 1
     rebuilt = verify_membership_store(output)

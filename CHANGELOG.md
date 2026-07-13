@@ -113,12 +113,20 @@ or incompatible command changes require an explicit compatibility note.
   Python. Source bytes are captured through one immutable descriptor; interval
   lookup uses an integer R-tree; the self-contained lineage/receipt layout is
   independently verified and fsynced before atomic publication; and runtime
-  handles are pickle-, thread-, spawn-, and fork-safe. ClinVar labeled
-  membership includes normalized B/LB/LP/P rows, with B/LB serving as negative
-  benchmark labels and train-chromosome P/LP rows remaining eligible anchors;
+  handles are pickle-, thread-, spawn-, and fork-safe, with weak reclamation of
+  short-lived-thread SQLite connections. Manifests and verification summaries
+  expose whether lineage evidence is official or a synthetic fixture. ClinVar
+  labeled membership includes normalized B/LB/LP/P rows, with B/LB serving as
+  negative benchmark labels and train-chromosome P/LP rows remaining eligible
+  anchors;
   gnomAD variant membership is not represented as a phased-haplotype holdout.
   No real v0.3 memberships or split evidence are published by this contract
   change.
+- Added a digest-pinned, exact-source Hugging Face Job runner for the first real
+  membership build. It keeps all inputs outside the provenance-clean checkout,
+  pins the independently audited 2,335,042-row semantic digest and split/class
+  cross-tabs, publishes only a checksum-closed successful bundle, and
+  re-downloads the immutable Hub commit for byte and semantic verification.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as

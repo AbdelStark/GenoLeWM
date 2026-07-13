@@ -28,6 +28,11 @@ The manifest schema is
 uses `configs/data_v03/membership-build-receipt.schema.json`. All three reject
 unknown fields.
 
+The manifest binds a closed lineage evidence profile. Real artifacts report
+`official`; reduced test-only artifacts report `synthetic_fixture`. Both remain
+fully verifiable, but verification summaries expose the profile so downstream
+automation cannot mistake fixture mechanics for production evidence.
+
 ## Build flow
 
 The builder accepts no arbitrary row stream. Its source specification must name
@@ -181,9 +186,11 @@ because they are outside the autosomal role contract.
 Store and holdout-policy equality/hash are based on `content_identity`. Pickle
 contains no live SQLite connection; each process and thread lazily opens its own
 immutable read-only handle, and a post-fork PID guard discards inherited handle
-state before lookup. A verified open retains a private content-bound SQLite
-snapshot, so replacement of the published path after open cannot change later
-thread/process queries.
+state before lookup. Connections owned by short-lived threads are weakly
+reclaimed when those thread objects expire; `close()` deterministically closes
+all remaining live-thread connections. A verified open retains a private
+content-bound SQLite snapshot, so replacement of the published path after open
+cannot change later thread/process queries.
 
 Opening with `verify=False` skips the expensive private capture and full file
 scan, checks the exact layout and manifest immediately, then checks SQLite

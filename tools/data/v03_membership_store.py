@@ -54,7 +54,23 @@ def main(argv: list[str] | None = None) -> int:
                 "artifact_id": manifest.artifact_id,
                 "content_identity": manifest.content_identity,
                 "physical_identity": manifest.physical_identity,
+                "lineage_evidence_profile": manifest.snapshot_lineage.evidence_profile,
+                "rowset_sha256": manifest.rowset_sha256,
                 "row_count": manifest.row_count,
+                "variant_count": manifest.variant_count,
+                "role_counts": manifest.role_counts,
+                "source_counts": manifest.source_counts,
+                "source_filtered_counts": {
+                    source.source_id: source.filtered_row_count for source in manifest.sources
+                },
+                "source_kind_filtered_counts": {
+                    kind: sum(
+                        source.filtered_row_count
+                        for source in manifest.sources
+                        if source.kind == kind
+                    )
+                    for kind in ("gnomad", "clinvar")
+                },
                 "source_role_counts": manifest.source_role_counts,
                 "source_kind_role_counts": manifest.source_kind_role_counts,
                 "clinvar_class_role_counts": manifest.clinvar_class_role_counts,

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Final
 
@@ -40,6 +40,7 @@ _CLINVAR_REASON_MASK: Final = 2
 _AUTOSOMES: Final = frozenset(str(chromosome) for chromosome in range(1, 23))
 _CLINVAR_CLASSES: Final = frozenset({"B", "LB", "LP", "OTHER", "P", "VUS"})
 _CLINVAR_LABELED_CLASSES: Final = frozenset({"B", "LB", "LP", "P"})
+_LINEAGE_EVIDENCE_PROFILES: Final = frozenset({"official", "synthetic_fixture"})
 _GNOMAD_REMOTE_POSTFLIGHT_FILES: Final = (
     "data/gnomad/v4.1/variants.parquet",
     "evidence/gcs-metadata-verification.json",
@@ -158,12 +159,20 @@ class SnapshotLineageBinding:
     sha256: str
     size_bytes: int
     candidate_snapshot_id: str
+    _evidence_profile: str = field(init=False, repr=False, default="official")
 
     def __post_init__(self) -> None:
         _require_sha256(self.lineage_id, "snapshot lineage_id")
         _require_sha256(self.sha256, "snapshot lineage sha256")
         _require_positive_int(self.size_bytes, "snapshot lineage size_bytes")
         _require_text(self.candidate_snapshot_id, "snapshot candidate_snapshot_id")
+        if self._evidence_profile not in _LINEAGE_EVIDENCE_PROFILES:
+            raise InputError("snapshot lineage evidence_profile is not recognized")
+
+    @property
+    def evidence_profile(self) -> str:
+        """Return whether the lineage passed official or fixture-only verification."""
+        return self._evidence_profile
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -171,16 +180,23 @@ class SnapshotLineageBinding:
             "sha256": self.sha256,
             "size_bytes": self.size_bytes,
             "candidate_snapshot_id": self.candidate_snapshot_id,
+            "evidence_profile": self.evidence_profile,
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> SnapshotLineageBinding:
         _require_exact_keys(
             payload,
-            {"lineage_id", "sha256", "size_bytes", "candidate_snapshot_id"},
+            {
+                "lineage_id",
+                "sha256",
+                "size_bytes",
+                "candidate_snapshot_id",
+                "evidence_profile",
+            },
             "snapshot lineage binding",
         )
-        return cls(
+        binding = cls(
             lineage_id=_require_text(payload.get("lineage_id"), "snapshot lineage_id"),
             sha256=_require_text(payload.get("sha256"), "snapshot lineage sha256"),
             size_bytes=_require_positive_int(
@@ -190,6 +206,13 @@ class SnapshotLineageBinding:
                 payload.get("candidate_snapshot_id"), "snapshot candidate_snapshot_id"
             ),
         )
+        evidence_profile = _require_text(
+            payload.get("evidence_profile"), "snapshot lineage evidence_profile"
+        )
+        if evidence_profile not in _LINEAGE_EVIDENCE_PROFILES:
+            raise InputError("snapshot lineage evidence_profile is not recognized")
+        object.__setattr__(binding, "_evidence_profile", evidence_profile)
+        return binding
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,11 +622,23 @@ class MembershipStoreVerification:
             "artifact_id": self.manifest.artifact_id,
             "content_identity": self.manifest.content_identity,
             "physical_identity": self.manifest.physical_identity,
+            "lineage_evidence_profile": self.manifest.snapshot_lineage.evidence_profile,
             "rowset_sha256": self.manifest.rowset_sha256,
             "row_count": self.manifest.row_count,
             "variant_count": self.manifest.variant_count,
             "role_counts": dict(self.manifest.role_counts),
             "source_counts": dict(sorted(self.manifest.source_counts.items())),
+            "source_filtered_counts": {
+                source.source_id: source.filtered_row_count for source in self.manifest.sources
+            },
+            "source_kind_filtered_counts": {
+                kind: sum(
+                    source.filtered_row_count
+                    for source in self.manifest.sources
+                    if source.kind == kind
+                )
+                for kind in ("gnomad", "clinvar")
+            },
             "source_role_counts": self.manifest.source_role_counts,
             "source_kind_role_counts": self.manifest.source_kind_role_counts,
             "clinvar_class_role_counts": self.manifest.clinvar_class_role_counts,

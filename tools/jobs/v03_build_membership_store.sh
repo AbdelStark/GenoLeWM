@@ -27,7 +27,7 @@
 
 set -euo pipefail
 
-WORK="${WORK:-/tmp/geno-lewm-v03-membership}"
+WORK="/tmp/geno-lewm-v03-membership"
 COMMIT_SHA="${COMMIT_SHA:?COMMIT_SHA is required}"
 CONTAINER_IMAGE="${CONTAINER_IMAGE:?CONTAINER_IMAGE is required}"
 RUN_ATTEMPT="${RUN_ATTEMPT:?RUN_ATTEMPT is required}"
@@ -63,6 +63,15 @@ log "validate immutable source, container, attempt, and clean checkout before wr
 OBSERVED_COMMIT_SHA="$(git rev-parse HEAD)"
 [ "$OBSERVED_COMMIT_SHA" = "$COMMIT_SHA" ] \
   || fatal "commit drift: expected $COMMIT_SHA, observed $OBSERVED_COMMIT_SHA"
+REPOSITORY_ROOT="$(git rev-parse --show-toplevel)"
+[ "$(pwd -P)" = "$(cd "$REPOSITORY_ROOT" && pwd -P)" ] \
+  || fatal "membership job must run from the repository root"
+case "$REPOSITORY_ROOT/" in
+  "$WORK/"*) fatal "fixed membership workspace must not contain the checkout" ;;
+esac
+case "$WORK/" in
+  "$REPOSITORY_ROOT/"*) fatal "fixed membership workspace must remain outside the checkout" ;;
+esac
 git diff --quiet -- . || fatal "tracked worktree differs from $COMMIT_SHA"
 git diff --cached --quiet -- . || fatal "index differs from $COMMIT_SHA"
 [ -z "$(git status --porcelain=v1 --untracked-files=all)" ] \
@@ -205,6 +214,47 @@ for field in ("content_identity", "physical_identity", "row_count"):
         raise SystemExit(f"FATAL: membership {field} drifted between build and verification")
 if len(verify.get("source_role_counts", {})) != 23:
     raise SystemExit("FATAL: verified membership store is not bound to exactly 23 sources")
+
+for field in (
+    "lineage_evidence_profile",
+    "rowset_sha256",
+    "variant_count",
+    "role_counts",
+    "source_counts",
+    "source_filtered_counts",
+    "source_kind_filtered_counts",
+    "source_role_counts",
+    "source_kind_role_counts",
+    "clinvar_class_role_counts",
+):
+    if build.get(field) != verify.get(field):
+        raise SystemExit(f"FATAL: membership {field} drifted between build and verification")
+
+expected = {
+    "lineage_evidence_profile": "official",
+    "rowset_sha256": "sha256:d268f2e2b67cce56c5d5099ec1ddcbd810fbb5973e6c96a929fd2c99fbd25f68",
+    "row_count": 2_335_042,
+    "variant_count": 2_259_268,
+    "role_counts": {
+        "train": 2_251_087,
+        "validation": 53_002,
+        "evaluation": 30_953,
+    },
+    "source_kind_filtered_counts": {"gnomad": 0, "clinvar": 2_779_595},
+    "source_kind_role_counts": {
+        "gnomad": {"train": 705_827, "validation": 18_345, "evaluation": 10_300},
+        "clinvar": {"train": 1_545_260, "validation": 34_657, "evaluation": 20_653},
+    },
+    "clinvar_class_role_counts": {
+        "B": {"train": 189_595, "validation": 4_720, "evaluation": 2_851},
+        "LB": {"train": 1_061_095, "validation": 24_886, "evaluation": 14_395},
+        "LP": {"train": 137_046, "validation": 2_297, "evaluation": 1_549},
+        "P": {"train": 157_524, "validation": 2_754, "evaluation": 1_858},
+    },
+}
+for field, value in expected.items():
+    if verify.get(field) != value:
+        raise SystemExit(f"FATAL: membership {field} differs from the audited real-data invariant")
 PY
 
 log "assemble the already-verified success bundle"
@@ -219,6 +269,7 @@ cp configs/data_v03/membership-build-spec.schema.json "$PUBLIC_DIR/contract/"
 cp configs/data_v03/membership-store.schema.json "$PUBLIC_DIR/contract/"
 cp configs/data_v03/membership-build-receipt.schema.json "$PUBLIC_DIR/contract/"
 python - \
+  "$VERIFY_REPORT" \
   "$PUBLIC_DIR/evidence/job-summary.json" \
   "$COMMIT_SHA" \
   "$CONTAINER_IMAGE" \
@@ -234,6 +285,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 (
+    verify_report,
     output,
     source_commit,
     container_image,
@@ -244,6 +296,7 @@ from pathlib import Path
     clinvar_revision,
     artifact_id,
 ) = sys.argv[1:]
+verification = json.loads(Path(verify_report).read_text(encoding="utf-8"))
 payload = {
     "schema_version": "geno-lewm.v03-membership-job-summary.v1",
     "generated_by": "tools.jobs.v03_build_membership_store",
@@ -258,6 +311,21 @@ payload = {
         "lineage_revision": lineage_revision,
         "gnomad_revision": gnomad_revision,
         "clinvar_revision": clinvar_revision,
+    },
+    "membership": {
+        field: verification[field]
+        for field in (
+            "lineage_evidence_profile",
+            "content_identity",
+            "physical_identity",
+            "rowset_sha256",
+            "row_count",
+            "variant_count",
+            "role_counts",
+            "source_kind_filtered_counts",
+            "source_kind_role_counts",
+            "clinvar_class_role_counts",
+        )
     },
     "claim_boundary": (
         "This success bundle contains verified variant memberships, not phased haplotypes. "

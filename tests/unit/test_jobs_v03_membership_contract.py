@@ -18,6 +18,9 @@ def test_membership_job_orders_exact_preflight_download_build_verify_and_publish
     image_shape = script.index("@sha256:[0-9a-f]{64}")
     exact_head = script.index('OBSERVED_COMMIT_SHA="$(git rev-parse HEAD)"')
     clean_tree = script.index("git status --porcelain=v1 --untracked-files=all", exact_head)
+    external_workspace = script.index(
+        "fixed membership workspace must remain outside the checkout", exact_head
+    )
     first_work_write = script.index('rm -rf "$WORK"')
     lineage_download = script.index('hf download "$LINEAGE_REPO"')
     download_plan = script.index("tools.data.v03_membership_job author-download-plan")
@@ -35,6 +38,7 @@ def test_membership_job_orders_exact_preflight_download_build_verify_and_publish
         commit_shape
         < image_shape
         < exact_head
+        < external_workspace
         < clean_tree
         < first_work_write
         < lineage_download
@@ -54,6 +58,9 @@ def test_membership_job_orders_exact_preflight_download_build_verify_and_publish
     assert 'CONTAINER_IMAGE="${CONTAINER_IMAGE:?CONTAINER_IMAGE is required}"' in script
     assert 'RUN_ATTEMPT="${RUN_ATTEMPT:?RUN_ATTEMPT is required}"' in script
     assert 'HF_TOKEN="${HF_TOKEN:?HF_TOKEN is required}"' in script
+    assert 'WORK="/tmp/geno-lewm-v03-membership"' in script
+    assert "${WORK:-" not in script
+    assert 'REPOSITORY_ROOT="$(git rev-parse --show-toplevel)"' in script
     assert 'GENO_LEWM_VERIFIED_BUILD_CONTAINER_IMAGE="$CONTAINER_IMAGE"' in script
     assert "git diff --quiet -- ." in script
     assert "git diff --cached --quiet -- ." in script
@@ -65,6 +72,27 @@ def test_membership_job_orders_exact_preflight_download_build_verify_and_publish
     assert '"$PUBLISH_NAMESPACE"' in script
     assert '"$WORK/verified-remote"' in script
     assert "sha256sum -c SHA256SUMS" in script
+
+
+def test_membership_job_pins_audited_real_data_invariants() -> None:
+    script = JOB.read_text(encoding="utf-8")
+
+    for exact_value in (
+        "sha256:d268f2e2b67cce56c5d5099ec1ddcbd810fbb5973e6c96a929fd2c99fbd25f68",
+        '"row_count": 2_335_042',
+        '"variant_count": 2_259_268',
+        '"train": 2_251_087',
+        '"validation": 53_002',
+        '"evaluation": 30_953',
+        '"source_kind_filtered_counts": {"gnomad": 0, "clinvar": 2_779_595}',
+        '"lineage_evidence_profile": "official"',
+        "membership {field} differs from the audited real-data invariant",
+    ):
+        assert exact_value in script
+
+    assert '"membership": {' in script
+    assert '"rowset_sha256"' in script
+    assert '"clinvar_class_role_counts"' in script
 
 
 def test_membership_job_pins_candidate_and_all_three_hub_revisions() -> None:

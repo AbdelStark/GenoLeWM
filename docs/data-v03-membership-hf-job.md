@@ -21,6 +21,13 @@ derives all 23 artifact paths from those lineage bytes and rejects any
 repository, revision, namespace, path, digest, size, chromosome set, or source
 cardinality drift before invoking the builder.
 
+A complete pre-launch audit of those exact bytes measured 2,335,042 membership
+rows, 2,259,268 distinct variants, and rowset SHA-256
+`d268f2e2b67cce56c5d5099ec1ddcbd810fbb5973e6c96a929fd2c99fbd25f68`.
+The runner pins that digest plus the train/validation/evaluation, source-kind,
+filtered-source, and ClinVar-class cross-tabs. It fails before publication if a
+deterministic but unintended adapter change drifts from any measured invariant.
+
 ## Launch contract
 
 Choose a new positive `RUN_ATTEMPT` for each intentional retry. The source SHA
@@ -49,6 +56,12 @@ hf jobs run \
 `HF_TOKEN` needs write access to the `abdelstark/geno-lewm-data` dataset. The
 namespace includes the source-SHA prefix and `RUN_ATTEMPT`; existing namespaces
 fail closed instead of being replaced.
+
+The fixed build workspace is `/tmp/geno-lewm-v03-membership`, outside the clean
+Git checkout required by the provenance gates. Do not relocate the checkout
+inside that path. Budget at least 8 GiB of free temporary disk for source files,
+the SQLite/Parquet store, the checksum-closed bundle, the exact-revision remote
+download, and private verification captures.
 
 ## Success and failure semantics
 

@@ -6,7 +6,9 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+import weakref
 from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 
@@ -44,6 +46,16 @@ from geno_lewm.data.membership import REQUIRED_MEMBERSHIP_ROLES, MembershipRow
 from geno_lewm.data.variant_identity import CanonicalVariant, canonicalize_chromosome
 from geno_lewm.errors import InputError
 from geno_lewm.provenance.hashing import canonical_json_sha256
+
+
+@dataclass(slots=True)
+class _ThreadConnection:
+    connection: sqlite3.Connection
+    finalizer: weakref.finalize[[], threading.Thread]
+
+    def close(self) -> None:
+        if self.finalizer.detach() is not None:
+            self.connection.close()
 
 
 class MembershipStore:
@@ -86,7 +98,9 @@ class MembershipStore:
         self._capture = capture
         self._capture_owner_pid = os.getpid() if capture is not None else None
         self._closed = False
-        self._connections: dict[tuple[int, threading.Thread], sqlite3.Connection] = {}
+        self._connections: weakref.WeakKeyDictionary[threading.Thread, _ThreadConnection] = (
+            weakref.WeakKeyDictionary()
+        )
         self._lock = threading.Lock()
         self._owner_pid = os.getpid()
 
@@ -145,7 +159,7 @@ class MembershipStore:
             self._capture = capture
             self._capture_owner_pid = os.getpid()
             self._lookup_root = capture.root
-        self._connections = {}
+        self._connections = weakref.WeakKeyDictionary()
         self._lock = threading.Lock()
         self._owner_pid = os.getpid()
 
@@ -284,18 +298,19 @@ class MembershipStore:
         if self._owner_pid != current_pid:
             for inherited in self._connections.values():
                 inherited.close()
-            self._connections = {}
+            self._connections = weakref.WeakKeyDictionary()
             self._lock = threading.Lock()
             self._owner_pid = current_pid
-        key = (current_pid, threading.current_thread())
+        key = threading.current_thread()
         with self._lock:
-            connection = self._connections.get(key)
-        if connection is not None:
-            return connection
+            thread_connection = self._connections.get(key)
+        if thread_connection is not None:
+            return thread_connection.connection
         with self._lock:
-            connection = self._connections.get(key)
-            if connection is not None:
-                return connection
+            thread_connection = self._connections.get(key)
+            if thread_connection is not None:
+                return thread_connection.connection
+            connection: sqlite3.Connection | None = None
             path = self._lookup_root / _INDEX_NAME
             try:
                 connection = sqlite3.connect(
@@ -314,7 +329,10 @@ class MembershipStore:
                 if connection is not None:
                     connection.close()
                 raise
-            self._connections[key] = connection
+            self._connections[key] = _ThreadConnection(
+                connection=connection,
+                finalizer=weakref.finalize(key, connection.close),
+            )
             return connection
 
 

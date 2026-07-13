@@ -108,6 +108,11 @@ def _load_snapshot_lineage(
         size_bytes=capture.size_bytes,
         candidate_snapshot_id=candidate_id,
     )
+    object.__setattr__(
+        binding,
+        "_evidence_profile",
+        "synthetic_fixture" if is_fixture else "official",
+    )
     gnomad = _require_mapping(payload.get("gnomad"), "snapshot lineage gnomad")
     clinvar = _require_mapping(payload.get("clinvar"), "snapshot lineage clinvar")
     expected: dict[str, _ExpectedSource] = {}

@@ -296,6 +296,12 @@
           "minLength": 1,
           "type": "string"
         },
+        "evidence_profile": {
+          "enum": [
+            "official",
+            "synthetic_fixture"
+          ]
+        },
         "lineage_id": {
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
@@ -313,7 +319,8 @@
         "lineage_id",
         "sha256",
         "size_bytes",
-        "candidate_snapshot_id"
+        "candidate_snapshot_id",
+        "evidence_profile"
       ],
       "type": "object"
     },
