@@ -154,10 +154,16 @@ jobs:
         # xdist on Windows uses spawn-based workers that re-import the
         # package per worker; combined with module-level state in
         # observability/metrics, this surfaces flaky failures on Windows
-        # specifically. Run serially on Windows, parallel elsewhere.
+        # specifically. Run serially on Windows, parallel elsewhere. The
+        # corrected cache implementation is deliberately POSIX-only and its
+        # Windows contract is fail-closed, so retain the 84% aggregate gate
+        # over Windows-supported modules while omitting only that module.
+        # The canonical Ubuntu leg still measures the complete package and
+        # enforces changed-file coverage over every cache line.
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -v --tb=long 2>&1 | tee pytest.out
+            pytest --cov=geno_lewm --cov-branch --cov-report=term-missing --cov-fail-under=0 -v --tb=long 2>&1 | tee pytest.out
+            coverage report --show-missing --fail-under=84 --omit="*/encoder/cache.py"
           else
             pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee pytest.out
           fi
