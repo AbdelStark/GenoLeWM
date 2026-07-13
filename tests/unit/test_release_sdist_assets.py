@@ -36,6 +36,8 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "bench/inference.py",
         "configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json",
         "configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml",
+        "configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json",
+        "configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json",
         "configs/first_experiment/dataset-snapshot-snv.json",
         "configs/first_experiment/eval-clinvar-snv.yaml",
         "configs/first_experiment/train-carbon-500m-snv.yaml",
@@ -46,6 +48,7 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/jobs/eval_run.sh",
         "tools/jobs/planning_demo_run.sh",
         "tools/jobs/proof_run.sh",
+        "tools/jobs/v03_stage_gnomad.sh",
         "tools/jobs/v02_suite_run.sh",
         "tools/demo/terminal_inference.py",
         "tools/lint/check_scope_language.py",
@@ -79,6 +82,7 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/research/correction_control_preflight.py",
         "tools/research/correction_control_replay.py",
         "tools/research/state_contract_audit.py",
+        "tools/data/v03_gnomad_lock.py",
     }
 
     assert expected <= assets
