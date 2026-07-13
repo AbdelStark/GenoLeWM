@@ -271,9 +271,11 @@ provenance and policy metadata, not a transfer of upstream rights.
 
 The lineage assembler deliberately has no membership writer or network client.
 Lineage alone cannot be described as a dataset snapshot. The first real
-variant-membership candidate is a separate downstream artifact, and it remains
-a candidate until placed training windows, exported held-role streams, and
-leakage controls are bound and published without broadening the claim.
+variant-membership candidate and its placed-window/held-role split evidence are
+separate downstream artifacts, each published and independently verified at an
+immutable Hub revision. The canonical schema-`1.1.0` assembler now binds those
+artifacts into a closed package locally; publication of that snapshot candidate
+remains pending and does not broaden either upstream claim.
 See the [operator guide](docs/data-v03-snapshot-lineage.md) for required
 evidence and failure behavior.
 
@@ -399,8 +401,9 @@ and sizes checkpoint artifacts without loading their serialized contents.
 
 Schema `1.0.0` compatibility is intentionally strict. Legacy dataset manifests
 forbid roles, companions, and membership binding; legacy training-run
-manifests remain unbound and render no membership section. No canonical
-schema-`1.1.0` v0.3 dataset assembler or released v0.3 snapshot is claimed yet.
+manifests remain unbound and render no membership section. The canonical
+schema-`1.1.0` v0.3 assembler is implemented and locally contract-verified,
+but no assembled snapshot candidate or released v0.3 snapshot is claimed yet.
 The bound evidence remains variant-level and unphased; it does not satisfy a
 phased-haplotype or model-quality requirement.
 

@@ -898,7 +898,7 @@ def _build_leakage_checks(
             train_regions = split_regions.get(train_split, set())
             eval_regions = split_regions.get(eval_split, set())
             overlap = sorted(train_keys & eval_keys)
-            check_regions = _is_holdout_split(eval_split)
+            check_regions = _requires_region_nonintersection(eval_split)
             region_overlap_count, region_examples = _region_overlap_report(
                 train_regions,
                 eval_regions if check_regions else set(),
@@ -949,8 +949,10 @@ def _build_leakage_checks(
     return tuple(checks)
 
 
-def _is_holdout_split(split: str) -> bool:
-    return "holdout" in split.lower()
+def _requires_region_nonintersection(split: str) -> bool:
+    """Identify chromosome-held roles that require interval-level isolation."""
+    normalized = split.lower()
+    return "holdout" in normalized or normalized in {"validation", "evaluation"}
 
 
 def _leakage_failure_reason(

@@ -160,9 +160,14 @@ or incompatible command changes require an explicit compatibility note.
   preflight and training preserve that contract; runtime metrics, checkpoints,
   and training metadata also bind the canonical membership holdout policy.
   Training-run and paper verification reject semantic drift across their
-  copied dataset, metrics, input-check, and snapshot-report evidence. This is
-  provenance and systems closure, not a completed canonical v0.3 assembler,
-  released v0.3 snapshot, corrected model result, or clinical claim.
+  copied dataset, metrics, input-check, and snapshot-report evidence.
+- Added the canonical v0.3 schema-`1.1.0` dataset assembler and checked
+  Hugging Face Job runner. The assembler selects exact train-role gnomAD and
+  ClinVar rows, packages the published held-role streams and placed windows,
+  binds the full membership/split/source lineage, and supports strict replay
+  against all 23 prepared upstream inputs. It is locally contract-verified;
+  no assembled snapshot candidate or released v0.3 snapshot is published yet,
+  and it is not a corrected model result or clinical claim.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as

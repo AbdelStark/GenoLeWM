@@ -3,8 +3,9 @@
 `tools/data/v03_membership_splits.py` exports the deterministic ClinVar
 validation and evaluation streams from one verified membership store and audits
 one exact placed-window training artifact against those held roles. The result
-is an atomic, checksum-closed evidence directory; it is not a dataset package
-or a training-runtime integration.
+is an atomic, checksum-closed evidence directory. The real artifact is
+published and independently verified, but it is not by itself a dataset
+package or training-runtime integration.
 
 ## Published membership prerequisite
 
@@ -31,6 +32,27 @@ the exact returned Hub revision. A separate independent download verified the
 This is a real deterministic **variant-membership candidate**. It is not a
 released v0.3 snapshot, phased-haplotype membership, evidence of dataset
 representativeness, a model or benchmark result, or a clinical-validity claim.
+
+## Published split evidence
+
+Hugging Face Job `6a551993effc02a91cbdbc61` built the real split bundle from
+GenoLeWM commit `bb24f6344274eff053f2917ffd72a34c7e20d7df`. The successful
+namespace was downloaded at exact Hub commit
+[`6d2ec7dd68af636ba8c594774c3c55a236c0995f`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/6d2ec7dd68af636ba8c594774c3c55a236c0995f/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/splits/geno-lewm-v03-membership-splits-bb24f6344274-r2/success)
+and independently reverified against the membership store and placed-window
+bytes.
+
+| Binding | Exact value |
+| --- | --- |
+| Artifact | `geno-lewm-v03-membership-splits-bb24f6344274-r2` |
+| Hub path | `candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/splits/geno-lewm-v03-membership-splits-bb24f6344274-r2/success` |
+| Placed windows | `976`; zero policy exclusions and zero indexed overlaps |
+| Validation | `34,657`; B `4,720`, LB `24,886`, LP `2,297`, P `2,754` |
+| Evaluation | `20,653`; B `2,851`, LB `14,395`, LP `1,549`, P `1,858` |
+
+This publication closes the deterministic unphased split-evidence contract. It
+does not turn the upstream membership candidate into a released v0.3 snapshot
+or establish model quality, dataset representativeness, or clinical validity.
 
 ## Exact placed-window input
 
@@ -286,10 +308,11 @@ companions, and membership binding. Legacy training-run schema `1.0.0` remains
 unbound and omits the new manifest and card surface; bound training runs use
 schema `1.1.0`.
 
-These contracts and verifiers do not complete the canonical schema-`1.1.0`
-dataset assembler, publish a released v0.3 snapshot, or produce corrected
-model-quality evidence. The split evidence remains variant-level and unphased;
-it must not be described as phased-haplotype membership or clinical evidence.
+The canonical schema-`1.1.0` dataset assembler is implemented and locally
+contract-verified, but no assembled snapshot candidate or released v0.3
+snapshot is published yet. The split evidence remains variant-level and
+unphased; it must not be described as phased-haplotype membership, corrected
+model-quality evidence, or clinical evidence.
 
 ## Local contract checks
 

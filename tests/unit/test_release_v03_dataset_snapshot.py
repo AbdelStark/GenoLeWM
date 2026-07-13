@@ -228,6 +228,49 @@ def test_assembler_builds_and_reverifies_a_closed_role_bound_snapshot(
     assert training_preflight_issues == []
 
 
+@pytest.mark.parametrize(
+    ("held_split", "chrom", "position"),
+    (("validation", "20", 20001), ("evaluation", "21", 21001)),
+)
+def test_assembler_rejects_training_window_intersecting_held_variant(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    held_split: str,
+    chrom: str,
+    position: int,
+) -> None:
+    fixture = _write_assembly_fixture(tmp_path)
+    _patch_membership_store(monkeypatch, fixture.manifest, fixture.train_rows)
+    window = {
+        "record_id": "overlapping-window",
+        "source": "reference",
+        "variant_source": "gnomad",
+        "chrom": chrom,
+        "start_bp": position - 1,
+        "end_bp": position + 1,
+        "sequence": "AC",
+        "variant_count": 0,
+    }
+    fixture.training_windows.write_text(json.dumps(window, sort_keys=True) + "\n", encoding="utf-8")
+    report_path = fixture.split_bundle / "evidence/membership-split-evidence.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["training_windows"].update(
+        {
+            "sha256": sha256_file(fixture.training_windows),
+            "size_bytes": fixture.training_windows.stat().st_size,
+        }
+    )
+    report_path.write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
+    _write_checksums(fixture.split_bundle)
+
+    with pytest.raises(InputError, match="dataset split leakage check failed") as excinfo:
+        _assemble_fixture_snapshot(fixture, tmp_path / f"overlap-{held_split}")
+
+    assert excinfo.value.details["failure_reason"] == "intersecting_genomic_regions"
+    assert excinfo.value.details["split_b"] == held_split
+    assert excinfo.value.details["region_overlap_count"] == 2
+
+
 def test_assembler_rejects_split_lineage_for_a_different_candidate_snapshot(
     tmp_path: Path,
 ) -> None:

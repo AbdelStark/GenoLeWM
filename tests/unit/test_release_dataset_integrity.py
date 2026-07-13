@@ -452,6 +452,54 @@ def test_build_dataset_integrity_report_rejects_region_holdout_intersection(
     assert excinfo.value.details["region_examples"] == ["1:100-250 intersects 1:200-300"]
 
 
+@pytest.mark.parametrize("held_split", ["validation", "evaluation"])
+def test_build_dataset_integrity_report_rejects_held_window_intersection(
+    tmp_path: Path, held_split: str
+) -> None:
+    train_path = tmp_path / "train_windows.jsonl"
+    held_path = tmp_path / f"{held_split}.jsonl"
+    train_path.write_text(
+        '{"record_id":"window-r1","chrom":"20","start_bp":100,"end_bp":250}\n',
+        encoding="utf-8",
+    )
+    held_path.write_text(
+        '{"variant_key":"20:201:A:C","chrom":"20","pos":201,"ref":"A","alt":"C"}\n',
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema_version": "1.0.0",
+        "snapshot_id": "snapshot",
+        "splits": {
+            "train": {"records": 1},
+            held_split: {"records": 1},
+        },
+        "files": [
+            {
+                "path": train_path.name,
+                "split": "train",
+                "records": 1,
+                "sha256": sha256_file(train_path),
+                "size_bytes": train_path.stat().st_size,
+            },
+            {
+                "path": held_path.name,
+                "split": held_split,
+                "records": 1,
+                "sha256": sha256_file(held_path),
+                "size_bytes": held_path.stat().st_size,
+            },
+        ],
+    }
+    (tmp_path / "dataset_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(InputError, match="dataset split leakage check failed") as excinfo:
+        build_dataset_integrity_report(tmp_path)
+
+    assert excinfo.value.details["failure_reason"] == "intersecting_genomic_regions"
+    assert excinfo.value.details["region_overlap_count"] == 1
+    assert excinfo.value.details["region_examples"] == ["20:100-250 intersects 20:200-201"]
+
+
 def test_build_dataset_integrity_report_rejects_missing_train_eval_comparison(
     tmp_path: Path,
 ) -> None:

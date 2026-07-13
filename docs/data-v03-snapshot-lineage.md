@@ -2,9 +2,11 @@
 
 The v0.3 snapshot-lineage assembler turns already-produced staging evidence
 into one immutable, content-addressed lineage record. It is an offline evidence
-reconciler. It does not upload data, contact Hugging Face, create dataset
-memberships, or claim that a publishable train/validation/evaluation snapshot
-exists.
+reconciler. It does not upload data, contact Hugging Face, or create dataset
+memberships. A real production lineage has since been consumed by the
+separately published membership and split-evidence candidates, but lineage
+alone still cannot establish a publishable train/validation/evaluation
+snapshot.
 
 The public contracts are:
 
@@ -34,9 +36,11 @@ Assembly requires evidence that is not committed to this repository:
 - the checked gnomAD source lock in
   `configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json`.
 
-The repository therefore provides the contract and fixture tests, not a
-ready-to-assemble production lineage. Do not substitute fixture evidence for
-live staging evidence.
+The repository provides the contract, fixture tests, and reproducible operator
+path; it does not embed the live staging inputs. The first production lineage
+was assembled and bound into the published membership candidate, but any
+rebuild still requires the exact immutable evidence above. Do not substitute
+fixture evidence for live staging evidence.
 
 Immutable report and lineage publication requires anchored `dir_fd` filesystem
 operations (supported by the tested Linux and macOS paths). Platforms without
