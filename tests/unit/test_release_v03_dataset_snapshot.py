@@ -916,6 +916,7 @@ def _assemble_fixture_snapshot(
 ) -> snapshot_module.V03SnapshotReport:
     if os.name == "nt":
         monkeypatch.setattr(snapshot_module, "_fsync_tree", lambda _root: None)
+        monkeypatch.setattr(snapshot_module, "_fsync_directory", lambda _root: None)
 
         def publish_fixture_directory(source: Path, target: Path) -> None:
             source.rename(target)
