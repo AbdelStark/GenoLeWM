@@ -45,6 +45,13 @@ value and persists those same captured bytes; it never reopens the lineage
 path. The reduced synthetic-fixture path exists only for contract tests and is
 not publication evidence.
 
+The read-only lineage capture and semantic verifier are part of the installed
+package and have no dependency on the repository's operational `tools` tree.
+The lineage assembly CLI delegates to the same implementation. Default
+`MembershipStore.open(..., verify=True)` behavior therefore remains available
+from a wheel install while preserving duplicate-key rejection, single-read byte
+identity, deep immutability, and the complete non-fixture semantic contract.
+
 ```text
 exact snapshot lineage
         +

@@ -4,13 +4,11 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import os
 import stat
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, cast
 
 from geno_lewm.data._membership_store_contract import (
     _AUTOSOMES,
@@ -30,6 +28,10 @@ from geno_lewm.data._membership_store_contract import (
     _require_positive_int,
     _require_sha256,
     _require_text,
+)
+from geno_lewm.data._snapshot_lineage import (
+    SnapshotLineageError,
+    capture_verified_snapshot_lineage,
 )
 from geno_lewm.data.clinvar import CLINVAR_SCHEMA_VERSION
 from geno_lewm.data.gnomad import GNOMAD_SCHEMA_VERSION
@@ -51,20 +53,6 @@ class _CapturedSnapshotLineage:
     lineage: Mapping[str, object]
     payload_sha256: str
     size_bytes: int
-
-
-class _OfficialVerifiedSnapshotLineage(Protocol):
-    payload: bytes
-    lineage: Mapping[str, object]
-    payload_sha256: str
-    size_bytes: int
-
-
-class _OfficialCaptureFunction(Protocol):
-    def __call__(self, path: Path) -> _OfficialVerifiedSnapshotLineage: ...
-
-
-_OFFICIAL_LINEAGE_MODULE = "tools.data.v03_snapshot_lineage"
 
 
 def _load_snapshot_lineage(
@@ -234,15 +222,7 @@ def _capture_snapshot_lineage(path: Path) -> tuple[_CapturedSnapshotLineage, boo
     """Use the official one-read verifier, with a closed synthetic-fixture fallback."""
     try:
         return _capture_official_snapshot_lineage(path), False
-    except ModuleNotFoundError as exc:
-        missing = exc.name or ""
-        if not (
-            missing == _OFFICIAL_LINEAGE_MODULE
-            or _OFFICIAL_LINEAGE_MODULE.startswith(f"{missing}.")
-        ):
-            raise InputError("official snapshot-lineage verifier cannot be imported") from exc
-        official_error: Exception = exc
-    except ValueError as exc:
+    except SnapshotLineageError as exc:
         official_error = exc
     except OSError as exc:
         raise InputError(
@@ -272,12 +252,7 @@ def _capture_snapshot_lineage(path: Path) -> tuple[_CapturedSnapshotLineage, boo
 
 
 def _capture_official_snapshot_lineage(path: Path) -> _CapturedSnapshotLineage:
-    module = importlib.import_module(_OFFICIAL_LINEAGE_MODULE)
-    capture_function = cast(
-        _OfficialCaptureFunction,
-        module.capture_verified_snapshot_lineage,
-    )
-    verified = capture_function(path)
+    verified = capture_verified_snapshot_lineage(path)
     payload = verified.payload
     if not isinstance(payload, bytes):
         raise InputError("official snapshot-lineage capture payload must be bytes")

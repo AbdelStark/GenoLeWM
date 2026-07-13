@@ -238,6 +238,15 @@ nine-field schema, full-scan counts, and original claim boundary. The existing
 audit validation remains mandatory; postflight evidence augments it rather
 than replacing it.
 
+Lineage assembly remains an operator tool, while its read-only capture and
+semantic verifier live in dependency-closed package code. The tool delegates
+to and re-exports that single verifier implementation. Consequently, an
+installed wheel can verify the exact bundled lineage during the default
+membership-store open path without resolving the repository's `tools` tree.
+The package verifier still performs one read, duplicate-key rejection,
+type-strict semantic checks, content-ID recomputation, and deep freezing of the
+captured value.
+
 The input and output formats are closed Draft 2020-12 schemas with stable IDs
 under `configs/data_v03/`. The output includes source-specific data-use terms
 and the exact fields materialized from gnomAD and ClinVar. These records are
@@ -286,7 +295,9 @@ The stable `geno_lewm.data.membership_store` module is a small public facade.
 Its private implementation has one-way dependencies: the closed contract is
 the base; lineage, receipt, and storage depend on that contract; the verifier
 depends on those three; the writer depends on the verifier; and the read-only
-runtime depends on the verifier and storage. This keeps source ingestion, physical encoding, independent
+runtime depends on the verifier and storage. The membership lineage adapter
+depends on the installable snapshot-lineage verifier, never on the operational
+tool package. This keeps source ingestion, physical encoding, independent
 verification, and online lookup separately testable without import cycles.
 
 ## Inference Data Flow

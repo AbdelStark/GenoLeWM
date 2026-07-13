@@ -1056,18 +1056,10 @@ def test_nonfixture_lineage_consumes_one_exact_official_capture_without_rereadin
             size_bytes=len(verified_payload),
         )
 
-    official_module = SimpleNamespace(capture_verified_snapshot_lineage=_capture)
-
-    def _import_official_module(name: str) -> SimpleNamespace:
-        assert name == "tools.data.v03_snapshot_lineage"
-        return official_module
-
     def _forbid_reread(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("verified non-fixture lineage path was reopened")
 
-    monkeypatch.setattr(
-        membership_store_lineage.importlib, "import_module", _import_official_module
-    )
+    monkeypatch.setattr(membership_store_lineage, "capture_verified_snapshot_lineage", _capture)
     monkeypatch.setattr(membership_store_lineage, "_read_json_mapping", _forbid_reread)
 
     binding, expected_sources, bundled_payload = membership_store_lineage._load_snapshot_lineage(
@@ -1096,11 +1088,10 @@ def test_official_lineage_capture_adapter_rejects_incoherent_returned_identity(
         payload_sha256="sha256:" + "0" * 64,
         size_bytes=2,
     )
-    official_module = SimpleNamespace(capture_verified_snapshot_lineage=lambda _path: capture)
     monkeypatch.setattr(
-        membership_store_lineage.importlib,
-        "import_module",
-        lambda _name: official_module,
+        membership_store_lineage,
+        "capture_verified_snapshot_lineage",
+        lambda _path: capture,
     )
 
     with pytest.raises(InputError, match="official snapshot-lineage capture identity mismatch"):

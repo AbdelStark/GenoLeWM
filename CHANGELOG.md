@@ -141,6 +141,11 @@ or incompatible command changes require an explicit compatibility note.
   identity, and claim-boundary invariants. Downstream consumers can bind the
   exact verified lineage bytes, hash, size, and parsed mapping through one
   public capture result without reopening the path.
+- Moved the single read-only v0.3 snapshot-lineage capture and semantic verifier
+  into dependency-closed installable package code. The assembly tool now
+  delegates to and re-exports that implementation, so wheel-installed
+  membership stores retain default full lineage verification without packaging
+  the operational `tools` tree or relaxing non-fixture checks.
 - Made both v0.3 exact-revision postflight verifiers compare JSON values
   recursively and type-strictly, rejecting Python boolean/integer equality
   aliases in audit, receipt, runtime, and prepare evidence.

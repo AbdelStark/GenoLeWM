@@ -39,6 +39,8 @@ def test_ci_build_workflow_checks_sdist_release_assets() -> None:
     assert "python -m build" in text
     assert "twine check dist/*" in text
     assert "python -m tools.release.check_sdist_assets dist/*.tar.gz" in text
+    assert "python -m tests.wheel_membership_smoke prepare" in text
+    assert 'python -I "$GITHUB_WORKSPACE/tests/wheel_membership_smoke.py"' in text
 
 
 def test_ci_type_dependencies_are_bounded_to_validated_versions() -> None:
