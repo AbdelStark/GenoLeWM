@@ -373,12 +373,36 @@ binds both streams' file identities, class and binary counts, keyset digests,
 the exhaustive result, and the sample identity. Publication is atomic,
 no-clobber, and checksum-closed.
 
-Package schema changes and training-loop wiring are follow-on boundaries. The
-current dataset-package model cannot distinguish split data, companions, and
-evidence without double-counting records, and the trainer does not yet open the
-package-bound membership store and pass its holdout policy to tuple streaming.
-This evidence remains variant-level and unphased; it does not satisfy a
-phased-haplotype requirement.
+Dataset-package schema `1.1.0` carries that evidence without double-counting.
+`split_data` contributes records and is eligible for its matching loader;
+`split_companion` must point to one `split_data` artifact with the same split
+and record count; `evidence` has neither and is never training input. The
+optional closed membership binding names exactly the verified store and split
+report. The store binding commits its artifact, semantic content, physical,
+and rowset identities; the report binding commits its artifact and tracked
+schema.
+
+```text
+role-aware dataset manifest
+        │
+        ├── preflight preserves roles and checks companion/store/report closure
+        ├── runtime opens one verified store and installs the holdout policy
+        ├── metrics + checkpoint + run metadata carry store/report/policy identity
+        ├── run verifier checks copied dataset store/report and full metrics identity
+        └── paper verifier rechecks dataset, input-check, and snapshot-report binding
+```
+
+The policy payload is the exact `MembershipStoreHoldoutPolicy.to_dict()` value;
+its identity is recomputed from canonical JSON and its membership content
+identity must equal the store binding. Training-run release verification hashes
+and sizes checkpoint artifacts without loading their serialized contents.
+
+Schema `1.0.0` compatibility is intentionally strict. Legacy dataset manifests
+forbid roles, companions, and membership binding; legacy training-run
+manifests remain unbound and render no membership section. No canonical
+schema-`1.1.0` v0.3 dataset assembler or released v0.3 snapshot is claimed yet.
+The bound evidence remains variant-level and unphased; it does not satisfy a
+phased-haplotype or model-quality requirement.
 
 ## Inference Data Flow
 

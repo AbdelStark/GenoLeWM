@@ -54,8 +54,8 @@ uv pip install -e ".[dev,docs]"
 | Python package | `geno-lewm==0.2.1` on PyPI |
 | Core data model | `EditSpec`, `RelEdit`, edit application, typed errors, metrics, redaction-safe logs |
 | Model code | action encoder, cross-attention predictor, AR rollout wrapper, CEM planner |
-| Data pipeline | local gnomAD/ClinVar VCF-to-Parquet builders, tuple builder, indexed membership-store contract, dataset packaging |
-| Training | fixture smoke trainer, Carbon preflight, single-process Carbon trainer, packaged run evidence |
+| Data pipeline | local gnomAD/ClinVar VCF-to-Parquet builders, tuple builder, indexed membership store, role-aware dataset packaging |
+| Training | fixture smoke trainer, role-aware Carbon preflight, single-process Carbon trainer, membership-bound run evidence |
 | Evaluation | scorer, Carbon baseline scorer, binary metrics, Spearman metrics, rollout-fidelity metrics, eval aggregation |
 | Demo | terminal scoring demo, checksum receipts, runtime preflight, batch receipt report, planning demo |
 | Release tooling | dataset/model/training/paper package validators, sdist inventory gate, clean-machine replay helpers |
@@ -169,6 +169,31 @@ See the [v0.3 snapshot-lineage guide](docs/data-v03-snapshot-lineage.md) for
 immutable gnomAD/ClinVar staging evidence. The offline assembler records
 lineage only and leaves dataset memberships uncreated.
 
+Dataset-package schema `1.1.0` assigns every file one semantic role:
+`split_data` is the counted data consumed by the appropriate loader,
+`split_companion` names the exact `split_data` file it accompanies, and
+`evidence` is verified provenance that is neither counted nor trained on. A
+membership-bound package records the exact membership store and split report,
+including the store's semantic, physical, and rowset identities. See the
+[membership split-evidence guide](docs/data-v03-membership-splits.md) for the
+full contract and claim boundary.
+
+Carbon preflight preserves and checks those roles and the store/report
+binding. The training runtime opens the bound store once, applies
+`MembershipStoreHoldoutPolicy`, and carries the full binding, canonical policy
+payload, and policy digest into metrics, checkpoints, and schema-`1.1.0`
+training-run metadata. Training-run verification then requires exact equality
+with both the copied dataset manifest and metrics. Paper-package verification
+independently re-verifies the role-aware dataset package and its snapshot and
+input-check evidence.
+
+Dataset schema `1.0.0` remains the strict role-less legacy format and rejects
+role, companion, and membership fields. Training-run schema `1.0.0` rejects
+membership binding and preserves its unbound manifest, card, and CLI report.
+The canonical producer for a complete schema-`1.1.0` v0.3 dataset package is
+still pending; these contracts do not by themselves establish a released v0.3
+snapshot or corrected model result.
+
 1. Validate the checked dataset rebuild spec.
 
    ```bash
@@ -207,8 +232,9 @@ lineage only and leaves dataset memberships uncreated.
    ```
 
 The run package contains the checkpoint, metrics, logs, resolved config,
-preflight report, manifest/card, and checksum inventory. Resume checks
-validate run id, dataset snapshot, seed split, and config identity.
+preflight report, manifest/card, and checksum inventory. Resume checks validate
+run id, dataset snapshot, seed split, config identity, and—when present—the
+complete membership and split-evidence identity.
 
 ## Evaluation And Benchmarks
 

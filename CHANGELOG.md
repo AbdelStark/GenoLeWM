@@ -91,6 +91,10 @@ or incompatible command changes require an explicit compatibility note.
   names and error contracts are unchanged. Training-run release packaging used
   by `geno-lewm-train --package-release-run` is dependency-closed in the wheel
   as well.
+- Dataset-package schema `1.0.0` remains the strict role-less legacy format and
+  rejects role, companion, and membership fields. Training-run schema `1.0.0`
+  remains strictly unbound and preserves its existing manifest, card, and CLI
+  report surfaces; membership-bound training runs use schema `1.1.0`.
 
 ### Added
 
@@ -148,8 +152,17 @@ or incompatible command changes require an explicit compatibility note.
   SHA-256-priority sample, and publishes atomically with an exact report schema
   and checksum closure. Official evidence additionally binds a clean exact
   producer commit and digest-pinned container; fixture runs are explicitly not
-  publication eligible. Training/package wiring and phased-haplotype evidence
-  remain follow-on work.
+  publication eligible. The artifact remains variant-level and unphased;
+  phased-haplotype evidence remains follow-on work.
+- Added role-aware dataset-package schema `1.1.0` with `split_data`,
+  `split_companion`, and `evidence` artifacts, exact companion relationships,
+  and an optional closed membership-store plus split-report binding. Carbon
+  preflight and training preserve that contract; runtime metrics, checkpoints,
+  and training metadata also bind the canonical membership holdout policy.
+  Training-run and paper verification reject semantic drift across their
+  copied dataset, metrics, input-check, and snapshot-report evidence. This is
+  provenance and systems closure, not a completed canonical v0.3 assembler,
+  released v0.3 snapshot, corrected model result, or clinical claim.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as

@@ -244,18 +244,52 @@ and bounds the deterministic sample by that same universe. Independent review
 must rerun those semantic checks against the exact store and window bytes;
 schema validation alone is not a semantic verifier.
 
-## Deliberate follow-ons
+## Dataset and training binding
 
-This artifact does not yet wire the membership policy into real training or
-add the outputs to a dataset package. The current package schema treats every
-listed file as split data; listing JSONL plus its companion VCF would
-double-count records, while listing the evidence report would contaminate
-split totals. A package follow-on needs explicit `split_data`,
-`split_companion`, and `evidence` roles plus companion and report bindings.
+Dataset-package schema `1.1.0` closes the earlier double-counting ambiguity by
+requiring one role on every listed artifact:
 
-Training integration must then open the package-bound store once and pass
-`MembershipStoreHoldoutPolicy` through tuple streaming. Neither follow-on may
-rename variant evidence as phased haplotypes.
+| Role | Package semantics |
+| --- | --- |
+| `split_data` | Declares a split and record count; it is eligible for the matching training or evaluation loader and contributes to split totals. |
+| `split_companion` | Declares the same split and record count as the exact `split_data` path named by `companion_of`; it does not contribute a second copy of those records. |
+| `evidence` | Declares no split, record count, or companion; it is verified provenance and is not training input. |
+
+The optional `membership_and_split_evidence` object is closed to exactly two
+bindings. `membership_store` records its package-relative path, artifact ID,
+semantic content identity, physical identity, and rowset digest. `report`
+records the report path, copied schema path, artifact ID, and schema version.
+Package verification requires all store and report files to have the
+`evidence` role, opens and fully verifies the store, pins the tracked report
+schema digest and version, validates publication eligibility, and reconciles
+the report's streams and placed training windows with their declared
+`split_data` and `split_companion` artifacts.
+
+The same binding is checked at each implemented consumer boundary:
+
+```text
+schema-1.1 dataset package
+        ├── Carbon preflight: roles, companions, store + report
+        ├── training runtime: one verified store + membership holdout policy
+        ├── training-run verifier: dataset store/report + full metrics/policy binding
+        └── paper verifier: dataset package == input check == snapshot report
+```
+
+The runtime serializes the complete store/report binding,
+`MembershipStoreHoldoutPolicy.to_dict()`, and its canonical SHA-256 identity
+into metrics, checkpoints, and bound training-run metadata. Resume and release
+verification fail closed on any drift. Release verification hashes checkpoint
+files but does not deserialize them.
+
+Legacy dataset schema `1.0.0` remains unchanged and forbids artifact roles,
+companions, and membership binding. Legacy training-run schema `1.0.0` remains
+unbound and omits the new manifest and card surface; bound training runs use
+schema `1.1.0`.
+
+These contracts and verifiers do not complete the canonical schema-`1.1.0`
+dataset assembler, publish a released v0.3 snapshot, or produce corrected
+model-quality evidence. The split evidence remains variant-level and unphased;
+it must not be described as phased-haplotype membership or clinical evidence.
 
 ## Local contract checks
 
