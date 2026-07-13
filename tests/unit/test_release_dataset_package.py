@@ -608,6 +608,19 @@ def _write_role_bound_inputs(root: Path) -> tuple[dict[str, object], SimpleNames
         physical_identity="sha256:" + "2" * 64,
         rowset_sha256="sha256:" + "3" * 64,
     )
+    (store_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "artifact_id": manifest.artifact_id,
+                "content_identity": manifest.content_identity,
+                "physical_identity": manifest.physical_identity,
+                "rowset_sha256": manifest.rowset_sha256,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     report_path = root / "evidence" / "membership-split-evidence.json"
     report_path.parent.mkdir()
     source_revision = "a" * 40

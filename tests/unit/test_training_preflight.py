@@ -17,7 +17,13 @@ from geno_lewm.training.preflight import (
     build_training_preflight_report,
     write_training_preflight_report,
 )
+from tests.unit.test_release_dataset_package import (
+    _patch_membership_store,
+    _write_role_bound_inputs,
+)
 from tests.unit.test_release_dataset_snapshot import _write_spec
+from tests.unit.test_release_paper_package import _write_schema_1_1_dataset_snapshot_report
+from tools.release.dataset_package import build_dataset_package
 from tools.release.dataset_snapshot import build_dataset_snapshot
 
 
@@ -53,6 +59,67 @@ def test_training_preflight_accepts_packaged_dataset_and_local_carbon(tmp_path: 
     assert report.dataset["core_files"]["dataset_input_check_report.json"] is not None
     assert report.dataset["core_files"]["dataset_snapshot_report.json"] is not None
     assert not report.issues
+
+
+def test_training_preflight_preserves_role_bound_membership_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_role_bound_release_dataset(tmp_path, monkeypatch)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            training_config=config,
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is True
+    assert (
+        report.dataset["membership_and_split_evidence"]
+        == json.loads((dataset_dir / "dataset_manifest.json").read_text(encoding="utf-8"))[
+            "membership_and_split_evidence"
+        ]
+    )
+    roles = {item["artifact_role"] for item in report.dataset["files"]}
+    assert roles == {"split_data", "split_companion", "evidence"}
+
+
+def test_training_preflight_rejects_role_bound_package_binding_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_role_bound_release_dataset(tmp_path, monkeypatch)
+    package_path = dataset_dir / "dataset_package.json"
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    package["membership_and_split_evidence"]["report"]["artifact_id"] = "stale-report"
+    package_path.write_text(
+        json.dumps(package, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _refresh_dataset_sha256sums(dataset_dir)
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=_write_carbon_model_dir(tmp_path),
+            training_config=_write_training_config(tmp_path),
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is False
+    assert "dataset.package.membership_binding_mismatch" in _codes(report)
 
 
 def test_training_preflight_writes_default_report_path(tmp_path: Path) -> None:
@@ -399,6 +466,24 @@ def _write_release_dataset(root: Path, *, snapshot_id: str = "geno-lewm-data-v0.
         spec_path.write_text(json.dumps(payload), encoding="utf-8")
     dataset_dir = root / "dataset"
     build_dataset_snapshot(spec_path, dataset_dir)
+    return dataset_dir
+
+
+def _write_role_bound_release_dataset(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    dataset_dir = root / "dataset"
+    dataset_dir.mkdir()
+    metadata, membership_manifest = _write_role_bound_inputs(dataset_dir)
+    _patch_membership_store(monkeypatch, membership_manifest)
+    metadata_path = dataset_dir / "dataset_package.json"
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    build_dataset_package(dataset_dir, metadata_path)
+    _write_schema_1_1_dataset_snapshot_report(dataset_dir)
     return dataset_dir
 
 
