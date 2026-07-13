@@ -165,6 +165,10 @@ geno-lewm-plan \
 The real training path is explicit about data identity, Carbon runtime
 readiness, config identity, and packaged run artifacts.
 
+See the [v0.3 snapshot-lineage guide](docs/data-v03-snapshot-lineage.md) for
+immutable gnomAD/ClinVar staging evidence. The offline assembler records
+lineage only and leaves dataset memberships uncreated.
+
 1. Validate the checked dataset rebuild spec.
 
    ```bash

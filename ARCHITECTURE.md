@@ -182,6 +182,40 @@ The v0.2.1 Phase 2 KL term was computed only from frozen target states, so it
 had no gradient with respect to the predictor or action encoder; it must not
 be described as active regularization.
 
+### v0.3 staging lineage boundary
+
+The v0.3 data path separates remote staging verification, offline lineage
+assembly, and future membership construction:
+
+```text
+generation-pinned gnomAD source lock
+        │
+        ├── per-autosome staging receipt ─┐
+        ├── exact-revision postflight ────┼── offline lineage assembler
+        │                                 │          │
+corrected ClinVar release audit ──────────┘          ├── content-addressed lineage
+                                                     └── membership_status=not_created
+```
+
+`tools/data/v03_gnomad_lock.py remote-postflight` verifies each complete
+gnomAD namespace at an immutable Hub revision and reruns a full Parquet audit.
+`tools/data/v03_snapshot_lineage.py` then consumes only local evidence. It
+cross-binds the repository, revision, namespace, source commit, chromosome,
+namespace file inventory, receipt identity, Parquet identity, and fresh audit
+for all 22 autosomes. It also binds the corrected ClinVar release audit and
+source/output identities.
+
+The input and output formats are closed Draft 2020-12 schemas with stable IDs
+under `configs/data_v03/`. The output includes source-specific data-use terms
+and the exact fields materialized from gnomAD and ClinVar. These records are
+provenance and policy metadata, not a transfer of upstream rights.
+
+This component deliberately has no membership writer or network client. A
+lineage candidate cannot be described as a dataset snapshot until a separate
+future step constructs, audits, and commits memberships and leakage controls.
+See the [operator guide](docs/data-v03-snapshot-lineage.md) for required
+evidence and failure behavior.
+
 ## Inference Data Flow
 
 Single-variant scoring validates that the `REF` allele matches the

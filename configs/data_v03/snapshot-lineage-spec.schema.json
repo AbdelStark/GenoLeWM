@@ -1,0 +1,166 @@
+{
+  "$id": "https://github.com/AbdelStark/GenoLeWM/raw/main/configs/data_v03/snapshot-lineage-spec.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "./snapshot-lineage-spec.schema.json"
+    },
+    "candidate_snapshot_id": {
+      "pattern": "^geno-lewm-data-v0\\.3\\.[0-9]+-r[1-9][0-9]*$",
+      "type": "string"
+    },
+    "clinvar": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_file": {
+          "minLength": 1,
+          "pattern": "^(?!/).+\\.json$",
+          "type": "string"
+        },
+        "audit_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "namespace": {
+          "pattern": "^staging/[A-Za-z0-9._/-]+$",
+          "type": "string"
+        },
+        "repo": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "repo_type": {
+          "const": "dataset"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo",
+        "repo_type",
+        "revision",
+        "namespace",
+        "audit_file",
+        "audit_sha256"
+      ],
+      "type": "object"
+    },
+    "gnomad": {
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "repo_type": {
+          "const": "dataset"
+        },
+        "shards": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "chromosome": {
+                "enum": [
+                  "1",
+                  "2",
+                  "3",
+                  "4",
+                  "5",
+                  "6",
+                  "7",
+                  "8",
+                  "9",
+                  "10",
+                  "11",
+                  "12",
+                  "13",
+                  "14",
+                  "15",
+                  "16",
+                  "17",
+                  "18",
+                  "19",
+                  "20",
+                  "21",
+                  "22"
+                ]
+              },
+              "namespace": {
+                "pattern": "^staging/v0\\.3/[A-Za-z0-9._/-]+$",
+                "type": "string"
+              },
+              "postflight_file": {
+                "minLength": 1,
+                "pattern": "^(?!/).+\\.json$",
+                "type": "string"
+              },
+              "postflight_sha256": {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "receipt_file": {
+                "minLength": 1,
+                "pattern": "^(?!/).+\\.json$",
+                "type": "string"
+              },
+              "receipt_sha256": {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "revision": {
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              "split_role": {
+                "enum": [
+                  "train",
+                  "validation",
+                  "evaluation"
+                ]
+              }
+            },
+            "required": [
+              "chromosome",
+              "split_role",
+              "revision",
+              "namespace",
+              "receipt_file",
+              "receipt_sha256",
+              "postflight_file",
+              "postflight_sha256"
+            ],
+            "type": "object"
+          },
+          "maxItems": 22,
+          "minItems": 22,
+          "type": "array"
+        }
+      },
+      "required": [
+        "repo",
+        "repo_type",
+        "shards"
+      ],
+      "type": "object"
+    },
+    "reference_genome": {
+      "const": "GRCh38"
+    },
+    "schema_version": {
+      "const": "geno-lewm.v03-snapshot-lineage-spec.v1"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "candidate_snapshot_id",
+    "reference_genome",
+    "gnomad",
+    "clinvar"
+  ],
+  "title": "GenoLeWM v0.3 immutable snapshot-lineage assembly spec",
+  "type": "object"
+}

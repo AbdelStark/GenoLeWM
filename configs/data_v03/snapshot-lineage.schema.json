@@ -1,0 +1,687 @@
+{
+  "$defs": {
+    "artifactIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_path",
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
+    },
+    "fileIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/AbdelStark/GenoLeWM/raw/main/configs/data_v03/snapshot-lineage.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "assembly_inputs": {
+      "additionalProperties": false,
+      "properties": {
+        "gnomad_source_lock": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "spec": {
+          "$ref": "#/$defs/fileIdentity"
+        }
+      },
+      "required": [
+        "spec",
+        "gnomad_source_lock"
+      ],
+      "type": "object"
+    },
+    "candidate_snapshot_id": {
+      "pattern": "^geno-lewm-data-v0\\.3\\.[0-9]+-r[1-9][0-9]*$",
+      "type": "string"
+    },
+    "claim_boundary": {
+      "minLength": 120,
+      "type": "string"
+    },
+    "clinvar": {
+      "additionalProperties": false,
+      "properties": {
+        "audit": {
+          "$ref": "#/$defs/artifactIdentity"
+        },
+        "data_use": {
+          "const": {
+            "attribution": "Requested: identify ClinVar as the data source and cite a current ClinVar publication.",
+            "license": {
+              "scope": "NCBI places no restrictions on use or distribution of molecular data, but does not receive or transfer submitter rights.",
+              "spdx": "NOASSERTION"
+            },
+            "materialized_fields": [
+              "chrom",
+              "pos",
+              "ref",
+              "alt",
+              "clinical_significance",
+              "review_status",
+              "gene_symbol",
+              "clinvar_id",
+              "schema_version"
+            ],
+            "restrictions": [
+              "Do not use ClinVar information directly for diagnosis or medical decision-making without review by a genetics professional.",
+              "NCBI does not independently verify submitted information.",
+              "Submitter or source-country intellectual-property claims may apply; NCBI cannot grant rights it does not hold.",
+              "Recheck current upstream terms before redistribution or a new use."
+            ],
+            "source": "ClinVar GRCh38 archived VCF release 2026-04-15",
+            "terms_checked_on": "2026-07-13",
+            "terms_urls": [
+              "https://www.ncbi.nlm.nih.gov/clinvar/docs/maintenance_use/",
+              "https://www.ncbi.nlm.nih.gov/home/about/policies/"
+            ]
+          }
+        },
+        "evidence_claim_boundary": {
+          "minLength": 120,
+          "type": "string"
+        },
+        "execution": {
+          "additionalProperties": false,
+          "properties": {
+            "commit_sha": {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            "container_image": {
+              "pattern": "^[^@]+@sha256:[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "commit_sha",
+            "container_image"
+          ],
+          "type": "object"
+        },
+        "namespace": {
+          "pattern": "^staging/[A-Za-z0-9._/-]+$",
+          "type": "string"
+        },
+        "output": {
+          "additionalProperties": false,
+          "properties": {
+            "artifact_path": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "class_balance": {
+              "additionalProperties": false,
+              "properties": {
+                "B": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "LB": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "LP": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "OTHER": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "P": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "VUS": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "B",
+                "LB",
+                "LP",
+                "OTHER",
+                "P",
+                "VUS"
+              ],
+              "type": "object"
+            },
+            "records": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size_bytes": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "artifact_path",
+            "sha256",
+            "size_bytes",
+            "records",
+            "class_balance"
+          ],
+          "type": "object"
+        },
+        "reference_genome": {
+          "const": "GRCh38"
+        },
+        "release": {
+          "const": "2026-04-15"
+        },
+        "repo": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "repo_type": {
+          "const": "dataset"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        },
+        "source": {
+          "additionalProperties": false,
+          "properties": {
+            "md5": {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size_bytes": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "url": {
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "md5",
+            "sha256",
+            "size_bytes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "release",
+        "reference_genome",
+        "repo",
+        "repo_type",
+        "data_use",
+        "revision",
+        "namespace",
+        "audit",
+        "source",
+        "output",
+        "execution",
+        "evidence_claim_boundary"
+      ],
+      "type": "object"
+    },
+    "generated_by": {
+      "const": "tools.data.v03_snapshot_lineage"
+    },
+    "gnomad": {
+      "additionalProperties": false,
+      "properties": {
+        "common_execution": {
+          "additionalProperties": false,
+          "properties": {
+            "commit_sha": {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            "container_image": {
+              "pattern": "^[^@]+@sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "repository": {
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "commit_sha",
+            "container_image",
+            "repository"
+          ],
+          "type": "object"
+        },
+        "data_use": {
+          "const": {
+            "attribution": "Requested: cite https://doi.org/10.1038/s41586-023-06045-0 and link to https://gnomad.broadinstitute.org/.",
+            "license": {
+              "scope": "gnomAD primary exome data; third-party annotations may carry separate terms.",
+              "spdx": "CC0-1.0"
+            },
+            "materialized_fields": [
+              "chrom",
+              "pos",
+              "ref",
+              "alt",
+              "af_global",
+              "af_afr",
+              "af_ami",
+              "af_amr",
+              "af_asj",
+              "af_eas",
+              "af_fin",
+              "af_mid",
+              "af_nfe",
+              "af_oth",
+              "af_remaining",
+              "af_sas",
+              "filter",
+              "schema_version"
+            ],
+            "restrictions": [
+              "Do not attempt to reidentify participants.",
+              "Review separate licenses before adding or redistributing third-party annotations.",
+              "Recheck current upstream terms before redistribution or a new use."
+            ],
+            "source": "gnomAD v4.1 exomes primary data",
+            "terms_checked_on": "2026-07-13",
+            "terms_urls": [
+              "https://gnomad.broadinstitute.org/policies"
+            ]
+          }
+        },
+        "dataset_id": {
+          "const": "gnomad-v4.1-exomes-autosomes"
+        },
+        "release": {
+          "const": "v4.1"
+        },
+        "repo": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "repo_type": {
+          "const": "dataset"
+        },
+        "shards": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "chromosome": {
+                "pattern": "^([1-9]|1[0-9]|2[0-2])$",
+                "type": "string"
+              },
+              "namespace": {
+                "pattern": "^staging/v0\\.3/[A-Za-z0-9._/-]+$",
+                "type": "string"
+              },
+              "output": {
+                "additionalProperties": false,
+                "properties": {
+                  "artifact_path": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "records": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "schema_version": {
+                    "const": "2.0.0"
+                  },
+                  "sha256": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "size_bytes": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "artifact_path",
+                  "sha256",
+                  "size_bytes",
+                  "records",
+                  "schema_version"
+                ],
+                "type": "object"
+              },
+              "receipt": {
+                "$ref": "#/$defs/artifactIdentity"
+              },
+              "remote_postflight": {
+                "additionalProperties": false,
+                "properties": {
+                  "checks": {
+                    "const": [
+                      "exact_hub_revision_resolved",
+                      "complete_namespace_file_set",
+                      "source_lock_and_schema_bound",
+                      "source_lock_and_schema_match_source_commit",
+                      "selection_rederived_from_source_lock",
+                      "metadata_verification_recomputed",
+                      "receipt_evidence_identities_recomputed",
+                      "parquet_sha256_and_size_recomputed",
+                      "parquet_full_scan_recomputed"
+                    ]
+                  },
+                  "schema_version": {
+                    "const": "geno-lewm.gnomad-remote-postflight.v1"
+                  },
+                  "sha256": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "size_bytes": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "verified_files": {
+                    "const": [
+                      "data/gnomad/v4.1/variants.parquet",
+                      "evidence/gcs-metadata-verification.json",
+                      "evidence/gcs-object-metadata.json",
+                      "evidence/prepare-report.json",
+                      "evidence/receipt.json",
+                      "evidence/selection.json",
+                      "evidence/source-lock.json",
+                      "evidence/source-lock.schema.json",
+                      "evidence/source-stream-identity.json"
+                    ]
+                  }
+                },
+                "required": [
+                  "schema_version",
+                  "sha256",
+                  "size_bytes",
+                  "verified_files",
+                  "checks"
+                ],
+                "type": "object"
+              },
+              "revision": {
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              "source": {
+                "additionalProperties": false,
+                "properties": {
+                  "bucket": {
+                    "type": "string"
+                  },
+                  "generation": {
+                    "pattern": "^[0-9]+$",
+                    "type": "string"
+                  },
+                  "object": {
+                    "type": "string"
+                  },
+                  "size_bytes": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "streamed_sha256": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "upstream_md5_base64": {
+                    "type": "string"
+                  },
+                  "upstream_md5_hex": {
+                    "pattern": "^[0-9a-f]{32}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "bucket",
+                  "object",
+                  "generation",
+                  "size_bytes",
+                  "upstream_md5_base64",
+                  "upstream_md5_hex",
+                  "streamed_sha256"
+                ],
+                "type": "object"
+              },
+              "split_role": {
+                "enum": [
+                  "train",
+                  "validation",
+                  "evaluation"
+                ]
+              },
+              "transform": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "const": "geno-lewm-prepare-gnomad"
+                  },
+                  "filter": {
+                    "const": "PASS"
+                  },
+                  "max_allele_len": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "min_af": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "command",
+                  "filter",
+                  "min_af",
+                  "max_allele_len"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "chromosome",
+              "split_role",
+              "revision",
+              "namespace",
+              "receipt",
+              "remote_postflight",
+              "source",
+              "transform",
+              "output"
+            ],
+            "type": "object"
+          },
+          "maxItems": 22,
+          "minItems": 22,
+          "type": "array"
+        },
+        "source_lock": {
+          "additionalProperties": false,
+          "properties": {
+            "schema_sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "schema_version": {
+              "const": "geno-lewm.gnomad-source-lock.v1"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema_version",
+            "sha256",
+            "schema_sha256"
+          ],
+          "type": "object"
+        },
+        "split_policy": {
+          "additionalProperties": false,
+          "properties": {
+            "evaluation": {
+              "const": [
+                "21"
+              ]
+            },
+            "train": {
+              "const": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "17",
+                "18",
+                "19",
+                "22"
+              ]
+            },
+            "validation": {
+              "const": [
+                "20"
+              ]
+            }
+          },
+          "required": [
+            "train",
+            "validation",
+            "evaluation"
+          ],
+          "type": "object"
+        },
+        "total_records": {
+          "minimum": 22,
+          "type": "integer"
+        },
+        "total_size_bytes": {
+          "minimum": 22,
+          "type": "integer"
+        },
+        "transform": {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "const": "geno-lewm-prepare-gnomad"
+            },
+            "filter": {
+              "const": "PASS"
+            },
+            "max_allele_len": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_af": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "command",
+            "filter",
+            "min_af",
+            "max_allele_len"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "release",
+        "repo",
+        "repo_type",
+        "data_use",
+        "source_lock",
+        "transform",
+        "common_execution",
+        "split_policy",
+        "total_records",
+        "total_size_bytes",
+        "shards"
+      ],
+      "type": "object"
+    },
+    "lineage_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "membership_status": {
+      "const": "not_created"
+    },
+    "reference_genome": {
+      "const": "GRCh38"
+    },
+    "schema_version": {
+      "const": "geno-lewm.v03-snapshot-lineage.v1"
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_by",
+    "candidate_snapshot_id",
+    "reference_genome",
+    "membership_status",
+    "assembly_inputs",
+    "gnomad",
+    "clinvar",
+    "claim_boundary",
+    "lineage_id"
+  ],
+  "title": "GenoLeWM v0.3 immutable snapshot lineage",
+  "type": "object"
+}

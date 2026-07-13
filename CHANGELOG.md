@@ -58,6 +58,15 @@ or incompatible command changes require an explicit compatibility note.
 - Added an exact-revision ClinVar staging postflight that binds immutable
   source-code contracts, reconciles audit/prepare/runtime/source identities,
   and full-scans the corrected Parquet shard with a closed JSON report schema.
+- Added closed, versioned v0.3 snapshot-lineage schemas and an offline
+  fail-closed assembler for reconciling all 22 gnomAD staging receipts,
+  immutable-revision remote postflights, and the corrected ClinVar audit.
+  Lineage output remains explicitly `membership_status=not_created`.
+- Bound each gnomAD shard to the verifier's exact repository, revision,
+  namespace, source commit, chromosome, namespace inventory, receipt and
+  Parquet identities, and type-strict fresh Parquet audit. Added source-specific
+  gnomAD and ClinVar license, attribution, terms, restriction, and materialized
+  field metadata to the content-addressed lineage.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as
