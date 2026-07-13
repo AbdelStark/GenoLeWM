@@ -74,6 +74,7 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/release/training_run.py",
         "tools/release/v02_benchmark_readiness.py",
         "tools/release/v02_benchmark_suite.py",
+        "tools/research/correction_control_model_manifest.py",
         "tools/research/correction_control_postflight.py",
         "tools/research/correction_control_preflight.py",
         "tools/research/correction_control_replay.py",

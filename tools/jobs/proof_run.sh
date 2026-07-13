@@ -509,6 +509,33 @@ geno-lewm-export \
   --output-dir "$WORK/model" \
   --no-banner --quiet
 
+log "author non-release correction-control model evidence manifest"
+python -m tools.research.correction_control_model_manifest author \
+  --model-dir "$WORK/model" \
+  --training-run-json "$WORK/run/training_run.json" \
+  --training-config "$WORK/run/training_config.effective.yaml" \
+  --checkpoint "$WORK/run/predictor_checkpoint.pt" \
+  --state-contract-audit-json "$WORK/run/correction_control/state_contract_audit.json" \
+  --dataset-manifest-json "$WORK/run/dataset_manifest.json" \
+  --correction-control-postflight-json \
+    "$WORK/run/correction_control/correction_control_postflight.json" \
+  --export-report-json "$WORK/model/export_report.json" \
+  --manifest-json "$WORK/model/manifest.json"
+
+log "revalidate correction-control model evidence manifest"
+python -m tools.research.correction_control_model_manifest validate \
+  --model-dir "$WORK/model" \
+  --training-run-json "$WORK/run/training_run.json" \
+  --training-config "$WORK/run/training_config.effective.yaml" \
+  --checkpoint "$WORK/run/predictor_checkpoint.pt" \
+  --state-contract-audit-json "$WORK/run/correction_control/state_contract_audit.json" \
+  --dataset-manifest-json "$WORK/run/dataset_manifest.json" \
+  --correction-control-postflight-json \
+    "$WORK/run/correction_control/correction_control_postflight.json" \
+  --export-report-json "$WORK/model/export_report.json" \
+  --manifest-json "$WORK/model/manifest.json" \
+  --validation-report-json "$WORK/model/manifest_validation.json"
+
 CONTROL_ARTIFACTS=(
   job_contract_preflight.json
   source_identity_report.json

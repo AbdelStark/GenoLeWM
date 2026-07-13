@@ -127,3 +127,24 @@ def test_proof_job_replay_uses_only_completed_reference_before_final_upload() ->
         assert flag in replay_block
     assert "deterministic_replay_report.json" in script
     assert "CONTROL_ARTIFACTS+=(deterministic_replay_report.json)" in script
+
+
+def test_proof_job_authors_and_revalidates_non_release_model_manifest_before_upload() -> None:
+    script = PROOF_RUN.read_text(encoding="utf-8")
+
+    export = script.index("geno-lewm-export")
+    author = script.index("python -m tools.research.correction_control_model_manifest author")
+    validate = script.index("python -m tools.research.correction_control_model_manifest validate")
+    model_upload = script.index(
+        'hf upload "$UPLOAD_REPO" "$WORK/model" "$RUN_NAME/model" --repo-type model'
+    )
+
+    assert export < author < validate < model_upload
+    manifest_slice = script[author:model_upload]
+    assert '"$WORK/model/manifest.json"' in manifest_slice
+    assert '"$WORK/model/manifest_validation.json"' in manifest_slice
+    assert '"$WORK/run/correction_control/correction_control_postflight.json"' in manifest_slice
+    assert '"$WORK/run/correction_control/state_contract_audit.json"' in manifest_slice
+    assert '"$WORK/run/training_config.effective.yaml"' in manifest_slice
+    assert '"$WORK/run/dataset_manifest.json"' in manifest_slice
+    assert '"$WORK/run/predictor_checkpoint.pt"' in manifest_slice
