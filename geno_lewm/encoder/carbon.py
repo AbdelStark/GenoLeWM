@@ -108,7 +108,7 @@ class CarbonStateEncoder:
         self.revision = revision
         self.dtype = dtype
         self.state_layer = state_layer
-        self.pool_type = cast(_PoolType, pool_type)
+        self.pool_type = pool_type
         self.pool_radius = pool_radius
         self.normalize = normalize
         self.local_files_only = local_files_only
