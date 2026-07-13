@@ -449,6 +449,7 @@ action:
   sub_encoders:
     - snv
 optimizer:
+  lr: 3.0e-5
   warmup_steps: 10
   schedule: wsd
 eval:

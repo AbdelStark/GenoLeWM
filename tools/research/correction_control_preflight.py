@@ -57,6 +57,7 @@ EXPECTED_SOURCE_INTEGRITY: Final[dict[str, object]] = {
 }
 
 EXPECTED_STEPS: Final = 50
+EXPECTED_OPTIMIZER_LR: Final = 3.0e-5
 EXPECTED_MAX_WINDOWS: Final = 512
 EXPECTED_CLINVAR_LINES: Final = 60_000
 EXPECTED_GNOMAD_LINES: Final = 60_000
@@ -448,7 +449,7 @@ def _validate_config(
         (("training", "max_steps"), EXPECTED_STEPS),
         (("training", "collapse_log_every_steps"), 10),
         (("optimizer", "name"), "adamw"),
-        (("optimizer", "lr"), 3.0e-4),
+        (("optimizer", "lr"), EXPECTED_OPTIMIZER_LR),
         (("optimizer", "beta1"), 0.9),
         (("optimizer", "beta2"), 0.95),
         (("optimizer", "weight_decay"), 0.1),

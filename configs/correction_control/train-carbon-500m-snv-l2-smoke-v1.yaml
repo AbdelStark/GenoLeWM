@@ -43,7 +43,10 @@ training:
 
 optimizer:
   name: adamw
-  lr: 3.0e-4
+  # The first normalized-state H200 proof showed that 3e-4 destabilized the
+  # identity initialization and tripped variance-collapse alerts. Keep this
+  # bounded proof conservative; model-selection runs require a separate sweep.
+  lr: 3.0e-5
   beta1: 0.9
   beta2: 0.95
   weight_decay: 0.1
