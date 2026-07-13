@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import re
 import sys
@@ -12,8 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from geno_lewm.data import MembershipStore
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import sha256_file
+from geno_lewm.provenance.hashing import looks_like_sha256
 from tools.release.dataset_integrity import (
     DEFAULT_REPORT_NAME,
     SplitIntegrityReport,
@@ -24,6 +27,19 @@ SCHEMA_VERSION: Final = "1.0.0"
 ARTIFACT_ROLE_SCHEMA_VERSION: Final = "1.1.0"
 ArtifactRole = Literal["split_data", "split_companion", "evidence"]
 ARTIFACT_ROLES: Final[frozenset[str]] = frozenset({"split_data", "split_companion", "evidence"})
+MEMBERSHIP_STORE_FILES: Final = frozenset(
+    {
+        "manifest.json",
+        "memberships.parquet",
+        "lookup.sqlite",
+        "snapshot-lineage.json",
+        "build-receipt.json",
+    }
+)
+MEMBERSHIP_SPLIT_EVIDENCE_SCHEMA_VERSION: Final = "geno-lewm.membership-split-evidence.v1"
+MEMBERSHIP_SPLIT_EVIDENCE_SCHEMA_SHA256: Final = (
+    "sha256:a4bf6b1a9c60926878e7de0f67116936d0c1490663eb7de94a732df526116810"
+)
 GENERATED_BY: Final = "tools.release.dataset_package"
 GENERATED_FILES: Final = frozenset(
     {
@@ -38,6 +54,7 @@ PLACEHOLDER_RE: Final = re.compile(
     r"\b(?:tbd|todo|placeholder|coming soon|fake|dummy|lorem ipsum)\b",
     re.IGNORECASE,
 )
+SAFE_RELATIVE_PATH_RE: Final = re.compile(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*")
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +93,58 @@ class DatasetArtifact:
 
 
 @dataclass(frozen=True, slots=True)
+class MembershipStoreBinding:
+    """Package-local membership store plus its verified semantic identities."""
+
+    path: str
+    artifact_id: str
+    content_identity: str
+    physical_identity: str
+    rowset_sha256: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "path": self.path,
+            "artifact_id": self.artifact_id,
+            "content_identity": self.content_identity,
+            "physical_identity": self.physical_identity,
+            "rowset_sha256": self.rowset_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SplitEvidenceBinding:
+    """Package-local split report and its bundled validation schema."""
+
+    path: str
+    schema_path: str
+    artifact_id: str
+    schema_version: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "path": self.path,
+            "schema_path": self.schema_path,
+            "artifact_id": self.artifact_id,
+            "schema_version": self.schema_version,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipAndSplitEvidence:
+    """Closed binding between split files, their report, and membership store."""
+
+    membership_store: MembershipStoreBinding
+    report: SplitEvidenceBinding
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "membership_store": self.membership_store.to_dict(),
+            "report": self.report.to_dict(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class DatasetPackage:
     """Validated dataset package metadata plus computed file identities."""
 
@@ -92,9 +161,10 @@ class DatasetPackage:
     intended_use: str
     limitations: tuple[str, ...]
     files: tuple[DatasetArtifact, ...]
+    membership_and_split_evidence: MembershipAndSplitEvidence | None = None
 
     def manifest(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "snapshot_id": self.snapshot_id,
             "generated_by": self.generated_by,
@@ -109,6 +179,9 @@ class DatasetPackage:
             "limitations": list(self.limitations),
             "files": [file.to_manifest() for file in self.files],
         }
+        if self.membership_and_split_evidence is not None:
+            payload["membership_and_split_evidence"] = self.membership_and_split_evidence.to_dict()
+        return payload
 
     def metadata(self) -> dict[str, object]:
         return self.manifest()
@@ -247,6 +320,24 @@ def parse_dataset_package(
     generated_at = _optional_text(payload, "generated_at") or _utc_now()
     sources = _parse_sources(payload.get("sources"))
     splits = _parse_splits(payload.get("splits"))
+    files = _parse_files(
+        payload.get("files"),
+        dataset_dir=dataset_dir,
+        splits=frozenset(splits),
+        schema_version=schema_version,
+    )
+    raw_evidence = payload.get("membership_and_split_evidence")
+    if schema_version == SCHEMA_VERSION and "membership_and_split_evidence" in payload:
+        raise InputError("schema 1.0.0 forbids membership_and_split_evidence")
+    membership_and_split_evidence = (
+        None
+        if raw_evidence is None
+        else _parse_membership_and_split_evidence(
+            raw_evidence,
+            dataset_dir=dataset_dir,
+            files=files,
+        )
+    )
     package = DatasetPackage(
         schema_version=schema_version,
         snapshot_id=_required_text(payload, "snapshot_id"),
@@ -260,12 +351,8 @@ def parse_dataset_package(
         leakage_checks=_parse_text_list(payload.get("leakage_checks"), field="leakage_checks"),
         intended_use=_required_text(payload, "intended_use"),
         limitations=_parse_text_list(payload.get("limitations"), field="limitations"),
-        files=_parse_files(
-            payload.get("files"),
-            dataset_dir=dataset_dir,
-            splits=frozenset(splits),
-            schema_version=schema_version,
-        ),
+        files=files,
+        membership_and_split_evidence=membership_and_split_evidence,
     )
     if not allow_placeholders:
         _reject_placeholders(_text_fields(package))
@@ -318,20 +405,68 @@ def render_data_card(
         ]
     )
     lines.extend(f"- {item}" for item in package.leakage_checks)
-    lines.extend(["", "## Files", "", "| Path | SHA-256 | Bytes | Split | Records | Description |"])
-    lines.append("| --- | --- | ---: | --- | ---: | --- |")
-    lines.extend(
-        (
-            f"| {_md_cell(file.path)} | {_md_cell(file.sha256)} | {file.size_bytes} "
-            f"| {_md_cell(file.split or '')} | {'' if file.records is None else file.records} "
-            f"| {_md_cell(file.description or '')} |"
+    lines.extend(["", "## Files", ""])
+    if package.schema_version == ARTIFACT_ROLE_SCHEMA_VERSION:
+        lines.append(
+            "| Path | Artifact role | Companion of | SHA-256 | Bytes | Split | Records | Description |"
         )
-        for file in package.files
-    )
+        lines.append("| --- | --- | --- | --- | ---: | --- | ---: | --- |")
+        lines.extend(
+            (
+                f"| {_md_cell(file.path)} | {_md_cell(file.artifact_role or '')} "
+                f"| {_md_cell(file.companion_of or '')} | {_md_cell(file.sha256)} "
+                f"| {file.size_bytes} | {_md_cell(file.split or '')} "
+                f"| {'' if file.records is None else file.records} "
+                f"| {_md_cell(file.description or '')} |"
+            )
+            for file in package.files
+        )
+    else:
+        lines.append("| Path | SHA-256 | Bytes | Split | Records | Description |")
+        lines.append("| --- | --- | ---: | --- | ---: | --- |")
+        lines.extend(
+            (
+                f"| {_md_cell(file.path)} | {_md_cell(file.sha256)} | {file.size_bytes} "
+                f"| {_md_cell(file.split or '')} | {'' if file.records is None else file.records} "
+                f"| {_md_cell(file.description or '')} |"
+            )
+            for file in package.files
+        )
+    lines.extend(_membership_and_split_evidence_lines(package.membership_and_split_evidence))
     lines.extend(["", "## Intended Use", "", package.intended_use, "", "## Limitations", ""])
     lines.extend(f"- {item}" for item in package.limitations)
     lines.append("")
     return "\n".join(lines)
+
+
+def _membership_and_split_evidence_lines(
+    evidence: MembershipAndSplitEvidence | None,
+) -> list[str]:
+    if evidence is None:
+        return []
+    store = evidence.membership_store
+    report = evidence.report
+    return [
+        "",
+        "## Membership and Split Evidence",
+        "",
+        (
+            "Deterministic unphased variant membership is enforced by the package-bound "
+            "store and audited split report. This is not phased-haplotype membership."
+        ),
+        "",
+        "| Binding | Value |",
+        "| --- | --- |",
+        f"| Membership store | `{_md_cell(store.path)}` |",
+        f"| Membership artifact | `{_md_cell(store.artifact_id)}` |",
+        f"| Membership content identity | `{_md_cell(store.content_identity)}` |",
+        f"| Membership physical identity | `{_md_cell(store.physical_identity)}` |",
+        f"| Membership rowset | `{_md_cell(store.rowset_sha256)}` |",
+        f"| Split evidence report | `{_md_cell(report.path)}` |",
+        f"| Split evidence artifact | `{_md_cell(report.artifact_id)}` |",
+        f"| Split evidence schema | `{_md_cell(report.schema_path)}` |",
+        f"| Split evidence schema version | `{_md_cell(report.schema_version)}` |",
+    ]
 
 
 def _class_balance_lines(
@@ -482,6 +617,8 @@ def _parse_files(
                     details={"index": index, "fields": forbidden},
                 )
         relative = _required_text(item, "path", prefix=f"files[{index}].")
+        if schema_version == ARTIFACT_ROLE_SCHEMA_VERSION:
+            _require_canonical_relative_posix_path(relative, field=f"files[{index}].path")
         if relative in GENERATED_FILES:
             raise InputError(
                 "generated dataset package files cannot be listed as data files",
@@ -491,6 +628,8 @@ def _parse_files(
             raise InputError("files list contains duplicate paths", details={"path": relative})
         seen.add(relative)
         path = _safe_relative(dataset_dir, relative)
+        if schema_version == ARTIFACT_ROLE_SCHEMA_VERSION:
+            _reject_symlink_traversal(dataset_dir, relative)
         if not path.is_file():
             raise InputError("dataset file is missing", details={"path": str(path)})
         artifact_role_raw = _optional_text(item, "artifact_role", prefix=f"files[{index}].")
@@ -595,6 +734,478 @@ def _validate_companion_targets(files: list[DatasetArtifact]) -> None:
             )
 
 
+def _parse_membership_and_split_evidence(
+    raw: Any,
+    *,
+    dataset_dir: Path,
+    files: tuple[DatasetArtifact, ...],
+) -> MembershipAndSplitEvidence:
+    payload = _required_mapping(raw, "membership_and_split_evidence")
+    _require_exact_keys(
+        payload,
+        {"membership_store", "report"},
+        "membership_and_split_evidence",
+    )
+    raw_store = _required_mapping(
+        payload.get("membership_store"),
+        "membership_and_split_evidence.membership_store",
+    )
+    _require_exact_keys(
+        raw_store,
+        {"path", "artifact_id", "content_identity", "physical_identity", "rowset_sha256"},
+        "membership_and_split_evidence.membership_store",
+    )
+    store = MembershipStoreBinding(
+        path=_required_binding_path(raw_store, "path", dataset_dir=dataset_dir),
+        artifact_id=_required_text(raw_store, "artifact_id"),
+        content_identity=_required_sha256(raw_store, "content_identity"),
+        physical_identity=_required_sha256(raw_store, "physical_identity"),
+        rowset_sha256=_required_sha256(raw_store, "rowset_sha256"),
+    )
+    raw_report = _required_mapping(
+        payload.get("report"),
+        "membership_and_split_evidence.report",
+    )
+    _require_exact_keys(
+        raw_report,
+        {"path", "schema_path", "artifact_id", "schema_version"},
+        "membership_and_split_evidence.report",
+    )
+    report = SplitEvidenceBinding(
+        path=_required_binding_path(raw_report, "path", dataset_dir=dataset_dir),
+        schema_path=_required_binding_path(
+            raw_report,
+            "schema_path",
+            dataset_dir=dataset_dir,
+        ),
+        artifact_id=_required_text(raw_report, "artifact_id"),
+        schema_version=_required_text(raw_report, "schema_version"),
+    )
+    binding = MembershipAndSplitEvidence(membership_store=store, report=report)
+    _validate_membership_and_split_evidence(
+        binding,
+        dataset_dir=dataset_dir,
+        files=files,
+    )
+    return binding
+
+
+def _validate_membership_and_split_evidence(
+    binding: MembershipAndSplitEvidence,
+    *,
+    dataset_dir: Path,
+    files: tuple[DatasetArtifact, ...],
+) -> None:
+    by_path = {file.path: file for file in files}
+    store_paths = {f"{binding.membership_store.path}/{name}" for name in MEMBERSHIP_STORE_FILES}
+    _require_evidence_artifacts(store_paths, by_path, label="membership store")
+    _require_evidence_artifacts(
+        {binding.report.path, binding.report.schema_path},
+        by_path,
+        label="split evidence",
+    )
+    schema_artifact = by_path[binding.report.schema_path]
+    if schema_artifact.sha256 != MEMBERSHIP_SPLIT_EVIDENCE_SCHEMA_SHA256:
+        raise InputError(
+            "membership split evidence must use the tracked schema identity",
+            details={
+                "expected": MEMBERSHIP_SPLIT_EVIDENCE_SCHEMA_SHA256,
+                "observed": schema_artifact.sha256,
+            },
+        )
+    if binding.report.schema_version != MEMBERSHIP_SPLIT_EVIDENCE_SCHEMA_VERSION:
+        raise InputError(
+            "membership split evidence schema version is unsupported",
+            details={
+                "expected": MEMBERSHIP_SPLIT_EVIDENCE_SCHEMA_VERSION,
+                "observed": binding.report.schema_version,
+            },
+        )
+
+    store_root = _safe_relative(dataset_dir, binding.membership_store.path)
+    if not store_root.is_dir():
+        raise InputError(
+            "membership store binding path is not a directory",
+            details={"path": binding.membership_store.path},
+        )
+    with MembershipStore.open(store_root, verify=True) as opened:
+        observed_store = {
+            "artifact_id": opened.manifest.artifact_id,
+            "content_identity": opened.manifest.content_identity,
+            "physical_identity": opened.manifest.physical_identity,
+            "rowset_sha256": opened.manifest.rowset_sha256,
+        }
+    expected_store = {
+        "artifact_id": binding.membership_store.artifact_id,
+        "content_identity": binding.membership_store.content_identity,
+        "physical_identity": binding.membership_store.physical_identity,
+        "rowset_sha256": binding.membership_store.rowset_sha256,
+    }
+    if observed_store != expected_store:
+        raise InputError(
+            "membership store binding identity mismatch",
+            details={"expected": expected_store, "observed": observed_store},
+        )
+
+    schema = _load_json_object(
+        _safe_relative(dataset_dir, binding.report.schema_path),
+        "membership split evidence schema",
+    )
+    report = _load_json_object(
+        _safe_relative(dataset_dir, binding.report.path),
+        "membership split evidence report",
+    )
+    _validate_json_schema(report, schema)
+    _require_publication_eligible_split_evidence(report)
+    if (
+        report.get("artifact_id") != binding.report.artifact_id
+        or report.get("schema_version") != binding.report.schema_version
+    ):
+        raise InputError(
+            "split evidence report binding mismatch",
+            details={
+                "expected_artifact_id": binding.report.artifact_id,
+                "observed_artifact_id": report.get("artifact_id"),
+                "expected_schema_version": binding.report.schema_version,
+                "observed_schema_version": report.get("schema_version"),
+            },
+        )
+    report_store = _required_mapping(
+        report.get("membership_store"),
+        "membership split evidence membership_store",
+    )
+    report_store_identities = {
+        key: report_store.get(key)
+        for key in ("artifact_id", "content_identity", "physical_identity", "rowset_sha256")
+    }
+    if report_store_identities != expected_store:
+        raise InputError(
+            "split evidence membership store identity mismatch",
+            details={"expected": expected_store, "observed": report_store_identities},
+        )
+    _validate_split_evidence_streams(report, by_path)
+    _validate_training_window_binding(report, by_path)
+
+
+def _require_publication_eligible_split_evidence(report: dict[str, Any]) -> None:
+    producer = _required_mapping(report.get("producer"), "membership split evidence producer")
+    store = _required_mapping(
+        report.get("membership_store"),
+        "membership split evidence membership_store",
+    )
+    lineage = _required_mapping(
+        store.get("lineage"),
+        "membership split evidence membership_store.lineage",
+    )
+    claim = _required_mapping(
+        report.get("claim_boundary"),
+        "membership split evidence claim_boundary",
+    )
+    streams = _required_mapping(report.get("streams"), "membership split evidence streams")
+    audits = _required_mapping(report.get("audits"), "membership split evidence audits")
+    exhaustive = _required_mapping(
+        audits.get("exhaustive"),
+        "membership split evidence audits.exhaustive",
+    )
+    deterministic_sample = _required_mapping(
+        audits.get("deterministic_sample"),
+        "membership split evidence audits.deterministic_sample",
+    )
+    eligible = (
+        report.get("ok") is True
+        and producer.get("invocation_verified") is True
+        and lineage.get("evidence_profile") == "official"
+        and claim.get("publication_eligible") is True
+        and claim.get("variant_membership") is True
+        and claim.get("phased_haplotype_membership") is False
+        and claim.get("released_v03_snapshot") is False
+        and set(streams) == {"validation", "evaluation"}
+        and exhaustive.get("status") == "passed"
+        and exhaustive.get("policy_exclusions") == 0
+        and exhaustive.get("indexed_overlaps") == 0
+        and deterministic_sample.get("status") == "passed"
+        and deterministic_sample.get("policy_exclusions") == 0
+        and deterministic_sample.get("indexed_overlaps") == 0
+    )
+    if not eligible:
+        raise InputError(
+            "membership split evidence is not publication eligible",
+            details={
+                "invocation_verified": producer.get("invocation_verified"),
+                "evidence_profile": lineage.get("evidence_profile"),
+                "publication_eligible": claim.get("publication_eligible"),
+                "streams": sorted(str(key) for key in streams),
+            },
+        )
+
+
+def _require_evidence_artifacts(
+    paths: set[str],
+    by_path: dict[str, DatasetArtifact],
+    *,
+    label: str,
+) -> None:
+    invalid = sorted(
+        path for path in paths if path not in by_path or by_path[path].artifact_role != "evidence"
+    )
+    if invalid:
+        raise InputError(
+            f"{label} binding paths must be declared evidence files",
+            details={"paths": invalid},
+        )
+
+
+def _validate_split_evidence_streams(
+    report: dict[str, Any],
+    by_path: dict[str, DatasetArtifact],
+) -> None:
+    streams = _required_mapping(report.get("streams"), "membership split evidence streams")
+    if not streams:
+        raise InputError("membership split evidence streams must be non-empty")
+    for stream_name, raw_stream in streams.items():
+        stream = _required_mapping(raw_stream, f"membership split evidence streams.{stream_name}")
+        role = _required_text(stream, "role", prefix=f"streams.{stream_name}.")
+        records = _required_positive_int(
+            stream,
+            "record_count",
+            prefix=f"streams.{stream_name}.",
+        )
+        labels_identity = _required_file_identity(
+            stream.get("labels_jsonl"),
+            field=f"streams.{stream_name}.labels_jsonl",
+        )
+        vcf_identity = _required_file_identity(
+            stream.get("vcf"),
+            field=f"streams.{stream_name}.vcf",
+        )
+        labels = by_path.get(str(labels_identity["path"]))
+        vcf = by_path.get(str(vcf_identity["path"]))
+        roles_match = (
+            labels is not None
+            and labels.artifact_role == "split_data"
+            and labels.split == role
+            and labels.records == records
+            and vcf is not None
+            and vcf.artifact_role == "split_companion"
+            and vcf.companion_of == labels.path
+            and vcf.split == role
+            and vcf.records == records
+        )
+        if not roles_match:
+            raise InputError(
+                "split evidence stream artifact roles do not match the package",
+                details={"stream": stream_name},
+            )
+        assert labels is not None
+        assert vcf is not None
+        _match_reported_file_identity(labels_identity, labels, field="labels_jsonl")
+        _match_reported_file_identity(vcf_identity, vcf, field="vcf")
+
+
+def _validate_training_window_binding(
+    report: dict[str, Any],
+    by_path: dict[str, DatasetArtifact],
+) -> None:
+    training = _required_mapping(
+        report.get("training_windows"),
+        "membership split evidence training_windows",
+    )
+    source = _required_mapping(
+        training.get("source"),
+        "membership split evidence training_windows.source",
+    )
+    source_path = _required_text(source, "artifact_path", prefix="training_windows.source.")
+    records = _required_positive_int(training, "record_count", prefix="training_windows.")
+    split = _required_text(training, "split", prefix="training_windows.")
+    sha256 = _required_sha256(training, "sha256", prefix="training_windows.")
+    size_bytes = _required_non_negative_int(
+        training,
+        "size_bytes",
+        prefix="training_windows.",
+    )
+    candidates = [
+        artifact
+        for artifact in by_path.values()
+        if artifact.artifact_role == "split_data"
+        and artifact.split == split
+        and artifact.records == records
+        and artifact.sha256 == sha256
+        and artifact.size_bytes == size_bytes
+    ]
+    if len(candidates) != 1:
+        raise InputError(
+            "split evidence training window must bind exactly one split_data file by identity",
+            details={
+                "source_artifact_path": source_path,
+                "split": split,
+                "records": records,
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "matches": sorted(artifact.path for artifact in candidates),
+            },
+        )
+
+
+def _match_reported_file_identity(
+    reported: dict[str, object],
+    artifact: DatasetArtifact,
+    *,
+    field: str,
+) -> None:
+    expected = {
+        "path": artifact.path,
+        "sha256": artifact.sha256,
+        "size_bytes": artifact.size_bytes,
+    }
+    if reported != expected:
+        raise InputError(
+            "split evidence file identity mismatch",
+            details={"field": field, "expected": expected, "observed": reported},
+        )
+
+
+def _required_file_identity(raw: Any, *, field: str) -> dict[str, object]:
+    payload = _required_mapping(raw, field)
+    _require_exact_keys(payload, {"path", "sha256", "size_bytes"}, field)
+    path = _required_text(payload, "path", prefix=f"{field}.")
+    sha256 = _required_sha256(payload, "sha256", prefix=f"{field}.")
+    size_bytes = _required_non_negative_int(payload, "size_bytes", prefix=f"{field}.")
+    return {"path": path, "sha256": sha256, "size_bytes": size_bytes}
+
+
+def _load_json_object(path: Path, field: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except OSError as exc:
+        raise InputError(f"failed to read {field}", details={"path": str(path)}) from exc
+    except json.JSONDecodeError as exc:
+        raise InputError(
+            f"{field} JSON is invalid",
+            details={"path": str(path), "line": exc.lineno, "column": exc.colno},
+        ) from exc
+    if not isinstance(payload, dict):
+        raise InputError(f"{field} must be a JSON object")
+    return payload
+
+
+def _validate_json_schema(instance: dict[str, Any], schema: dict[str, Any]) -> None:
+    try:
+        jsonschema = importlib.import_module("jsonschema")
+    except ImportError as exc:
+        raise InputError(
+            "membership split evidence validation requires jsonschema",
+            remediation="install geno-lewm[evidence] or geno-lewm[dev]",
+        ) from exc
+    validator_type = jsonschema.Draft202012Validator
+    try:
+        validator_type.check_schema(schema)
+    except Exception as exc:
+        raise InputError("membership split evidence schema is invalid") from exc
+    errors = sorted(
+        validator_type(schema).iter_errors(instance),
+        key=lambda error: tuple(str(item) for item in error.absolute_path),
+    )
+    if errors:
+        raise InputError(
+            "membership split evidence report does not satisfy its bound schema",
+            details={"error": errors[0].message},
+        )
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise InputError("membership split evidence JSON contains duplicate keys")
+        payload[key] = value
+    return payload
+
+
+def _required_mapping(raw: Any, field: str) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise InputError(f"{field} must be an object")
+    return raw
+
+
+def _require_exact_keys(payload: dict[str, Any], expected: set[str], field: str) -> None:
+    observed = set(payload)
+    if observed != expected:
+        raise InputError(
+            f"{field} fields are invalid",
+            details={
+                "missing": sorted(expected - observed),
+                "unexpected": sorted(observed - expected),
+            },
+        )
+
+
+def _required_binding_path(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    dataset_dir: Path,
+) -> str:
+    value = _required_text(payload, key)
+    _require_canonical_relative_posix_path(value, field=key)
+    _safe_relative(dataset_dir, value)
+    return value
+
+
+def _require_canonical_relative_posix_path(value: str, *, field: str) -> None:
+    if SAFE_RELATIVE_PATH_RE.fullmatch(value) is None or any(
+        part in {".", ".."} for part in value.split("/")
+    ):
+        raise InputError(
+            "dataset artifact paths must be canonical relative POSIX paths",
+            details={"field": field, "path": value},
+        )
+
+
+def _reject_symlink_traversal(root: Path, relative: str) -> None:
+    candidate = root
+    for part in relative.split("/"):
+        candidate /= part
+        if candidate.is_symlink():
+            raise InputError(
+                "schema 1.1.0 dataset artifacts must not traverse symbolic links",
+                details={"path": relative},
+            )
+
+
+def _required_sha256(payload: dict[str, Any], key: str, *, prefix: str = "") -> str:
+    value = _required_text(payload, key, prefix=prefix)
+    if not looks_like_sha256(value):
+        raise InputError(f"{prefix}{key} must be a canonical SHA-256 identity")
+    return value
+
+
+def _required_positive_int(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    prefix: str = "",
+) -> int:
+    value = payload.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise InputError(f"{prefix}{key} must be a positive integer")
+    return value
+
+
+def _required_non_negative_int(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    prefix: str = "",
+) -> int:
+    value = payload.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise InputError(f"{prefix}{key} must be a non-negative integer")
+    return value
+
+
 def _write_sha256sums(dataset_dir: Path, path: Path, files: tuple[str, ...]) -> None:
     lines = []
     for relative in files:
@@ -680,9 +1291,25 @@ def _text_fields(package: DatasetPackage) -> dict[str, str]:
         fields[f"limitations[{index}]"] = item
     for index, file in enumerate(package.files):
         fields[f"files[{index}].path"] = file.path
+        fields[f"files[{index}].artifact_role"] = file.artifact_role or ""
+        fields[f"files[{index}].companion_of"] = file.companion_of or ""
         fields[f"files[{index}].split"] = file.split or ""
         fields[f"files[{index}].records"] = "" if file.records is None else str(file.records)
         fields[f"files[{index}].description"] = file.description or ""
+    evidence = package.membership_and_split_evidence
+    if evidence is not None:
+        store = evidence.membership_store
+        report = evidence.report
+        fields.update(
+            {
+                "membership_and_split_evidence.membership_store.path": store.path,
+                "membership_and_split_evidence.membership_store.artifact_id": store.artifact_id,
+                "membership_and_split_evidence.report.path": report.path,
+                "membership_and_split_evidence.report.schema_path": report.schema_path,
+                "membership_and_split_evidence.report.artifact_id": report.artifact_id,
+                "membership_and_split_evidence.report.schema_version": report.schema_version,
+            }
+        )
     return fields
 
 

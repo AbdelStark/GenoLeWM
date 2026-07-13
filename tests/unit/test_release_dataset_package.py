@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import tools.release.dataset_package as dataset_package_module
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_file
 from tools.release.dataset_integrity import DEFAULT_REPORT_NAME
@@ -406,6 +408,157 @@ def test_build_dataset_package_schema_1_1_reports_schema_version(tmp_path: Path)
     assert report.to_dict()["schema_version"] == "1.1.0"
 
 
+def test_schema_1_0_rejects_membership_and_split_evidence_binding(tmp_path: Path) -> None:
+    _write_data_files(tmp_path)
+    payload = _metadata()
+    payload["membership_and_split_evidence"] = {}
+
+    with pytest.raises(InputError, match=r"schema 1\.0\.0 forbids"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_schema_1_1_binds_verified_membership_store_and_split_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload, manifest = _write_role_bound_inputs(tmp_path)
+    _patch_membership_store(monkeypatch, manifest)
+
+    package = parse_dataset_package(payload, dataset_dir=tmp_path)
+
+    binding = package.manifest()["membership_and_split_evidence"]
+    assert binding["membership_store"]["path"] == "membership/store"
+    assert binding["membership_store"]["content_identity"] == manifest.content_identity
+    assert binding["report"] == {
+        "path": "evidence/membership-split-evidence.json",
+        "schema_path": "contract/membership-split-evidence.schema.json",
+        "artifact_id": "geno-lewm-v03-membership-splits-fixture",
+        "schema_version": "geno-lewm.membership-split-evidence.v1",
+    }
+    card = dataset_package_module.render_data_card(package)
+    assert "## Membership and Split Evidence" in card
+    assert "Deterministic unphased variant membership" in card
+    assert "not phased-haplotype membership" in card
+    assert "| Artifact role |" in card
+
+
+def test_schema_1_1_rejects_membership_binding_identity_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload, manifest = _write_role_bound_inputs(tmp_path)
+    binding = payload["membership_and_split_evidence"]
+    assert isinstance(binding, dict)
+    membership = binding["membership_store"]
+    assert isinstance(membership, dict)
+    membership["content_identity"] = "sha256:" + "f" * 64
+    _patch_membership_store(monkeypatch, manifest)
+
+    with pytest.raises(InputError, match="membership store binding identity mismatch"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_schema_1_1_rejects_self_authored_split_evidence_schema(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload, manifest = _write_role_bound_inputs(tmp_path)
+    schema_path = tmp_path / "contract" / "membership-split-evidence.schema.json"
+    schema_path.write_text('{"type":"object"}\n', encoding="utf-8")
+    _patch_membership_store(monkeypatch, manifest)
+
+    with pytest.raises(InputError, match="tracked schema identity"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_schema_1_1_rejects_nonpublication_split_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload, manifest = _write_role_bound_inputs(tmp_path)
+    report_path = tmp_path / "evidence" / "membership-split-evidence.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["producer"]["invocation_verified"] = False
+    report["membership_store"]["lineage"]["evidence_profile"] = "synthetic_fixture"
+    report["claim_boundary"]["publication_eligible"] = False
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _patch_membership_store(monkeypatch, manifest)
+
+    with pytest.raises(InputError, match="not publication eligible"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_schema_1_1_rejects_split_report_stream_identity_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload, manifest = _write_role_bound_inputs(tmp_path)
+    report_path = tmp_path / "evidence" / "membership-split-evidence.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["streams"]["evaluation"]["vcf"]["sha256"] = "sha256:" + "f" * 64
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _patch_membership_store(monkeypatch, manifest)
+
+    with pytest.raises(InputError, match="split evidence file identity mismatch"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_schema_1_1_rejects_ambiguous_training_window_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload, manifest = _write_role_bound_inputs(tmp_path)
+    duplicate = tmp_path / "carbon" / "windows-copy.jsonl"
+    duplicate.write_bytes((tmp_path / "carbon" / "windows.jsonl").read_bytes())
+    files = payload["files"]
+    assert isinstance(files, list)
+    files.append(
+        {
+            "path": "carbon/windows-copy.jsonl",
+            "artifact_role": "split_data",
+            "split": "train_placed_gnomad_common",
+            "records": 1,
+        }
+    )
+    _patch_membership_store(monkeypatch, manifest)
+
+    with pytest.raises(InputError, match="exactly one split_data file by identity"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_schema_1_1_rejects_noncanonical_artifact_paths(tmp_path: Path) -> None:
+    _write_data_files(tmp_path)
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    files = payload["files"]
+    assert isinstance(files, list)
+    for file in files:
+        file["artifact_role"] = "split_data"
+    files[0]["path"] = "carbon//windows.jsonl"
+
+    with pytest.raises(InputError, match="canonical relative POSIX"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_schema_1_1_rejects_symlinked_artifacts(tmp_path: Path) -> None:
+    _write_data_files(tmp_path)
+    alias = tmp_path / "carbon" / "windows-alias.jsonl"
+    try:
+        alias.symlink_to("windows.jsonl")
+    except OSError:
+        pytest.skip("symbolic links are unavailable on this platform")
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    files = payload["files"]
+    assert isinstance(files, list)
+    for file in files:
+        file["artifact_role"] = "split_data"
+    files[0]["path"] = "carbon/windows-alias.jsonl"
+
+    with pytest.raises(InputError, match="must not traverse symbolic links"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
 def _write_dataset_inputs(root: Path) -> Path:
     _write_data_files(root)
     metadata_path = root / "dataset_package.json"
@@ -425,6 +578,272 @@ def _write_data_files(root: Path) -> None:
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "1\t10\t.\tA\tT\t.\tPASS\tCLNSIG=Pathogenic\n",
         encoding="utf-8",
+    )
+
+
+def _write_role_bound_inputs(root: Path) -> tuple[dict[str, object], SimpleNamespace]:
+    _write_data_files(root)
+    stream_files = {
+        role: _write_split_stream_fixture(root, role=role, chrom=chrom)
+        for role, chrom in (("validation", "20"), ("evaluation", "21"))
+    }
+    store_root = root / "membership" / "store"
+    store_root.mkdir(parents=True)
+    for name in (
+        "manifest.json",
+        "memberships.parquet",
+        "lookup.sqlite",
+        "snapshot-lineage.json",
+        "build-receipt.json",
+    ):
+        (store_root / name).write_text(name + "\n", encoding="utf-8")
+    schema_path = root / "contract" / "membership-split-evidence.schema.json"
+    schema_path.parent.mkdir()
+    schema_path.write_bytes(
+        Path("configs/data_v03/membership-split-evidence.schema.json").read_bytes()
+    )
+    manifest = SimpleNamespace(
+        artifact_id="fixture-membership",
+        content_identity="sha256:" + "1" * 64,
+        physical_identity="sha256:" + "2" * 64,
+        rowset_sha256="sha256:" + "3" * 64,
+    )
+    report_path = root / "evidence" / "membership-split-evidence.json"
+    report_path.parent.mkdir()
+    source_revision = "a" * 40
+    report_path.write_text(
+        json.dumps(
+            {
+                "$schema": "../contract/membership-split-evidence.schema.json",
+                "artifact_id": "geno-lewm-v03-membership-splits-fixture",
+                "schema_version": "geno-lewm.membership-split-evidence.v1",
+                "assembly": "GRCh38",
+                "ok": True,
+                "producer": {
+                    "generated_by": "tools.data.v03_membership_splits",
+                    "git_commit": "b" * 40,
+                    "container_image": "ghcr.io/example/geno-lewm@sha256:" + "c" * 64,
+                    "invocation_verified": True,
+                },
+                "membership_store": {
+                    "repository": "abdelstark/geno-lewm-data",
+                    "revision": source_revision,
+                    "artifact_path": "candidates/v0.3/membership/success/store",
+                    "artifact_id": manifest.artifact_id,
+                    "content_identity": manifest.content_identity,
+                    "physical_identity": manifest.physical_identity,
+                    "rowset_sha256": manifest.rowset_sha256,
+                    "lineage": {
+                        "candidate_snapshot_id": "geno-lewm-data-v0.3.0-r1",
+                        "evidence_profile": "official",
+                        "lineage_id": "sha256:" + "4" * 64,
+                        "sha256": "sha256:" + "5" * 64,
+                    },
+                    "chromosome_roles": {
+                        "train": [*(str(value) for value in range(1, 20)), "22"],
+                        "validation": ["20"],
+                        "evaluation": ["21"],
+                    },
+                },
+                "training_windows": {
+                    "source": {
+                        "repository": "abdelstark/geno-lewm-data",
+                        "revision": source_revision,
+                        "artifact_path": (
+                            "candidates/v0.3/geno-lewm-data-v0.3.0-r1/"
+                            "placed/geno-lewm-v03-placed-windows-r1/success/"
+                            "placed/windows.jsonl"
+                        ),
+                    },
+                    "sha256": sha256_file(root / "carbon" / "windows.jsonl"),
+                    "size_bytes": (root / "carbon" / "windows.jsonl").stat().st_size,
+                    "record_count": 1,
+                    "assembly": "GRCh38",
+                    "role": "train",
+                    "split": "train_placed_gnomad_common",
+                    "chromosomes": ["22"],
+                    "dataset_manifest": {
+                        "path": "dataset_manifest.json",
+                        "sha256": "sha256:" + "6" * 64,
+                        "size_bytes": 1,
+                        "snapshot_id": "geno-lewm-data-v0.3.0-r1",
+                    },
+                    "record_fields": [
+                        "record_id",
+                        "source",
+                        "variant_source",
+                        "chrom",
+                        "start_bp",
+                        "end_bp",
+                        "sequence",
+                        "variant_count",
+                    ],
+                },
+                "streams": stream_files,
+                "audits": {
+                    "exhaustive": {
+                        "windows_scanned": 1,
+                        "policy_exclusions": 0,
+                        "indexed_overlaps": 0,
+                        "status": "passed",
+                    },
+                    "deterministic_sample": {
+                        "algorithm": "sha256-priority-v1",
+                        "seed": 20260713,
+                        "requested_size": 1,
+                        "observed_size": 1,
+                        "sample_digest": "sha256:" + "7" * 64,
+                        "policy_exclusions": 0,
+                        "indexed_overlaps": 0,
+                        "status": "passed",
+                    },
+                },
+                "claim_boundary": {
+                    "variant_membership": True,
+                    "phased_haplotype_membership": False,
+                    "released_v03_snapshot": False,
+                    "publication_eligible": True,
+                    "limitations": [
+                        "This evidence covers deterministic unphased variant memberships and placed-window nonintersection only.",
+                        "It does not establish phased-haplotype membership, a released v0.3 snapshot, dataset representativeness, model quality, benchmark performance, or clinical validity.",
+                    ],
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    splits = payload["splits"]
+    assert isinstance(splits, dict)
+    splits.clear()
+    splits.update(
+        {
+            "train_placed_gnomad_common": {"records": 1},
+            "validation": {"records": 2},
+            "evaluation": {"records": 2},
+        }
+    )
+    files = [
+        {
+            "path": "carbon/windows.jsonl",
+            "artifact_role": "split_data",
+            "split": "train_placed_gnomad_common",
+            "records": 1,
+        }
+    ]
+    for role, stream in stream_files.items():
+        labels = stream["labels_jsonl"]
+        vcf = stream["vcf"]
+        assert isinstance(labels, dict)
+        assert isinstance(vcf, dict)
+        files.extend(
+            (
+                {
+                    "path": labels["path"],
+                    "artifact_role": "split_data",
+                    "split": role,
+                    "records": 2,
+                },
+                {
+                    "path": vcf["path"],
+                    "artifact_role": "split_companion",
+                    "split": role,
+                    "records": 2,
+                    "companion_of": labels["path"],
+                },
+            )
+        )
+    evidence_paths = [
+        *(
+            f"membership/store/{name}"
+            for name in (
+                "manifest.json",
+                "memberships.parquet",
+                "lookup.sqlite",
+                "snapshot-lineage.json",
+                "build-receipt.json",
+            )
+        ),
+        "evidence/membership-split-evidence.json",
+        "contract/membership-split-evidence.schema.json",
+    ]
+    files.extend({"path": path, "artifact_role": "evidence"} for path in evidence_paths)
+    payload["files"] = files
+    payload["membership_and_split_evidence"] = {
+        "membership_store": {
+            "path": "membership/store",
+            "artifact_id": manifest.artifact_id,
+            "content_identity": manifest.content_identity,
+            "physical_identity": manifest.physical_identity,
+            "rowset_sha256": manifest.rowset_sha256,
+        },
+        "report": {
+            "path": "evidence/membership-split-evidence.json",
+            "schema_path": "contract/membership-split-evidence.schema.json",
+            "artifact_id": "geno-lewm-v03-membership-splits-fixture",
+            "schema_version": "geno-lewm.membership-split-evidence.v1",
+        },
+    }
+    return payload, manifest
+
+
+def _write_split_stream_fixture(root: Path, *, role: str, chrom: str) -> dict[str, object]:
+    stem = f"splits/{role}/clinvar-chr{chrom}"
+    labels_relative = f"{stem}.labels.jsonl"
+    vcf_relative = f"{stem}.vcf"
+    labels_path = root / labels_relative
+    vcf_path = root / vcf_relative
+    labels_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = (
+        {"chrom": chrom, "pos": 100, "ref": "A", "alt": "C", "clinical_significance": "B"},
+        {"chrom": chrom, "pos": 200, "ref": "G", "alt": "T", "clinical_significance": "P"},
+    )
+    labels_path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    vcf_path.write_text(
+        "##fileformat=VCFv4.3\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        f"{chrom}\t100\t.\tA\tC\t.\tPASS\tCLNSIG=B;ROLE={role};LABEL=0\n"
+        f"{chrom}\t200\t.\tG\tT\t.\tPASS\tCLNSIG=P;ROLE={role};LABEL=1\n",
+        encoding="utf-8",
+    )
+    return {
+        "role": role,
+        "chromosome": chrom,
+        "record_count": 2,
+        "class_counts": {"B": 1, "LB": 0, "LP": 0, "P": 1},
+        "binary_counts": {"negative": 1, "positive": 1},
+        "keyset_sha256": "sha256:" + ("8" if role == "validation" else "9") * 64,
+        "labels_jsonl": _file_identity(root, labels_relative),
+        "vcf": _file_identity(root, vcf_relative),
+    }
+
+
+def _patch_membership_store(
+    monkeypatch: pytest.MonkeyPatch,
+    manifest: SimpleNamespace,
+) -> None:
+    class _Store:
+        def __enter__(self) -> _Store:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def __init__(self) -> None:
+            self.manifest = manifest
+
+    monkeypatch.setattr(
+        dataset_package_module,
+        "MembershipStore",
+        SimpleNamespace(open=lambda *_args, **_kwargs: _Store()),
+        raising=False,
     )
 
 
