@@ -29,15 +29,19 @@ def write_immutable_json(path: Path, payload: Mapping[str, object]) -> None:
     parent path is checked again before success so a concurrent rename/symlink
     swap fails closed instead of publishing attacker-controlled bytes.
     """
+    if not supports_secure_immutable_json_publication():
+        raise ImmutableJsonError(
+            "secure immutable JSON publication requires anchored dir_fd operations; "
+            "this platform is unsupported"
+        )
     encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
-    if _supports_anchored_directory_operations():
-        _write_immutable_json_anchored(path, encoded)
-        return
-    raise ImmutableJsonError(
-        "secure immutable JSON publication requires anchored dir_fd operations; "
-        "this platform is unsupported"
-    )
+    _write_immutable_json_anchored(path, encoded)
+
+
+def supports_secure_immutable_json_publication() -> bool:
+    """Return whether this process can publish immutable JSON safely."""
+    return _supports_anchored_directory_operations()
 
 
 def _supports_anchored_directory_operations() -> bool:

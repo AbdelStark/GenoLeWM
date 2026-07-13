@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from tools.data._immutable_json import supports_secure_immutable_json_publication
 from tools.data.v03_gnomad_lock import (
     audit_gnomad_parquet,
     main,
@@ -25,6 +26,11 @@ SOURCE_LOCK = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.js
 SOURCE_LOCK_SCHEMA = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json")
 SOURCE_COMMIT = "3c1b233782832b5136db312b8da1ee81b7a88109"
 HUB_REVISION = "e" * 40
+
+requires_secure_immutable_json_publication = pytest.mark.skipif(
+    not supports_secure_immutable_json_publication(),
+    reason="secure immutable publication requires anchored dir_fd operations",
+)
 
 
 class _FakeHub:
@@ -59,6 +65,7 @@ class _FakeHub:
         return SimpleNamespace(HfApi=HfApi, hf_hub_download=hf_hub_download)
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_verifies_one_exact_revision_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -111,6 +118,34 @@ def test_remote_postflight_verifies_one_exact_revision_end_to_end(
     cache_directory = cache_directories.pop()
     assert cache_directory.name == "hf-cache"
     assert {Path(str(call["local_dir"])) for call in hub.download_calls} == {cache_directory.parent}
+
+
+def test_remote_postflight_reports_unsupported_publication_without_creating_output_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    hub = _FakeHub(
+        root=fixture.root,
+        repo_files=[".gitattributes", *fixture.repo_files],
+        revision=HUB_REVISION,
+    )
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    monkeypatch.setattr(
+        "tools.data._immutable_json.supports_secure_immutable_json_publication",
+        lambda: False,
+    )
+    output = tmp_path / "publication" / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert result == 2
+    assert (
+        "requires anchored dir_fd operations; this platform is unsupported"
+        in capsys.readouterr().err
+    )
+    assert not output.parent.exists()
 
 
 def test_remote_postflight_rejects_mutable_main_before_hub_access(
@@ -200,6 +235,7 @@ def test_remote_postflight_rejects_tampered_parquet_bytes(
     assert "prepare report.output_parquet.sha256 drifted" in capsys.readouterr().err
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_scans_the_same_gnomad_parquet_bytes_it_hashes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -232,6 +268,7 @@ def test_remote_postflight_scans_the_same_gnomad_parquet_bytes_it_hashes(
     assert report["parquet_audit"]["canonical_chromosome"] == "22"
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_reuses_the_captured_selection_bytes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -279,6 +316,7 @@ def test_remote_postflight_reuses_the_captured_selection_bytes(
         "evidence/source-lock.schema.json",
     ],
 )
+@requires_secure_immutable_json_publication
 def test_remote_postflight_reuses_each_captured_json_evidence_file(
     relative_path: str,
     tmp_path: Path,

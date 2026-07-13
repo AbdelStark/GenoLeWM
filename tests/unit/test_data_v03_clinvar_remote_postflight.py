@@ -16,12 +16,18 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
+from tools.data._immutable_json import supports_secure_immutable_json_publication
 from tools.data.v03_clinvar_postflight import main
 
 HUB_REVISION = "e" * 40
 RELEASE = "2026-04-15"
 REPORT_SCHEMA = (
     Path(__file__).resolve().parents[2] / "configs/data_v03/clinvar-remote-postflight.schema.json"
+)
+
+requires_secure_immutable_json_publication = pytest.mark.skipif(
+    not supports_secure_immutable_json_publication(),
+    reason="secure immutable publication requires anchored dir_fd operations",
 )
 
 
@@ -57,6 +63,7 @@ class _FakeHub:
         return SimpleNamespace(HfApi=HfApi, hf_hub_download=hf_hub_download)
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_verifies_one_exact_revision_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -105,6 +112,36 @@ def test_remote_postflight_verifies_one_exact_revision_end_to_end(
     cache_directory = cache_directories.pop()
     assert cache_directory.name == "hf-cache"
     assert {Path(str(call["local_dir"])) for call in hub.download_calls} == {cache_directory.parent}
+
+
+def test_remote_postflight_reports_unsupported_publication_without_creating_output_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    hub = _FakeHub(
+        root=fixture.root,
+        repo_files=[".gitattributes", *fixture.repo_files],
+        revision=HUB_REVISION,
+    )
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    monkeypatch.setattr(
+        "tools.data._immutable_json.supports_secure_immutable_json_publication",
+        lambda: False,
+    )
+    output = tmp_path / "publication" / "postflight.json"
+
+    result = main(_postflight_args(fixture, source_commit=source_commit, output=output))
+
+    assert result == 2
+    assert (
+        "requires anchored dir_fd operations; this platform is unsupported"
+        in capsys.readouterr().err
+    )
+    assert not output.parent.exists()
 
 
 def test_remote_postflight_rejects_mutable_revision_before_hub_access(
@@ -633,6 +670,7 @@ def test_remote_postflight_rejects_tampered_parquet_bytes(
     assert "Parquet SHA-256 drifted" in capsys.readouterr().err
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_binds_audit_identity_to_validated_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -669,6 +707,7 @@ def test_remote_postflight_binds_audit_identity_to_validated_bytes(
     }
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_scans_the_same_parquet_bytes_it_hashes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -858,6 +897,7 @@ def test_remote_postflight_rejects_required_null_after_identity_rebinding(
     assert "required column 'review_status' has nulls" in capsys.readouterr().err
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_report_is_byte_deterministic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -883,6 +923,7 @@ def test_remote_postflight_report_schema_closes_every_object() -> None:
             assert value.get("additionalProperties") is False, field
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_schema_validates_real_report_and_exact_arrays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

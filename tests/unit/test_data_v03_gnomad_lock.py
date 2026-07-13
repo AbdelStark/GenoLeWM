@@ -16,6 +16,7 @@ from typing import Any, cast
 
 import pytest
 
+from tools.data._immutable_json import supports_secure_immutable_json_publication
 from tools.data.v03_gnomad_lock import (
     SourceLockError,
     _require_prefixed_sha256,
@@ -28,6 +29,11 @@ from tools.data.v03_gnomad_lock import (
 
 SOURCE_LOCK = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json")
 SOURCE_LOCK_SCHEMA = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json")
+
+requires_secure_immutable_json_publication = pytest.mark.skipif(
+    not supports_secure_immutable_json_publication(),
+    reason="secure immutable publication requires anchored dir_fd operations",
+)
 
 
 def test_require_prefixed_sha256_normalizes_only_the_prepare_cli_contract() -> None:
@@ -492,6 +498,7 @@ def test_select_source_resolves_one_locked_object_and_immutable_namespace() -> N
     )
 
 
+@requires_secure_immutable_json_publication
 def test_select_cli_writes_the_checked_entry_as_immutable_json(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -528,6 +535,43 @@ def test_select_cli_writes_the_checked_entry_as_immutable_json(
     assert not list(tmp_path.glob(".selection.json.*.tmp"))
 
 
+def test_select_cli_reports_unsupported_publication_without_creating_output_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lock = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))
+    output = tmp_path / "publication" / "selection.json"
+    monkeypatch.setattr(
+        "tools.data._immutable_json.supports_secure_immutable_json_publication",
+        lambda: False,
+    )
+
+    rc = main(
+        [
+            "select",
+            "--lock-json",
+            str(SOURCE_LOCK),
+            "--chromosome",
+            "20",
+            "--commit-sha",
+            "b" * 40,
+            "--container-image",
+            lock["job"]["container_image"],
+            "--output-json",
+            str(output),
+        ]
+    )
+
+    assert rc == 2
+    assert (
+        "requires anchored dir_fd operations; this platform is unsupported"
+        in capsys.readouterr().err
+    )
+    assert not output.parent.exists()
+
+
+@requires_secure_immutable_json_publication
 def test_verify_metadata_cli_accepts_only_the_generation_pinned_gcs_object(
     tmp_path: Path,
 ) -> None:
@@ -639,6 +683,7 @@ def test_verify_metadata_cli_rejects_generation_drift(
     assert "generation drifted" in capsys.readouterr().err
 
 
+@requires_secure_immutable_json_publication
 def test_hash_source_cli_verifies_md5_and_records_streamed_sha256(tmp_path: Path) -> None:
     source_path = tmp_path / "source.vcf.bgz"
     source_path.write_bytes(b"generation-pinned-gnomad-fixture\n")
@@ -681,6 +726,7 @@ def test_hash_source_cli_verifies_md5_and_records_streamed_sha256(tmp_path: Path
     [False, True],
     ids=["stable", "swapped-after-hash"],
 )
+@requires_secure_immutable_json_publication
 def test_author_receipt_cli_reconciles_transform_and_output_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -18,6 +18,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from tools.data._immutable_json import supports_secure_immutable_json_publication
 from tools.data.v03_clinvar_postflight import (
     REMOTE_POSTFLIGHT_SCHEMA_VERSION as CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
 )
@@ -97,7 +98,13 @@ CLINVAR_PARQUET_SCHEMA = (
     {"name": "schema_version", "type": "string"},
 )
 
+requires_secure_immutable_json_publication = pytest.mark.skipif(
+    not supports_secure_immutable_json_publication(),
+    reason="secure immutable publication requires anchored dir_fd operations",
+)
 
+
+@requires_secure_immutable_json_publication
 def test_assembler_builds_deterministic_lineage_without_memberships(tmp_path: Path) -> None:
     spec_path, _spec = _write_evidence_bundle(tmp_path)
     output_path = tmp_path / "snapshot-lineage.json"
@@ -442,6 +449,7 @@ def test_assembler_requires_exactly_one_receipt_per_autosome(tmp_path: Path) -> 
         )
 
 
+@requires_secure_immutable_json_publication
 def test_lineage_output_is_idempotent_but_immutable(tmp_path: Path) -> None:
     spec_path, spec = _write_evidence_bundle(tmp_path)
     output_path = tmp_path / "snapshot-lineage.json"
@@ -468,6 +476,7 @@ def test_lineage_output_is_idempotent_but_immutable(tmp_path: Path) -> None:
         )
 
 
+@requires_secure_immutable_json_publication
 def test_lineage_output_rejects_a_symlink_even_when_target_bytes_match(tmp_path: Path) -> None:
     spec_path, _spec = _write_evidence_bundle(tmp_path)
     target = tmp_path / "target.json"
@@ -489,6 +498,7 @@ def test_lineage_output_rejects_a_symlink_even_when_target_bytes_match(tmp_path:
     assert json.loads(target.read_text(encoding="utf-8")) == lineage
 
 
+@requires_secure_immutable_json_publication
 def test_lineage_output_rejects_an_existing_non_regular_path(tmp_path: Path) -> None:
     spec_path, _spec = _write_evidence_bundle(tmp_path)
     output_path = tmp_path / "snapshot-lineage.json"
@@ -518,6 +528,7 @@ def test_directory_fsync_is_skipped_when_the_platform_has_no_directory_flag(
     _fsync_directory(tmp_path)
 
 
+@requires_secure_immutable_json_publication
 def test_concurrent_different_lineage_writers_never_displace_a_successful_caller(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -598,6 +609,7 @@ def test_concurrent_different_lineage_writers_never_displace_a_successful_caller
     assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
 
 
+@requires_secure_immutable_json_publication
 def test_competing_processes_publish_one_immutable_lineage_without_orphans(
     tmp_path: Path,
 ) -> None:
@@ -1722,6 +1734,7 @@ def test_assembler_reconciles_all_clinvar_source_checksums(tmp_path: Path) -> No
         )
 
 
+@requires_secure_immutable_json_publication
 def test_lineage_verifier_recomputes_the_content_id_and_split_semantics(tmp_path: Path) -> None:
     spec_path, _spec = _write_evidence_bundle(tmp_path)
     output_path = tmp_path / "lineage.json"
@@ -1776,6 +1789,7 @@ def test_verified_lineage_capture_preserves_the_exact_single_read_bytes(tmp_path
     assert verify_snapshot_lineage(output_path) == expected
 
 
+@requires_secure_immutable_json_publication
 def test_verified_lineage_capture_is_deeply_immutable(tmp_path: Path) -> None:
     spec_path, _spec = _write_evidence_bundle(tmp_path)
     output_path = tmp_path / "lineage.json"
@@ -1927,6 +1941,7 @@ def test_lineage_verifier_rejects_recommitted_claim_expansion(
         verify_snapshot_lineage(output_path)
 
 
+@requires_secure_immutable_json_publication
 def test_verify_cli_emits_a_machine_readable_summary_and_rejects_stale_ids(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1960,6 +1975,7 @@ def test_verify_cli_emits_a_machine_readable_summary_and_rejects_stale_ids(
     assert "lineage_id drifted" in captured.err
 
 
+@requires_secure_immutable_json_publication
 def test_cli_writes_machine_readable_lineage_summary(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1988,6 +2004,37 @@ def test_cli_writes_machine_readable_lineage_summary(
     assert summary["output_json"] == str(output_path)
     assert captured.err == ""
     assert output_path.is_file()
+
+
+def test_cli_reports_unsupported_secure_publication_without_creating_output_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "publication" / "lineage.json"
+    monkeypatch.setattr(
+        "tools.data._immutable_json.supports_secure_immutable_json_publication",
+        lambda: False,
+    )
+
+    rc = main(
+        [
+            "assemble",
+            "--spec-json",
+            str(spec_path),
+            "--gnomad-source-lock-json",
+            str(SOURCE_LOCK),
+            "--output-json",
+            str(output_path),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert captured.out == ""
+    assert "requires anchored dir_fd operations; this platform is unsupported" in captured.err
+    assert not output_path.parent.exists()
 
 
 def test_cli_fails_closed_without_partial_output(

@@ -9,10 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from tools.data._immutable_json import ImmutableJsonError, write_immutable_json
+from tools.data._immutable_json import (
+    ImmutableJsonError,
+    supports_secure_immutable_json_publication,
+    write_immutable_json,
+)
 
 requires_anchored_dir_fd = pytest.mark.skipif(
-    os.name == "nt",
+    not supports_secure_immutable_json_publication(),
     reason="secure immutable publication requires anchored dir_fd operations",
 )
 
@@ -84,7 +88,7 @@ def test_writer_fails_closed_before_writes_when_anchored_operations_are_unavaila
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    output = tmp_path / "result.json"
+    output = tmp_path / "missing-parent" / "result.json"
 
     monkeypatch.setattr(
         "tools.data._immutable_json._supports_anchored_directory_operations",
@@ -98,4 +102,5 @@ def test_writer_fails_closed_before_writes_when_anchored_operations_are_unavaila
         write_immutable_json(output, {"trusted": True})
 
     assert not output.exists()
-    assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
+    assert not output.parent.exists()
+    assert not list(tmp_path.rglob(f".{output.name}.*.tmp"))
