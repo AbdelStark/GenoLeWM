@@ -583,16 +583,20 @@ def test_verified_store_queries_the_exact_lookup_snapshot_verified_at_open(
         store.close()
 
 
+@pytest.mark.parametrize("system", ["Linux", "Windows"])
 def test_verifier_hashes_and_scans_one_private_capture_per_published_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     built_store: Path,
+    system: str,
 ) -> None:
     published = tmp_path / "single-capture"
     shutil.copytree(built_store, published)
     snapshot = importlib.import_module("geno_lewm.data._membership_store_snapshot")
     verifier = importlib.import_module("geno_lewm.data._membership_store_verifier")
+    monkeypatch.setattr(snapshot.platform, "system", lambda: system)
     real_capture_file = snapshot._capture_file
+    real_capture_path_file = snapshot._capture_path_file
     real_scan_parquet = verifier._scan_parquet
     captured_names: list[str] = []
 
@@ -600,12 +604,17 @@ def test_verifier_hashes_and_scans_one_private_capture_per_published_artifact(
         captured_names.append(name)
         return real_capture_file(root_fd, name, destination)
 
+    def _count_path_capture(source: Path, destination: Path) -> Any:
+        captured_names.append(source.name)
+        return real_capture_path_file(source, destination)
+
     def _replace_published_lookup_after_capture(path: Path, manifest: Any) -> Any:
         (published / "lookup.sqlite").unlink()
         (published / "lookup.sqlite").write_bytes(b"A-B-A path replacement")
         return real_scan_parquet(path, manifest)
 
     monkeypatch.setattr(snapshot, "_capture_file", _count_capture)
+    monkeypatch.setattr(snapshot, "_capture_path_file", _count_path_capture)
     monkeypatch.setattr(verifier, "_scan_parquet", _replace_published_lookup_after_capture)
 
     assert verify_membership_store(published).ok is True
