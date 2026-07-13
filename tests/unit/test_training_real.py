@@ -302,6 +302,34 @@ def test_snv_only_training_contract_filters_indels_and_preserves_eight_actions(
     assert all(item.training_tuple.rel_edits[0].edit_type is EditType.SNV for item in items)
 
 
+def test_snv_only_training_accepts_a_sparse_acgt_carbon_window(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    sequence = ["N"] * 4096
+    sequence[2048] = "A"
+    window = WindowContext(
+        record_id="sparse-carbon",
+        source="eukaryotic_genes",
+        sequence="".join(sequence),
+    )
+    providers, mix = _training_edit_contract(
+        config,
+        gnomad_edits=(EditSpec(chrom="1", pos=1, ref="A", alt="T"),),
+        clinvar_edits=(EditSpec(chrom="1", pos=3, ref="G", alt="A"),),
+    )
+
+    iterator = _repeat_training_items(
+        (window,),
+        providers,
+        seed=11,
+        fallback_sources=_dataset_fallback_sources((window,)),
+        mix=mix,
+    )
+    items = _next_batch(iterator, 8)
+
+    assert len(items) == 8
+    assert {item.training_tuple.rel_edits[0].rel_pos for item in items} == {2048}
+
+
 def test_training_edit_contract_rejects_unimplemented_action_subset(tmp_path: Path) -> None:
     config = load_config(_write_training_config(tmp_path))
     unsupported = replace(config, action=replace(config.action, sub_encoders=("snv", "ins")))

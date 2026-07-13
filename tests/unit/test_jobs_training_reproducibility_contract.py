@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -179,6 +180,16 @@ exit 0
         mock_bin / "hf",
         """#!/usr/bin/env bash
 if [ "${1:-}" = "download" ]; then
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--local-dir" ]; then
+      mkdir -p "$2/.cache/huggingface/download"
+      printf 'ignored cache metadata\n' > "$2/.cache/huggingface/download/metadata.json"
+      mkdir -p "$2/snapshot"
+      printf 'nested manifest\n' > "$2/snapshot/SHA256SUMS"
+      break
+    fi
+    shift
+  done
   exit 23
 fi
 printf '%s\n' "$*" >> "$MOCK_HF_LOG"
@@ -213,6 +224,22 @@ exit 0
     assert (work / "public/evidence/job_contract_preflight.json").is_file()
     assert (work / "public/evidence/runtime_preflight.json").is_file()
     assert (work / "public/SHA256SUMS").is_file()
+    assert not (work / "public/download/.cache").exists()
+    candidate_checksums = (work / "public/SHA256SUMS").read_text(encoding="utf-8")
+    assert ".cache/" not in candidate_checksums
+    assert "download/snapshot/SHA256SUMS" in candidate_checksums
+    manifest_entries = {
+        relative.removeprefix("./"): digest
+        for digest, relative in (line.split("  ", 1) for line in candidate_checksums.splitlines())
+    }
+    published_files = {
+        path.relative_to(work / "public").as_posix()
+        for path in (work / "public").rglob("*")
+        if path.is_file() and path != work / "public/SHA256SUMS"
+    }
+    assert set(manifest_entries) == published_files
+    for relative, digest in manifest_entries.items():
+        assert hashlib.sha256((work / "public" / relative).read_bytes()).hexdigest() == digest
     assert not (work / "public/completion.json").exists()
     assert "GENO_LEWM_TRAINING_REPRODUCIBILITY_NOT_PROVEN" in result.stderr
 

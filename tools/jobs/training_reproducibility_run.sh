@@ -92,6 +92,7 @@ PY
 upload_candidate_on_failure() {
   local exit_code=$?
   local failed_stage=$CURRENT_STAGE
+  local candidate_bundle_rc=0
   local upload_rc=0
   local candidate_nonce
   local candidate_root="$RUN_NAME/candidate-negative"
@@ -114,6 +115,7 @@ upload_candidate_on_failure() {
   copy_available_tree "$WORK/runs" "$WORK/public/runs"
   copy_available_tree "$WORK/dataset" "$WORK/public/dataset"
   copy_available_tree "$WORK/download" "$WORK/public/download"
+  find "$WORK/public" -type d -name .cache -prune -exec rm -rf {} +
   [ ! -f "$DETERMINISTIC_CONFIG" ] || cp "$DETERMINISTIC_CONFIG" "$WORK/public/contract/"
   [ ! -f "$BASELINE_CONFIG" ] || cp "$BASELINE_CONFIG" "$WORK/public/contract/"
   [ ! -f "$DATASET_REFERENCE" ] || cp "$DATASET_REFERENCE" "$WORK/public/contract/"
@@ -123,12 +125,16 @@ upload_candidate_on_failure() {
     "$WORK/public/evidence/failure.json"
   (
     cd "$WORK/public" || exit 1
-    find . -type f ! -name SHA256SUMS -print0 \
+    find . -type f ! -path ./SHA256SUMS -print0 \
       | sort -z \
       | xargs -0 sha256sum > SHA256SUMS
+    sha256sum -c SHA256SUMS
   )
+  candidate_bundle_rc=$?
 
-  if [ "$CANDIDATE_UPLOAD_ALLOWED" -eq 1 ] && [ -n "${HF_TOKEN:-}" ]; then
+  if [ "$candidate_bundle_rc" -ne 0 ]; then
+    echo "FATAL: candidate-negative checksum closure failed with exit $candidate_bundle_rc" >&2
+  elif [ "$CANDIDATE_UPLOAD_ALLOWED" -eq 1 ] && [ -n "${HF_TOKEN:-}" ]; then
     hf upload \
       "$UPLOAD_REPO" \
       "$WORK/public" \
