@@ -304,8 +304,13 @@ def build_membership_store(
 
 
 def _fsync_artifact(root: Path) -> None:
+    binary_flag = getattr(os, "O_BINARY", 0)
+    access_flag = os.O_RDWR if binary_flag else os.O_RDONLY
     for path in sorted(root.iterdir(), key=lambda item: item.name):
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        descriptor = os.open(
+            path,
+            access_flag | getattr(os, "O_NOFOLLOW", 0) | binary_flag,
+        )
         try:
             os.fsync(descriptor)
         finally:

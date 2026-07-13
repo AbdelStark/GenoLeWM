@@ -957,6 +957,35 @@ def test_source_capture_requests_binary_mode_for_input_and_private_copy(
     assert captured.path.read_bytes() == source.path.read_bytes()
 
 
+def test_artifact_fsync_uses_write_capable_binary_descriptors_when_required(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writer = importlib.import_module("geno_lewm.data._membership_store_writer")
+    artifact_root = tmp_path / "artifact"
+    artifact_root.mkdir()
+    artifact = artifact_root / "manifest.json"
+    artifact.write_bytes(b'{"complete":true}\r\n\x1a')
+    real_open = os.open
+    sentinel = 1 << 29
+    platform_binary = getattr(os, "O_BINARY", 0)
+    artifact_flags: list[int] = []
+
+    def _recording_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+        if Path(path) == artifact:
+            artifact_flags.append(flags)
+        return real_open(path, flags & ~sentinel, *args, **kwargs)
+
+    monkeypatch.setattr(writer.os, "O_BINARY", platform_binary | sentinel, raising=False)
+    monkeypatch.setattr(writer.os, "open", _recording_open)
+
+    writer._fsync_artifact(artifact_root)
+
+    assert len(artifact_flags) == 1
+    assert artifact_flags[0] & sentinel
+    assert artifact_flags[0] & os.O_RDWR == os.O_RDWR
+
+
 def test_builder_rejects_unexpected_lineage_identity_before_publication(
     tmp_path: Path,
     source_bundle: tuple[Path, tuple[MembershipSourceInput, ...]],
@@ -1526,8 +1555,35 @@ def test_atomic_publication_fails_closed_across_platform_contracts(
             self.call = args
             return 0
 
-    linux_rename = _SuccessfulRename()
+    darwin_rename = _SuccessfulRename()
+    monkeypatch.setattr(publish.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        publish.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: SimpleNamespace(renamex_np=darwin_rename),
+    )
+    darwin_source = tmp_path / "darwin-source"
+    darwin_output = tmp_path / "darwin-output"
+    publish._publish_directory_noreplace(darwin_source, darwin_output)
+    assert darwin_rename.call == (
+        os.fsencode(darwin_source),
+        os.fsencode(darwin_output),
+        publish._RENAME_EXCL,
+    )
+
     monkeypatch.setattr(publish.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        publish.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: SimpleNamespace(),
+    )
+    with pytest.raises(InputError, match="publication is unavailable"):
+        publish._publish_directory_noreplace(
+            tmp_path / "linux-unavailable-source",
+            tmp_path / "linux-unavailable-output",
+        )
+
+    linux_rename = _SuccessfulRename()
     monkeypatch.setattr(
         publish.ctypes,
         "CDLL",
@@ -1568,6 +1624,11 @@ def test_atomic_publication_fails_closed_across_platform_contracts(
     with pytest.raises(InputError, match="publication failed") as failed:
         publish._require_rename_success(-1, tmp_path / "failed-output")
     assert failed.value.details["errno"] == publish.errno.EPERM
+
+    monkeypatch.setattr(publish.ctypes, "get_errno", lambda: publish.errno.EEXIST)
+    with pytest.raises(InputError, match="appeared before publication") as collision:
+        publish._require_rename_success(-1, tmp_path / "raced-output")
+    assert collision.value.__cause__ is None
 
 
 @pytest.mark.parametrize(
