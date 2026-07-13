@@ -62,6 +62,7 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "tools/release/v02_benchmark_readiness.py",
     "tools/release/v02_benchmark_suite.py",
     "tools/release/v02_rollout_inputs.py",
+    "tools/research/correction_control_model_manifest.py",
     "tools/research/correction_control_postflight.py",
     "tools/research/correction_control_preflight.py",
     "tools/research/correction_control_replay.py",
