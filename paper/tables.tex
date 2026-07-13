@@ -1,6 +1,8 @@
 % ======================================================================
 % tables.tex  --  all result tables for the GenoLeWM paper.
-% Every value is from the published v0.2.1-r1 readiness report / README.
+% Historical metric values are from the published v0.2.1-r1 readiness report / README;
+% state norms are from the post-release audit. Metrics are retained only as historical
+% implementation measurements after the validity correction.
 % Carbon columns are recovered as (GenoLeWM value) - (reported delta).
 % ======================================================================
 
@@ -10,13 +12,14 @@
 \newcommand{\tabVEP}{%
 \begin{table}[t]
   \centering
-  \caption{\textbf{Variant-effect prediction (v0.2.1-r1).} Binary ClinVar slices report
+  \caption{\textbf{Historical variant-effect measurements (v0.2.1-r1; invalid for the intended
+  method).} Binary ClinVar slices report
   accuracy / AUROC / average precision (AP) / balanced accuracy; BRCA2 saturation and TraitGym
-  Mendelian report Spearman $\rho$ against continuous functional/causal labels. The baseline is the
+  Mendelian report Spearman $\rho$ against a BRCA2 continuous functional score and TraitGym binary labels. The baseline is the
   same frozen Carbon-500M encoder scored zero-shot. $\Delta$ is GenoLeWM~$-$~Carbon (positive favours
-  GenoLeWM). Bold marks the better value per row. GenoLeWM shows a positive delta only on coding-ClinVar
-  accuracy/balanced accuracy ($+0.0625{=}1/16$, within quantization) and a TraitGym tie near zero; it
-  trails on every pathogenicity-bearing ranking metric.}
+  GenoLeWM). The GenoLeWM score was derived from an $L_2$ residual between unit-norm predictions and
+  raw target states whose norms were about $29$--$34$. Thus the rows preserve released bytes but do not
+  compare the intended normalized-state method with Carbon. Bold marks only the larger historical value.}
   \label{tab:vep}
   \small
   \begin{tabular}{llrrr}
@@ -47,22 +50,31 @@
 \newcommand{\tabRollout}{%
 \begin{table}[t]
   \centering
-  \caption{\textbf{Latent rollout fidelity (v0.2.1-r1).} Mean cosine similarity (\up) and mean $L_2$
-  distance (\dn) between the predicted final state $\shat$ and the true encoded state $\stp$, over
-  two multi-edit settings. The baseline predicts no change ($\shat{=}\st$). The do-nothing baseline
-  dominates on both fidelity metrics, and Recall@4 is saturated at $1.0$ for \emph{both} the model and
-  the baseline, so it does not discriminate. This is the latent-residual baseline trap
-  (\cref{fig:rollout}).}
+  \caption{\textbf{Historical rollout measurements and state-norm audit (v0.2.1-r1).} Cosine values
+  are scale-invariant historical measurements but are confounded by the invalid mixed-scale training
+  objective, global-source/nominally-centered-target training mismatch, a one-hidden-token center offset, and train/rollout distribution shift. The $L_2$ columns are invalid comparisons: the
+  predictor was unit norm while encoder source and target states were raw. No capability or mechanism
+  is inferred. Recall@$k$ was $1.0$ for both model and baseline and was non-discriminating.}
   \label{tab:rollout}
   \small
   \begin{tabular}{lrrrrrr}
     \toprule
-    & \multicolumn{3}{c}{Cosine to $\stp$ \up} & \multicolumn{3}{c}{$L_2$ to $\stp$ \dn} \\
+    & \multicolumn{3}{c}{Cosine to $\stp$ \up (confounded)} & \multicolumn{3}{c}{$L_2$ to $\stp$ (invalid)} \\
     \cmidrule(lr){2-4}\cmidrule(lr){5-7}
     Setting & GenoLeWM & Source-state & $\Delta$ & GenoLeWM & Source-state & $\Delta$ \\
     \midrule
     Phased haplotypes      & 0.2889 & \textbf{0.9978} & $-0.7090$ & 33.32 & \textbf{2.13} & $+31.19$ \\
     Synthetic edit chains  & 0.3016 & \textbf{0.9912} & $-0.6896$ & 28.80 & \textbf{3.17} & $+25.64$ \\
+    \bottomrule
+  \end{tabular}
+  \vspace{3pt}
+
+  \begin{tabular}{lrrr}
+    \toprule
+    Setting & Mean $\lVert\st\rVert_2$ & Mean $\lVert\stp\rVert_2$ & Mean $\lVert\shat\rVert_2$ \\
+    \midrule
+    Phased haplotypes     & 33.982 & 33.595 & 1.000 \\
+    Synthetic edit chains & 29.253 & 29.089 & 1.000 \\
     \bottomrule
   \end{tabular}
 \end{table}}
@@ -73,12 +85,10 @@
 \newcommand{\tabEfficiency}{%
 \begin{table}[t]
   \centering
-  \caption{\textbf{Measured efficiency (v0.2.1-r1, single NVIDIA H200).} The released
-  single-variant score path is dominated by two frozen Carbon-500M forward passes under a cold cache
-  and process start, so per-variant latency is $\approx$115\,s; the architectural amortization thesis
-  (\cref{fig:architecture}) is \emph{not} exercised by this naive path (\S\ref{sec:efficiency}). The
-  KV-cached autoregressive rollout speedup is the only place latent-only cheapness appears, and it
-  remains below the $5\times$ target at $K{=}20$.}
+  \caption{\textbf{Historical implementation timing (v0.2.1-r1, single NVIDIA H200).} The released
+  single-variant score path includes process start, artifact loading, and two frozen Carbon-500M
+  forward passes; its end-to-end latency is $\approx$115\,s, without a component profile. The KV-cache micro-benchmark uses synthetic tensors at $d_{\mathrm{state}}{=}1024$ on H200/CUDA bf16 with a benchmark-specific predictor shape. Because model-quality evaluation is invalidated, these rows do not support an
+  efficiency--quality or deployment conclusion.}
   \label{tab:efficiency}
   \small
   \begin{tabular}{lr}
@@ -99,12 +109,13 @@
 % Table 4: artifact identity / reproducibility commitments
 % ----------------------------------------------------------------------
 \newcommand{\tabArtifacts}{%
-\begin{table}[t]
+\begin{table}[H]
   \centering
-  \caption{\textbf{Content-addressed artifact identity for the evaluated release.} Every reported
-  number is bound to these identities through checksum receipts; the benchmark suite re-renders its
-  report (and this manuscript's machine-generated companion) from the artifacts and rejects stale text
-  or mutated evidence (\S\ref{sec:reproducibility}). All 28 suite outputs verified.}
+  \caption{\textbf{Content-addressed identity of the invalidated release.} Every historical number is
+  bound to these identities through checksum receipts, and all 28 suite outputs verified at the byte
+  and graph level. The receipts did not verify normalization semantics, token-layout offsets,
+  transitive tokenizer dependencies, or gradient paths. A corrected
+  run must use a new identity (\S\ref{sec:reproducibility}).}
   \label{tab:artifacts}
   \small
   \begin{tabular}{ll}

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from geno_lewm.action import EditSpec, RelEdit
 from geno_lewm.deploy import GenoLeWMRuntime
+from geno_lewm.encoder._normalization import l2_normalize_state
 from geno_lewm.provenance import (
     SCHEMA_VERSION,
     DtypeConfig,
@@ -48,7 +49,8 @@ class NucleotideFrequencyEncoder:
     def encode(self, window: str, *, edit_locus: int | None = None) -> tuple[float, ...]:
         del edit_locus
         denom = float(len(window))
-        return tuple(window.count(base) / denom for base in self.alphabet)
+        frequencies = tuple(window.count(base) / denom for base in self.alphabet)
+        return l2_normalize_state(frequencies)
 
 
 class RelativeEditActionEncoder:
@@ -104,7 +106,14 @@ def make_fixture_model_dir(root: Path) -> Path:
     (root / "predictor.safetensors").write_bytes(b"notebook predictor fixture\n")
     (root / "action_encoder.safetensors").write_bytes(b"notebook action fixture\n")
     (root / "calibration.parquet").write_bytes(b"notebook calibration fixture\n")
-    (root / "train_config.yaml").write_text("seed: 0\n", encoding="utf-8")
+    (root / "train_config.yaml").write_text(
+        "seed: 0\n"
+        "schema_version: 1.1.0\n"
+        "encoder:\n"
+        "  normalize: true\n"
+        "  state_contract_version: l2_normalized_v2\n",
+        encoding="utf-8",
+    )
     (root / "eval_report.md").write_text(
         "# Fixture evaluation\n\nSynthetic tutorial fixture only.\n",
         encoding="utf-8",

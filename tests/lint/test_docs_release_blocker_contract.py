@@ -14,6 +14,7 @@ DOCS_INDEX = REPO_ROOT / "docs" / "index.md"
 DOCS_QUICKSTART = REPO_ROOT / "docs" / "quickstart.md"
 DOCS_FAQ = REPO_ROOT / "docs" / "faq.md"
 DOCS_GLOSSARY = REPO_ROOT / "docs" / "glossary.md"
+DOCS_EXPLAINER = REPO_ROOT / "docs" / "blogposts" / "genolewm_explainer.md"
 DOCS_PUBLIC_API = REPO_ROOT / "docs" / "api" / "public-surface.md"
 EXAMPLES_README = REPO_ROOT / "examples" / "README.md"
 RELEASE_SIGNING_KEYS = REPO_ROOT / "docs" / "release" / "signing-keys.md"
@@ -68,8 +69,8 @@ def test_readme_preserves_measured_results_and_boundaries() -> None:
         "Spearman rho `0.14919354838709678`",
         "K=20 speedup `2.4732225135799566`",
         "best_distance=23.656930390534644",
-        "mixed or negative",
-        "Do not cite it as broad superiority over Carbon",
+        "signed deltas preserved for audit",
+        "Do not interpret them as superiority or inferiority to Carbon",
         "not useful-planning evidence",
         "No clinical utility claim",
     )
@@ -200,15 +201,16 @@ def test_examples_readme_names_rollout_and_planning_notebook_blockers() -> None:
     text = EXAMPLES_README.read_text(encoding="utf-8")
     normalized = " ".join(text.split())
     required = (
-        "Rollout and planning notebooks remain blocked until measured release evidence exists",
-        "#97 requires rollout-fidelity rows with documented cosine-similarity targets",
-        "#98 requires planner latency and useful-planning boundary evidence",
+        "Rollout and planning notebooks remain blocked until corrected release evidence exists",
+        "#97 requires K>1 `l2_normalized_v2` rollout rows",
+        "#98 requires a same-contract planning objective",
+        "Published `legacy_raw_v1` rows do not satisfy either gate",
         "Fixture smoke outputs are test evidence, not model results",
         "`04_multi_edit_rollout.ipynb`",
-        "release-backed rollout-state examples",
+        "fresh-lineage `l2_normalized_v2` rollout-state examples",
         "encoder-ground-truth comparisons",
         "`05_planning_minimal_edits.ipynb`",
-        "does not prove useful planning behavior",
+        "mixed-scale L2 objective is invalid",
     )
     forbidden = (
         "planning notebooks remain planned until the planner is implemented",
@@ -220,6 +222,47 @@ def test_examples_readme_names_rollout_and_planning_notebook_blockers() -> None:
         assert fragment in normalized
     for fragment in forbidden:
         assert fragment not in normalized
+
+
+def test_public_validity_correction_withdraws_legacy_model_interpretation() -> None:
+    paths = (
+        ARCHITECTURE,
+        CONTRIBUTING,
+        DOCS_QUICKSTART,
+        DOCS_FAQ,
+        DOCS_GLOSSARY,
+        DOCS_EXPLAINER,
+        HF_MODEL_CARD,
+        EXAMPLES_README,
+    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+
+    required = (
+        "legacy_raw_v1",
+        "l2_normalized_v2",
+        "unit-normalized predictions",
+        "supplied no gradient",
+        "Qwen/Qwen3-4B-Base",
+        "one hidden token left",
+        "pure-DNA tokenizer",
+        "model-quality evidence",
+        "cosine values are historical and confounded",
+        "support neither superiority nor inferiority claims",
+        "Legacy scientific scoring is disabled",
+    )
+    forbidden = (
+        "mixed or negative",
+        "negative-results and systems",
+        "latent-residual trap",
+        "research/debug ranking signal",
+        "The model result is negative",
+        "learned a distorted copy",
+    )
+
+    for fragment in required:
+        assert fragment in combined
+    for fragment in forbidden:
+        assert fragment not in combined
 
 
 def test_package_metadata_preserves_research_boundary() -> None:

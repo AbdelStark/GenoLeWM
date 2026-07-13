@@ -1,0 +1,87 @@
+{
+  "carbon_files": [
+    {
+      "description": "Carbon pretraining source-mix windows from the pinned corpus revision for the correction-control smoke run",
+      "path": "carbon/source-mix-windows.jsonl",
+      "source_path": "inputs/carbon/source-mix-windows.jsonl",
+      "split": "train_carbon"
+    }
+  ],
+  "clinvar": {
+    "description": "Deterministic line-capped prefix of archived 2026-04-15 ClinVar GRCh38 SNVs with chromosome 22 held out",
+    "input_vcf": "inputs/clinvar/clinvar-2026-04-15-snv.vcf.gz",
+    "max_allele_len": 1,
+    "release": "2026-04-15",
+    "split": "eval_clinvar"
+  },
+  "generated_at": "2026-07-10T00:00:00Z",
+  "gnomad": {
+    "description": "Generation-pinned gnomAD v4.1 exome chr22 PASS common SNV prefix packaged for input-integrity coverage",
+    "input_vcf": "inputs/gnomad/gnomad-v4.1-snv.vcf.gz",
+    "max_allele_len": 1,
+    "min_af": 0.01,
+    "release": "v4.1",
+    "split": "train_gnomad_common"
+  },
+  "intended_use": "A 50-step clean-machine smoke run of the corrected L2-normalized Phase-1 training and artifact pipeline.",
+  "leakage_checks": [
+    "No training split may share comparable variant keys with held-out ClinVar evaluation rows.",
+    "Split record counts and comparable-key overlaps are recomputed from staged files before upload."
+  ],
+  "license": "Apache-2.0 for GenoLeWM package metadata; upstream data licenses and terms apply to source records.",
+  "limitations": [
+    "This snapshot is a bounded pipeline smoke artifact, not a benchmark dataset or model-quality result.",
+    "The 50-step run does not establish convergence, deterministic reproducibility, variant-effect accuracy, rollout fidelity, planning quality, or clinical utility.",
+    "The ClinVar and gnomAD inputs are deterministic 60000-line prefixes of immutable upstream objects.",
+    "The active contexts are unplaced Carbon corpus windows, so absolute gnomAD and ClinVar variants cannot be mapped onto them; the smoke run uses explicit synthetic SNV fallbacks and makes no real-variant training claim."
+  ],
+  "preprocessing": [
+    "Stage 512 Carbon source-mix windows from the pinned Hugging Face corpus revision.",
+    "Verify immutable upstream identities before filtering or packaging.",
+    "Filter the generation-pinned gnomAD prefix to PASS common SNVs for packaged-input integrity coverage.",
+    "Hold chromosome 22 out of the archived ClinVar evaluation rows."
+  ],
+  "schema_version": "1.0.0",
+  "snapshot_id": "geno-lewm-data-correction-control-l2-p1-proof-v1",
+  "source_integrity": {
+    "clinvar_md5": "e63b5c3a046010c098cc70e81bebaa8d",
+    "gnomad_md5": "dcf191563e69054a71bd4dc77862799a",
+    "gnomad_generation": "1713312296186865",
+    "gnomad_size_bytes": 5060347554
+  },
+  "sources": [
+    {
+      "license": "Carbon upstream corpus terms",
+      "name": "Carbon pretraining corpus",
+      "notes": "Only the pinned corpus commit is streamed; the training encoder is mounted separately at its pinned revision.",
+      "revision": "cb4c13a78102933b3a6ac65734d326f7b431d9b7",
+      "url": "https://huggingface.co/datasets/HuggingFaceBio/carbon-pretraining-corpus"
+    },
+    {
+      "license": "gnomAD terms of use",
+      "name": "gnomAD",
+      "notes": "The generation query pins the exact v4.1 exome chr22 object; the job packages the first 60000 decompressed lines.",
+      "revision": "v4.1 chr22 generation 1713312296186865",
+      "url": "https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz?generation=1713312296186865"
+    },
+    {
+      "license": "NCBI public data terms",
+      "name": "ClinVar",
+      "notes": "The job verifies the dated archive against its official MD5, holds chromosome 22 out, and packages the first 60000 remaining lines.",
+      "revision": "2026-04-15 md5:e63b5c3a046010c098cc70e81bebaa8d",
+      "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/archive_2.0/2026/clinvar_20260415.vcf.gz"
+    }
+  ],
+  "split_policy": "Carbon and packaged gnomAD training material excludes any comparable variant keys present in the held-out ClinVar evaluation split.",
+  "splits": {
+    "eval_clinvar": {
+      "description": "archived ClinVar SNV labels outside chromosome 22 for pipeline-integrity checks"
+    },
+    "train_carbon": {
+      "description": "pinned Carbon source-mix windows for the bounded smoke run"
+    },
+    "train_gnomad_common": {
+      "description": "generation-pinned gnomAD common SNVs retained for package-integrity coverage"
+    }
+  }
+}

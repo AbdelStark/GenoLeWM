@@ -25,17 +25,21 @@ from typing import Any, Final, cast
 from geno_lewm.action import EditType, RelEdit
 from geno_lewm.action.apply import apply_edits
 from geno_lewm.encoder import (
+    CACHE_SCHEMA_VERSION,
     POOL_CENTERED_MEAN,
+    POOL_GLOBAL_MEAN,
     CarbonStateEncoder,
     WindowCacheKey,
     WindowCacheRecord,
     window_sha256,
     write_shard,
 )
+from geno_lewm.encoder._identity import encoder_identity_hash
 from geno_lewm.errors import GenoLeWMError, InputError, RuntimeSetupError, exit_code_for
 from geno_lewm.provenance import load_manifest, sha256_file
 
 SCHEMA_VERSION: Final = "1.0.0"
+SPEC_SCHEMA_VERSION: Final = "1.2.0"
 GENERATED_BY: Final = "tools.release.v02_rollout_inputs"
 SPEC_GENERATED_BY: Final = "tools.release.rollout_state_example_specs"
 ISSUE_REFS: Final = ("#57", "#197")
@@ -118,14 +122,14 @@ def write_v02_rollout_inputs(
     synthetic_horizon: int = DEFAULT_SYNTHETIC_HORIZON,
     candidate_count: int = 8,
     batch_size: int = 4,
-    state_layer: int = -1,
-    pool_type: str = POOL_CENTERED_MEAN,
-    pool_radius: int = 256,
-    dtype: str = "bf16",
+    state_layer: int | None = None,
+    pool_type: str | None = None,
+    pool_radius: int | None = None,
+    dtype: str | None = None,
     device: str | None = None,
     trust_remote_code: bool = False,
     allow_network_download: bool = False,
-    encoder: object | None = None,
+    normalize: bool | None = None,
 ) -> dict[str, object]:
     """Write rollout spec JSONLs, cache rows, and an input provenance report."""
     _require_positive("examples_per_split", examples_per_split)
@@ -133,17 +137,61 @@ def write_v02_rollout_inputs(
     _require_positive("synthetic_horizon", synthetic_horizon)
     _require_positive("candidate_count", candidate_count)
     _require_positive("batch_size", batch_size)
+    if normalize is not None and not isinstance(normalize, bool):
+        raise InputError("normalize must be boolean")
     if candidate_count < 2:
         raise InputError("candidate_count must be at least 2")
 
     artifact_root = artifact_root.resolve()
     manifest = load_manifest(model_manifest)
+    model_config = _model_config(model_manifest=model_manifest, manifest=manifest)
+    model_normalize_view = _model_uses_normalized_states(model_config)
+    if normalize is not None and normalize != model_normalize_view:
+        raise InputError(
+            "normalize must match the model state contract",
+            details={"requested": normalize, "model_contract": model_normalize_view},
+            remediation="use the checkpoint's declared state contract or train a new checkpoint",
+        )
+    normalize_view = model_normalize_view
+    state_layer = _match_model_encoder_setting(
+        "state_layer",
+        requested=state_layer,
+        expected=model_config.encoder.state_layer,
+    )
+    pool_type = _match_model_encoder_setting(
+        "pool_type",
+        requested=pool_type,
+        expected=model_config.encoder.pool_type,
+    )
+    pool_radius = _match_model_encoder_setting(
+        "pool_radius",
+        requested=pool_radius,
+        expected=model_config.encoder.pool_radius,
+    )
+    dtype = _match_model_encoder_setting(
+        "dtype",
+        requested=dtype,
+        expected=model_config.encoder.dtype,
+    )
     _require_horizons_within_model_action_limit(
-        model_manifest=model_manifest,
-        manifest=manifest,
+        model_config=model_config,
         phased_horizon=phased_horizon,
         synthetic_horizon=synthetic_horizon,
     )
+    observed_encoder_hash = encoder_identity_hash(
+        carbon_model_dir,
+        state_contract_version=model_config.encoder.state_contract_version,
+    )
+    if observed_encoder_hash != manifest.encoder.hash:
+        raise InputError(
+            "Carbon weights do not match the model manifest encoder hash",
+            details={
+                "carbon_model_dir": str(carbon_model_dir),
+                "expected": manifest.encoder.hash,
+                "observed": observed_encoder_hash,
+            },
+            remediation="mount the exact Carbon checkpoint committed by the model manifest",
+        )
     windows = load_source_windows(placed_windows_jsonl)
     variants_by_chrom = load_gnomad_snvs(gnomad_variants_parquet)
     phased_examples, phased_skipped = build_phased_examples(
@@ -160,19 +208,27 @@ def write_v02_rollout_inputs(
         candidate_count=candidate_count,
         exclude_record_ids={example.source.record_id for example in phased_examples},
     )
-    if encoder is None:
-        encoder = CarbonStateEncoder(
-            str(carbon_model_dir),
-            manifest.encoder.revision,
-            dtype=dtype,
-            state_layer=state_layer,
-            pool_type=pool_type,
-            pool_radius=pool_radius,
-            encoder_hash=manifest.encoder.hash,
-            local_files_only=not allow_network_download,
-            trust_remote_code=trust_remote_code,
-            device=device,
-        )
+    encoder = CarbonStateEncoder(
+        str(carbon_model_dir),
+        manifest.encoder.revision,
+        dtype=dtype,
+        state_layer=state_layer,
+        pool_type=pool_type,
+        pool_radius=pool_radius,
+        encoder_hash=manifest.encoder.hash,
+        local_files_only=not allow_network_download,
+        trust_remote_code=trust_remote_code,
+        device=device,
+        normalize=False,
+    )
+    _require_raw_cache_encoder(
+        encoder,
+        encoder_hash=_hash_bytes(manifest.encoder.hash),
+        state_layer=state_layer,
+        pool_type=pool_type,
+        pool_radius=pool_radius,
+        dtype=dtype,
+    )
     encoded = encode_example_states(
         (*phased_examples, *synthetic_examples),
         encoder=encoder,
@@ -182,6 +238,7 @@ def write_v02_rollout_inputs(
         pool_radius=pool_radius,
         dtype=dtype,
         batch_size=batch_size,
+        expected_d_state=model_config.predictor.d_state,
     )
     _write_cache_records(
         cache_dir=cache_dir,
@@ -192,11 +249,13 @@ def write_v02_rollout_inputs(
         phased_spec_jsonl,
         phased_examples,
         encoded=encoded,
+        normalize=normalize_view,
     )
     _write_spec_jsonl(
         synthetic_spec_jsonl,
         synthetic_examples,
         encoded=encoded,
+        normalize=normalize_view,
     )
     report = _build_report(
         artifact_root=artifact_root,
@@ -232,6 +291,12 @@ def write_v02_rollout_inputs(
             "device": device,
             "trust_remote_code": trust_remote_code,
             "allow_network_download": allow_network_download,
+            "normalize": normalize_view,
+            "state_contract_version": model_config.encoder.state_contract_version,
+            "encoder_identity_hash": manifest.encoder.hash,
+            "encoder_identity_verified": True,
+            "cache_representation": "raw_pooled",
+            "cache_schema_version": CACHE_SCHEMA_VERSION,
         },
     )
     output_report.parent.mkdir(parents=True, exist_ok=True)
@@ -388,8 +453,10 @@ def encode_example_states(
     pool_radius: int,
     dtype: str,
     batch_size: int,
+    expected_d_state: int | None = None,
 ) -> dict[str, EncodedState]:
-    """Encode all unique example states with the supplied Carbon encoder."""
+    """Encode all unique example states into the raw pooled cache representation."""
+    _require_raw_cache_encoder(encoder)
     states: dict[str, tuple[SourceWindow, str, int]] = {}
     for example in examples:
         states[f"{example.row_id}:source"] = (
@@ -406,7 +473,7 @@ def encode_example_states(
             states[f"{example.row_id}:candidate:{candidate.candidate_id}"] = (
                 example.source,
                 candidate.sequence,
-                candidate.edit_locus,
+                example.edit_locus,
             )
 
     encode_batch = getattr(encoder, "encode_batch", None)
@@ -424,15 +491,41 @@ def encode_example_states(
         vectors = encode_batch(sequences, edit_loci)
         if len(vectors) != len(batch):
             raise InputError("encoder returned a batch with the wrong length")
-        for (state_id, (window, sequence, _edit_locus)), vector in zip(batch, vectors, strict=True):
+        for (state_id, (window, sequence, edit_locus)), vector in zip(batch, vectors, strict=True):
             embedding = _state_vector(vector, state_id=state_id)
+            if expected_d_state is not None and len(embedding) != expected_d_state:
+                raise InputError(
+                    "encoder state width does not match model predictor.d_state",
+                    details={
+                        "state_id": state_id,
+                        "observed": len(embedding),
+                        "expected": expected_d_state,
+                    },
+                )
             window_hash = window_sha256(sequence)
+            resolved_pool_type, resolved_pool_radius, center_token = _encoder_pooling_identity(
+                encoder,
+                sequence,
+                edit_locus,
+            )
+            if resolved_pool_type != pool_type or resolved_pool_radius != pool_radius:
+                raise InputError(
+                    "encoder pooling identity does not match rollout cache settings",
+                    details={
+                        "state_id": state_id,
+                        "resolved_pool_type": resolved_pool_type,
+                        "resolved_pool_radius": resolved_pool_radius,
+                        "expected_pool_type": pool_type,
+                        "expected_pool_radius": pool_radius,
+                    },
+                )
             key = WindowCacheKey(
                 window_hash=window_hash,
                 encoder_hash=encoder_hash,
                 state_layer=state_layer,
                 pool_type=pool_type,
                 pool_radius=pool_radius,
+                center_token=center_token,
                 dtype=dtype,
             )
             output[state_id] = EncodedState(
@@ -447,12 +540,55 @@ def encode_example_states(
                     state_layer=state_layer,
                     pool_type=pool_type,
                     pool_radius=pool_radius,
+                    center_token=center_token,
                     dtype=dtype,
                     embedding=embedding,
                     untargeted=False,
                 ),
             )
     return output
+
+
+def _encoder_pooling_identity(
+    encoder: object,
+    sequence: str,
+    edit_locus: int,
+) -> tuple[str, int, int | None]:
+    resolver = getattr(encoder, "pooling_identity", None)
+    if not callable(resolver):
+        raise RuntimeSetupError(
+            "rollout cache generation requires encoder.pooling_identity(window, edit_locus)",
+            remediation="use CarbonStateEncoder so center_token comes from actual token IDs",
+        )
+    resolved = resolver(sequence, edit_locus)
+    if not isinstance(resolved, tuple) or len(resolved) != 3:
+        raise InputError(
+            "encoder pooling identity must be a (pool_type, pool_radius, center_token) tuple"
+        )
+    pool_type, pool_radius, center_token = resolved
+    if pool_type not in {POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN}:
+        raise InputError(
+            "encoder pooling identity has unsupported pool_type",
+            details={"pool_type": pool_type},
+        )
+    if isinstance(pool_radius, bool) or not isinstance(pool_radius, int) or pool_radius < 0:
+        raise InputError(
+            "encoder pooling identity has invalid pool_radius",
+            details={"pool_radius": pool_radius},
+        )
+    if pool_type == POOL_GLOBAL_MEAN:
+        if pool_radius != 0 or center_token is not None:
+            raise InputError(
+                "global rollout cache identity requires radius zero and no center",
+                details={"pool_radius": pool_radius, "center_token": center_token},
+            )
+        return pool_type, pool_radius, None
+    if isinstance(center_token, bool) or not isinstance(center_token, int) or center_token < 0:
+        raise InputError(
+            "centered rollout cache identity requires an exact center_token",
+            details={"center_token": center_token},
+        )
+    return pool_type, pool_radius, center_token
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -481,6 +617,7 @@ def main(argv: list[str] | None = None) -> int:
             device=args.device,
             trust_remote_code=args.trust_remote_code,
             allow_network_download=args.allow_network_download,
+            normalize=args.normalize,
         )
     except GenoLeWMError as exc:
         sys.stderr.write(f"error: {exc}\n")
@@ -544,11 +681,12 @@ def _candidate_sequences(
     candidate_count: int,
     seed: int,
 ) -> tuple[CandidateSequence, ...]:
+    shared_edit_locus = target_edits[0].rel_pos
     candidates = [
         CandidateSequence(
             candidate_id="target",
             sequence=target_sequence,
-            edit_locus=target_edits[0].rel_pos,
+            edit_locus=shared_edit_locus,
         )
     ]
     rng = random.Random(seed)
@@ -570,7 +708,7 @@ def _candidate_sequences(
             CandidateSequence(
                 candidate_id=f"distractor-{len(candidates):02d}",
                 sequence=sequence,
-                edit_locus=edits[0].rel_pos,
+                edit_locus=shared_edit_locus,
             )
         )
     if len(candidates) < candidate_count:
@@ -614,9 +752,10 @@ def _write_spec_jsonl(
     examples: Sequence[RolloutInputExample],
     *,
     encoded: Mapping[str, EncodedState],
+    normalize: bool,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows = [_spec_row(example, encoded=encoded) for example in examples]
+    rows = [_spec_row(example, encoded=encoded, normalize=normalize) for example in examples]
     path.write_text(
         "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
         encoding="utf-8",
@@ -627,14 +766,18 @@ def _spec_row(
     example: RolloutInputExample,
     *,
     encoded: Mapping[str, EncodedState],
+    normalize: bool,
 ) -> dict[str, object]:
     source_key = encoded[f"{example.row_id}:source"].key
     target_key = encoded[f"{example.row_id}:target"].key
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": SPEC_SCHEMA_VERSION,
         "generated_by": SPEC_GENERATED_BY,
+        "cache_schema_version": CACHE_SCHEMA_VERSION,
+        "cached_state_value_contract": "raw_pooled_v1",
         "id": example.row_id,
         "split": example.split,
+        "normalize": normalize,
         "source_state_key": _key_dict(source_key),
         "target_state_key": _key_dict(target_key),
         "target_candidate_id": example.target_candidate_id,
@@ -672,6 +815,7 @@ def _key_dict(key: WindowCacheKey) -> dict[str, object]:
         "state_layer": key.state_layer,
         "pool_type": key.pool_type,
         "pool_radius": key.pool_radius,
+        "center_token": key.center_token,
         "dtype": key.dtype,
     }
 
@@ -876,14 +1020,54 @@ def _require_positive(name: str, value: int) -> None:
         raise InputError(f"{name} must be a positive integer")
 
 
+def _require_raw_cache_encoder(
+    encoder: object,
+    *,
+    encoder_hash: bytes | None = None,
+    state_layer: int | None = None,
+    pool_type: str | None = None,
+    pool_radius: int | None = None,
+    dtype: str | None = None,
+) -> None:
+    if getattr(encoder, "normalize", None) is not False:
+        raise InputError(
+            "rollout cache encoder must expose normalize=False",
+            remediation=(
+                "cache raw pooled states and apply the requested normalization view when "
+                "materializing rollout examples"
+            ),
+        )
+    expected = {
+        "encoder_hash": encoder_hash,
+        "state_layer": state_layer,
+        "pool_type": pool_type,
+        "pool_radius": pool_radius,
+        "dtype": dtype,
+    }
+    for field, expected_value in expected.items():
+        if expected_value is None:
+            continue
+        try:
+            observed = getattr(encoder, field)
+        except Exception as exc:
+            raise InputError(
+                "rollout cache encoder is missing committed identity",
+                details={"field": field},
+            ) from exc
+        if observed != expected_value:
+            raise InputError(
+                "rollout cache encoder does not match committed identity",
+                details={"field": field, "expected": expected_value, "observed": observed},
+            )
+
+
 def _require_horizons_within_model_action_limit(
     *,
-    model_manifest: Path,
-    manifest: object,
+    model_config: Any,
     phased_horizon: int,
     synthetic_horizon: int,
 ) -> None:
-    max_len = _model_action_max_len(model_manifest=model_manifest, manifest=manifest)
+    max_len = _model_action_max_len(model_config)
     requested = {
         "phased_horizon": phased_horizon,
         "synthetic_horizon": synthetic_horizon,
@@ -896,7 +1080,30 @@ def _require_horizons_within_model_action_limit(
         )
 
 
-def _model_action_max_len(*, model_manifest: Path, manifest: object) -> int:
+def _model_action_max_len(model_config: Any) -> int:
+    max_len = getattr(model_config.action, "max_len", None)
+    if isinstance(max_len, bool) or not isinstance(max_len, int) or max_len <= 0:
+        raise InputError("model action.max_len must be a positive integer")
+    return max_len
+
+
+def _model_uses_normalized_states(model_config: Any) -> bool:
+    from geno_lewm.config._state_contract import encoder_uses_normalized_states
+
+    return encoder_uses_normalized_states(model_config.encoder)
+
+
+def _match_model_encoder_setting(name: str, *, requested: Any, expected: Any) -> Any:
+    if requested is not None and requested != expected:
+        raise InputError(
+            f"{name} must match the model encoder state contract",
+            details={"field": name, "requested": requested, "model_contract": expected},
+            remediation="use the checkpoint's encoder settings or train a new checkpoint",
+        )
+    return expected
+
+
+def _model_config(*, model_manifest: Path, manifest: object) -> Any:
     from geno_lewm.config import load_config
 
     training = getattr(manifest, "training", None)
@@ -904,16 +1111,30 @@ def _model_action_max_len(*, model_manifest: Path, manifest: object) -> int:
     if not isinstance(config_file, str) or not config_file.strip():
         raise InputError("model manifest must name training.config_file")
     config_path = (model_manifest.parent / config_file).resolve()
+    try:
+        config_path.relative_to(model_manifest.parent.resolve())
+    except ValueError as exc:
+        raise InputError(
+            "model training config must stay beside the manifest",
+            details={"path": str(config_path), "manifest": str(model_manifest)},
+        ) from exc
     if not config_path.is_file():
         raise InputError(
             "model training config is missing",
             details={"path": str(config_path), "manifest": str(model_manifest)},
         )
-    cfg = load_config(config_path)
-    max_len = getattr(cfg.action, "max_len", None)
-    if isinstance(max_len, bool) or not isinstance(max_len, int) or max_len <= 0:
-        raise InputError("model action.max_len must be a positive integer")
-    return max_len
+    expected_hash = getattr(training, "hash", None)
+    observed_hash = sha256_file(config_path)
+    if not isinstance(expected_hash, str) or observed_hash != expected_hash:
+        raise InputError(
+            "model training config hash does not match manifest",
+            details={
+                "path": str(config_path),
+                "expected": expected_hash,
+                "observed": observed_hash,
+            },
+        )
+    return load_config(config_path)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -932,13 +1153,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--synthetic-horizon", type=int, default=DEFAULT_SYNTHETIC_HORIZON)
     parser.add_argument("--candidate-count", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--state-layer", type=int, default=-1)
-    parser.add_argument("--pool-type", default=POOL_CENTERED_MEAN)
-    parser.add_argument("--pool-radius", type=int, default=256)
-    parser.add_argument("--dtype", default="bf16")
+    parser.add_argument("--state-layer", type=int)
+    parser.add_argument("--pool-type")
+    parser.add_argument("--pool-radius", type=int)
+    parser.add_argument("--dtype")
     parser.add_argument("--device")
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--allow-network-download", action="store_true")
+    parser.add_argument("--normalize", action=argparse.BooleanOptionalAction, default=None)
     return parser
 
 

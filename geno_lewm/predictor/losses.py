@@ -119,6 +119,23 @@ def predictor_loss(
     if phase not in ("phase1", "phase2"):
         raise InputError("phase must be either 'phase1' or 'phase2'", details={"phase": phase})
     _require_nonnegative("gamma", gamma)
+    if phase == "phase2":
+        _require_positive_float("gamma", gamma)
+        if regularizer_states is None:
+            raise InputError(
+                "phase2 requires explicit differentiable regularizer_states",
+                remediation="pass graph-preserving encoder-adapter states",
+            )
+        if not bool(getattr(regularizer_states, "requires_grad", False)):
+            raise InputError(
+                "phase2 regularizer_states must require gradients",
+                remediation="keep the encoder-adapter graph attached through the optimizer step",
+            )
+        if getattr(regularizer_states, "grad_fn", None) is None:
+            raise InputError(
+                "phase2 regularizer_states must retain a non-leaf autograd graph",
+                remediation="pass encoder-adapter outputs without detaching or rematerializing them",
+            )
     pred = prediction_loss(prediction, target, alpha=alpha, beta=beta, mask=mask)
     reg_source = target if regularizer_states is None else regularizer_states
     kl_reg = lejepa_kl_regularizer(reg_source, eps=eps)

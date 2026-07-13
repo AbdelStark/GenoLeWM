@@ -150,13 +150,13 @@ def normalize_chrom(value: str) -> str:
 @contextmanager
 def _open_text(path: Path) -> Iterator[IO[str]]:
     try:
-        if path.suffix == ".gz":
+        if path.suffix.lower() in {".bgz", ".gz"}:
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 yield handle
         else:
             with path.open("r", encoding="utf-8") as handle:
                 yield handle
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise VcfParseError(
             "could not read VCF input",
             details={"path": str(path), "error": str(exc)},

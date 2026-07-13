@@ -98,6 +98,11 @@ jobs:
           python -m tools.release.dataset_snapshot
           --spec-json configs/first_experiment/dataset-snapshot-snv.json
           --check-spec
+      - name: check correction-control dataset spec
+        run: >-
+          python -m tools.release.dataset_snapshot
+          --spec-json configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json
+          --check-spec
       - name: check_license_headers (SPDX)
         run: python -m tools.lint.check_license_headers
       - name: public-API snapshot
@@ -292,9 +297,9 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: Install Tectonic
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tectonic
+        uses: wtfjoke/setup-tectonic@8a63d072f8390efdff59da7fa08aa49e3c1f5e1b # v3.1.5
+        with:
+          tectonic-version: "0.16.9"
       - name: Build checked paper PDF
         run: make -C paper
       - name: Write paper build report

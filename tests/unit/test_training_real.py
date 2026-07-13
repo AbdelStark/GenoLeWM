@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+import geno_lewm.training.real as real_module
+from geno_lewm.action import EditSpec, EditType
 from geno_lewm.config import load_config
+from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import (
     SOURCE_CLINVAR,
     SOURCE_GNOMAD_COMMON,
@@ -17,7 +21,7 @@ from geno_lewm.data import (
     synthetic_indel_provider,
     synthetic_snv_provider,
 )
-from geno_lewm.errors import InputError
+from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.provenance import sha256_file
 from geno_lewm.training.preflight import REPORT_NAME, AcceleratorProbe, TrainingPreflightReport
 from geno_lewm.training.real import (
@@ -31,6 +35,7 @@ from geno_lewm.training.real import (
     _next_batch,
     _repeat_training_items,
     _training_device,
+    _training_edit_contract,
     _validate_resume_checkpoint_payload,
     _write_checkpoint,
     _write_metrics,
@@ -38,6 +43,8 @@ from geno_lewm.training.real import (
 )
 from geno_lewm.training.trainer import TorchTrainerStepResult, TrainerSeeds
 from tests.unit.test_training_preflight import _write_release_dataset, _write_training_config
+
+_ENCODER_WEIGHTS_HASH = "sha256:" + ("a" * 64)
 
 
 def _step_result(*, loss: float, var: float, step: int = 1) -> TorchTrainerStepResult:
@@ -60,6 +67,23 @@ def test_nan_loss_count_counts_nonfinite_losses() -> None:
         _step_result(loss=0.3, var=1.0),
     ]
     assert _nan_loss_count(results) == 2
+
+
+def test_run_carbon_training_rejects_phase2_before_runtime_setup(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    phase2_config = replace(config, phase="phase2")
+
+    with pytest.raises(RuntimeSetupError, match="graph-preserving trainable encoder-adapter"):
+        real_module.run_carbon_training(
+            config=phase2_config,
+            dataset_dir=tmp_path / "missing-dataset",
+            carbon_model_dir=tmp_path / "missing-carbon",
+            run_dir=tmp_path / "run",
+            steps=1,
+            command="geno-lewm-train --carbon-train",
+            commit_sha="a" * 40,
+            package_version="0.2.1",
+        )
 
 
 def test_collapse_var_min_returns_minimum_and_handles_empty() -> None:
@@ -178,6 +202,39 @@ def test_release_training_loader_prefers_placed_windows(tmp_path: Path) -> None:
     assert _dataset_fallback_sources(windows) == {"clinvar": "synthetic_snv"}
 
 
+def test_release_training_loader_uses_carbon_when_snapshot_has_no_placed_windows(
+    tmp_path: Path,
+) -> None:
+    carbon_path = tmp_path / "carbon" / "source-mix-windows.jsonl"
+    carbon_path.parent.mkdir(parents=True)
+    carbon_path.write_text(
+        json.dumps(
+            {
+                "record_id": "carbon-1",
+                "source": "eukaryotic_genes",
+                "sequence": "ACGT" * 64,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    windows = tuple(
+        _load_windows(
+            tmp_path,
+            ({"path": "carbon/source-mix-windows.jsonl"},),
+        )
+    )
+
+    assert len(windows) == 1
+    assert windows[0].record_id == "carbon-1"
+    assert windows[0].chrom is None
+    assert _dataset_fallback_sources(windows) == {
+        "gnomad_common": "synthetic_snv",
+        "clinvar": "synthetic_snv",
+    }
+
+
 def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
     windows = (
         WindowContext(
@@ -207,6 +264,82 @@ def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
 
     assert {item.source_window.record_id for item in first_epoch} == {"placed-1"}
     assert next_epoch[0].source_window.record_id == "placed-1"
+
+
+def test_snv_only_training_contract_filters_indels_and_preserves_eight_actions(
+    tmp_path: Path,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    window = WindowContext(
+        record_id="carbon-1",
+        source="eukaryotic_genes",
+        sequence="ACGT" * 64,
+    )
+    providers, mix = _training_edit_contract(
+        config,
+        gnomad_edits=(
+            EditSpec(chrom="1", pos=1, ref="A", alt="T"),
+            EditSpec(chrom="1", pos=2, ref="C", alt="CA"),
+        ),
+        clinvar_edits=(EditSpec(chrom="1", pos=3, ref="G", alt="A"),),
+    )
+
+    assert [(entry.source, entry.count) for entry in mix] == [
+        (SOURCE_GNOMAD_COMMON, 3),
+        (SOURCE_SYNTHETIC_SNV, 4),
+        (SOURCE_CLINVAR, 1),
+    ]
+    iterator = _repeat_training_items(
+        (window,),
+        providers,
+        seed=11,
+        fallback_sources=_dataset_fallback_sources((window,)),
+        mix=mix,
+    )
+    items = _next_batch(iterator, 8)
+
+    assert len(items) == 8
+    assert all(item.training_tuple.rel_edits[0].edit_type is EditType.SNV for item in items)
+
+
+def test_snv_only_training_accepts_a_sparse_acgt_carbon_window(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    sequence = ["N"] * 4096
+    sequence[2048] = "A"
+    window = WindowContext(
+        record_id="sparse-carbon",
+        source="eukaryotic_genes",
+        sequence="".join(sequence),
+    )
+    providers, mix = _training_edit_contract(
+        config,
+        gnomad_edits=(EditSpec(chrom="1", pos=1, ref="A", alt="T"),),
+        clinvar_edits=(EditSpec(chrom="1", pos=3, ref="G", alt="A"),),
+    )
+
+    iterator = _repeat_training_items(
+        (window,),
+        providers,
+        seed=11,
+        fallback_sources=_dataset_fallback_sources((window,)),
+        mix=mix,
+    )
+    items = _next_batch(iterator, 8)
+
+    assert len(items) == 8
+    assert {item.training_tuple.rel_edits[0].rel_pos for item in items} == {2048}
+
+
+def test_training_edit_contract_rejects_unimplemented_action_subset(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    unsupported = replace(config, action=replace(config.action, sub_encoders=("snv", "ins")))
+
+    with pytest.raises(InputError, match="does not support"):
+        _training_edit_contract(
+            unsupported,
+            gnomad_edits=(EditSpec(chrom="1", pos=1, ref="A", alt="T"),),
+            clinvar_edits=(),
+        )
 
 
 def test_repeat_training_items_rejects_empty_epoch() -> None:
@@ -247,6 +380,73 @@ def test_move_trainable_to_device_leaves_cpu_module_in_place() -> None:
     assert module.devices == []
 
 
+def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime_setup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "dataset_manifest.json").write_text("{}\n", encoding="utf-8")
+    carbon_dir = tmp_path / "carbon"
+    carbon_dir.mkdir()
+    window = WindowContext(
+        record_id="placed-1",
+        source=SOURCE_GNOMAD_COMMON,
+        sequence="ACGT" * 16,
+        chrom="1",
+    )
+    observed: list[tuple[Path, str]] = []
+
+    monkeypatch.setattr(
+        real_module,
+        "_load_dataset_manifest",
+        lambda _dataset_dir: {"snapshot_id": "fixture", "files": []},
+    )
+    monkeypatch.setattr(real_module, "_dataset_files", lambda _manifest: ())
+    monkeypatch.setattr(real_module, "_load_windows", lambda *_args: iter((window,)))
+    monkeypatch.setattr(
+        real_module,
+        "_load_gnomad_edits",
+        lambda *_args: iter((EditSpec(chrom="1", pos=1, ref="A", alt="T"),)),
+    )
+    monkeypatch.setattr(real_module, "_load_clinvar_edits", lambda *_args: iter(()))
+
+    def fake_encoder_identity_hash(model_dir: Path, *, state_contract_version: str) -> str:
+        observed.append((model_dir, state_contract_version))
+        return _ENCODER_WEIGHTS_HASH
+
+    def stop_at_edit_contract(
+        observed_config: object,
+        *,
+        gnomad_edits: object,
+        clinvar_edits: object,
+    ) -> tuple[dict[str, object], tuple[object, ...]]:
+        assert observed_config is config
+        assert tuple(gnomad_edits) == (EditSpec(chrom="1", pos=1, ref="A", alt="T"),)
+        assert tuple(clinvar_edits) == ()
+        raise RuntimeError("edit contract reached")
+
+    monkeypatch.setattr(real_module, "encoder_identity_hash", fake_encoder_identity_hash)
+    monkeypatch.setattr(real_module, "_training_device", lambda _config: "cpu")
+    monkeypatch.setattr(real_module, "configure_torch_reproducibility", lambda **_kwargs: object())
+    monkeypatch.setattr(real_module, "_training_edit_contract", stop_at_edit_contract)
+
+    with pytest.raises(RuntimeError, match="edit contract reached"):
+        real_module.run_carbon_training(
+            config=config,
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            run_dir=tmp_path / "run",
+            steps=1,
+            command="geno-lewm-train --carbon-train",
+            commit_sha="abcdef123456",
+            package_version="0.1.0.dev0",
+        )
+
+    assert observed == [(carbon_dir, config.encoder.state_contract_version)]
+
+
 def test_validate_resume_checkpoint_accepts_matching_identity(tmp_path: Path) -> None:
     config = load_config(_write_training_config(tmp_path))
     seeds = TrainerSeeds.from_base_seed(config.seed)
@@ -258,9 +458,105 @@ def test_validate_resume_checkpoint_accepts_matching_identity(tmp_path: Path) ->
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         seeds=seeds,
         target_steps=5,
+        encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
     )
 
     assert checkpoint.steps_completed == 3
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "delete", "message"),
+    [
+        ("encoder.effective_normalize", "true", False, "must be boolean"),
+        ("encoder.normalize", False, False, "config does not match"),
+        (
+            "encoder.identity_hash",
+            None,
+            True,
+            "missing a complete encoder representation identity",
+        ),
+    ],
+)
+def test_validate_resume_checkpoint_rejects_malformed_encoder_contract(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    delete: bool,
+    message: str,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    checkpoint_config = payload["config"]
+    assert isinstance(checkpoint_config, dict)
+    if delete:
+        del checkpoint_config[field]
+    else:
+        checkpoint_config[field] = value
+
+    with pytest.raises(InputError, match=message):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        )
+
+
+def test_validate_resume_checkpoint_rejects_legacy_payload_for_normalized_lineage(
+    tmp_path: Path,
+) -> None:
+    legacy_config = load_config(_write_training_config(tmp_path))
+    config = replace(
+        legacy_config,
+        encoder=replace(
+            legacy_config.encoder,
+            state_contract_version="l2_normalized_v2",
+        ),
+    )
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    payload_config = payload["config"]
+    assert isinstance(payload_config, dict)
+    payload_config["encoder.state_contract_version"] = "legacy_raw_v1"
+    payload_config["encoder.effective_normalize"] = False
+
+    with pytest.raises(InputError, match="state contract does not match"):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        )
+
+
+def test_legacy_resume_rejects_missing_encoder_identity(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    payload_config = payload["config"]
+    assert isinstance(payload_config, dict)
+    for key in tuple(payload_config):
+        if key.startswith("encoder."):
+            del payload_config[key]
+
+    with pytest.raises(InputError, match="complete encoder state contract"):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        )
 
 
 def test_validate_resume_checkpoint_rejects_dataset_mismatch(tmp_path: Path) -> None:
@@ -277,6 +573,7 @@ def test_validate_resume_checkpoint_rejects_dataset_mismatch(tmp_path: Path) -> 
             dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
             seeds=seeds,
             target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
         )
 
 
@@ -294,6 +591,46 @@ def test_validate_resume_checkpoint_rejects_config_mismatch(tmp_path: Path) -> N
             dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
             seeds=seeds,
             target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        )
+
+
+def test_normalized_resume_rejects_encoder_identity_mismatch(tmp_path: Path) -> None:
+    legacy_config = load_config(_write_training_config(tmp_path))
+    config = replace(
+        legacy_config,
+        encoder=replace(
+            legacy_config.encoder,
+            state_contract_version="l2_normalized_v2",
+        ),
+    )
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    payload_config = payload["config"]
+    assert isinstance(payload_config, dict)
+    payload_config.update(
+        {
+            "encoder.normalize": True,
+            "encoder.state_contract_version": "l2_normalized_v2",
+            "encoder.effective_normalize": True,
+            "encoder.identity_hash": "sha256:" + ("b" * 64),
+            "encoder.revision": config.encoder.revision,
+            "encoder.dtype": config.encoder.dtype,
+            "encoder.state_layer": config.encoder.state_layer,
+            "encoder.pool_type": config.encoder.pool_type,
+            "encoder.pool_radius": config.encoder.pool_radius,
+        }
+    )
+
+    with pytest.raises(InputError, match="encoder representation does not match"):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
         )
 
 
@@ -309,6 +646,7 @@ def test_validate_resume_checkpoint_rejects_finished_checkpoint(tmp_path: Path) 
             dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
             seeds=seeds,
             target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
         )
 
 
@@ -330,6 +668,7 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         steps=7,
         seeds=seeds,
+        encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
     )
 
     payload = torch.load(path, map_location="cpu")
@@ -340,12 +679,20 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         seeds=seeds,
         target_steps=8,
+        encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
     )
 
     assert checkpoint.steps_completed == 7
     assert payload["predictor"]
     assert payload["action_encoder"]
     assert payload["optimizer"]
+    assert payload["config"]["encoder.normalize"] is True
+    assert payload["config"]["encoder.state_contract_version"] == "legacy_raw_v1"
+    assert payload["config"]["encoder.effective_normalize"] is False
+    assert payload["config"]["encoder.identity_hash"] == _ENCODER_WEIGHTS_HASH
+    assert payload["config"]["encoder.state_layer"] == config.encoder.state_layer
+    assert payload["config"]["action.sub_encoders"] == list(config.action.sub_encoders)
+    assert payload["config"]["predictor.dtype"] == config.predictor.dtype
 
 
 def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dict[str, object]:
@@ -361,7 +708,18 @@ def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dic
             "deterministic": config.deterministic,
             "data.batch_size": config.data.batch_size,
             "predictor.d_state": config.predictor.d_state,
+            "predictor.dtype": config.predictor.dtype,
             "action.d_action": config.action.d_action,
+            "action.sub_encoders": list(config.action.sub_encoders),
+            "encoder.normalize": config.encoder.normalize,
+            "encoder.state_contract_version": config.encoder.state_contract_version,
+            "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),
+            "encoder.identity_hash": _ENCODER_WEIGHTS_HASH,
+            "encoder.revision": config.encoder.revision,
+            "encoder.dtype": config.encoder.dtype,
+            "encoder.state_layer": config.encoder.state_layer,
+            "encoder.pool_type": config.encoder.pool_type,
+            "encoder.pool_radius": config.encoder.pool_radius,
         },
         "predictor": {},
         "action_encoder": {},

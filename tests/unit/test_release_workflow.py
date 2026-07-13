@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PYPROJECT = ROOT / "pyproject.toml"
 PYPI_WORKFLOW = ROOT / ".github" / "workflows" / "release-pypi.yml"
 HUB_DRY_RUN_WORKFLOW = ROOT / ".github" / "workflows" / "release-hub-dry-run.yml"
 HUB_PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "release-hub-publish.yml"
@@ -38,6 +39,14 @@ def test_ci_build_workflow_checks_sdist_release_assets() -> None:
     assert "python -m build" in text
     assert "twine check dist/*" in text
     assert "python -m tools.release.check_sdist_assets dist/*.tar.gz" in text
+
+
+def test_ci_type_dependencies_are_bounded_to_validated_versions() -> None:
+    text = PYPROJECT.read_text(encoding="utf-8")
+    dev_dependencies = text.split("dev = [", maxsplit=1)[1].split("]", maxsplit=1)[0]
+
+    assert '"mypy>=1.10,<2.2"' in dev_dependencies
+    assert '"pyarrow>=15,<25"' in dev_dependencies
 
 
 def test_ci_workflow_checks_first_experiment_dataset_spec() -> None:
@@ -80,7 +89,9 @@ def test_ci_workflow_builds_checked_paper_pdf_artifact() -> None:
 
     assert "  paper:" in text
     assert "name: Paper PDF (tectonic)" in text
-    assert "sudo apt-get install -y tectonic" in text
+    assert "wtfjoke/setup-tectonic@8a63d072f8390efdff59da7fa08aa49e3c1f5e1b" in text
+    assert 'tectonic-version: "0.16.9"' in text
+    assert "apt-get install -y tectonic" not in text
     assert "make -C paper" in text
     assert "python -m tools.release.paper_tex" in text
     assert "--output paper/paper_tex_build_report.json" in text

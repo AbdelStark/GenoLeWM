@@ -16,8 +16,10 @@ from typing import NoReturn
 import pytest
 
 import geno_lewm.deploy.runtime as runtime_mod
+import geno_lewm.encoder as encoder_mod
 from geno_lewm._artifact_sources import SCORE_JSONL_GENERATED_BY
 from geno_lewm.action import EditSpec, EditType, RelEdit
+from geno_lewm.config import load_config
 from geno_lewm.deploy import (
     BACKEND_COREML,
     BACKEND_CPU,
@@ -454,6 +456,37 @@ def test_runtime_auto_loads_manifest_components_when_optional_runtime_available(
     ]
 
 
+def test_build_runtime_encoder_propagates_manifest_identity_and_state_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _write_runtime_model_dir(tmp_path, normalized_contract=True)
+    config = load_config(tmp_path / "train_config.yaml")
+    observed: dict[str, object] = {}
+
+    class StubCarbonStateEncoder:
+        def __init__(self, model_id: str, revision: str, **kwargs: object) -> None:
+            observed.update(model_id=model_id, revision=revision, **kwargs)
+
+    monkeypatch.setattr(encoder_mod, "CarbonStateEncoder", StubCarbonStateEncoder)
+
+    encoder = runtime_mod._build_runtime_encoder(manifest, config)
+
+    assert isinstance(encoder, StubCarbonStateEncoder)
+    assert observed == {
+        "model_id": config.encoder.model_id,
+        "revision": manifest.encoder.revision,
+        "dtype": config.encoder.dtype,
+        "state_layer": config.encoder.state_layer,
+        "pool_type": config.encoder.pool_type,
+        "pool_radius": config.encoder.pool_radius,
+        "normalize": True,
+        "encoder_hash": manifest.encoder.hash,
+        "local_files_only": True,
+        "trust_remote_code": False,
+    }
+
+
 def test_load_action_predictor_modules_does_not_build_carbon_encoder(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -541,7 +574,7 @@ def test_runtime_writes_single_variant_receipt_with_manifest_commitment(tmp_path
     assert receipt.input_commitment == compute_input_commitment(
         "ACGT",
         variant,
-        PoolingConfig(state_layer=20, pool_type="centered_mean", pool_radius=8, normalize=True),
+        PoolingConfig(state_layer=20, pool_type="centered_mean", pool_radius=8, normalize=False),
         DtypeConfig(encoder_dtype="bf16", predictor_dtype="bf16"),
     )
 
@@ -626,7 +659,7 @@ def test_runtime_scores_vcf_with_manifest_verified_components_and_fasta(tmp_path
     assert receipt.input_commitment == compute_input_commitment(
         sequence,
         variant,
-        PoolingConfig(state_layer=20, pool_type="centered_mean", pool_radius=8, normalize=True),
+        PoolingConfig(state_layer=20, pool_type="centered_mean", pool_radius=8, normalize=False),
         DtypeConfig(encoder_dtype="bf16", predictor_dtype="bf16"),
     )
 
@@ -644,11 +677,28 @@ def test_runtime_rejects_partial_component_injection(tmp_path: Path) -> None:
         GenoLeWMRuntime(tmp_path, encoder=FakeEncoder())
 
 
-def _write_runtime_model_dir(root: Path) -> Manifest:
+def test_runtime_commitment_uses_explicit_normalized_state_contract(tmp_path: Path) -> None:
+    manifest = _write_runtime_model_dir(tmp_path, normalized_contract=True)
+
+    pooling, _dtype = runtime_mod._resolve_commitment_configs(tmp_path, manifest)
+
+    assert pooling.normalize is True
+
+
+def _write_runtime_model_dir(root: Path, *, normalized_contract: bool = False) -> Manifest:
     (root / "predictor.safetensors").write_bytes(b"predictor")
     (root / "action_encoder.safetensors").write_bytes(b"action")
     calibration_path = write_calibration_table(_calibration(), root / "calibration.parquet")
-    (root / "train_config.yaml").write_text("seed: 0\n", encoding="utf-8")
+    config = (
+        "schema_version: 1.1.0\n"
+        "seed: 0\n"
+        "encoder:\n"
+        "  normalize: true\n"
+        "  state_contract_version: legacy_raw_v1\n"
+    )
+    if normalized_contract:
+        config = config.replace("legacy_raw_v1", "l2_normalized_v2")
+    (root / "train_config.yaml").write_text(config, encoding="utf-8")
     (root / "eval_report.md").write_text("# eval\n", encoding="utf-8")
 
     manifest = Manifest(

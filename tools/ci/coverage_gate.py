@@ -87,13 +87,14 @@ def parse_coverage_xml(
 
     tree = ET.parse(path)
     root = tree.getroot()
+    source_prefixes = _coverage_source_prefixes(root)
     tracked: dict[str, set[int]] = {}
     covered: dict[str, set[int]] = {}
     for cls in root.iter("class"):
         fn = cls.get("filename")
         if fn is None:
             continue
-        norm = _normalize_path(fn)
+        norm = _normalize_coverage_path(fn, source_prefixes=source_prefixes)
         t_set = tracked.setdefault(norm, set())
         c_set = covered.setdefault(norm, set())
         for line in cls.iter("line"):
@@ -111,11 +112,58 @@ def parse_coverage_xml(
 
 
 def _normalize_path(p: str) -> str:
-    """Strip drive letters and normalize to POSIX-style relative paths."""
-    norm = p.replace("\\", "/").lstrip("./")
-    # Strip leading repo-absolute prefix if any tool wrote one in.
-    repo_str = str(REPO_ROOT).replace("\\", "/") + "/"
-    norm = norm.removeprefix(repo_str)
+    """Normalize a path to a POSIX-style repository-relative key."""
+    norm = p.replace("\\", "/")
+    repo_str = str(REPO_ROOT).replace("\\", "/").rstrip("/")
+    if norm == repo_str:
+        return ""
+    if norm.startswith(f"{repo_str}/"):
+        return norm[len(repo_str) + 1 :]
+    while norm.startswith("./"):
+        norm = norm[2:]
+    return norm.lstrip("/")
+
+
+def _coverage_source_prefixes(root: ET.Element) -> tuple[str, ...]:
+    """Return declared Cobertura source roots that live inside this repository."""
+    repo_str = str(REPO_ROOT).replace("\\", "/").rstrip("/")
+    prefixes: list[str] = []
+    for source in root.findall("./sources/source"):
+        if source.text is None:
+            continue
+        raw = source.text.strip().replace("\\", "/").rstrip("/")
+        if raw == repo_str:
+            prefix = ""
+        elif raw.startswith(f"{repo_str}/"):
+            prefix = raw[len(repo_str) + 1 :]
+        elif not raw.startswith("/") and re.match(r"^[A-Za-z]:/", raw) is None:
+            prefix = _normalize_path(raw)
+        else:
+            continue
+        if prefix not in prefixes:
+            prefixes.append(prefix)
+    return tuple(prefixes)
+
+
+def _normalize_coverage_path(
+    filename: str,
+    *,
+    source_prefixes: Sequence[str],
+) -> str:
+    """Resolve a Cobertura class filename against its package source root.
+
+    ``coverage.py`` writes class names relative to the configured ``--cov``
+    source. For ``--cov=geno_lewm`` that means ``encoder/carbon.py`` rather
+    than the git-diff key ``geno_lewm/encoder/carbon.py``. A single declared
+    source root gives us the missing repository-relative prefix. Already
+    prefixed and absolute filenames remain unchanged after normalization.
+    """
+    norm = _normalize_path(filename)
+    nonempty_prefixes = tuple(prefix for prefix in source_prefixes if prefix)
+    if any(norm == prefix or norm.startswith(f"{prefix}/") for prefix in nonempty_prefixes):
+        return norm
+    if len(nonempty_prefixes) == 1:
+        return f"{nonempty_prefixes[0]}/{norm}" if norm else nonempty_prefixes[0]
     return norm
 
 

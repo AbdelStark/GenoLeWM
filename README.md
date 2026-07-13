@@ -19,6 +19,10 @@ edited window ----Carbon encoder----> s_{t+1}
 loss = distance(s_hat_{t+1}, s_{t+1}) + collapse regularization
 ```
 
+> **Checkpoint validity notice (2026-07-10):** Every published v0.1/v0.2.1 checkpoint uses `legacy_raw_v1`: configured normalization was ignored, so raw Carbon states were compared with unit predictions. Training sources were global while targets were nominally edit-centered; all historical centers also omitted the leading `<dna>` token and were one hidden token left, rollout/candidate loci differed, and cache v1 omitted the center.
+> Carbon's pinned `tokenizer.py` also made an unpinned, network-capable `Qwen/Qwen3-4B-Base` lookup, so its hash did not define a self-contained runtime. The v0.2.1 target-only KL supplied no gradient.
+> These defects invalidate the checkpoints and metrics as normalized-method evidence. The repaired local pure-DNA tokenizer and token-layout-derived centers are code contracts, not model-quality evidence; corrected results require a new `l2_normalized_v2` lineage.
+
 The package is an alpha research system. It is not a diagnostic device,
 not a clinical decision system, and not evidence of privacy or runtime
 assurance beyond local execution contracts and checksum provenance.
@@ -71,30 +75,27 @@ uv pip install -e ".[dev,docs]"
 
 ## Results
 
-The current evidence is useful systems evidence with mixed or negative
-model-quality results. Do not cite it as broad superiority over Carbon.
+All values below are historical `legacy_raw_v1` implementation outputs with their signed deltas preserved for audit.
+They remain reproducible records of the released artifacts, but they do not
+evaluate the intended normalized method. Do not interpret them as superiority or inferiority to Carbon.
 
-| Track | GenoLeWM result | Baseline comparison |
+| Track | Historical GenoLeWM output | Baseline comparison |
 | --- | ---: | --- |
 | ClinVar coding | AUROC `0.734375`, AP `0.8529761904761904`, balanced accuracy `0.75` | vs Carbon: AUROC `-0.1875`, AP `-0.09894688644688643`, balanced accuracy `+0.0625` |
 | ClinVar non-coding | AUROC `0.5625`, AP `0.6054563492063492`, balanced accuracy `0.4375` | vs Carbon: AUROC `-0.3125`, AP `-0.30896672771672784`, balanced accuracy `-0.25` |
 | BRCA2 saturation | Spearman rho `0.14919354838709678` | vs Carbon: `-0.32771260997067453` |
 | TraitGym Mendelian | Spearman rho `-0.02796450759873114` | vs Carbon: `+0.05592901519746229` |
-| Phased-haplotype rollout | cosine mean `0.28886058350550603`, L2 mean `33.319687258878126`, Recall@4 `1.0` | weak vs source-state baseline: cosine `-0.7089701215468133`, L2 `+31.19289051130368` |
-| Synthetic edit-chain rollout | cosine mean `0.30160847029349436`, L2 mean `28.802888778495763`, Recall@4 `1.0` | weak vs source-state baseline: cosine `-0.6896310938123016`, L2 `+25.637059814259455` |
+| Phased-haplotype rollout | cosine mean `0.28886058350550603`, L2 mean `33.319687258878126`, Recall@4 `1.0` | historical delta: cosine `-0.7089701215468133` (confounded), L2 `+31.19289051130368` (invalid) |
+| Synthetic edit-chain rollout | cosine mean `0.30160847029349436`, L2 mean `28.802888778495763`, Recall@4 `1.0` | historical delta: cosine `-0.6896310938123016` (confounded), L2 `+25.637059814259455` (invalid) |
 | AR rollout speed | K=5 speedup `2.413859489667916`; K=20 speedup `2.4732225135799566` | K=5 passes its local target; K=20 remains below the original `5x` target |
 | Planning demo | `best_distance=23.656930390534644`, `384` evaluations, patience stop | released-artifact execution evidence, not useful-planning evidence |
 
-The generated paper and readiness report preserve these negative
-findings. The strongest current claim is that the repository can train,
-package, evaluate, benchmark, and replay a genomic-edit world-model
-pipeline with content-addressed evidence.
+The generated paper and readiness report preserve historical outputs, but are
+invalid as normalized-method evidence. They prove only that the legacy pipeline ran with
+content-addressed evidence; corrected results require a new `l2_normalized_v2` lineage.
 
-The GenoLeWM-FX pivot is documented as a killed feasibility experiment:
-public TraitGym labels are available, but no reproducible 10k-50k
-teacher-delta cache is locked under the experiment contract.
-The only follow-up trajectory is a narrow precomputed-Borzoi overlap
-audit; it is not a model-quality claim.
+The killed GenoLeWM-FX precomputed-Borzoi audit is not a model-quality claim;
+its small, non-significant residual lift does not reopen a training claim.
 
 ## Quickstart
 
@@ -318,7 +319,7 @@ jobs. Fixture outputs are test evidence, not model results.
 
 ## Limitations
 
-- Current measured benchmarks are mixed or negative relative to Carbon.
+- Published checkpoints and metrics use `legacy_raw_v1`; they do not test the intended normalized method, and the v0.2.1 Phase 2 KL supplied no gradient.
 - The K=20 AR rollout speed target remains open.
 - The released planning demo exercises the model path but does not show
   useful planning behavior.
@@ -331,5 +332,4 @@ jobs. Fixture outputs are test evidence, not model results.
   evidence.
 - Personal-genome workflows are local-first, but local execution is not
   the same thing as a privacy assurance.
-- Checksum receipts prove artifact and output identity; they do not
-  certify runtime behavior.
+- Checksum receipts prove artifact and output identity; they do not certify runtime behavior.

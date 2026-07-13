@@ -9,10 +9,26 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.config import load_default
-from geno_lewm.errors import InputError
+from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.provenance import sha256_file
 from geno_lewm.training import run_fixture_training
 from tools.release.training_run import build_training_run_package, verify_training_run_manifest
+
+
+def test_fixture_training_rejects_phase2_before_writing_artifacts(tmp_path: Path) -> None:
+    config = dataclasses.replace(load_default("train"), phase="phase2")
+
+    with pytest.raises(RuntimeSetupError, match="graph-preserving trainable encoder-adapter"):
+        run_fixture_training(
+            config=config,
+            run_dir=tmp_path,
+            steps=1,
+            command="geno-lewm-train --fixture-smoke",
+            commit_sha="abcdef123456",
+            package_version="0.2.1",
+        )
+
+    assert not tuple(tmp_path.iterdir())
 
 
 def test_fixture_training_is_resume_equivalent(tmp_path: Path) -> None:

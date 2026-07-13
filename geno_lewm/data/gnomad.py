@@ -29,7 +29,8 @@ __all__ = [
     "prepare_gnomad_shard",
 ]
 
-GNOMAD_SCHEMA_VERSION = "1.0.0"
+GNOMAD_SCHEMA_VERSION = "2.0.0"
+_GNOMAD_LEGACY_SCHEMA_VERSION = "1.0.0"
 GNOMAD_POPULATIONS: tuple[str, ...] = (
     "afr",
     "ami",
@@ -37,8 +38,10 @@ GNOMAD_POPULATIONS: tuple[str, ...] = (
     "asj",
     "eas",
     "fin",
+    "mid",
     "nfe",
     "oth",
+    "remaining",
     "sas",
 )
 _PARQUET_BATCH_ROWS = 100_000
@@ -46,7 +49,12 @@ _PARQUET_BATCH_ROWS = 100_000
 
 @dataclass(frozen=True, slots=True)
 class GnomadVariant:
-    """One normalized common-variant row for the gnomAD shard."""
+    """One normalized common-variant row for the gnomAD shard.
+
+    Omitting ``schema_version`` retains the legacy v1 constructor contract.
+    Rows prepared from gnomAD v4.1 are always stamped with the current public
+    :data:`GNOMAD_SCHEMA_VERSION`.
+    """
 
     chrom: str
     pos: int
@@ -63,7 +71,9 @@ class GnomadVariant:
     af_oth: float | None
     af_sas: float | None
     filter: str
-    schema_version: str = GNOMAD_SCHEMA_VERSION
+    schema_version: str = _GNOMAD_LEGACY_SCHEMA_VERSION
+    af_mid: float | None = field(default=None, init=False)
+    af_remaining: float | None = field(default=None, init=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -78,8 +88,10 @@ class GnomadVariant:
             "af_asj": self.af_asj,
             "af_eas": self.af_eas,
             "af_fin": self.af_fin,
+            "af_mid": self.af_mid,
             "af_nfe": self.af_nfe,
             "af_oth": self.af_oth,
+            "af_remaining": self.af_remaining,
             "af_sas": self.af_sas,
             "filter": self.filter,
             "schema_version": self.schema_version,
@@ -144,6 +156,7 @@ def prepare_gnomad_shard(
     input_path, input_sha256, input_size_bytes = _input_file_identity(input_vcf)
     target = Path(output_dir) / "gnomad" / release / "variants.parquet"
     if target.exists() and not overwrite:
+        _require_current_parquet_schema(target)
         return _with_prepare_identity(
             GnomadPrepareReport(
                 output_path=target,
@@ -188,22 +201,27 @@ def prepare_gnomad_shard(
                 if af_global is None or af_global < min_af:
                     skipped_af += 1
                     continue
-                yield GnomadVariant(
-                    chrom=row.chrom,
-                    pos=row.pos,
-                    ref=row.ref,
-                    alt=alt,
-                    af_global=af_global,
-                    af_afr=_af_for(row.info, ("AF_afr", "AF_AFR"), alt_index),
-                    af_ami=_af_for(row.info, ("AF_ami", "AF_AMI"), alt_index),
-                    af_amr=_af_for(row.info, ("AF_amr", "AF_AMR"), alt_index),
-                    af_asj=_af_for(row.info, ("AF_asj", "AF_ASJ"), alt_index),
-                    af_eas=_af_for(row.info, ("AF_eas", "AF_EAS"), alt_index),
-                    af_fin=_af_for(row.info, ("AF_fin", "AF_FIN"), alt_index),
-                    af_nfe=_af_for(row.info, ("AF_nfe", "AF_NFE"), alt_index),
-                    af_oth=_af_for(row.info, ("AF_oth", "AF_OTH"), alt_index),
-                    af_sas=_af_for(row.info, ("AF_sas", "AF_SAS"), alt_index),
-                    filter=row.filter,
+                yield _with_additional_population_fields(
+                    GnomadVariant(
+                        chrom=row.chrom,
+                        pos=row.pos,
+                        ref=row.ref,
+                        alt=alt,
+                        af_global=af_global,
+                        af_afr=_af_for(row.info, ("AF_afr", "AF_AFR"), alt_index),
+                        af_ami=_af_for(row.info, ("AF_ami", "AF_AMI"), alt_index),
+                        af_amr=_af_for(row.info, ("AF_amr", "AF_AMR"), alt_index),
+                        af_asj=_af_for(row.info, ("AF_asj", "AF_ASJ"), alt_index),
+                        af_eas=_af_for(row.info, ("AF_eas", "AF_EAS"), alt_index),
+                        af_fin=_af_for(row.info, ("AF_fin", "AF_FIN"), alt_index),
+                        af_nfe=_af_for(row.info, ("AF_nfe", "AF_NFE"), alt_index),
+                        af_oth=_af_for(row.info, ("AF_oth", "AF_OTH"), alt_index),
+                        af_sas=_af_for(row.info, ("AF_sas", "AF_SAS"), alt_index),
+                        filter=row.filter,
+                    ),
+                    af_mid=_af_for(row.info, ("AF_mid", "AF_MID"), alt_index),
+                    af_remaining=_af_for(row.info, ("AF_remaining", "AF_REMAINING"), alt_index),
+                    schema_version=GNOMAD_SCHEMA_VERSION,
                 )
 
     records_written = _write_parquet(_selected_rows(), target)
@@ -249,22 +267,27 @@ def iter_gnomad_vcf_variants(
             af_global = _af_for(row.info, ("AF", "AF_global", "AF_GLOBAL"), alt_index)
             if af_global is None or af_global < min_af:
                 continue
-            yield GnomadVariant(
-                chrom=row.chrom,
-                pos=row.pos,
-                ref=row.ref,
-                alt=alt,
-                af_global=af_global,
-                af_afr=_af_for(row.info, ("AF_afr", "AF_AFR"), alt_index),
-                af_ami=_af_for(row.info, ("AF_ami", "AF_AMI"), alt_index),
-                af_amr=_af_for(row.info, ("AF_amr", "AF_AMR"), alt_index),
-                af_asj=_af_for(row.info, ("AF_asj", "AF_ASJ"), alt_index),
-                af_eas=_af_for(row.info, ("AF_eas", "AF_EAS"), alt_index),
-                af_fin=_af_for(row.info, ("AF_fin", "AF_FIN"), alt_index),
-                af_nfe=_af_for(row.info, ("AF_nfe", "AF_NFE"), alt_index),
-                af_oth=_af_for(row.info, ("AF_oth", "AF_OTH"), alt_index),
-                af_sas=_af_for(row.info, ("AF_sas", "AF_SAS"), alt_index),
-                filter=row.filter,
+            yield _with_additional_population_fields(
+                GnomadVariant(
+                    chrom=row.chrom,
+                    pos=row.pos,
+                    ref=row.ref,
+                    alt=alt,
+                    af_global=af_global,
+                    af_afr=_af_for(row.info, ("AF_afr", "AF_AFR"), alt_index),
+                    af_ami=_af_for(row.info, ("AF_ami", "AF_AMI"), alt_index),
+                    af_amr=_af_for(row.info, ("AF_amr", "AF_AMR"), alt_index),
+                    af_asj=_af_for(row.info, ("AF_asj", "AF_ASJ"), alt_index),
+                    af_eas=_af_for(row.info, ("AF_eas", "AF_EAS"), alt_index),
+                    af_fin=_af_for(row.info, ("AF_fin", "AF_FIN"), alt_index),
+                    af_nfe=_af_for(row.info, ("AF_nfe", "AF_NFE"), alt_index),
+                    af_oth=_af_for(row.info, ("AF_oth", "AF_OTH"), alt_index),
+                    af_sas=_af_for(row.info, ("AF_sas", "AF_SAS"), alt_index),
+                    filter=row.filter,
+                ),
+                af_mid=_af_for(row.info, ("AF_mid", "AF_MID"), alt_index),
+                af_remaining=_af_for(row.info, ("AF_remaining", "AF_REMAINING"), alt_index),
+                schema_version=GNOMAD_SCHEMA_VERSION,
             )
 
 
@@ -273,23 +296,27 @@ def iter_gnomad_shard(path: str | Path) -> Iterator[GnomadVariant]:
     _pa, pq = _require_pyarrow()
     table = pq.read_table(Path(path))
     for row in table.to_pylist():
-        yield GnomadVariant(
-            chrom=str(row["chrom"]),
-            pos=int(row["pos"]),
-            ref=str(row["ref"]),
-            alt=str(row["alt"]),
-            af_global=float(row["af_global"]),
-            af_afr=_optional_float(row.get("af_afr")),
-            af_ami=_optional_float(row.get("af_ami")),
-            af_amr=_optional_float(row.get("af_amr")),
-            af_asj=_optional_float(row.get("af_asj")),
-            af_eas=_optional_float(row.get("af_eas")),
-            af_fin=_optional_float(row.get("af_fin")),
-            af_nfe=_optional_float(row.get("af_nfe")),
-            af_oth=_optional_float(row.get("af_oth")),
-            af_sas=_optional_float(row.get("af_sas")),
-            filter=str(row["filter"]),
-            schema_version=str(row["schema_version"]),
+        yield _with_additional_population_fields(
+            GnomadVariant(
+                chrom=str(row["chrom"]),
+                pos=int(row["pos"]),
+                ref=str(row["ref"]),
+                alt=str(row["alt"]),
+                af_global=float(row["af_global"]),
+                af_afr=_optional_float(row.get("af_afr")),
+                af_ami=_optional_float(row.get("af_ami")),
+                af_amr=_optional_float(row.get("af_amr")),
+                af_asj=_optional_float(row.get("af_asj")),
+                af_eas=_optional_float(row.get("af_eas")),
+                af_fin=_optional_float(row.get("af_fin")),
+                af_nfe=_optional_float(row.get("af_nfe")),
+                af_oth=_optional_float(row.get("af_oth")),
+                af_sas=_optional_float(row.get("af_sas")),
+                filter=str(row["filter"]),
+                schema_version=str(row["schema_version"]),
+            ),
+            af_mid=_optional_float(row.get("af_mid")),
+            af_remaining=_optional_float(row.get("af_remaining")),
         )
 
 
@@ -362,8 +389,10 @@ def _parquet_schema(pa: Any) -> Any:
             ("af_asj", pa.float32()),
             ("af_eas", pa.float32()),
             ("af_fin", pa.float32()),
+            ("af_mid", pa.float32()),
             ("af_nfe", pa.float32()),
             ("af_oth", pa.float32()),
+            ("af_remaining", pa.float32()),
             ("af_sas", pa.float32()),
             ("filter", pa.string()),
             ("schema_version", pa.string()),
@@ -374,6 +403,50 @@ def _parquet_schema(pa: Any) -> Any:
 def _parquet_num_rows(path: Path) -> int:
     _pa, pq = _require_pyarrow()
     return int(pq.ParquetFile(path).metadata.num_rows)
+
+
+def _require_current_parquet_schema(path: Path) -> None:
+    pa, pq = _require_pyarrow()
+    parquet = pq.ParquetFile(path)
+    expected_schema = _parquet_schema(pa)
+    observed_schema = parquet.schema_arrow
+    if not observed_schema.equals(expected_schema):
+        raise InputError(
+            f"existing gnomAD shard is not schema {GNOMAD_SCHEMA_VERSION}",
+            details={
+                "path": str(path),
+                "expected_schema": str(expected_schema),
+                "observed_schema": str(observed_schema),
+            },
+            remediation="rerun with overwrite=True to rebuild the shard",
+        )
+    for batch in parquet.iter_batches(columns=["schema_version"]):
+        observed_versions = batch.column(0).to_pylist()
+        if any(version != GNOMAD_SCHEMA_VERSION for version in observed_versions):
+            raise InputError(
+                f"existing gnomAD shard is not schema {GNOMAD_SCHEMA_VERSION}",
+                details={
+                    "path": str(path),
+                    "observed_schema_versions": sorted(
+                        {str(version) for version in observed_versions}
+                    ),
+                },
+                remediation="rerun with overwrite=True to rebuild the shard",
+            )
+
+
+def _with_additional_population_fields(
+    variant: GnomadVariant,
+    *,
+    af_mid: float | None,
+    af_remaining: float | None,
+    schema_version: str | None = None,
+) -> GnomadVariant:
+    object.__setattr__(variant, "af_mid", af_mid)
+    object.__setattr__(variant, "af_remaining", af_remaining)
+    if schema_version is not None:
+        object.__setattr__(variant, "schema_version", schema_version)
+    return variant
 
 
 def _with_prepare_identity(

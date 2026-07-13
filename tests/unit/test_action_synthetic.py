@@ -37,6 +37,26 @@ def test_uniform_snv_is_deterministic() -> None:
     assert a == b
 
 
+def test_uniform_snv_samples_sparse_acgt_interior_without_probabilistic_failure() -> None:
+    window = ["N"] * 4096
+    window[2048] = "A"
+
+    edits = uniform_snv("".join(window), 8, rng=_seeded(0))
+
+    assert len(edits) == 8
+    assert {edit.rel_pos for edit in edits} == {2048}
+    assert {edit.ref_bases for edit in edits} == {"A"}
+
+
+def test_uniform_snv_zero_edits_does_not_require_an_acgt_anchor() -> None:
+    assert uniform_snv("N" * 4096, 0, rng=_seeded(0)) == []
+
+
+def test_uniform_snv_rejects_an_interior_without_acgt() -> None:
+    with pytest.raises(InputError, match="could not find an ACGT position"):
+        uniform_snv("N" * 4096, 1, rng=_seeded(0))
+
+
 def test_indel_is_deterministic() -> None:
     w = "ACGT" * 200
     a = indel(w, 8, rng=_seeded(11))

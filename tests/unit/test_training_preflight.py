@@ -125,6 +125,39 @@ def test_training_preflight_rejects_fixture_dataset_by_default(tmp_path: Path) -
     assert "dataset.fixture_snapshot" in _codes(report)
 
 
+def test_training_preflight_accepts_correction_control_proof_snapshot(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("pyarrow")
+    root = Path(__file__).resolve().parents[2]
+    snapshot_spec = json.loads(
+        (root / "configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    dataset_dir = _write_release_dataset(
+        tmp_path,
+        snapshot_id=snapshot_spec["snapshot_id"],
+    )
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            training_config=config,
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is True
+    assert report.dataset_snapshot_id == snapshot_spec["snapshot_id"]
+    assert "dataset.fixture_snapshot" not in _codes(report)
+
+
 def test_training_preflight_requires_release_dataset_evidence(tmp_path: Path) -> None:
     pytest.importorskip("pyarrow")
     dataset_dir = _write_release_dataset(tmp_path)
@@ -245,6 +278,32 @@ def test_training_preflight_rejects_wsd_warmup_without_decay_horizon(
     assert "training_config.training.max_steps_wsd_warmup" in _codes(report)
 
 
+def test_training_preflight_rejects_phase2_without_encoder_adapter(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("phase: phase1", "phase: phase2"),
+        encoding="utf-8",
+    )
+
+    assert load_config(config).phase == "phase2"
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            training_config=config,
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is False
+    assert "training_config.phase2_adapter_unavailable" in _codes(report)
+
+
 def test_training_preflight_requires_cuda_training_device(tmp_path: Path) -> None:
     pytest.importorskip("pyarrow")
     dataset_dir = _write_release_dataset(tmp_path)
@@ -300,6 +359,9 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     serious_cfg = load_config(
         root / "configs/serious_completion/train-carbon-500m-snv-post-v02.yaml"
     )
+    correction_cfg = load_config(
+        root / "configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml"
+    )
 
     assert train_cfg.run_id == "first-snv-carbon-500m-r1"
     assert train_cfg.action.sub_encoders == ("snv",)
@@ -317,6 +379,16 @@ def test_first_experiment_configs_are_checked_schema_configs() -> None:
     assert serious_cfg.training.max_steps == 40000
     assert serious_cfg.optimizer.warmup_steps < serious_cfg.training.max_steps
     assert serious_cfg.runtime.device == "cuda"
+    assert correction_cfg.run_id == "correction-control-l2-p1-smoke-v1"
+    assert correction_cfg.phase == "phase1"
+    assert correction_cfg.encoder.state_contract_version == "l2_normalized_v2"
+    assert correction_cfg.encoder.normalize is True
+    assert correction_cfg.encoder.trust_remote_code is False
+    assert correction_cfg.predictor.dtype == "fp32"
+    assert correction_cfg.action.sub_encoders == ("snv",)
+    assert correction_cfg.training.max_steps == 50
+    assert correction_cfg.data.shuffle_buffer == 0
+    assert correction_cfg.runtime.device == "cuda"
 
 
 def _write_release_dataset(root: Path, *, snapshot_id: str = "geno-lewm-data-v0.1.0-r1") -> Path:

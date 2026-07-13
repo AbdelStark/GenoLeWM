@@ -177,6 +177,7 @@ def _build_top_level(payload: dict[str, Any]) -> GenoLeWMConfig:
             details={"unknown": sorted(unknown), "known": sorted(TOP_LEVEL_KEYS)},
         )
 
+    payload = _migrate_encoder_state_contract(payload)
     kwargs: dict[str, Any] = {}
     for name, cls in _SUBSYSTEM_MAP:
         sub_payload = payload.get(name)
@@ -191,12 +192,61 @@ def _build_top_level(payload: dict[str, Any]) -> GenoLeWMConfig:
             kwargs[scalar] = _coerce(payload[scalar], top_hints[scalar], path=scalar)
 
     try:
-        return GenoLeWMConfig(**kwargs)
+        config = GenoLeWMConfig(**kwargs)
     except TypeError as exc:
         raise ConfigError(
             "could not construct GenoLeWMConfig from payload",
             details={"error": str(exc)},
         ) from exc
+    _validate_encoder_state_contract(config.encoder)
+    return config
+
+
+def _migrate_encoder_state_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    """Map schema-1.0 configs to the raw-state behavior they actually used."""
+    if payload.get("schema_version") != "1.0.0":
+        return payload
+    migrated = dict(payload)
+    encoder_payload = migrated.get("encoder")
+    if encoder_payload is None:
+        encoder: dict[str, Any] = {}
+    elif isinstance(encoder_payload, Mapping):
+        encoder = dict(encoder_payload)
+    else:
+        return migrated
+    declared_contract = encoder.get("state_contract_version")
+    if declared_contract not in (None, "legacy_raw_v1"):
+        raise ConfigError(
+            "schema_version 1.0.0 supports only the legacy_raw_v1 encoder state contract",
+            details={
+                "schema_version": "1.0.0",
+                "state_contract_version": declared_contract,
+            },
+        )
+    encoder["state_contract_version"] = "legacy_raw_v1"
+    migrated["encoder"] = encoder
+    return migrated
+
+
+def _validate_encoder_state_contract(encoder: EncoderConfig) -> None:
+    if encoder.state_contract_version == "l2_normalized_v2" and not encoder.normalize:
+        raise ConfigError(
+            "encoder.state_contract_version l2_normalized_v2 requires encoder.normalize=true",
+            details={
+                "path": "encoder.normalize",
+                "state_contract_version": encoder.state_contract_version,
+                "normalize": encoder.normalize,
+            },
+        )
+    if encoder.pool_type == "global_mean" and encoder.pool_radius != 0:
+        raise ConfigError(
+            "encoder.pool_type global_mean requires encoder.pool_radius=0",
+            details={
+                "path": "encoder.pool_radius",
+                "pool_type": encoder.pool_type,
+                "pool_radius": encoder.pool_radius,
+            },
+        )
 
 
 def _build_dataclass(cls: type, payload: Any, *, path: str) -> Any:

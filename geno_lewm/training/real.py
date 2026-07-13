@@ -20,14 +20,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from geno_lewm.action import ActionEncoder, EditSpec
+from geno_lewm.action import ActionEncoder, EditSpec, EditType
 from geno_lewm.config import GenoLeWMConfig, write_resolved_config
+from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import (
+    DEFAULT_EDIT_SOURCE_COUNTS,
     DEFAULT_SOURCE_FALLBACKS,
     SOURCE_CLINVAR,
     SOURCE_GNOMAD_COMMON,
     SOURCE_SYNTHETIC_INDEL,
     SOURCE_SYNTHETIC_SNV,
+    EditSourceCount,
     GenoLeWMDataset,
     TrainingDatasetItem,
     WindowContext,
@@ -38,10 +41,12 @@ from geno_lewm.data import (
     variant_provider,
 )
 from geno_lewm.encoder import CarbonStateEncoder
+from geno_lewm.encoder._identity import encoder_identity_hash
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
 from geno_lewm.provenance import sha256_file
+from geno_lewm.training._phase_contract import require_executable_training_phase
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
 from geno_lewm.training.trainer import (
     TorchTrainer,
@@ -67,6 +72,12 @@ CARBON_TRAINING_METADATA_NAME = "training_run.json"
 _SCHEMA_VERSION = "1.0.0"
 _TRAINING_RUN_PACKAGE_GENERATED_BY = "tools.release.training_run"
 _RESOLVED_CONFIG_NAME = "training_config.effective.yaml"
+_ALL_V1_SUB_ENCODERS = ("snv", "ins", "del", "mnv")
+_SNV_ONLY_EDIT_SOURCE_COUNTS = (
+    EditSourceCount(SOURCE_GNOMAD_COMMON, 3),
+    EditSourceCount(SOURCE_SYNTHETIC_SNV, 4),
+    EditSourceCount(SOURCE_CLINVAR, 1),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +143,7 @@ def run_carbon_training(
     resume_from: Path | None = None,
 ) -> CarbonTrainingReport:
     """Run a single-process Carbon-backed training job."""
+    require_executable_training_phase(config, boundary="run_carbon_training")
     _require_positive_int("steps", steps)
     _require_positive_int("data.batch_size", config.data.batch_size)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -154,23 +166,27 @@ def run_carbon_training(
     clinvar_edits = tuple(_load_clinvar_edits(dataset_dir, dataset_files))
     if not gnomad_edits:
         raise InputError("Carbon training requires at least one gnomAD edit")
+    carbon_identity_hash = _carbon_identity_hash(
+        carbon_model_dir,
+        state_contract_version=config.encoder.state_contract_version,
+    )
 
     device = _training_device(config)
     seeds = TrainerSeeds.from_base_seed(config.seed)
     determinism = configure_torch_reproducibility(
         seed=seeds.predictor, deterministic=config.deterministic
     )
-    providers = {
-        SOURCE_GNOMAD_COMMON: variant_provider(gnomad_edits),
-        SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
-        SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
-        SOURCE_CLINVAR: variant_provider(clinvar_edits),
-    }
+    providers, edit_source_counts = _training_edit_contract(
+        config,
+        gnomad_edits=gnomad_edits,
+        clinvar_edits=clinvar_edits,
+    )
     iterator = _repeat_training_items(
         windows,
         providers,
         seed=seeds.data,
         fallback_sources=_dataset_fallback_sources(windows),
+        mix=edit_source_counts,
     )
     resumed_from_step = 0
     resume_checkpoint: _ResumeCheckpoint | None = None
@@ -182,6 +198,7 @@ def run_carbon_training(
             dataset_snapshot_id=dataset_snapshot_id,
             seeds=seeds,
             target_steps=steps,
+            encoder_identity_hash=carbon_identity_hash,
         )
         resumed_from_step = resume_checkpoint.steps_completed
         _skip_training_items(
@@ -196,8 +213,8 @@ def run_carbon_training(
         state_layer=config.encoder.state_layer,
         pool_type=config.encoder.pool_type,
         pool_radius=config.encoder.pool_radius,
-        normalize=config.encoder.normalize,
-        encoder_hash=_carbon_weights_hash(carbon_model_dir),
+        normalize=encoder_uses_normalized_states(config.encoder),
+        encoder_hash=carbon_identity_hash,
         device=device,
         local_files_only=True,
         trust_remote_code=config.encoder.trust_remote_code,
@@ -311,6 +328,7 @@ def run_carbon_training(
                     dataset_snapshot_id=dataset_snapshot_id,
                     steps=step,
                     seeds=seeds,
+                    encoder_identity_hash=carbon_identity_hash,
                 )
             for alert in collapse_alerts:
                 log.write(
@@ -346,6 +364,7 @@ def run_carbon_training(
         dataset_snapshot_id=dataset_snapshot_id,
         steps=steps,
         seeds=seeds,
+        encoder_identity_hash=carbon_identity_hash,
     )
     _write_training_metadata(
         metadata_path,
@@ -410,6 +429,7 @@ def _repeat_training_items(
     *,
     seed: int,
     fallback_sources: Mapping[str, str],
+    mix: Sequence[EditSourceCount] = DEFAULT_EDIT_SOURCE_COUNTS,
 ) -> Iterator[TrainingDatasetItem]:
     """Yield deterministic repeated passes over a finite release dataset."""
     epoch = 0
@@ -419,6 +439,7 @@ def _repeat_training_items(
             providers,
             seed=seed + epoch,
             fallback_sources=fallback_sources,
+            mix=mix,
         )
         produced = 0
         for item in dataset.iter_with_source_windows():
@@ -434,6 +455,47 @@ def _repeat_training_items(
                 ),
             )
         epoch += 1
+
+
+def _training_edit_contract(
+    config: GenoLeWMConfig,
+    *,
+    gnomad_edits: Sequence[EditSpec],
+    clinvar_edits: Sequence[EditSpec],
+) -> tuple[dict[str, Any], tuple[EditSourceCount, ...]]:
+    """Resolve the configured edit surface into providers and source counts."""
+    sub_encoders = config.action.sub_encoders
+    if sub_encoders == ("snv",):
+        gnomad_snv = tuple(edit for edit in gnomad_edits if edit.edit_type is EditType.SNV)
+        clinvar_snv = tuple(edit for edit in clinvar_edits if edit.edit_type is EditType.SNV)
+        if not gnomad_snv:
+            raise InputError("SNV-only training requires at least one gnomAD SNV")
+        return (
+            {
+                SOURCE_GNOMAD_COMMON: variant_provider(gnomad_snv),
+                SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
+                SOURCE_CLINVAR: variant_provider(clinvar_snv),
+            },
+            _SNV_ONLY_EDIT_SOURCE_COUNTS,
+        )
+    if sub_encoders != _ALL_V1_SUB_ENCODERS:
+        raise InputError(
+            "real training does not support the configured action.sub_encoders subset",
+            details={
+                "observed": list(sub_encoders),
+                "supported": [["snv"], list(_ALL_V1_SUB_ENCODERS)],
+            },
+            remediation="use SNV-only or the complete V1 edit surface",
+        )
+    return (
+        {
+            SOURCE_GNOMAD_COMMON: variant_provider(gnomad_edits),
+            SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
+            SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
+            SOURCE_CLINVAR: variant_provider(clinvar_edits),
+        },
+        DEFAULT_EDIT_SOURCE_COUNTS,
+    )
 
 
 def _next_batch(
@@ -599,25 +661,11 @@ def _safe_dataset_path(dataset_dir: Path, relative: str) -> Path:
     return target
 
 
-def _carbon_weights_hash(carbon_model_dir: Path) -> str:
-    weights = _first_existing(
+def _carbon_identity_hash(carbon_model_dir: Path, *, state_contract_version: str) -> str:
+    return encoder_identity_hash(
         carbon_model_dir,
-        ("model.safetensors", "model.safetensors.index.json", "pytorch_model.bin"),
+        state_contract_version=state_contract_version,
     )
-    if weights is None:
-        raise InputError(
-            "Carbon model weights are required for cache-keyed training",
-            details={"carbon_model_dir": str(carbon_model_dir)},
-        )
-    return sha256_file(weights)
-
-
-def _first_existing(root: Path, names: tuple[str, ...]) -> Path | None:
-    for name in names:
-        path = root / name
-        if path.is_file():
-            return path
-    return None
 
 
 def _json_object_line(line: str, *, path: Path, line_no: int) -> dict[str, Any]:
@@ -717,6 +765,7 @@ def _write_checkpoint(
     dataset_snapshot_id: str,
     steps: int,
     seeds: TrainerSeeds,
+    encoder_identity_hash: str,
 ) -> None:
     try:
         torch = importlib.import_module("torch")
@@ -738,7 +787,18 @@ def _write_checkpoint(
                 "deterministic": config.deterministic,
                 "data.batch_size": config.data.batch_size,
                 "predictor.d_state": config.predictor.d_state,
+                "predictor.dtype": config.predictor.dtype,
                 "action.d_action": config.action.d_action,
+                "action.sub_encoders": list(config.action.sub_encoders),
+                "encoder.normalize": config.encoder.normalize,
+                "encoder.state_contract_version": config.encoder.state_contract_version,
+                "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),
+                "encoder.identity_hash": encoder_identity_hash,
+                "encoder.revision": config.encoder.revision,
+                "encoder.dtype": config.encoder.dtype,
+                "encoder.state_layer": config.encoder.state_layer,
+                "encoder.pool_type": config.encoder.pool_type,
+                "encoder.pool_radius": config.encoder.pool_radius,
             },
         },
         path,
@@ -772,6 +832,7 @@ def _validate_resume_checkpoint_payload(
     dataset_snapshot_id: str,
     seeds: TrainerSeeds,
     target_steps: int,
+    encoder_identity_hash: str,
 ) -> _ResumeCheckpoint:
     if payload.get("schema_version") != _SCHEMA_VERSION:
         raise InputError(
@@ -829,13 +890,21 @@ def _validate_resume_checkpoint_payload(
     checkpoint_config = payload.get("config")
     if not isinstance(checkpoint_config, dict):
         raise InputError("resume checkpoint config must be a mapping", details={"path": str(path)})
+    _validate_resume_state_contract(
+        checkpoint_config,
+        path=path,
+        config=config,
+        encoder_identity_hash=encoder_identity_hash,
+    )
     expected_config = {
         "run_id": config.run_id,
         "seed": config.seed,
         "deterministic": config.deterministic,
         "data.batch_size": config.data.batch_size,
         "predictor.d_state": config.predictor.d_state,
+        "predictor.dtype": config.predictor.dtype,
         "action.d_action": config.action.d_action,
+        "action.sub_encoders": list(config.action.sub_encoders),
     }
     for key, expected in expected_config.items():
         if checkpoint_config.get(key) != expected:
@@ -855,6 +924,91 @@ def _validate_resume_checkpoint_payload(
                 details={"path": str(path), "state": key},
             )
     return _ResumeCheckpoint(path=path, steps_completed=steps_completed, payload=payload)
+
+
+def _validate_resume_state_contract(
+    checkpoint_config: dict[str, Any],
+    *,
+    path: Path,
+    config: GenoLeWMConfig,
+    encoder_identity_hash: str,
+) -> None:
+    keys = {
+        "encoder.normalize",
+        "encoder.state_contract_version",
+        "encoder.effective_normalize",
+    }
+    present = keys.intersection(checkpoint_config)
+    if present != keys:
+        raise InputError(
+            "resume checkpoint is missing a complete encoder state contract",
+            details={"path": str(path), "present": sorted(present), "required": sorted(keys)},
+        )
+
+    expected_version = config.encoder.state_contract_version
+    expected_effective = encoder_uses_normalized_states(config.encoder)
+    observed_version = checkpoint_config["encoder.state_contract_version"]
+    observed_effective = checkpoint_config["encoder.effective_normalize"]
+    observed_configured = checkpoint_config["encoder.normalize"]
+    if not isinstance(observed_configured, bool) or not isinstance(observed_effective, bool):
+        raise InputError(
+            "resume checkpoint encoder normalization fields must be boolean",
+            details={"path": str(path)},
+        )
+    if observed_configured != config.encoder.normalize:
+        raise InputError(
+            "resume checkpoint config does not match training config",
+            details={
+                "path": str(path),
+                "field": "encoder.normalize",
+                "checkpoint": observed_configured,
+                "config": config.encoder.normalize,
+            },
+        )
+
+    if observed_version != expected_version or observed_effective != expected_effective:
+        raise InputError(
+            "resume checkpoint encoder state contract does not match training config",
+            details={
+                "path": str(path),
+                "checkpoint_version": observed_version,
+                "checkpoint_effective_normalize": observed_effective,
+                "config_version": expected_version,
+                "config_effective_normalize": expected_effective,
+            },
+        )
+
+    identity = {
+        "encoder.identity_hash": encoder_identity_hash,
+        "encoder.revision": config.encoder.revision,
+        "encoder.dtype": config.encoder.dtype,
+        "encoder.state_layer": config.encoder.state_layer,
+        "encoder.pool_type": config.encoder.pool_type,
+        "encoder.pool_radius": config.encoder.pool_radius,
+    }
+    identity_keys = set(identity)
+    identity_present = identity_keys.intersection(checkpoint_config)
+    if identity_present != identity_keys:
+        raise InputError(
+            "resume checkpoint is missing a complete encoder representation identity",
+            details={
+                "path": str(path),
+                "present": sorted(identity_present),
+                "required": sorted(identity_keys),
+            },
+        )
+    for field, expected in identity.items():
+        observed = checkpoint_config.get(field)
+        if observed != expected:
+            raise InputError(
+                "resume checkpoint encoder representation does not match training config",
+                details={
+                    "path": str(path),
+                    "field": field,
+                    "checkpoint": observed,
+                    "config": expected,
+                },
+            )
 
 
 def _restore_resume_checkpoint(

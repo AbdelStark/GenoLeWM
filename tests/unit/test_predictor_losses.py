@@ -65,7 +65,15 @@ def test_predictor_loss_dispatches_phase_conditionally_and_always_reports_kl() -
     target = torch.tensor([[1.0, 0.0], [1.0, 0.0]])
 
     phase1 = predictor_loss(prediction, target, phase="phase1", gamma=0.5)
-    phase2 = predictor_loss(prediction, target, phase="phase2", gamma=0.5)
+    adapter = torch.nn.Linear(2, 2, bias=False)
+    regularizer_states = adapter(target)
+    phase2 = predictor_loss(
+        prediction,
+        target,
+        phase="phase2",
+        gamma=0.5,
+        regularizer_states=regularizer_states,
+    )
 
     assert phase1.phase == "phase1"
     assert phase2.phase == "phase2"
@@ -73,6 +81,87 @@ def test_predictor_loss_dispatches_phase_conditionally_and_always_reports_kl() -
     assert phase1.kl_reg.item() > 0.0
     assert phase1.loss.item() == pytest.approx(phase1.pred_loss.item())
     assert phase2.loss.item() == pytest.approx(phase2.pred_loss.item() + 0.5 * phase2.kl_reg.item())
+
+
+def test_phase2_regularizer_has_nonzero_adapter_gradient() -> None:
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import predictor_loss
+
+    adapter = torch.nn.Linear(2, 2, bias=False)
+    with torch.no_grad():
+        adapter.weight.copy_(torch.tensor([[1.0, 0.0], [0.0, 2.0]]))
+    inputs = torch.tensor([[-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0]])
+    prediction = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]], requires_grad=True)
+    target = prediction.detach().clone()
+
+    result = predictor_loss(
+        prediction,
+        target,
+        phase="phase2",
+        regularizer_states=adapter(inputs),
+    )
+    (gradient,) = torch.autograd.grad(result.loss, (adapter.weight,))
+
+    assert torch.isfinite(gradient).all()
+    assert torch.count_nonzero(gradient).item() > 0
+
+
+def test_phase1_reports_regularizer_without_adapter_gradient() -> None:
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import predictor_loss
+
+    adapter = torch.nn.Linear(2, 2, bias=False)
+    inputs = torch.tensor([[-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0]])
+    prediction = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]], requires_grad=True)
+    target = prediction.detach().clone()
+
+    result = predictor_loss(
+        prediction,
+        target,
+        phase="phase1",
+        regularizer_states=adapter(inputs),
+    )
+    (gradient,) = torch.autograd.grad(
+        result.loss,
+        (adapter.weight,),
+        allow_unused=True,
+    )
+
+    assert result.kl_reg.item() > 0.0
+    assert gradient is None
+
+
+def test_phase2_rejects_regularizer_without_active_gradient_path() -> None:
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import predictor_loss
+
+    prediction = torch.ones(2, 2)
+    target = torch.ones(2, 2)
+
+    with pytest.raises(InputError, match="explicit differentiable"):
+        predictor_loss(prediction, target, phase="phase2")
+    with pytest.raises(InputError, match="must require gradients"):
+        predictor_loss(
+            prediction,
+            target,
+            phase="phase2",
+            regularizer_states=target,
+        )
+    with pytest.raises(InputError, match="non-leaf autograd graph"):
+        predictor_loss(
+            prediction,
+            target,
+            phase="phase2",
+            regularizer_states=target.clone().requires_grad_(),
+        )
+    with pytest.raises(InputError, match="gamma must be positive"):
+        predictor_loss(
+            prediction,
+            target,
+            phase="phase2",
+            gamma=0.0,
+            regularizer_states=target.clone().requires_grad_() * 1.0,
+        )
 
 
 def test_predictor_losses_reject_invalid_inputs() -> None:

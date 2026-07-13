@@ -13,7 +13,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from geno_lewm.encoder.windowing import CARBON_TOKEN_BP
 from geno_lewm.errors import InputError
 
 __all__ = [
@@ -88,22 +87,36 @@ def pool_hidden_states(
     hidden_states: Sequence[Sequence[float]],
     *,
     edit_locus: int | None = None,
+    center_token: int | None = None,
+    content_token_bounds: tuple[int, int] | None = None,
     pool_type: Literal["centered_mean", "global_mean"] = POOL_CENTERED_MEAN,
     pool_radius: int = DEFAULT_POOL_RADIUS_TOKENS,
-    token_bp: int = CARBON_TOKEN_BP,
 ) -> PoolingResult:
     """Pool token-level hidden states into a state vector.
 
-    ``edit_locus`` is a 0-based base-pair offset within the encoder
-    window. When it is absent, encoder contract requires a global-mean fallback
-    tagged as ``untargeted=True`` so cache consumers do not mix arbitrary
-    reference-window embeddings with edit-local embeddings.
+    ``center_token`` is the actual hidden-state index resolved from the
+    tokenizer's DNA/control-token layout. ``edit_locus`` only records whether
+    the state is targeted; this function deliberately does not approximate a
+    token index from base-pair arithmetic. When the locus is absent, the
+    encoder contract requires a global-mean fallback tagged as untargeted.
     """
     rows = _coerce_hidden_states(hidden_states)
     requested_type = _validate_pool_type(pool_type)
     radius = _validate_pool_radius(pool_radius)
+    if requested_type == POOL_GLOBAL_MEAN and radius != 0:
+        raise InputError(
+            "global_mean pooling requires pool_radius=0",
+            details={"pool_radius": radius},
+        )
 
     if edit_locus is None:
+        if center_token is not None:
+            raise InputError(
+                "center_token must be absent when edit_locus is absent",
+                details={"center_token": center_token},
+            )
+        if content_token_bounds is not None:
+            _validate_content_token_bounds(content_token_bounds, token_count=len(rows))
         return PoolingResult(
             vector=_mean_rows(rows),
             pool_type=POOL_GLOBAL_MEAN,
@@ -113,8 +126,13 @@ def pool_hidden_states(
             token_count=len(rows),
         )
 
-    center_token = _edit_locus_to_token(edit_locus, token_count=len(rows), token_bp=token_bp)
+    _validate_edit_locus(edit_locus)
     if requested_type == POOL_GLOBAL_MEAN:
+        if center_token is not None:
+            raise InputError(
+                "center_token must be absent for global_mean pooling",
+                details={"center_token": center_token},
+            )
         return PoolingResult(
             vector=_mean_rows(rows),
             pool_type=POOL_GLOBAL_MEAN,
@@ -124,12 +142,33 @@ def pool_hidden_states(
             token_count=len(rows),
         )
 
+    if center_token is None:
+        raise InputError(
+            "centered_mean pooling requires a tokenizer-resolved center_token",
+            remediation="derive the center from the tokenized <dna>...</dna> layout",
+        )
+    center = _validate_center_token(center_token, len(rows))
+    content_start, content_end = _validate_content_token_bounds(
+        content_token_bounds or (0, len(rows)),
+        token_count=len(rows),
+    )
+    if center < content_start or center >= content_end:
+        raise InputError(
+            "center_token falls outside the DNA content-token bounds",
+            details={
+                "center_token": center,
+                "content_start": content_start,
+                "content_end": content_end,
+            },
+        )
+    start = max(content_start, center - radius)
+    end = min(content_end, center + radius + 1)
     return PoolingResult(
-        vector=centered_mean(rows, center_token=center_token, pool_radius=radius),
+        vector=_mean_rows(rows[start:end]),
         pool_type=POOL_CENTERED_MEAN,
         pool_radius=radius,
         untargeted=False,
-        center_token=center_token,
+        center_token=center,
         token_count=len(rows),
     )
 
@@ -226,7 +265,7 @@ def _validate_pool_type(pool_type: str) -> Literal["centered_mean", "global_mean
     )
 
 
-def _edit_locus_to_token(edit_locus: int, *, token_count: int, token_bp: int) -> int:
+def _validate_edit_locus(edit_locus: int) -> None:
     if not isinstance(edit_locus, int) or isinstance(edit_locus, bool):
         raise InputError(
             "edit_locus must be an integer offset",
@@ -237,15 +276,27 @@ def _edit_locus_to_token(edit_locus: int, *, token_count: int, token_bp: int) ->
             "edit_locus must be non-negative",
             details={"edit_locus": edit_locus},
         )
-    if not isinstance(token_bp, int) or isinstance(token_bp, bool) or token_bp <= 0:
+
+
+def _validate_content_token_bounds(
+    bounds: tuple[int, int],
+    *,
+    token_count: int,
+) -> tuple[int, int]:
+    if not isinstance(bounds, tuple) or len(bounds) != 2:
         raise InputError(
-            "token_bp must be a positive integer",
-            details={"token_bp": token_bp, "type": type(token_bp).__name__},
+            "content_token_bounds must be a (start, end) tuple",
+            details={"value": repr(bounds)},
         )
-    token = edit_locus // token_bp
-    if token >= token_count:
+    start, end = bounds
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in bounds):
         raise InputError(
-            "edit_locus maps outside hidden_states",
-            details={"edit_locus": edit_locus, "token_bp": token_bp, "token_count": token_count},
+            "content_token_bounds values must be integers",
+            details={"value": repr(bounds)},
         )
-    return token
+    if start < 0 or end <= start or end > token_count:
+        raise InputError(
+            "content_token_bounds must select a non-empty span inside hidden_states",
+            details={"start": start, "end": end, "token_count": token_count},
+        )
+    return start, end

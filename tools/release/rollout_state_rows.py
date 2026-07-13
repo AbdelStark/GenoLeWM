@@ -32,10 +32,13 @@ from geno_lewm._artifact_sources import (
 from geno_lewm._inference import torch_inference_context
 from geno_lewm.action import EditType, RelEdit
 from geno_lewm.cli._artifact_paths import package_relative_artifact_path
+from geno_lewm.encoder import WindowCacheKey
+from geno_lewm.encoder.cache import CACHE_SCHEMA_VERSION
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import Manifest, load_manifest, sha256_file
 
 SCHEMA_VERSION: Final = "1.0.0"
+EXAMPLE_SCHEMA_VERSION: Final = "1.2.0"
 GENERATED_BY: Final = "tools.release.rollout_state_rows"
 INPUT_GENERATED_BY: Final = "tools.release.rollout_state_examples"
 ISSUE_REFS: Final = ("#57", "#197")
@@ -49,6 +52,31 @@ class CandidateState:
 
     candidate_id: str
     state: tuple[float, ...]
+    state_key: WindowCacheKey
+
+
+@dataclass(frozen=True, slots=True)
+class StateRepresentation:
+    """Latent representation fields that must match a checkpoint exactly."""
+
+    encoder_hash: bytes
+    state_layer: int
+    pool_type: str
+    pool_radius: int
+    dtype: str
+    normalize: bool
+    d_state: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "encoder_hash": self.encoder_hash.hex(),
+            "state_layer": self.state_layer,
+            "pool_type": self.pool_type,
+            "pool_radius": self.pool_radius,
+            "dtype": self.dtype,
+            "normalize": self.normalize,
+            "d_state": self.d_state,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +85,8 @@ class RolloutStateExample:
 
     row_id: str
     split: str
+    normalize: bool
+    state_representation: StateRepresentation
     source_state: tuple[float, ...]
     target_state: tuple[float, ...]
     edits: tuple[RelEdit, ...]
@@ -116,6 +146,8 @@ def generate_rollout_state_rows(
             field="predicted_state",
             line_no=None,
         )
+        if example.normalize:
+            _require_unit_state(predicted_state, field="predicted_state", line_no=None)
         target_rank = _rank_target(
             predicted_state,
             candidates=example.candidates,
@@ -151,12 +183,17 @@ def write_rollout_state_artifacts(
     output_jsonl: Path,
     output_report: Path,
     command: tuple[str, ...] = (),
-    predictor_fn: PredictorFn | None = None,
 ) -> dict[str, object]:
     """Generate rollout-state JSONL and a companion provenance report."""
     manifest = _load_and_verify_model_manifest(model_dir)
     examples = load_rollout_state_examples(examples_jsonl)
-    resolved_predictor_fn = predictor_fn or _predictor_fn_from_model_dir(model_dir)
+    state_contract_version, model_representation = _model_state_contract(model_dir, manifest)
+    _validate_example_state_contract(
+        examples,
+        state_contract_version=state_contract_version,
+        model_representation=model_representation,
+    )
+    resolved_predictor_fn = _predictor_fn_from_model_dir(model_dir)
     rows = generate_rollout_state_rows(examples, predictor_fn=resolved_predictor_fn)
     output_jsonl.parent.mkdir(parents=True, exist_ok=True)
     output_jsonl.write_text(
@@ -173,6 +210,8 @@ def write_rollout_state_artifacts(
         output_report=output_report,
         artifact_root=artifact_root,
         command=command,
+        state_contract_version=state_contract_version,
+        model_representation=model_representation,
     )
     output_report.parent.mkdir(parents=True, exist_ok=True)
     output_report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -204,21 +243,52 @@ def _parse_example(payload: Any, *, line_no: int) -> RolloutStateExample:
     if not isinstance(payload, dict):
         raise InputError("rollout-state examples must be JSON objects", details={"line": line_no})
     schema_version = _required_text(payload, "schema_version", line_no=line_no)
-    if schema_version != SCHEMA_VERSION:
+    if schema_version != EXAMPLE_SCHEMA_VERSION:
         raise InputError(
             "unsupported rollout-state example schema_version",
             details={
                 "line": line_no,
                 "schema_version": schema_version,
-                "supported": SCHEMA_VERSION,
+                "supported": EXAMPLE_SCHEMA_VERSION,
             },
         )
+    _require_example_contract_field(
+        payload,
+        "cache_schema_version",
+        CACHE_SCHEMA_VERSION,
+        line_no=line_no,
+    )
+    _require_example_contract_field(
+        payload,
+        "cached_state_value_contract",
+        "raw_pooled_v1",
+        line_no=line_no,
+    )
     generated_by = _required_text(payload, "generated_by", line_no=line_no)
     if generated_by != INPUT_GENERATED_BY:
         raise InputError(
             "rollout-state example generated_by is invalid",
             details={"line": line_no, "expected": INPUT_GENERATED_BY, "observed": generated_by},
         )
+    normalize = _example_normalization(payload, schema_version=schema_version, line_no=line_no)
+    _require_example_contract_field(
+        payload,
+        "materialized_state_contract",
+        "l2_normalized_v2" if normalize else "legacy_raw_v1",
+        line_no=line_no,
+    )
+    source_state_key = _state_key(
+        payload.get("source_state_key"), field="source_state_key", line_no=line_no
+    )
+    target_state_key = _state_key(
+        payload.get("target_state_key"), field="target_state_key", line_no=line_no
+    )
+    _require_same_state_representation(
+        source_state_key,
+        target_state_key,
+        field="target_state_key",
+        line_no=line_no,
+    )
     source_state = _state_vector(payload.get("source_state"), field="source_state", line_no=line_no)
     target_state = _state_vector(payload.get("target_state"), field="target_state", line_no=line_no)
     _require_state_dim(
@@ -236,6 +306,12 @@ def _parse_example(payload: Any, *, line_no: int) -> RolloutStateExample:
             details={"line": line_no, "target_candidate_id": target_candidate_id},
         )
     for candidate in candidates:
+        _require_same_state_representation(
+            source_state_key,
+            candidate.state_key,
+            field=f"candidate:{candidate.candidate_id}.state_key",
+            line_no=line_no,
+        )
         _require_state_dim(
             candidate.state,
             expected_dim=len(source_state),
@@ -247,9 +323,31 @@ def _parse_example(payload: Any, *, line_no: int) -> RolloutStateExample:
             "target candidate state must match target_state",
             details={"line": line_no, "target_candidate_id": target_candidate_id},
         )
+    if target_candidates[0].state_key != target_state_key:
+        raise InputError(
+            "target candidate state_key must match target_state_key",
+            details={"line": line_no, "target_candidate_id": target_candidate_id},
+        )
+    _validate_state_value_contract(
+        normalize=normalize,
+        source_state=source_state,
+        target_state=target_state,
+        candidates=candidates,
+        line_no=line_no,
+    )
     return RolloutStateExample(
         row_id=_required_text(payload, "id", line_no=line_no),
         split=_required_text(payload, "split", line_no=line_no),
+        normalize=normalize,
+        state_representation=StateRepresentation(
+            encoder_hash=source_state_key.encoder_hash,
+            state_layer=source_state_key.state_layer,
+            pool_type=source_state_key.pool_type,
+            pool_radius=source_state_key.pool_radius,
+            dtype=source_state_key.dtype,
+            normalize=normalize,
+            d_state=len(source_state),
+        ),
         source_state=source_state,
         target_state=target_state,
         edits=edits,
@@ -304,6 +402,11 @@ def _candidate_states(raw: object, *, line_no: int) -> tuple[CandidateState, ...
             CandidateState(
                 candidate_id=_required_text(item, "id", line_no=line_no),
                 state=_state_vector(item.get("state"), field="candidate.state", line_no=line_no),
+                state_key=_state_key(
+                    item.get("state_key"),
+                    field="candidate.state_key",
+                    line_no=line_no,
+                ),
             )
         )
     duplicates = _duplicates(candidate.candidate_id for candidate in candidates)
@@ -366,6 +469,57 @@ def _load_and_verify_model_manifest(model_dir: Path) -> Manifest:
     return manifest
 
 
+def _model_state_contract(
+    model_dir: Path,
+    manifest: Manifest,
+) -> tuple[str, StateRepresentation]:
+    from geno_lewm.config import load_config
+    from geno_lewm.config._state_contract import encoder_uses_normalized_states
+
+    config_file = manifest.training.config_file
+    _verify_manifest_artifact(
+        model_dir,
+        "training_config",
+        config_file,
+        manifest.training.hash,
+    )
+    config = load_config(model_dir / config_file)
+    version = config.encoder.state_contract_version
+    return version, StateRepresentation(
+        encoder_hash=_manifest_hash_bytes(manifest.encoder.hash),
+        state_layer=config.encoder.state_layer,
+        pool_type=config.encoder.pool_type,
+        pool_radius=config.encoder.pool_radius,
+        dtype=config.encoder.dtype,
+        normalize=encoder_uses_normalized_states(config.encoder),
+        d_state=config.predictor.d_state,
+    )
+
+
+def _validate_example_state_contract(
+    examples: tuple[RolloutStateExample, ...],
+    *,
+    state_contract_version: str,
+    model_representation: StateRepresentation,
+) -> None:
+    observed = {example.state_representation for example in examples}
+    if len(observed) != 1:
+        raise InputError(
+            "rollout-state examples must use one state representation",
+            details={"observed": [item.to_dict() for item in observed]},
+        )
+    example_representation = next(iter(observed))
+    if example_representation != model_representation:
+        raise InputError(
+            "rollout-state example representation does not match model state contract",
+            details={
+                "model_state_contract_version": state_contract_version,
+                "example": example_representation.to_dict(),
+                "model": model_representation.to_dict(),
+            },
+        )
+
+
 def _verify_manifest_artifact(
     model_dir: Path,
     artifact: str,
@@ -404,6 +558,8 @@ def _build_report(
     output_report: Path,
     artifact_root: Path,
     command: tuple[str, ...],
+    state_contract_version: str,
+    model_representation: StateRepresentation,
 ) -> dict[str, object]:
     splits = sorted({example.split for example in examples})
     horizons = sorted({example.horizon for example in examples})
@@ -414,6 +570,13 @@ def _build_report(
         "ok": True,
         "model_id": manifest.model_id(),
         "model_release": manifest.release_id,
+        "state_contract": {
+            "version": state_contract_version,
+            **model_representation.to_dict(),
+            "cache_schema_version": CACHE_SCHEMA_VERSION,
+            "cached_state_value_contract": "raw_pooled_v1",
+            "validated_against_examples": True,
+        },
         "command": list(command),
         "issue_refs": list(ISSUE_REFS),
         "inputs": {
@@ -466,6 +629,174 @@ def _build_report(
             "execution produced rollout-state rows from supplied measured latent examples."
         ),
     }
+
+
+def _example_normalization(
+    payload: dict[str, object],
+    *,
+    schema_version: str,
+    line_no: int,
+) -> bool:
+    del schema_version
+    value = payload.get("normalize")
+    if not isinstance(value, bool):
+        raise InputError("normalize must be boolean", details={"line": line_no})
+    return value
+
+
+def _require_example_contract_field(
+    payload: dict[str, object],
+    field: str,
+    expected: str,
+    *,
+    line_no: int,
+) -> None:
+    observed = payload.get(field)
+    if observed != expected:
+        raise InputError(
+            f"{field} does not match the rollout-state example contract",
+            details={"line": line_no, "expected": expected, "observed": observed},
+        )
+
+
+def _state_key(raw: object, *, field: str, line_no: int) -> WindowCacheKey:
+    if not isinstance(raw, dict):
+        raise InputError(f"{field} must be a state-key object", details={"line": line_no})
+    return WindowCacheKey(
+        window_hash=_hex32(raw.get("window_hash"), field=f"{field}.window_hash", line_no=line_no),
+        encoder_hash=_hex32(
+            raw.get("encoder_hash"), field=f"{field}.encoder_hash", line_no=line_no
+        ),
+        state_layer=_mapping_int(raw, "state_layer", field=field, line_no=line_no),
+        pool_type=_mapping_text(raw, "pool_type", field=field, line_no=line_no),
+        pool_radius=_mapping_int(raw, "pool_radius", field=field, line_no=line_no),
+        center_token=_mapping_optional_int(
+            raw,
+            "center_token",
+            field=field,
+            line_no=line_no,
+        ),
+        dtype=_mapping_text(raw, "dtype", field=field, line_no=line_no),
+    )
+
+
+def _require_same_state_representation(
+    expected: WindowCacheKey,
+    observed: WindowCacheKey,
+    *,
+    field: str,
+    line_no: int,
+) -> None:
+    expected_fields = _key_representation(expected)
+    observed_fields = _key_representation(observed)
+    if observed_fields != expected_fields:
+        raise InputError(
+            "rollout-state example keys must share one state representation",
+            details={
+                "line": line_no,
+                "field": field,
+                "expected": expected_fields,
+                "observed": observed_fields,
+            },
+        )
+
+
+def _key_representation(key: WindowCacheKey) -> dict[str, object]:
+    return {
+        "encoder_hash": key.encoder_hash.hex(),
+        "state_layer": key.state_layer,
+        "pool_type": key.pool_type,
+        "pool_radius": key.pool_radius,
+        "center_token": key.center_token,
+        "dtype": key.dtype,
+    }
+
+
+def _hex32(raw: object, *, field: str, line_no: int) -> bytes:
+    if not isinstance(raw, str):
+        raise InputError(f"{field} must be a 64-character hex string", details={"line": line_no})
+    try:
+        value = bytes.fromhex(raw)
+    except ValueError as exc:
+        raise InputError(
+            f"{field} must be a 64-character hex string", details={"line": line_no}
+        ) from exc
+    if len(value) != 32:
+        raise InputError(f"{field} must be a 64-character hex string", details={"line": line_no})
+    return value
+
+
+def _mapping_text(raw: dict[object, object], name: str, *, field: str, line_no: int) -> str:
+    value = raw.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise InputError(f"{field}.{name} must be a non-empty string", details={"line": line_no})
+    return value.strip()
+
+
+def _mapping_int(raw: dict[object, object], name: str, *, field: str, line_no: int) -> int:
+    value = raw.get(name)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InputError(f"{field}.{name} must be an integer", details={"line": line_no})
+    return value
+
+
+def _mapping_optional_int(
+    raw: dict[object, object],
+    name: str,
+    *,
+    field: str,
+    line_no: int,
+) -> int | None:
+    value = raw.get(name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InputError(f"{field}.{name} must be an integer or null", details={"line": line_no})
+    return value
+
+
+def _manifest_hash_bytes(value: str) -> bytes:
+    raw = value.removeprefix("sha256:")
+    try:
+        parsed = bytes.fromhex(raw)
+    except ValueError as exc:
+        raise InputError("model manifest encoder hash must be SHA-256 hex") from exc
+    if len(parsed) != 32:
+        raise InputError("model manifest encoder hash must be SHA-256 hex")
+    return parsed
+
+
+def _validate_state_value_contract(
+    *,
+    normalize: bool,
+    source_state: tuple[float, ...],
+    target_state: tuple[float, ...],
+    candidates: tuple[CandidateState, ...],
+    line_no: int,
+) -> None:
+    if not normalize:
+        return
+    values = [
+        ("source_state", source_state),
+        ("target_state", target_state),
+        *((f"candidate:{candidate.candidate_id}", candidate.state) for candidate in candidates),
+    ]
+    for field, state in values:
+        _require_unit_state(state, field=field, line_no=line_no)
+
+
+def _require_unit_state(
+    state: tuple[float, ...],
+    *,
+    field: str,
+    line_no: int | None,
+) -> None:
+    norm = math.hypot(*state)
+    if abs(norm - 1.0) > 1.0e-5:
+        raise InputError(
+            f"{field} must be unit norm under the normalized rollout-state contract",
+            details={**_line(line_no), "field": field, "norm": norm},
+        )
 
 
 def _rank_target(

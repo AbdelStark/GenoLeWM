@@ -3,9 +3,11 @@
 Reference notebooks and scripts demonstrating GenoLeWM's main use cases.
 The fixture-backed scoring notebooks, BRCA2 fixture mechanics notebook,
 and receipt-verification notebook are implemented. Rollout and planning
-notebooks remain blocked until measured release evidence exists: #97
-requires rollout-fidelity rows with documented cosine-similarity targets,
-and #98 requires planner latency and useful-planning boundary evidence.
+notebooks remain blocked until corrected release evidence exists: #97
+requires K>1 `l2_normalized_v2` rollout rows with encoder-ground-truth
+comparisons, and #98 requires a same-contract planning objective plus latency
+and capability-boundary evidence. Published `legacy_raw_v1` rows do not
+satisfy either gate.
 Fixture smoke outputs are test evidence, not model results, and are not
 used as substitutes for those notebooks.
 
@@ -45,17 +47,18 @@ provenance.
 Phase 2. Blocked on #97. This notebook should roll out a phased
 multi-edit haplotype from gnomAD, compare predicted vs encoder
 ground-truth latent at each step, and plot the divergence curve. It
-lands only after release-backed rollout-state examples, measured
-encoder-ground-truth comparisons, and documented cosine-similarity
-targets are available.
+lands only after fresh-lineage `l2_normalized_v2` rollout-state examples,
+measured encoder-ground-truth comparisons, and documented K>1 acceptance
+targets are available. The published cosine rows are historical and
+confounded; the published L2 rows are invalid because state scales differ.
 
 ### `05_planning_minimal_edits.ipynb`
 Phase 2. Blocked on #98. This notebook should run CEM from an initial
 variant state toward a target latent neighborhood and visualize the edit
-sequence. It lands only after planner latency evidence and the
-useful-planning boundary are documented; the current released planning
-demo exercises the manifest-backed path but does not prove useful
-planning behavior.
+sequence. It lands only after planner latency evidence and the capability
+boundary are documented. The current released demo exercises the
+manifest-backed `legacy_raw_v1` path, but its mixed-scale L2 objective is
+invalid and cannot satisfy the planning-evidence gate.
 
 ### `06_on_device_desktop.md` (not a notebook)
 Phase 3. Walkthrough of installing the desktop app, dropping in a VCF,

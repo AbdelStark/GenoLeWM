@@ -1,5 +1,23 @@
 # Quickstart
 
+> **Published-checkpoint notice:** v0.1 and v0.2.1 use
+> `legacy_raw_v1`. Their raw Carbon targets were compared with
+> unit-normalized predictions. Training sources were globally pooled while
+> targets were edit-centered, but every historical centered pool was one hidden
+> token too far left because the leading `<dna>` token was omitted from the
+> coordinate conversion. Cache v1 omitted the pooling center. The pinned
+> Carbon tokenizer also made an unpinned, network-capable
+> `Qwen/Qwen3-4B-Base` lookup, so the historical runtime was not self-contained. The
+> v0.2.1 Phase 2 KL supplied no gradient
+> to trainable parameters. Published residual, VEP, and planning scores are
+> invalid as evidence for the intended `l2_normalized_v2` method. Use those
+> packages only for historical artifact replay.
+
+The source checkout now uses a local pure-DNA tokenizer and resolves the edit
+center from Carbon's validated token layout. These are runtime-contract fixes.
+They do not make a published legacy checkpoint scientifically valid and do not
+constitute model-quality evidence.
+
 ## Install
 
 ```bash
@@ -81,7 +99,10 @@ geno-lewm-score \
   --no-progress
 ```
 
-The model directory must contain a verified GenoLeWM model package.
+The model directory must contain a verified GenoLeWM model package. Scientific
+scoring additionally requires a freshly trained `l2_normalized_v2` lineage;
+no such corrected public checkpoint is currently published. Running a
+published legacy package reproduces historical implementation output only.
 
 ## Plan Edit Sequences
 
@@ -97,16 +118,20 @@ geno-lewm-plan \
   --elite 64
 ```
 
-Manifest-backed planning uses local model artifacts. Sequence-proxy mode
-is a development smoke path, not learned-model evidence.
+Manifest-backed planning uses local model artifacts. Planning with a published
+`legacy_raw_v1` checkpoint only replays the historical path: its mixed-scale
+L2 objective is invalid. Sequence-proxy mode is a development smoke path, not
+learned-model evidence.
 
 ## Public Results
 
-The public v0.2.1 bundle contains benchmark, rollout, planning, and
-paper evidence:
+The public v0.2.1 bundle contains historical benchmark, rollout, planning,
+and paper artifacts:
 
 - <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1>
 - <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md>
 
-Current evidence is mixed or negative versus Carbon. Do not treat the
-package as clinical software or as a broad model-quality result.
+The recorded values cannot establish either superiority or inferiority to
+Carbon for the intended normalized method. The L2/VEP/planning values are
+invalid; cosine values are historical and confounded. Do not treat the
+package as scientific scoring, clinical software, or a model-quality result.
