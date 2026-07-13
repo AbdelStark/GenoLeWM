@@ -16,6 +16,7 @@ from geno_lewm.provenance import (
     ManifestTraining,
     canonical_json_sha256,
     load_manifest,
+    parse_manifest_bytes,
     sha256_bytes,
     sha256_file,
     write_manifest,
@@ -187,6 +188,11 @@ def test_load_manifest_rejects_invalid_json(tmp_path: Path) -> None:
     bad.write_text("{not json", encoding="utf-8")
     with pytest.raises(InputError):
         load_manifest(bad)
+
+
+def test_parse_manifest_bytes_rejects_a_non_object_root() -> None:
+    with pytest.raises(InputError, match="one JSON object"):
+        parse_manifest_bytes(b"[]", source="fixture")
 
 
 def test_model_id_is_deterministic() -> None:

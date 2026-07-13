@@ -209,6 +209,9 @@ def test_build_window_cache_keeps_distinct_centers_and_deduplicates_exact_keys(
     assert (tmp_path / "evidence" / "cache_build_state.json").is_file()
     assert (tmp_path / "evidence" / "cache_build_report.json").is_file()
     assert (tmp_path / "evidence" / "SHA256SUMS").is_file()
+    evidence_files = tuple(path for path in (tmp_path / "evidence").rglob("*") if path.is_file())
+    assert evidence_files
+    assert {path.stat().st_mode & 0o777 for path in evidence_files} == {0o400}
 
 
 def test_completed_build_is_fully_verified_without_reencoding(tmp_path: Path) -> None:
@@ -1210,7 +1213,7 @@ def test_write_once_rejects_evidence_root_swap_without_touching_outside(
     def swap_root_before_plan_install(
         path: object,
         flags: int,
-        mode: int = 0o777,
+        mode: int = 0o600,
         *,
         dir_fd: int | None = None,
     ) -> int:

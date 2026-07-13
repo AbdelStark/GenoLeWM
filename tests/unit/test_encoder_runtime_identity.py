@@ -114,3 +114,22 @@ def test_legacy_runtime_identity_requires_explicit_weights_hash() -> None:
             json.dumps(payload).encode("utf-8"),
             source="fixture",
         )
+
+
+def test_legacy_runtime_identity_uses_the_validated_weights_digest_for_cache_keys() -> None:
+    payload = {
+        "schema_version": "1.0.0",
+        "model_id": "HuggingFaceBio/Carbon-500M",
+        "revision": "5d31d59b3c845b288a13aedb1358934196852eec",
+        "state_contract_version": "legacy_raw_v1",
+        "runtime_hash": "sha256:" + "0" * 64,
+        "weights_hash": "sha256:" + "1" * 64,
+    }
+
+    identity = parse_encoder_runtime_identity_bytes(
+        json.dumps(payload).encode("utf-8"),
+        source="fixture",
+    )
+
+    assert identity.cache_identity_hash == payload["weights_hash"]
+    assert identity.to_dict() == payload

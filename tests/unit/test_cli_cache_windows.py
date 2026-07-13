@@ -414,6 +414,36 @@ def test_build_encoder_rejects_corrected_runtime_identity_at_cli_boundary(
         )
 
 
+def test_set_override_updates_nested_and_top_level_values() -> None:
+    payload: dict[str, object] = {
+        "encoder": {"dtype": "bf16"},
+        "seed": 0,
+    }
+
+    cache_cli._apply_set_override(payload, "encoder.dtype=fp32")
+    cache_cli._apply_set_override(payload, "seed=17")
+
+    assert payload == {"encoder": {"dtype": "fp32"}, "seed": 17}
+
+
+@pytest.mark.parametrize(
+    ("payload", "override", "message"),
+    [
+        ({}, "missing-equals", "key=value"),
+        ({}, "encoder..dtype=fp32", "non-empty dotted path"),
+        ({}, "encoder.dtype=[unterminated", "not valid YAML"),
+        ({"encoder": "not-a-block"}, "encoder.dtype=fp32", "does not resolve"),
+    ],
+)
+def test_set_override_rejects_invalid_contracts(
+    payload: dict[str, object],
+    override: str,
+    message: str,
+) -> None:
+    with pytest.raises(InputError, match=message):
+        cache_cli._apply_set_override(payload, override)
+
+
 @pytest.mark.parametrize(
     ("option", "relative_output"),
     [("--json-report", "copy.json"), ("--log-dir", "logs")],

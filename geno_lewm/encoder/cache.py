@@ -1400,7 +1400,11 @@ def _read_records_from_source(
 ) -> tuple[WindowCacheRecord, ...]:
     pa, pq = _require_pyarrow()
     try:
-        table = pq.read_table(source)
+        # Cache shards are bounded and decoded inside short-lived worker
+        # processes during concurrent publication checks. Avoid Arrow's global
+        # background pool here so a completed read cannot abort interpreter
+        # shutdown while another process publishes the competing shard.
+        table = pq.read_table(source, use_threads=False)
     except Exception as exc:
         raise CacheCorruptError(
             "cache shard could not be read",

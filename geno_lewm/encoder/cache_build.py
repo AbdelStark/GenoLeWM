@@ -308,7 +308,7 @@ class _EvidenceStore:
             assert parent_fd is not None
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
             try:
-                descriptor = os.open(path.name, flags, 0o444, dir_fd=parent_fd)
+                descriptor = os.open(path.name, flags, 0o400, dir_fd=parent_fd)
             except FileExistsError:
                 observed = self.capture(relative, label=label).body
                 if observed != body:
@@ -321,7 +321,7 @@ class _EvidenceStore:
                 ) from exc
             try:
                 _write_descriptor_bytes(descriptor, body)
-                os.fchmod(descriptor, 0o444)
+                os.fchmod(descriptor, 0o400)
                 os.fsync(descriptor)
                 _verify_bound_regular_at(parent_fd, path.name, descriptor, label=label)
             finally:
@@ -342,7 +342,7 @@ class _EvidenceStore:
             installed = False
             try:
                 _write_descriptor_bytes(descriptor, body)
-                os.fchmod(descriptor, 0o444)
+                os.fchmod(descriptor, 0o400)
                 os.fsync(descriptor)
                 os.replace(
                     temporary,
