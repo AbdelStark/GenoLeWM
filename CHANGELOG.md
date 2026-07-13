@@ -17,6 +17,12 @@ or incompatible command changes require an explicit compatibility note.
 - Replaced the ambiguous cache v1 key with cache schema `2.0.0`. Centered
   pooling now commits `center_token`; legacy Parquet shards are rejected and
   legacy SQLite indexes are invalidated because they can collide across loci.
+- Added cache schema `3.0.0`: new shards separate logical compute dtype from
+  truthful fixed-size FP32 storage, namespace paths by the full cache identity,
+  validate staged Parquet before atomic installation, rebuild SQLite indexes
+  atomically, and support grouped row-group lookup. Schema-2 shards remain
+  readable and reindexable for replay but are no longer written; their legacy
+  dtype label is not evidence that non-FP16 values were stored faithfully.
 - Corrected the Carbon token-coordinate mapping. Historical centered pooling
   used `edit_locus // 6` directly against hidden states even though the first
   hidden token is `<dna>`, shifting every intended center one hidden token left
@@ -49,9 +55,35 @@ or incompatible command changes require an explicit compatibility note.
 
 - `WindowCacheKey` and `WindowCacheRecord` now require `center_token`, and
   cache schema `1.0.0` is intentionally not reusable.
-- Rollout state specs/examples move to schema `1.2.0` and bind cache schema,
-  raw-storage semantics, materialized state contract, encoder identity,
-  pooling locus, and state width. Older ambiguous rows must be regenerated.
+- New cache writes use schema `3.0.0`. Schema-2 Parquet remains read-only
+  compatible only through an explicit replay policy; corrected training and
+  schema-bound rollout artifacts require schema-3 provenance and canonical FP32
+  state bits.
+- `shard_path_for` accepts optional `encoder_hash` and `dtype` identity fields
+  for schema-3 paths. Encoder ID and contig components are fixed ASCII SHA-256
+  digests. Omitting both selects the read-only schema-2 construction namespace;
+  `reindex_cache` discovers historical legacy paths independently.
+- Cache schema 3 now serializes cross-process publication, installs immutable
+  shards with atomic no-clobber hard links, bit-verifies existing winners, and
+  records each batch in one FULL-durability direct SQLite transaction. Whole
+  reindex alone builds a private validated index and atomically replaces it. A
+  durable single-publication intent closes the link/index crash gap without an
+  append-time shard scan, and first-index bootstrap is atomically exposed.
+- The provenance-aware STRICT index requires SQLite 3.37+, attests its exact
+  table constraints and secondary index, records cache schema and physical
+  encoding, permits v2/v3 coexistence for one logical key, and requires an
+  explicit read policy. Grouped row-group lookup remains unchanged.
+- Race-resistant cache I/O is supported on Linux and macOS and fails closed on
+  Windows or runtimes without secure dirfd/no-follow primitives; there is no
+  unsafe path-only publication fallback.
+- Pooling and normalization now emit canonical FP32 after their final operation,
+  making live and v3-cached downstream state bits identical for every supported
+  logical compute dtype. The encoder runtime hash directly commits this
+  canonicalization implementation.
+- Rollout state specs use schema `1.2.0`; generated examples move to schema
+  `1.3.0` and bind cache schema, exact physical encoding, raw-storage
+  semantics, materialized state contract, encoder identity, pooling locus, and
+  state width. Older ambiguous rows must be regenerated.
 
 ### Added
 

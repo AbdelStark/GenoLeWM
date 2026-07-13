@@ -38,7 +38,7 @@ from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import Manifest, load_manifest, sha256_file
 
 SCHEMA_VERSION: Final = "1.0.0"
-EXAMPLE_SCHEMA_VERSION: Final = "1.2.0"
+EXAMPLE_SCHEMA_VERSION: Final = "1.3.0"
 GENERATED_BY: Final = "tools.release.rollout_state_rows"
 INPUT_GENERATED_BY: Final = "tools.release.rollout_state_examples"
 ISSUE_REFS: Final = ("#57", "#197")
@@ -256,6 +256,12 @@ def _parse_example(payload: Any, *, line_no: int) -> RolloutStateExample:
         payload,
         "cache_schema_version",
         CACHE_SCHEMA_VERSION,
+        line_no=line_no,
+    )
+    _require_example_contract_field(
+        payload,
+        "cache_physical_encoding",
+        "fixed_size_list<float32>",
         line_no=line_no,
     )
     _require_example_contract_field(
@@ -574,6 +580,7 @@ def _build_report(
             "version": state_contract_version,
             **model_representation.to_dict(),
             "cache_schema_version": CACHE_SCHEMA_VERSION,
+            "cache_physical_encoding": "fixed_size_list<float32>",
             "cached_state_value_contract": "raw_pooled_v1",
             "validated_against_examples": True,
         },

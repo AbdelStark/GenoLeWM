@@ -170,6 +170,30 @@ def test_corrected_encoder_runtime_identity_commits_local_encoder_implementation
     assert encoder_runtime_hash(model_dir) != first_hash
 
 
+def test_corrected_encoder_runtime_identity_directly_commits_canonical_state_bits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model_dir = tmp_path / "carbon-runtime"
+    model_dir.mkdir()
+    (model_dir / "model.safetensors").write_bytes(b"weights")
+    for name in ("config.json", "tokenizer_config.json", "dna_config.json"):
+        (model_dir / name).write_text("{}\n", encoding="utf-8")
+    (model_dir / "tokenizer.py").write_text("# upstream tokenizer\n", encoding="utf-8")
+    canonical = tmp_path / "_canonical.py"
+    canonical.write_text("# canonical fp32 v1\n", encoding="utf-8")
+    monkeypatch.setattr(
+        identity_module,
+        "_ENCODER_IMPLEMENTATION_FILES",
+        (("geno_lewm/encoder/_canonical.py", canonical),),
+    )
+
+    first_hash = encoder_runtime_hash(model_dir)
+    canonical.write_text("# canonical fp32 v2\n", encoding="utf-8")
+
+    assert encoder_runtime_hash(model_dir) != first_hash
+
+
 def test_encoder_weights_identity_matches_transformers_safetensors_precedence(
     tmp_path: Path,
 ) -> None:

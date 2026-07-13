@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from geno_lewm.encoder._identity import encoder_runtime_hash
+from geno_lewm.encoder._normalization import l2_normalize_state
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_file
 from tools.research.state_contract_audit import (
@@ -57,13 +58,14 @@ def _report(
 
 
 def test_state_contract_audit_accepts_unit_norm_raw_view_parity() -> None:
-    report = _report((3.0, 4.0), (0.6, 0.8))
+    normalized = l2_normalize_state((3.0, 4.0))
+    report = _report((3.0, 4.0), normalized)
 
     assert report["ok"] is True
     assert report["blockers"] == []
     row = report["rows"][0]
     assert row["raw_norm"] == 5.0
-    assert row["normalized_norm"] == 1.0
+    assert row["normalized_norm"] == pytest.approx(1.0)
     assert row["max_abs_diff_vs_normalized_raw"] == 0.0
     assert report["encoder"]["weights_identity_verified"] is True
     assert report["encoder"]["runtime_identity_verified"] is True

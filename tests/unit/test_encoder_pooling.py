@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import struct
 
 import pytest
 
@@ -14,6 +15,7 @@ from geno_lewm.encoder import (
     global_mean,
     pool_hidden_states,
 )
+from geno_lewm.encoder._canonical import canonical_fp32
 from geno_lewm.errors import InputError
 
 
@@ -21,6 +23,34 @@ def test_global_mean_pools_all_tokens() -> None:
     hidden = ((1.0, 2.0), (3.0, 4.0), (5.0, 6.0))
 
     assert global_mean(hidden) == (3.0, 4.0)
+
+
+def test_pooling_canonicalizes_fractional_means_to_fp32() -> None:
+    expected = struct.unpack("<f", struct.pack("<f", 0.15))[0]
+
+    observed = global_mean(((0.1,), (0.2,)))
+
+    assert observed == (expected,)
+    assert struct.pack("<f", observed[0]) == struct.pack("<f", expected)
+
+
+def test_pooling_preserves_representable_fp32_subnormal_bits() -> None:
+    smallest_subnormal = struct.unpack("<f", bytes.fromhex("01000000"))[0]
+
+    observed = global_mean(((smallest_subnormal,), (smallest_subnormal,)))
+
+    assert struct.pack("<f", observed[0]) == bytes.fromhex("01000000")
+
+
+@pytest.mark.parametrize("value", [1, math.inf, math.nan])
+def test_canonical_fp32_rejects_non_float_or_non_finite_values(value: object) -> None:
+    with pytest.raises(InputError, match="cache state values must be finite"):
+        canonical_fp32(value, field="cache state")  # type: ignore[arg-type]
+
+
+def test_canonical_fp32_rejects_finite_values_outside_binary32_range() -> None:
+    with pytest.raises(InputError, match="representable as canonical fp32"):
+        canonical_fp32(3.5e38)
 
 
 def test_centered_mean_pools_inclusive_radius_span() -> None:

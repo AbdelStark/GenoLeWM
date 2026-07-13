@@ -13,6 +13,7 @@ from geno_lewm.provenance import canonical_json_sha256, sha256_file
 _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 _ENCODER_IMPLEMENTATION_FILES = (
     ("geno_lewm/_inference.py", _PACKAGE_ROOT / "_inference.py"),
+    ("geno_lewm/encoder/_canonical.py", Path(__file__).with_name("_canonical.py")),
     ("geno_lewm/encoder/_dna_tokenizer.py", Path(__file__).with_name("_dna_tokenizer.py")),
     ("geno_lewm/encoder/_identity.py", Path(__file__)),
     ("geno_lewm/encoder/_normalization.py", Path(__file__).with_name("_normalization.py")),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,11 @@ from geno_lewm.cli._dispatch import run_app
 from geno_lewm.cli.cache_windows import app
 from geno_lewm.encoder import POOL_CENTERED_MEAN, WindowCacheRecord, write_shard
 from geno_lewm.provenance import sha256_file
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="corrected cache I/O is intentionally fail-closed without POSIX dirfd primitives",
+)
 
 
 def _hash(seed: int) -> bytes:
