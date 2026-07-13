@@ -30,6 +30,7 @@ benchmarked, and published with public artifacts.
 
 - [Quickstart](quickstart.md)
 - [Architecture](architecture.md)
+- [v0.3 snapshot-lineage assembly](data-v03-snapshot-lineage.md)
 - [Public API contract](api/public-surface.md)
 - [API reference](reference/index.md)
 - [GenoLeWM-FX contract](research/fx-experiment-contract.md)

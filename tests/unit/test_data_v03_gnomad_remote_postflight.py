@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from tools.data._immutable_json import supports_secure_immutable_json_publication
 from tools.data.v03_gnomad_lock import (
     audit_gnomad_parquet,
     main,
@@ -24,6 +26,11 @@ SOURCE_LOCK = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.js
 SOURCE_LOCK_SCHEMA = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json")
 SOURCE_COMMIT = "3c1b233782832b5136db312b8da1ee81b7a88109"
 HUB_REVISION = "e" * 40
+
+requires_secure_immutable_json_publication = pytest.mark.skipif(
+    not supports_secure_immutable_json_publication(),
+    reason="secure immutable publication requires anchored dir_fd operations",
+)
 
 
 class _FakeHub:
@@ -58,6 +65,7 @@ class _FakeHub:
         return SimpleNamespace(HfApi=HfApi, hf_hub_download=hf_hub_download)
 
 
+@requires_secure_immutable_json_publication
 def test_remote_postflight_verifies_one_exact_revision_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -104,6 +112,40 @@ def test_remote_postflight_verifies_one_exact_revision_end_to_end(
     assert exact_revision_calls
     assert {call["revision"] for call in exact_revision_calls} == {HUB_REVISION}
     assert {call.get("repo_type") for call in exact_revision_calls} == {"dataset"}
+    assert {call.get("force_download") for call in hub.download_calls} == {True}
+    cache_directories = {Path(str(call["cache_dir"])) for call in hub.download_calls}
+    assert len(cache_directories) == 1
+    cache_directory = cache_directories.pop()
+    assert cache_directory.name == "hf-cache"
+    assert {Path(str(call["local_dir"])) for call in hub.download_calls} == {cache_directory.parent}
+
+
+def test_remote_postflight_reports_unsupported_publication_without_creating_output_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    hub = _FakeHub(
+        root=fixture.root,
+        repo_files=[".gitattributes", *fixture.repo_files],
+        revision=HUB_REVISION,
+    )
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    monkeypatch.setattr(
+        "tools.data._immutable_json.supports_secure_immutable_json_publication",
+        lambda: False,
+    )
+    output = tmp_path / "publication" / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert result == 2
+    assert (
+        "requires anchored dir_fd operations; this platform is unsupported"
+        in capsys.readouterr().err
+    )
+    assert not output.parent.exists()
 
 
 def test_remote_postflight_rejects_mutable_main_before_hub_access(
@@ -193,6 +235,123 @@ def test_remote_postflight_rejects_tampered_parquet_bytes(
     assert "prepare report.output_parquet.sha256 drifted" in capsys.readouterr().err
 
 
+@requires_secure_immutable_json_publication
+def test_remote_postflight_scans_the_same_gnomad_parquet_bytes_it_hashes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    parquet = fixture.root / fixture.namespace / "data/gnomad/v4.1/variants.parquet"
+    original = parquet.read_bytes()
+    replacement = parquet.with_name("replacement.parquet")
+    _write_gnomad_parquet(replacement, chromosome="21")
+    assert replacement.stat().st_size == len(original)
+    swapped = _replace_after_first_binary_read(
+        monkeypatch,
+        target=parquet,
+        replacement=replacement,
+    )
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert swapped["done"]
+    assert result == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    relative = "data/gnomad/v4.1/variants.parquet"
+    assert report["file_identities"][relative] == {
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "size_bytes": len(original),
+    }
+    assert report["parquet_audit"]["canonical_chromosome"] == "22"
+
+
+@requires_secure_immutable_json_publication
+def test_remote_postflight_reuses_the_captured_selection_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    selection = fixture.root / fixture.namespace / "evidence/selection.json"
+    original = selection.read_bytes()
+    replacement = original + b" "
+    path_read_bytes = Path.read_bytes
+    replaced = False
+
+    def replace_after_read(path: Path) -> bytes:
+        nonlocal replaced
+        payload = path_read_bytes(path)
+        if path == selection and not replaced:
+            selection.write_bytes(replacement)
+            replaced = True
+        return payload
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert replaced
+    assert result == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["file_identities"]["evidence/selection.json"] == {
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "size_bytes": len(original),
+    }
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "evidence/gcs-object-metadata.json",
+        "evidence/gcs-metadata-verification.json",
+        "evidence/source-stream-identity.json",
+        "evidence/prepare-report.json",
+        "evidence/receipt.json",
+        "evidence/source-lock.json",
+        "evidence/source-lock.schema.json",
+    ],
+)
+@requires_secure_immutable_json_publication
+def test_remote_postflight_reuses_each_captured_json_evidence_file(
+    relative_path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    evidence = fixture.root / fixture.namespace / relative_path
+    original = evidence.read_bytes()
+    path_read_bytes = Path.read_bytes
+    replaced = False
+
+    def replace_after_read(path: Path) -> bytes:
+        nonlocal replaced
+        payload = path_read_bytes(path)
+        if path == evidence and not replaced:
+            evidence.write_bytes(original + b" ")
+            replaced = True
+        return payload
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert replaced
+    assert result == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["file_identities"][relative_path] == {
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "size_bytes": len(original),
+    }
+
+
 def test_remote_postflight_rejects_an_unprefixed_prepare_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -213,6 +372,103 @@ def test_remote_postflight_rejects_an_unprefixed_prepare_hash(
         "prepare report.output_parquet.sha256 must be a lowercase sha256:<hex> digest"
         in capsys.readouterr().err
     )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "field", "value", "binding_field", "expected"),
+    [
+        (
+            "evidence/source-stream-identity.json",
+            "ok",
+            1,
+            "source_identity",
+            "source identity.ok drifted",
+        ),
+        (
+            "evidence/prepare-report.json",
+            "already_exists",
+            0,
+            "prepare_report",
+            "prepare report.already_exists drifted",
+        ),
+        ("evidence/receipt.json", "ok", 1, None, "receipt.ok drifted"),
+    ],
+    ids=["source-ok-int", "already-exists-int", "receipt-ok-int"],
+)
+def test_remote_postflight_rejects_bool_int_equality_aliases(
+    relative_path: str,
+    field: str,
+    value: object,
+    binding_field: str | None,
+    expected: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    namespace_root = fixture.root / fixture.namespace
+    evidence_path = namespace_root / relative_path
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence[field] = value
+    _write_json(evidence_path, evidence)
+    if binding_field is not None:
+        receipt_path = namespace_root / "evidence/receipt.json"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["evidence"][binding_field] = _identity(evidence_path)
+        _write_json(receipt_path, receipt)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert result == 2
+    assert expected in capsys.readouterr().err
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "needle", "duplicate_key"),
+    [
+        ("evidence/source-stream-identity.json", '"ok": true', "ok"),
+        (
+            "evidence/selection.json",
+            '"schema_version": "geno-lewm.gnomad-stage-selection.v1"',
+            "schema_version",
+        ),
+        (
+            "evidence/source-lock.json",
+            '"schema_version": "geno-lewm.gnomad-source-lock.v1"',
+            "schema_version",
+        ),
+    ],
+    ids=["source-identity-ok", "selection-schema-version", "source-lock-schema-version"],
+)
+def test_remote_postflight_rejects_duplicate_json_keys(
+    relative_path: str,
+    needle: str,
+    duplicate_key: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    evidence_path = fixture.root / fixture.namespace / relative_path
+    payload = evidence_path.read_text(encoding="utf-8")
+    assert payload.count(needle) == 1
+    evidence_path.write_text(
+        payload.replace(needle, f'{needle},\n  "{duplicate_key}": null', 1),
+        encoding="utf-8",
+    )
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert result == 2
+    assert f"duplicate JSON key {duplicate_key!r}" in capsys.readouterr().err
+    assert not output.exists()
 
 
 def test_remote_postflight_rejects_expected_source_commit_drift(
@@ -753,3 +1009,52 @@ def _identity(path: Path) -> dict[str, object]:
         "sha256": _sha256(path),
         "size_bytes": path.stat().st_size,
     }
+
+
+def _replace_after_first_binary_read(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    target: Path,
+    replacement: Path,
+) -> dict[str, bool]:
+    path_open = Path.open
+    os_open = os.open
+    state = {"done": False}
+
+    class _ReplaceOnClose:
+        def __init__(self, stream: Any) -> None:
+            self._stream = stream
+
+        def __enter__(self) -> Any:
+            self._stream.__enter__()
+            return self._stream
+
+        def __exit__(self, *args: object) -> object:
+            result = self._stream.__exit__(*args)
+            replacement.replace(target)
+            state["done"] = True
+            return result
+
+    def open_and_replace(path: Path, *args: object, **kwargs: object) -> Any:
+        stream = path_open(path, *args, **kwargs)
+        mode = str(args[0]) if args else str(kwargs.get("mode", "r"))
+        if path == target and mode == "rb" and not state["done"]:
+            return _ReplaceOnClose(stream)
+        return stream
+
+    def open_fd_and_replace(
+        path: Any,
+        flags: int,
+        mode: int = 0o600,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        descriptor = os_open(path, flags, mode, dir_fd=dir_fd)
+        if Path(path) == target and not state["done"]:
+            replacement.replace(target)
+            state["done"] = True
+        return descriptor
+
+    monkeypatch.setattr(Path, "open", open_and_replace)
+    monkeypatch.setattr(os, "open", open_fd_and_replace)
+    return state

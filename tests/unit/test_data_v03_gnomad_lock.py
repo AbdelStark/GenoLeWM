@@ -7,14 +7,16 @@ import base64
 import hashlib
 import importlib
 import json
+import os
 import shlex
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
+from tools.data._immutable_json import supports_secure_immutable_json_publication
 from tools.data.v03_gnomad_lock import (
     SourceLockError,
     _require_prefixed_sha256,
@@ -27,6 +29,11 @@ from tools.data.v03_gnomad_lock import (
 
 SOURCE_LOCK = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json")
 SOURCE_LOCK_SCHEMA = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json")
+
+requires_secure_immutable_json_publication = pytest.mark.skipif(
+    not supports_secure_immutable_json_publication(),
+    reason="secure immutable publication requires anchored dir_fd operations",
+)
 
 
 def test_require_prefixed_sha256_normalizes_only_the_prepare_cli_contract() -> None:
@@ -223,6 +230,24 @@ def test_audit_gnomad_parquet_scans_exact_schema_and_binds_positions(tmp_path: P
     assert audit["population_af_non_null_counts"]["af_remaining"] == 2
 
 
+def test_audit_gnomad_parquet_rejects_an_initial_symlink(tmp_path: Path) -> None:
+    parquet_path = _write_gnomad_parquet(
+        tmp_path / "variants.parquet",
+        [{"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.01}],
+    )
+    symlink_path = tmp_path / "linked.parquet"
+    symlink_path.symlink_to(parquet_path)
+
+    with pytest.raises(SourceLockError, match="regular file without following symlinks"):
+        audit_gnomad_parquet(
+            symlink_path,
+            chromosome="22",
+            expected_records=1,
+            min_af=0.01,
+            max_allele_len=16,
+        )
+
+
 @pytest.mark.parametrize(
     ("row_update", "error"),
     [
@@ -270,6 +295,49 @@ def test_audit_gnomad_parquet_rejects_schema_drift(tmp_path: Path) -> None:
     )
     table = pq.read_table(parquet_path).append_column("unexpected", pa.array([1], type=pa.int64()))
     pq.write_table(table, parquet_path)
+
+    with pytest.raises(SourceLockError, match="Parquet schema drifted"):
+        audit_gnomad_parquet(
+            parquet_path,
+            chromosome="22",
+            expected_records=1,
+            min_af=0.01,
+            max_allele_len=16,
+        )
+
+
+def test_audit_gnomad_parquet_rejects_schema_metadata_drift(tmp_path: Path) -> None:
+    pq = pytest.importorskip("pyarrow.parquet")
+    parquet_path = _write_gnomad_parquet(
+        tmp_path / "variants.parquet",
+        [{"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
+    )
+    table = pq.read_table(parquet_path).replace_schema_metadata({b"unexpected": b"metadata"})
+    pq.write_table(table, parquet_path)
+
+    with pytest.raises(SourceLockError, match="Parquet schema drifted"):
+        audit_gnomad_parquet(
+            parquet_path,
+            chromosome="22",
+            expected_records=1,
+            min_af=0.01,
+            max_allele_len=16,
+        )
+
+
+def test_audit_gnomad_parquet_rejects_field_metadata_drift(tmp_path: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    parquet_path = _write_gnomad_parquet(
+        tmp_path / "variants.parquet",
+        [{"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
+    )
+    table = pq.read_table(parquet_path)
+    schema = table.schema.set(
+        0,
+        table.schema.field(0).with_metadata({b"unexpected": b"metadata"}),
+    )
+    pq.write_table(pa.Table.from_arrays(table.columns, schema=schema), parquet_path)
 
     with pytest.raises(SourceLockError, match="Parquet schema drifted"):
         audit_gnomad_parquet(
@@ -430,33 +498,80 @@ def test_select_source_resolves_one_locked_object_and_immutable_namespace() -> N
     )
 
 
-def test_select_cli_writes_the_checked_entry_as_json(tmp_path: Path) -> None:
+@requires_secure_immutable_json_publication
+def test_select_cli_writes_the_checked_entry_as_immutable_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     lock = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))
     output = tmp_path / "selection.json"
+    argv = [
+        "select",
+        "--lock-json",
+        str(SOURCE_LOCK),
+        "--chromosome",
+        "20",
+        "--commit-sha",
+        "b" * 40,
+        "--container-image",
+        lock["job"]["container_image"],
+        "--output-json",
+        str(output),
+    ]
 
-    assert (
-        main(
-            [
-                "select",
-                "--lock-json",
-                str(SOURCE_LOCK),
-                "--chromosome",
-                "20",
-                "--commit-sha",
-                "b" * 40,
-                "--container-image",
-                lock["job"]["container_image"],
-                "--output-json",
-                str(output),
-            ]
-        )
-        == 0
-    )
+    assert main(argv) == 0
+    assert main(argv) == 0
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["source"]["chromosome"] == "20"
     assert payload["source"]["split_role"] == "validation"
+    winner = output.read_bytes()
+
+    different_argv = list(argv)
+    different_argv[different_argv.index("20")] = "21"
+    assert main(different_argv) == 2
+    captured = capsys.readouterr()
+    assert "refusing to replace different bytes at immutable output" in captured.err
+    assert output.read_bytes() == winner
+    assert not list(tmp_path.glob(".selection.json.*.tmp"))
 
 
+def test_select_cli_reports_unsupported_publication_without_creating_output_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lock = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))
+    output = tmp_path / "publication" / "selection.json"
+    monkeypatch.setattr(
+        "tools.data._immutable_json.supports_secure_immutable_json_publication",
+        lambda: False,
+    )
+
+    rc = main(
+        [
+            "select",
+            "--lock-json",
+            str(SOURCE_LOCK),
+            "--chromosome",
+            "20",
+            "--commit-sha",
+            "b" * 40,
+            "--container-image",
+            lock["job"]["container_image"],
+            "--output-json",
+            str(output),
+        ]
+    )
+
+    assert rc == 2
+    assert (
+        "requires anchored dir_fd operations; this platform is unsupported"
+        in capsys.readouterr().err
+    )
+    assert not output.parent.exists()
+
+
+@requires_secure_immutable_json_publication
 def test_verify_metadata_cli_accepts_only_the_generation_pinned_gcs_object(
     tmp_path: Path,
 ) -> None:
@@ -568,6 +683,7 @@ def test_verify_metadata_cli_rejects_generation_drift(
     assert "generation drifted" in capsys.readouterr().err
 
 
+@requires_secure_immutable_json_publication
 def test_hash_source_cli_verifies_md5_and_records_streamed_sha256(tmp_path: Path) -> None:
     source_path = tmp_path / "source.vcf.bgz"
     source_path.write_bytes(b"generation-pinned-gnomad-fixture\n")
@@ -605,7 +721,17 @@ def test_hash_source_cli_verifies_md5_and_records_streamed_sha256(tmp_path: Path
     assert identity["hash_method"] == "single_pass_chunked_file_read"
 
 
-def test_author_receipt_cli_reconciles_transform_and_output_evidence(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "replace_during_authoring",
+    [False, True],
+    ids=["stable", "swapped-after-hash"],
+)
+@requires_secure_immutable_json_publication
+def test_author_receipt_cli_reconciles_transform_and_output_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    replace_during_authoring: bool,
+) -> None:
     source_path = tmp_path / "gnomad.vcf.bgz"
     source_path.write_bytes(b"locked gnomad bytes\n")
     dataset_root = tmp_path / "publish" / "data"
@@ -741,6 +867,24 @@ def test_author_receipt_cli_reconciles_transform_and_output_evidence(tmp_path: P
         ),
         encoding="utf-8",
     )
+    original_output_bytes = output_parquet.read_bytes()
+    swap_state: dict[str, bool] | None = None
+    if replace_during_authoring:
+        replacement = tmp_path / "replacement.parquet"
+        _write_gnomad_parquet(
+            replacement,
+            [
+                {"chrom": "21", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.01},
+                {"chrom": "21", "pos": 202, "ref": "G", "alt": "T", "af_global": 0.2},
+                {"chrom": "21", "pos": 303, "ref": "AC", "alt": "GT", "af_global": 1.0},
+            ],
+        )
+        assert replacement.stat().st_size == output_parquet.stat().st_size
+        swap_state = _replace_after_first_binary_read(
+            monkeypatch,
+            target=output_parquet,
+            replacement=replacement,
+        )
     receipt_path = tmp_path / "receipt.json"
 
     assert (
@@ -779,7 +923,7 @@ def test_author_receipt_cli_reconciles_transform_and_output_evidence(tmp_path: P
     ]
     assert receipt["transform"]["runtime"]["process_peak_rss_bytes"] == 123456
     assert receipt["transform"]["counts"]["records_written"] == 3
-    assert receipt["output"]["sha256"] == hashlib.sha256(output_parquet.read_bytes()).hexdigest()
+    assert receipt["output"]["sha256"] == hashlib.sha256(original_output_bytes).hexdigest()
     parquet_audit = receipt["output"]["parquet_audit"]
     assert parquet_audit["audit_method"] == "pyarrow_metadata_and_full_iter_batches_scan_v1"
     assert parquet_audit["metadata_row_count"] == 3
@@ -787,6 +931,8 @@ def test_author_receipt_cli_reconciles_transform_and_output_evidence(tmp_path: P
     assert parquet_audit["position_min"] == 101
     assert parquet_audit["position_max"] == 303
     assert "not evidence" in receipt["claim_boundary"]
+    if swap_state is not None:
+        assert swap_state["done"] is True
 
 
 def _write_gnomad_parquet(path: Path, rows: list[dict[str, object]]) -> Path:
@@ -849,3 +995,52 @@ def _write_gnomad_parquet(path: Path, rows: list[dict[str, object]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(pa.Table.from_pylist(normalized, schema=schema), path)
     return path
+
+
+def _replace_after_first_binary_read(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    target: Path,
+    replacement: Path,
+) -> dict[str, bool]:
+    path_open = Path.open
+    os_open = os.open
+    state = {"done": False}
+
+    class _ReplaceOnClose:
+        def __init__(self, stream: Any) -> None:
+            self._stream = stream
+
+        def __enter__(self) -> Any:
+            self._stream.__enter__()
+            return self._stream
+
+        def __exit__(self, *args: object) -> object:
+            result = self._stream.__exit__(*args)
+            replacement.replace(target)
+            state["done"] = True
+            return result
+
+    def open_and_replace(path: Path, *args: object, **kwargs: object) -> Any:
+        stream = path_open(path, *args, **kwargs)
+        mode = str(args[0]) if args else str(kwargs.get("mode", "r"))
+        if path == target and mode == "rb" and not state["done"]:
+            return _ReplaceOnClose(stream)
+        return stream
+
+    def open_fd_and_replace(
+        path: Any,
+        flags: int,
+        mode: int = 0o600,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        descriptor = os_open(path, flags, mode, dir_fd=dir_fd)
+        if Path(path) == target and not state["done"]:
+            replacement.replace(target)
+            state["done"] = True
+        return descriptor
+
+    monkeypatch.setattr(Path, "open", open_and_replace)
+    monkeypatch.setattr(os, "open", open_fd_and_replace)
+    return state

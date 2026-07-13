@@ -142,6 +142,26 @@ def test_iter_clinvar_vcf_variants_maps_labels_and_fallback_ids(tmp_path: Path) 
         list(iter_clinvar_vcf_variants(vcf_path, max_allele_len=False))
 
 
+def test_iter_clinvar_vcf_variants_skips_no_op_alleles(tmp_path: Path) -> None:
+    vcf_path = tmp_path / "clinvar_no_op.vcf"
+    vcf_path.write_text(
+        "\n".join(
+            [
+                "##fileformat=VCFv4.2",
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+                "1\t100\t123\tA\tA\t.\t.\tCLNSIG=Pathogenic",
+                "1\t101\t124\tC\tT\t.\t.\tCLNSIG=Benign",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rows = list(iter_clinvar_vcf_variants(vcf_path))
+
+    assert [(row.ref, row.alt) for row in rows] == [("C", "T")]
+
+
 def test_iter_clinvar_vcf_variants_requires_numeric_identifier(tmp_path: Path) -> None:
     vcf_path = tmp_path / "clinvar_missing_id.vcf"
     vcf_path.write_text(
@@ -182,6 +202,31 @@ def test_prepare_clinvar_shard_writes_empty_filtered_shard(tmp_path: Path) -> No
     assert report.records_written == 0
     assert report.skipped_allele == 1
     assert list(iter_clinvar_shard(report.output_path)) == []
+
+
+def test_prepare_clinvar_shard_counts_no_op_alleles_as_skipped(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    vcf_path = tmp_path / "clinvar_no_op.vcf"
+    vcf_path.write_text(
+        "\n".join(
+            [
+                "##fileformat=VCFv4.2",
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+                "1\t100\t123\tA\tA\t.\t.\tCLNSIG=Pathogenic",
+                "1\t101\t124\tC\tT\t.\t.\tCLNSIG=Benign",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = prepare_clinvar_shard(vcf_path, tmp_path, release="2026-04-15")
+
+    assert report.records_read == 2
+    assert report.allele_records_seen == 2
+    assert report.records_written == 1
+    assert report.skipped_allele == 1
+    assert [(row.ref, row.alt) for row in iter_clinvar_shard(report.output_path)] == [("C", "T")]
 
 
 def test_clinvar_reports_and_release_validation(tmp_path: Path) -> None:

@@ -137,8 +137,10 @@ nav:
       - Metrics: api/metrics.md
       - Reference: reference/
   - Guides:
+      - v0.3 snapshot lineage: data-v03-snapshot-lineage.md
       - Glossary: glossary.md
       - FAQ: faq.md
+      - ClinVar v0.3 staging verification: data-v03-staging-verification.md
       - Maintainers: maintainers.md
   - Research:
       - GenoLeWM-FX contract: research/fx-experiment-contract.md

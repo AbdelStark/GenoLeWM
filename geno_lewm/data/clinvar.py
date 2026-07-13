@@ -143,9 +143,11 @@ def prepare_clinvar_shard(
             records_read += 1
             for alt_index, alt in enumerate(row.alts):
                 allele_records_seen += 1
-                if not is_supported_allele(
-                    row.ref, max_len=max_allele_len
-                ) or not is_supported_allele(alt, max_len=max_allele_len):
+                if (
+                    not is_supported_allele(row.ref, max_len=max_allele_len)
+                    or not is_supported_allele(alt, max_len=max_allele_len)
+                    or row.ref == alt
+                ):
                     skipped_allele += 1
                     continue
                 yield ClinvarVariant(
@@ -187,8 +189,10 @@ def iter_clinvar_vcf_variants(
     _require_positive_int("max_allele_len", max_allele_len)
     for row in iter_vcf_rows(input_vcf):
         for alt_index, alt in enumerate(row.alts):
-            if not is_supported_allele(row.ref, max_len=max_allele_len) or not is_supported_allele(
-                alt, max_len=max_allele_len
+            if (
+                not is_supported_allele(row.ref, max_len=max_allele_len)
+                or not is_supported_allele(alt, max_len=max_allele_len)
+                or row.ref == alt
             ):
                 continue
             yield ClinvarVariant(
