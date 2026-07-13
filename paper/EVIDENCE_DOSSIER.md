@@ -1161,7 +1161,7 @@ Sharp distinction: these answer *"what is the representation/likelihood of this 
 
 ### 1.2 Variant-effect prediction and resources: the evaluation, and the precise sense in which GenoLeWM is *not* a clinical predictor
 
-Standard VEP ecosystem (RFC-0007 §3.1): **ClinVar** (Landrum et al.) clinical interpretations (P/LP vs B/LB, VUS excluded); **gnomAD** (Karczewski et al.) population frequency, repurposed as a per-context *null model* for surprise calibration (RFC-0009 §3.4); **TraitGym** (Benegas et al. — *attribution* `[VERIFY EXISTENCE]`) causal regulatory/Mendelian; a **BRCA2 saturation genome-editing** continuous-score benchmark whose exact publication source remains unverified; and **AlphaMissense** (Cheng et al.) structure-aware supervised missense, anchoring the high end. Findlay et al. concerns BRCA1 and must not be cited as the BRCA2 source.
+Standard VEP ecosystem (RFC-0007 §3.1): **ClinVar** (Landrum et al.) clinical interpretations (P/LP vs B/LB, VUS excluded); **gnomAD** (Karczewski et al.) population frequency, repurposed as a per-context *null model* for surprise calibration (RFC-0009 §3.4); **TraitGym** (Benegas et al. — *attribution* `[VERIFY EXISTENCE]`) causal regulatory/Mendelian; the **Sahu et al. BRCA2 saturation genome-editing** continuous-score benchmark (Nature 2025, DOI `10.1038/s41586-024-08349-1`), bound through MaveDB `urn:mavedb:00001242-a-1`; and **AlphaMissense** (Cheng et al.) structure-aware supervised missense, anchoring the high end. Findlay et al. concerns BRCA1 and is not the BRCA2 source.
 
 GenoLeWM is **not** a clinical predictor, precise along four axes:
 1. **Label-free by construction.** Surprise is an unsupervised side effect of predictor residual error (RFC-0009 §2); no pathogenicity label enters training. Cannot claim calibrated clinical-grade discrimination.
@@ -1248,7 +1248,7 @@ No mechanistic direction precedes the correction control: normalize all live/cac
 - `[VERIFY FORMAL ATTRIBUTION]` Carbon-500M/3B/8B (HuggingFaceBio): the model card is verified, but it exposes no formal author list or technical-report citation.
 - `[VERIFY EXISTENCE]` LeWorldModel/LeJEPA (Maes, Le Lidec, Scieur, LeCun, Balestriero, "2026"; arXiv 2603.19312 per skill notes): confirm authorship/title; SIGReg attribution. (NOTE: citations block has a VERIFIED LeJEPA 2025 entry by Balestriero & LeCun, arXiv 2511.08544 — distinguish the LeJEPA paper from the LeWorldModel paper.)
 - `[VERIFY EXISTENCE]` GeneJepa (RFC-0001 §4.2 "Oct 2025 masked-gene-token JEPA").
-- `[VERIFY ATTRIBUTION]` Caduceus, DINO-WM (Zhou et al.), TD-MPC2 (Hansen et al.), DreamerV3, VICReg (Bardes/Ponce/LeCun), I-JEPA, AlphaMissense, gnomAD, ClinVar, HyenaDNA, Nucleotide Transformer, DNABERT/DNABERT-2. `[VERIFY SOURCE]` exact BRCA2 SGE benchmark publication; Findlay et al. is BRCA1 and is not the source.
+- `[VERIFY ATTRIBUTION]` Caduceus, DINO-WM (Zhou et al.), TD-MPC2 (Hansen et al.), DreamerV3, VICReg (Bardes/Ponce/LeCun), I-JEPA, AlphaMissense, gnomAD, ClinVar, HyenaDNA, Nucleotide Transformer, DNABERT/DNABERT-2. The BRCA2 SGE source is verified as Sahu et al. (2025), DOI `10.1038/s41586-024-08349-1`, via MaveDB `urn:mavedb:00001242-a-1`; Findlay et al. is BRCA1 and is not the source.
 - `[VERIFY EXISTENCE]` PLDM (VICReg-inspired latent world model) before naming as a baseline.
 
 ## Key source files (absolute paths)

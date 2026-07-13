@@ -62,3 +62,14 @@ def test_paper_bibliography_entries_keep_verifiable_locator() -> None:
     ]
 
     assert missing_locator == []
+
+
+def test_brca2_assay_is_bound_to_the_verified_sahu_source() -> None:
+    main = (PAPER_DIR / "main.tex").read_text(encoding="utf-8")
+    dossier = (PAPER_DIR / "EVIDENCE_DOSSIER.md").read_text(encoding="utf-8")
+    entry = _bib_entries()["sahu2025"]
+
+    assert "10.1038/s41586-024-08349-1" in entry
+    assert "urn:mavedb:00001242-a-1" in main
+    assert "urn:mavedb:00001242-a-1" in dossier
+    assert "exact publication source remains unverified" not in dossier

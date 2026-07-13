@@ -60,4 +60,4 @@ def test_brca2_saturation_notebook_cells_execute(
     captured = capsys.readouterr()
     assert "fixture rows=72 positions=24" in captured.out
     assert "heatmap cells=72" in captured.out
-    assert "Findlay comparison: not run in this fixture notebook" in captured.out
+    assert "Sahu assay comparison: not run in this fixture notebook" in captured.out
