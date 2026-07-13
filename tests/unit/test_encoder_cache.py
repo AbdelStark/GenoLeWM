@@ -33,7 +33,12 @@ from geno_lewm.encoder import (
     write_shard,
 )
 from geno_lewm.encoder._normalization import l2_normalize_state
-from geno_lewm.errors import CacheCorruptError, InputError, RuntimeSetupError
+from geno_lewm.errors import (
+    CacheCorruptError,
+    CacheKeyAlreadyIndexedError,
+    InputError,
+    RuntimeSetupError,
+)
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt",
@@ -944,7 +949,10 @@ def test_concurrent_different_paths_same_key_leaves_no_orphan(tmp_path: Path) ->
 
     results = _run_concurrent_writes(tmp_path, ((0, record), (1, record)))
 
-    assert sorted(status for status, _detail in results) == ["CacheCorruptError", "ok"]
+    assert sorted(status for status, _detail in results) == [
+        CacheKeyAlreadyIndexedError.__name__,
+        "ok",
+    ]
     assert len(list(tmp_path.rglob("*.parquet"))) == 1
     assert read_embedding(tmp_path, record.key) == record.embedding
     assert list(tmp_path.rglob("*.tmp")) == []

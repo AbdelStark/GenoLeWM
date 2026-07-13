@@ -28,7 +28,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from geno_lewm.encoder.pooling import POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN
-from geno_lewm.errors import CacheCorruptError, InputError, RuntimeSetupError
+from geno_lewm.errors import (
+    CacheCorruptError,
+    CacheKeyAlreadyIndexedError,
+    InputError,
+    RuntimeSetupError,
+)
 
 __all__ = [
     "CACHE_SCHEMA_VERSION",
@@ -73,6 +78,7 @@ _DIR_FD_PRIMITIVES_AVAILABLE = all(
     operation in getattr(os, "supports_dir_fd", set())
     for operation in (os.open, os.mkdir, os.stat, os.unlink, os.link, os.rename)
 )
+
 
 _WINDOW_INDEX_SQL = """
 CREATE TABLE window_index (
@@ -1811,7 +1817,7 @@ def _assert_index_keys_available(
         if row is not None:
             existing_path = _decode_index_shard_path(row[0])
             existing_offset = _decode_index_row_offset(row[1])
-            raise CacheCorruptError(
+            raise CacheKeyAlreadyIndexedError(
                 "cache key is already indexed; refusing duplicate shard write",
                 details={
                     "window_hash": record.window_hash.hex(),

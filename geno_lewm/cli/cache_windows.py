@@ -8,6 +8,8 @@ Build mode is deliberately request-artifact scoped. Corpus-percentage and
 from __future__ import annotations
 
 import json
+import os
+import stat
 import time
 from pathlib import Path
 from typing import Annotated, Any, cast
@@ -33,7 +35,7 @@ from geno_lewm.encoder.cache import (
 )
 from geno_lewm.errors import InputError
 from geno_lewm.observability import Severity, get_logger
-from geno_lewm.provenance import Manifest, load_manifest, sha256_file
+from geno_lewm.provenance import Manifest, parse_manifest_bytes, sha256_file
 
 __all__ = [
     "app",
@@ -241,19 +243,30 @@ def main(
         None if opts.log_dir is None else Path(opts.log_dir),
         option="--log-dir",
     )
+    request_bytes = _capture_regular_bytes(requests_jsonl, label="cache build requests")
+    config_path = Path(opts.config)
+    config_bytes = _capture_regular_bytes(config_path, label="encoder config")
+    manifest_bytes = _capture_regular_bytes(model_manifest, label="model manifest")
     resolved_config = _resolve_build_config(
-        config_path=Path(opts.config),
+        config_bytes=config_bytes,
+        source_path=config_path,
         set_overrides=opts.set_overrides,
         seed=opts.seed,
         deterministic=opts.deterministic,
         run_id=opts.run_id,
     )
-    manifest = load_manifest(model_manifest)
+    manifest = parse_manifest_bytes(manifest_bytes, source=str(model_manifest))
+    runtime_identity = _capture_encoder_runtime_identity(
+        config=resolved_config,
+        manifest=manifest,
+        carbon_model_dir=carbon_model_dir,
+    )
     encoder = _build_encoder(
         config=resolved_config,
         manifest=manifest,
         carbon_model_dir=carbon_model_dir,
         device=device,
+        observed_identity=cast(str, runtime_identity["observed"]),
     )
     logger = get_logger(
         "cache-build",
@@ -261,45 +274,69 @@ def main(
         log_dir=opts.log_dir,
         level=cast(Severity, opts.log_level),
     )
-    report = build_window_cache(
-        requests_jsonl=requests_jsonl,
-        cache_dir=root,
-        evidence_dir=evidence_dir,
-        encoder=encoder,
-        encoder_id=manifest.encoder.id,
-        batch_size=batch_size,
-        rows_per_shard=rows_per_shard,
-        created_at_ns=created_at_ns,
-        hardware=hardware,
-        resolved_config=cast(dict[str, object], config_to_dict(resolved_config)),
-        input_artifacts={
-            "encoder_config.yaml": Path(opts.config),
-            "model_manifest.json": model_manifest,
+    build_kwargs: dict[str, Any] = {
+        "requests_jsonl": request_bytes,
+        "cache_dir": root,
+        "evidence_dir": evidence_dir,
+        "encoder": encoder,
+        "encoder_id": manifest.encoder.id,
+        "batch_size": batch_size,
+        "rows_per_shard": rows_per_shard,
+        "created_at_ns": created_at_ns,
+        "hardware": hardware,
+        "resolved_config": cast(dict[str, object], config_to_dict(resolved_config)),
+        "encoder_runtime_identity": runtime_identity,
+        "input_artifacts": {
+            "encoder_config.yaml": config_bytes,
+            "model_manifest.json": manifest_bytes,
         },
+    }
+    report = build_window_cache(
+        **build_kwargs,
         logger=logger,
     )
     payload = report.to_dict()
     if json_report is not None:
         _write_json_report(json_report, payload)
+        # The output path was checked before the build, but immediately
+        # re-verify the fixed evidence closure after the only post-checksum
+        # write so alias swaps cannot return success with an unclosed bundle.
+        report = build_window_cache(**build_kwargs, logger=None)
     build = cast(dict[str, object], payload["build"])
     typer.echo(
         "built "
         f"completed_shards={build['completed_shards']} "
         f"encoded_rows={build['encoded_rows']} "
         f"resumed_rows={build['resumed_rows']} "
+        f"reused_rows={build['reused_rows']} "
         f"report={report.report_path}"
     )
 
 
 def _resolve_build_config(
     *,
-    config_path: Path,
+    config_bytes: bytes,
+    source_path: Path,
     set_overrides: tuple[str, ...],
     seed: int | None,
     deterministic: bool,
     run_id: str | None,
 ) -> GenoLeWMConfig:
-    config = load_config(config_path)
+    try:
+        text = config_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InputError(
+            "config file must be UTF-8 YAML",
+            details={"path": str(source_path)},
+        ) from exc
+    try:
+        raw_payload = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise InputError(
+            "config file is not valid YAML",
+            details={"path": str(source_path), "error": str(exc)},
+        ) from exc
+    config = load_config(raw_payload)
     payload = config_to_dict(config)
     for raw in set_overrides:
         _apply_set_override(payload, raw)
@@ -341,6 +378,7 @@ def _build_encoder(
     manifest: Manifest,
     carbon_model_dir: Path,
     device: str,
+    observed_identity: str | None = None,
 ) -> CarbonStateEncoder:
     if config.encoder.revision != manifest.encoder.revision:
         raise InputError(
@@ -352,10 +390,11 @@ def _build_encoder(
         )
     if not device:
         raise InputError("--device must be non-empty")
-    observed_identity = encoder_identity_hash(
-        carbon_model_dir,
-        state_contract_version=config.encoder.state_contract_version,
-    )
+    if observed_identity is None:
+        observed_identity = encoder_identity_hash(
+            carbon_model_dir,
+            state_contract_version=config.encoder.state_contract_version,
+        )
     if observed_identity != manifest.encoder.hash:
         raise InputError(
             "local Carbon runtime identity does not match the model manifest",
@@ -381,6 +420,33 @@ def _build_encoder(
     )
 
 
+def _capture_encoder_runtime_identity(
+    *,
+    config: GenoLeWMConfig,
+    manifest: Manifest,
+    carbon_model_dir: Path,
+) -> dict[str, object]:
+    observed = encoder_identity_hash(
+        carbon_model_dir,
+        state_contract_version=config.encoder.state_contract_version,
+    )
+    if observed != manifest.encoder.hash:
+        raise InputError(
+            "local Carbon runtime identity does not match the model manifest",
+            details={
+                "state_contract_version": config.encoder.state_contract_version,
+                "expected": manifest.encoder.hash,
+                "observed": observed,
+            },
+            remediation="mount the exact corrected Carbon runtime committed by the manifest",
+        )
+    return {
+        "state_contract_version": config.encoder.state_contract_version,
+        "expected": manifest.encoder.hash,
+        "observed": observed,
+    }
+
+
 def _reject_evidence_output_overlap(
     evidence_dir: Path,
     output: Path | None,
@@ -389,16 +455,51 @@ def _reject_evidence_output_overlap(
 ) -> None:
     if output is None:
         return
-    evidence = evidence_dir.absolute()
-    candidate = output.absolute()
     try:
-        candidate.relative_to(evidence)
-    except ValueError:
+        evidence = evidence_dir.resolve(strict=False)
+        candidate = output.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise InputError(
+            f"{option} path aliases could not be resolved safely",
+            details={"evidence_dir": str(evidence_dir), "output": str(output)},
+        ) from exc
+    evidence_parts = tuple(part.casefold() for part in evidence.parts)
+    candidate_parts = tuple(part.casefold() for part in candidate.parts)
+    if candidate_parts[: len(evidence_parts)] != evidence_parts:
         return
     raise InputError(
         f"{option} must be outside --evidence-dir",
         details={"evidence_dir": str(evidence), "output": str(candidate)},
     )
+
+
+def _capture_regular_bytes(path: Path, *, label: str) -> bytes:
+    """Read one stable regular-file snapshot without following the final name."""
+    try:
+        mode = path.lstat().st_mode
+    except OSError as exc:
+        raise InputError(f"{label} could not be inspected", details={"path": str(path)}) from exc
+    if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+        raise InputError(f"{label} must be a regular non-symlink file")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise InputError(
+            f"{label} could not be opened safely", details={"path": str(path)}
+        ) from exc
+    try:
+        before = os.fstat(descriptor)
+        with os.fdopen(os.dup(descriptor), "rb") as handle:
+            body = handle.read()
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+    identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+    if identity_before != identity_after or len(body) != before.st_size:
+        raise InputError(f"{label} changed while it was being captured")
+    return body
 
 
 def _write_json_report(path: Path, payload: dict[str, object]) -> None:

@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import stat
 import tempfile
 import time
@@ -41,7 +42,12 @@ from geno_lewm.encoder.cache import (
 )
 from geno_lewm.encoder.pooling import POOL_GLOBAL_MEAN
 from geno_lewm.encoder.windowing import canonicalize_dna, window_sha256
-from geno_lewm.errors import CacheCorruptError, InputError, RuntimeSetupError
+from geno_lewm.errors import (
+    CacheCorruptError,
+    CacheKeyAlreadyIndexedError,
+    InputError,
+    RuntimeSetupError,
+)
 from geno_lewm.observability import GenoLeWMLogger
 from geno_lewm.provenance import canonical_json_sha256, sha256_bytes, sha256_file
 
@@ -53,16 +59,18 @@ __all__ = [
 ]
 
 
-CACHE_BUILD_SCHEMA_VERSION = "1.1.0"
+CACHE_BUILD_SCHEMA_VERSION = "1.2.0"
 CACHE_BUILD_REPORT_NAME = "cache_build_report.json"
 _GENERATED_BY = "geno_lewm.encoder.cache_build"
 _REQUEST_COPY_NAME = "cache_build_requests.jsonl"
 _PLAN_NAME = "cache_build_plan.json"
 _STATE_NAME = "cache_build_state.json"
 _RESOLVED_CONFIG_NAME = "resolved_config.json"
+_RUNTIME_IDENTITY_NAME = "encoder_runtime_identity.json"
 _CHECKSUMS_NAME = "SHA256SUMS"
 _REQUEST_KEYS = frozenset({"request_id", "chrom", "start_bp", "end_bp", "window", "edit_locus"})
 _HASH_PREFIX = "sha256:"
+_SAFE_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +164,7 @@ class _EncodeResult:
 
 def build_window_cache(
     *,
-    requests_jsonl: Path | str,
+    requests_jsonl: Path | str | bytes,
     cache_dir: Path | str,
     evidence_dir: Path | str,
     encoder: object,
@@ -166,7 +174,8 @@ def build_window_cache(
     created_at_ns: int,
     hardware: str,
     resolved_config: Mapping[str, object],
-    input_artifacts: Mapping[str, Path | str] | None = None,
+    encoder_runtime_identity: Mapping[str, object],
+    input_artifacts: Mapping[str, Path | str | bytes] | None = None,
     logger: GenoLeWMLogger | None = None,
 ) -> CacheBuildReport:
     """Build or resume the cache for one exact request JSONL artifact.
@@ -191,8 +200,16 @@ def build_window_cache(
 
     contract = _encoder_contract(encoder)
     encoder_device = _text(getattr(encoder, "device", None), field="encoder.device")
-    request_path = Path(requests_jsonl)
-    request_bytes = _read_regular_bytes(request_path, label="cache build requests")
+    runtime_identity_payload = _encoder_runtime_identity_payload(
+        encoder_runtime_identity,
+        contract=contract,
+    )
+    runtime_identity_bytes = _pretty_json_bytes(runtime_identity_payload)
+    request_bytes = (
+        bytes(requests_jsonl)
+        if isinstance(requests_jsonl, bytes)
+        else _read_regular_bytes(Path(requests_jsonl), label="cache build requests")
+    )
     requests = _parse_requests(request_bytes)
     request_identity = {
         "sha256": sha256_bytes(request_bytes),
@@ -210,10 +227,16 @@ def build_window_cache(
     report_path = evidence_root / CACHE_BUILD_REPORT_NAME
     checksums_path = evidence_root / _CHECKSUMS_NAME
     resolved_config_path = evidence_root / _RESOLVED_CONFIG_NAME
+    runtime_identity_path = evidence_root / _RUNTIME_IDENTITY_NAME
     resolved_config_identity = {
         "path": _RESOLVED_CONFIG_NAME,
         "sha256": sha256_bytes(resolved_config_bytes),
         "size_bytes": len(resolved_config_bytes),
+    }
+    runtime_identity = {
+        "path": _RUNTIME_IDENTITY_NAME,
+        "sha256": sha256_bytes(runtime_identity_bytes),
+        "size_bytes": len(runtime_identity_bytes),
     }
     expected_evidence_names = _expected_evidence_names(input_identities)
     _assert_evidence_inventory(
@@ -222,14 +245,12 @@ def build_window_cache(
         require_complete=False,
     )
 
-    namespace = f"{encoder_id}::requests::{request_identity['sha256']}"
     expected_plan = _create_plan(
         requests=requests,
         request_identity=request_identity,
         cache_root=cache_root,
         encoder=encoder,
         encoder_id=encoder_id,
-        namespace=namespace,
         contract=contract,
         batch_size=batch_size,
         rows_per_shard=rows_per_shard,
@@ -237,6 +258,7 @@ def build_window_cache(
         hardware=hardware,
         encoder_device=encoder_device,
         resolved_config=resolved_config_identity,
+        encoder_runtime_identity=runtime_identity,
         input_artifacts=input_identities,
     )
     if os.path.lexists(plan_path):
@@ -256,6 +278,11 @@ def build_window_cache(
         resolved_config_path,
         resolved_config_bytes,
         label="cache build resolved config",
+    )
+    _write_once(
+        runtime_identity_path,
+        runtime_identity_bytes,
+        label="cache build encoder runtime identity",
     )
     _stage_input_artifacts(evidence_root, staged_inputs)
     plan_sha256 = sha256_file(plan_path)
@@ -316,7 +343,8 @@ def build_window_cache(
         _atomic_write(state_path, _pretty_json_bytes(state))
 
     resolved_before = _resolve_plan_cache(cache_root, plan, require_all=False)
-    resumed_rows = len(resolved_before.rows)
+    evidence_owned_keys = _completed_row_keys(completed)
+    resumed_rows = sum(key in evidence_owned_keys for key in resolved_before.rows)
     if os.path.lexists(checksums_path):
         return _verify_completed_bundle(
             evidence_root=evidence_root,
@@ -367,12 +395,25 @@ def build_window_cache(
                 stride_block=execution_shard.stride_block,
                 records=encoded.records,
             )
-        except CacheCorruptError:
+        except CacheKeyAlreadyIndexedError as race_exc:
             # A concurrent builder may have published the same logical misses
             # after our preflight but before the serialized write reservation.
-            # Accept only byte-equivalent logical winners; write_shard checks
-            # key availability before publishing, so no orphan is created.
+            # Accept only the precise key-reservation race. Any path that now
+            # exists in this evidence namespace must already be owned by valid
+            # durable state; other cache-corruption failures remain fatal.
+            _assert_race_planned_path_is_evidence_owned(
+                cache_root,
+                execution_shard,
+                plan_shard=shard,
+                completed=completed,
+                created_at_ns=created_at_ns,
+            )
             _assert_encoded_rows_match_cache(cache_root, encoded.records)
+            verified_after_race = _resolve_plan_cache(cache_root, plan, require_all=False)
+            if any(record.key not in verified_after_race.rows for record in encoded.records):
+                raise CacheCorruptError(
+                    "concurrent cache winner disappeared during immediate verification"
+                ) from race_exc
             continue
         inspection = inspect_cache_shard(cache_root, shard.relative_path)
         _assert_inspection_matches_plan(
@@ -426,6 +467,9 @@ def build_window_cache(
         )
 
     resolved = _resolve_plan_cache(cache_root, plan, require_all=True)
+    reused_rows = len(resolved.rows) - resumed_rows - encoded_rows
+    if reused_rows < 0:
+        raise CacheCorruptError("cache build row provenance accounting is inconsistent")
     state = _state_payload(plan_sha256=plan_sha256, completed=completed)
     _atomic_write(state_path, _pretty_json_bytes(state))
     report_payload = _report_payload(
@@ -441,6 +485,7 @@ def build_window_cache(
         encoded_rows=encoded_rows,
         encoded_shards=encoded_shards,
         resumed_rows=resumed_rows,
+        reused_rows=reused_rows,
         elapsed_seconds=time.perf_counter() - started,
         batch_size=batch_size,
         rows_per_shard=rows_per_shard,
@@ -448,12 +493,10 @@ def build_window_cache(
         hardware=hardware,
         encoder_device=encoder_device,
         resolved_config=resolved_config_identity,
+        encoder_runtime_identity=runtime_identity,
         logger=logger,
         input_artifacts=input_identities,
     )
-    _atomic_write(report_path, _pretty_json_bytes(report_payload))
-    _write_checksums(evidence_root, expected_names=expected_evidence_names)
-
     if logger is not None:
         throughput = cast(Mapping[str, object], report_payload["throughput"])
         logger.info(
@@ -465,6 +508,16 @@ def build_window_cache(
             throughput_per_s=throughput["measured_encoded_rows_per_second"],
             evidence_report=report_path.name,
         )
+    # Logging is complete before the checksum closure. No builder-owned write
+    # occurs after SHA256SUMS is installed and verified.
+    _atomic_write(report_path, _pretty_json_bytes(report_payload))
+    _write_checksums(evidence_root, expected_names=expected_evidence_names)
+    _assert_evidence_inventory(
+        evidence_root,
+        expected_names=expected_evidence_names,
+        require_complete=True,
+    )
+    _verify_checksums(evidence_root, expected_names=expected_evidence_names)
     return CacheBuildReport(
         report_path=report_path,
         checksums_path=checksums_path,
@@ -479,7 +532,6 @@ def _create_plan(
     cache_root: Path,
     encoder: object,
     encoder_id: str,
-    namespace: str,
     contract: _EncoderContract,
     batch_size: int,
     rows_per_shard: int,
@@ -487,6 +539,7 @@ def _create_plan(
     hardware: str,
     encoder_device: str,
     resolved_config: Mapping[str, object],
+    encoder_runtime_identity: Mapping[str, object],
     input_artifacts: tuple[Mapping[str, object], ...],
 ) -> _BuildPlan:
     resolver = getattr(encoder, "pooling_identity", None)
@@ -522,6 +575,23 @@ def _create_plan(
             )
         )
     unique_rows.sort(key=_planned_row_sort_key)
+    identity_payload = _plan_identity_payload(
+        rows=tuple(unique_rows),
+        request_identity=request_identity,
+        request_count=len(requests),
+        encoder_id=encoder_id,
+        contract=contract,
+        batch_size=batch_size,
+        rows_per_shard=rows_per_shard,
+        created_at_ns=created_at_ns,
+        hardware=hardware,
+        encoder_device=encoder_device,
+        resolved_config=resolved_config,
+        encoder_runtime_identity=encoder_runtime_identity,
+        input_artifacts=input_artifacts,
+    )
+    plan_identity = canonical_json_sha256(identity_payload)
+    namespace = f"{encoder_id}::plan::{plan_identity}"
     shards = _assign_shards(
         unique_rows,
         cache_root=cache_root,
@@ -534,6 +604,7 @@ def _create_plan(
         request_count=len(requests),
         encoder_id=encoder_id,
         namespace=namespace,
+        plan_identity=plan_identity,
         contract=contract,
         batch_size=batch_size,
         rows_per_shard=rows_per_shard,
@@ -541,6 +612,7 @@ def _create_plan(
         hardware=hardware,
         encoder_device=encoder_device,
         resolved_config=resolved_config,
+        encoder_runtime_identity=encoder_runtime_identity,
         input_artifacts=input_artifacts,
     )
     return _BuildPlan(payload=payload, shards=shards, namespace=namespace)
@@ -599,6 +671,7 @@ def _plan_payload(
     request_count: int,
     encoder_id: str,
     namespace: str,
+    plan_identity: str,
     contract: _EncoderContract,
     batch_size: int,
     rows_per_shard: int,
@@ -606,12 +679,14 @@ def _plan_payload(
     hardware: str,
     encoder_device: str,
     resolved_config: Mapping[str, object],
+    encoder_runtime_identity: Mapping[str, object],
     input_artifacts: tuple[Mapping[str, object], ...],
 ) -> dict[str, object]:
     unique_rows = sum(len(shard.rows) for shard in shards)
     return {
         "schema_version": CACHE_BUILD_SCHEMA_VERSION,
         "generated_by": _GENERATED_BY,
+        "plan_identity": plan_identity,
         "requests": {
             **request_identity,
             "input_rows": request_count,
@@ -627,6 +702,7 @@ def _plan_payload(
             "pool_radius": contract.pool_radius,
             "dtype": contract.dtype,
             "normalize": False,
+            "runtime_identity": dict(encoder_runtime_identity),
         },
         "created_at_ns": created_at_ns,
         "execution": {
@@ -675,6 +751,69 @@ def _plan_payload(
             "ten_percent_corpus_completed": False,
             "twenty_four_hour_target_evaluated": False,
         },
+    }
+
+
+def _plan_identity_payload(
+    *,
+    rows: tuple[_PlannedRow, ...],
+    request_identity: Mapping[str, object],
+    request_count: int,
+    encoder_id: str,
+    contract: _EncoderContract,
+    batch_size: int,
+    rows_per_shard: int,
+    created_at_ns: int,
+    hardware: str,
+    encoder_device: str,
+    resolved_config: Mapping[str, object],
+    encoder_runtime_identity: Mapping[str, object],
+    input_artifacts: tuple[Mapping[str, object], ...],
+) -> dict[str, object]:
+    """Return the complete immutable identity used to derive cache paths."""
+    return {
+        "schema_version": CACHE_BUILD_SCHEMA_VERSION,
+        "requests": {
+            **request_identity,
+            "input_rows": request_count,
+            "unique_cache_keys": len(rows),
+            "duplicate_rows": request_count - len(rows),
+        },
+        "encoder": {
+            "id": encoder_id,
+            "hash": _hash_text(contract.encoder_hash),
+            "state_layer": contract.state_layer,
+            "pool_type": contract.pool_type,
+            "pool_radius": contract.pool_radius,
+            "dtype": contract.dtype,
+            "normalize": False,
+            "runtime_identity": dict(encoder_runtime_identity),
+        },
+        "created_at_ns": created_at_ns,
+        "execution": {
+            "batch_size": batch_size,
+            "hardware": {
+                "description": hardware,
+                "encoder_device": encoder_device,
+            },
+            "resolved_config": dict(resolved_config),
+        },
+        "input_artifacts": [dict(identity) for identity in input_artifacts],
+        "sharding": {"rows_per_shard": rows_per_shard},
+        "logical_rows": [
+            {
+                "representative_request_id": row.representative.request_id,
+                "request_ids": list(row.request_ids),
+                "key": _key_payload(row.key),
+                "record": {
+                    "chrom": row.representative.chrom,
+                    "start_bp": row.representative.start_bp,
+                    "end_bp": row.representative.end_bp,
+                    "untargeted": row.representative.edit_locus is None,
+                },
+            }
+            for row in rows
+        ],
     }
 
 
@@ -960,6 +1099,50 @@ def _assert_encoded_rows_match_cache(
         del inspection
 
 
+def _completed_row_keys(
+    completed: Mapping[str, Mapping[str, object]],
+) -> set[WindowCacheKey]:
+    keys: set[WindowCacheKey] = set()
+    for entry in completed.values():
+        raw_keys = entry.get("row_keys")
+        if type(raw_keys) is not list:
+            raise CacheCorruptError("cache build state row_keys must be a list")
+        keys.update(_key_from_payload(raw) for raw in raw_keys)
+    return keys
+
+
+def _assert_race_planned_path_is_evidence_owned(
+    cache_root: Path,
+    shard: _PlannedShard,
+    *,
+    plan_shard: _PlannedShard,
+    completed: Mapping[str, Mapping[str, object]],
+    created_at_ns: int,
+) -> None:
+    path = cache_root / shard.relative_path
+    if not os.path.lexists(path):
+        return
+    prior = completed.get(plan_shard.shard_id)
+    if prior is None:
+        raise CacheCorruptError(
+            "concurrent cache race left an unowned path in the evidence namespace",
+            details={"path": shard.relative_path, "plan_shard_id": plan_shard.shard_id},
+        )
+    inspection = inspect_cache_shard(cache_root, shard.relative_path)
+    observed_shard = _execution_shard_from_records(plan_shard, inspection.records)
+    _assert_inspection_matches_plan(
+        inspection,
+        shard=observed_shard,
+        created_at_ns=created_at_ns,
+    )
+    _assert_state_identity(
+        prior,
+        inspection,
+        shard=observed_shard,
+        plan_shard=plan_shard,
+    )
+
+
 def _report_payload(
     *,
     plan: _BuildPlan,
@@ -974,6 +1157,7 @@ def _report_payload(
     encoded_rows: int,
     encoded_shards: int,
     resumed_rows: int,
+    reused_rows: int,
     elapsed_seconds: float,
     batch_size: int,
     rows_per_shard: int,
@@ -981,6 +1165,7 @@ def _report_payload(
     hardware: str,
     encoder_device: str,
     resolved_config: Mapping[str, object],
+    encoder_runtime_identity: Mapping[str, object],
     logger: GenoLeWMLogger | None,
     input_artifacts: tuple[Mapping[str, object], ...],
 ) -> dict[str, object]:
@@ -1021,6 +1206,7 @@ def _report_payload(
                 "encoder_device": encoder_device,
             },
             "resolved_config": dict(resolved_config),
+            "encoder_runtime_identity": dict(encoder_runtime_identity),
         },
         "build": {
             "planned_shards": len(plan.shards),
@@ -1028,6 +1214,7 @@ def _report_payload(
             "encoded_shards": encoded_shards,
             "encoded_rows": encoded_rows,
             "resumed_rows": resumed_rows,
+            "reused_rows": reused_rows,
             "resolved_unique_rows": len(resolved.rows),
         },
         "throughput": {
@@ -1070,6 +1257,7 @@ def _report_payload(
             "plan": _file_identity(plan_path, root=plan_path.parent),
             "state": _file_identity(state_path, root=state_path.parent),
             "resolved_config": dict(resolved_config),
+            "encoder_runtime_identity": dict(encoder_runtime_identity),
             "inputs": [dict(identity) for identity in input_artifacts],
         },
         "progress_events": [
@@ -1319,6 +1507,7 @@ def _expected_evidence_names(
         _PLAN_NAME,
         _STATE_NAME,
         _RESOLVED_CONFIG_NAME,
+        _RUNTIME_IDENTITY_NAME,
         CACHE_BUILD_REPORT_NAME,
         _CHECKSUMS_NAME,
     }
@@ -1539,6 +1728,34 @@ def _parse_requests(body: bytes) -> tuple[_Request, ...]:
     return tuple(requests)
 
 
+def _encoder_runtime_identity_payload(
+    raw: Mapping[str, object],
+    *,
+    contract: _EncoderContract,
+) -> dict[str, object]:
+    payload = _json_object_copy(raw, field="encoder_runtime_identity")
+    expected_keys = {"state_contract_version", "expected", "observed"}
+    if set(payload) != expected_keys:
+        raise InputError(
+            "encoder_runtime_identity has an invalid schema",
+            details={"expected": sorted(expected_keys), "observed": sorted(payload)},
+        )
+    _text(
+        payload["state_contract_version"], field="encoder_runtime_identity.state_contract_version"
+    )
+    contract_hash = _hash_text(contract.encoder_hash)
+    if payload["expected"] != contract_hash or payload["observed"] != contract_hash:
+        raise InputError(
+            "encoder runtime identity must match the encoder content identity",
+            details={
+                "encoder_hash": contract_hash,
+                "expected": payload["expected"],
+                "observed": payload["observed"],
+            },
+        )
+    return payload
+
+
 def _encoder_contract(encoder: object) -> _EncoderContract:
     if getattr(encoder, "normalize", None) is not False:
         raise InputError(
@@ -1707,33 +1924,46 @@ def _emit_progress(
 
 
 def _read_input_artifacts(
-    artifacts: Mapping[str, Path | str],
+    artifacts: Mapping[str, Path | str | bytes],
 ) -> tuple[_InputArtifact, ...]:
     if any(type(name) is not str for name in artifacts):
         raise InputError("cache build input artifact names must be text")
+    reserved_aliases = {
+        name.casefold()
+        for name in {
+            _REQUEST_COPY_NAME,
+            _PLAN_NAME,
+            _STATE_NAME,
+            _RESOLVED_CONFIG_NAME,
+            _RUNTIME_IDENTITY_NAME,
+            CACHE_BUILD_REPORT_NAME,
+            _CHECKSUMS_NAME,
+        }
+    }
+    seen_aliases: dict[str, str] = {}
     staged: list[_InputArtifact] = []
-    for name in sorted(artifacts):
+    for name in sorted(artifacts, key=lambda value: (value.casefold(), value)):
+        alias = name.casefold()
         if (
-            not name
-            or Path(name).name != name
-            or name in {".", ".."}
-            or "\x00" in name
-            or name
-            in {
-                _REQUEST_COPY_NAME,
-                _PLAN_NAME,
-                _STATE_NAME,
-                _RESOLVED_CONFIG_NAME,
-                CACHE_BUILD_REPORT_NAME,
-                _CHECKSUMS_NAME,
-            }
+            _SAFE_ARTIFACT_NAME.fullmatch(name) is None
+            or name.endswith(".")
+            or alias in reserved_aliases
+            or alias in seen_aliases
         ):
             raise InputError(
                 "cache build input artifact name must be a safe unique basename",
-                details={"name": repr(name)},
+                details={
+                    "name": repr(name),
+                    "portable_alias_of": seen_aliases.get(alias),
+                },
             )
-        source = Path(artifacts[name])
-        body = _read_regular_bytes(source, label=f"cache build input artifact {name}")
+        seen_aliases[alias] = name
+        source = artifacts[name]
+        body = (
+            bytes(source)
+            if isinstance(source, bytes)
+            else _read_regular_bytes(Path(source), label=f"cache build input artifact {name}")
+        )
         staged.append(
             _InputArtifact(
                 name=name,

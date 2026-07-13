@@ -263,6 +263,11 @@ def test_cache_windows_build_cli_writes_finite_evidence_bundle(
 ) -> None:
     requests, config, manifest = _write_build_inputs(tmp_path)
     monkeypatch.setattr(cache_cli, "_build_encoder", lambda **_kwargs: _FakeRawEncoder())
+    monkeypatch.setattr(
+        cache_cli,
+        "encoder_identity_hash",
+        lambda *_args, **_kwargs: "sha256:" + "07" * 32,
+    )
     report_copy = tmp_path / "report-copy.json"
 
     rc = run_app(
@@ -309,6 +314,10 @@ def test_cache_windows_build_cli_writes_finite_evidence_bundle(
         "inputs/encoder_config.yaml",
         "inputs/model_manifest.json",
     ]
+    assert payload["configuration"]["encoder_runtime_identity"]["path"] == (
+        "encoder_runtime_identity.json"
+    )
+    assert (tmp_path / "evidence" / "encoder_runtime_identity.json").is_file()
     assert (tmp_path / "evidence" / "SHA256SUMS").is_file()
 
 
@@ -397,3 +406,169 @@ def test_cache_windows_build_cli_rejects_mutable_outputs_inside_evidence(
     assert rc == 2
     assert f"{option} must be outside --evidence-dir" in captured.err
     assert not evidence.exists()
+
+
+@pytest.mark.parametrize("alias_kind", ["symlink", "case", "parent"])
+def test_json_report_rejects_portable_evidence_path_aliases(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    alias_kind: str,
+) -> None:
+    requests, config, manifest = _write_build_inputs(tmp_path)
+    evidence = tmp_path / ("Evidence" if alias_kind == "case" else "evidence")
+    if alias_kind == "symlink":
+        evidence.mkdir()
+        alias = tmp_path / "evidence-alias"
+        alias.symlink_to(evidence, target_is_directory=True)
+        report = alias / "report.json"
+    elif alias_kind == "case":
+        report = tmp_path / "evidence" / "report.json"
+    else:
+        report = evidence / "nested" / ".." / "report.json"
+
+    rc = run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--requests-jsonl",
+            str(requests),
+            "--evidence-dir",
+            str(evidence),
+            "--model-manifest",
+            str(manifest),
+            "--carbon-model-dir",
+            str(tmp_path / "carbon"),
+            "--config",
+            str(config),
+            "--created-at-ns",
+            "1750000000000000000",
+            "--hardware",
+            "fixture CPU",
+            "--json-report",
+            str(report),
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert "--json-report must be outside --evidence-dir" in captured.err
+    assert not report.exists()
+
+
+def test_cli_stages_and_uses_one_immutable_snapshot_of_every_file_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    requests, config, manifest = _write_build_inputs(tmp_path)
+    request_snapshot = requests.read_bytes()
+    config_snapshot = config.read_bytes()
+    manifest_snapshot = manifest.read_bytes()
+    monkeypatch.setattr(
+        cache_cli,
+        "encoder_identity_hash",
+        lambda *_args, **_kwargs: "sha256:" + "07" * 32,
+    )
+
+    def mutate_sources_after_validation(**_kwargs: object) -> _FakeRawEncoder:
+        requests.write_text("mutated after capture\n", encoding="utf-8")
+        config.write_text("mutated: true\n", encoding="utf-8")
+        manifest.write_text("{}\n", encoding="utf-8")
+        return _FakeRawEncoder()
+
+    monkeypatch.setattr(cache_cli, "_build_encoder", mutate_sources_after_validation)
+    evidence = tmp_path / "evidence"
+    rc = run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--requests-jsonl",
+            str(requests),
+            "--evidence-dir",
+            str(evidence),
+            "--model-manifest",
+            str(manifest),
+            "--carbon-model-dir",
+            str(tmp_path / "carbon"),
+            "--config",
+            str(config),
+            "--created-at-ns",
+            "1750000000000000000",
+            "--hardware",
+            "fixture CPU",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 0, captured.err
+    assert (evidence / "cache_build_requests.jsonl").read_bytes() == request_snapshot
+    assert (evidence / "inputs/encoder_config.yaml").read_bytes() == config_snapshot
+    assert (evidence / "inputs/model_manifest.json").read_bytes() == manifest_snapshot
+    runtime_identity = json.loads(
+        (evidence / "encoder_runtime_identity.json").read_text(encoding="utf-8")
+    )
+    assert runtime_identity["observed"] == "sha256:" + "07" * 32
+    report = json.loads((evidence / "cache_build_report.json").read_text(encoding="utf-8"))
+    assert report["configuration"]["resolved_config"]["sha256"] == sha256_file(
+        evidence / "resolved_config.json"
+    )
+
+
+def test_post_checksum_report_write_cannot_return_success_with_open_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    requests, config, manifest = _write_build_inputs(tmp_path)
+    evidence = tmp_path / "evidence"
+    external_report = tmp_path / "external-report.json"
+    monkeypatch.setattr(cache_cli, "_build_encoder", lambda **_kwargs: _FakeRawEncoder())
+    monkeypatch.setattr(
+        cache_cli,
+        "encoder_identity_hash",
+        lambda *_args, **_kwargs: "sha256:" + "07" * 32,
+    )
+    real_write_report = cache_cli._write_json_report
+
+    def write_report_then_open_bundle(path: Path, payload: dict[str, object]) -> None:
+        real_write_report(path, payload)
+        (evidence / "late-unclosed-artifact.json").write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(cache_cli, "_write_json_report", write_report_then_open_bundle)
+    rc = run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--requests-jsonl",
+            str(requests),
+            "--evidence-dir",
+            str(evidence),
+            "--model-manifest",
+            str(manifest),
+            "--carbon-model-dir",
+            str(tmp_path / "carbon"),
+            "--config",
+            str(config),
+            "--created-at-ns",
+            "1750000000000000000",
+            "--hardware",
+            "fixture CPU",
+            "--json-report",
+            str(external_report),
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 4
+    assert "unexpected artifact" in captured.err
+    assert external_report.is_file()
+    assert (evidence / "SHA256SUMS").is_file()

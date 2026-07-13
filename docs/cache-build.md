@@ -51,13 +51,18 @@ geno-lewm-cache-windows \
   --run-id cache-proof-example
 ```
 
-The CLI verifies the local Carbon identity with the rule selected by the
-resolved state contract. In particular, `l2_normalized_v2` requires the full
-corrected runtime identity, not merely matching weight bytes. The request
-SHA-256 remains part of paths for newly encoded misses. Logical keys already
-present in the shared schema-3 index are fully inspected and reused, so
-overlapping request slices preserve global key uniqueness instead of attempting
-to publish duplicate rows under different request namespaces.
+The CLI captures the request, config, and manifest files once, then parses,
+validates, stages, and builds from those same immutable bytes. It verifies the
+local Carbon identity with the rule selected by the resolved state contract. In
+particular, `l2_normalized_v2` requires the full corrected runtime identity, not
+merely matching weight bytes, and the observed identity is included in the
+checksum-closed evidence. Newly encoded paths use a namespace derived from the
+complete immutable plan identity: request bytes, resolved logical rows,
+encoder/runtime identity, fixed timestamp, batch and shard sizes,
+hardware/device, resolved config, and staged input identities. Distinct plans
+therefore coexist even when they use the same request bytes. Logical keys
+already present in the shared schema-3 index are fully inspected and reported
+as reused rows rather than resume-owned rows.
 
 ## Resume and evidence
 
@@ -71,6 +76,8 @@ The evidence directory contains:
   measured strictly inside `encoder.encode_batch`, atomically updated after each
   verified shard;
 - `resolved_config.json`: canonical resolved configuration after CLI overrides;
+- `encoder_runtime_identity.json`: expected and observed corrected Carbon
+  runtime identity plus the selected state-contract version;
 - `cache_build_report.json`: counts, request-scoped logical index mappings,
   immutable shard identities, narrowly labeled timing, event contract, and
   explicit claim boundary;
@@ -80,18 +87,27 @@ The evidence directory contains:
 
 The plan is validated or installed before caller-provided artifacts are staged.
 Unexpected files, directories, symlinks, logs, or report copies in the evidence
-tree are rejected rather than dynamically added to `SHA256SUMS`; `--log-dir`
-and `--json-report` must be outside `--evidence-dir`.
+tree are rejected rather than dynamically added to `SHA256SUMS`; unsafe or
+case-aliased input artifact names are rejected. `--log-dir` and `--json-report`
+must remain outside `--evidence-dir` after parent traversal, symlink resolution,
+and portable case folding. The builder performs no writes after installing and
+verifying `SHA256SUMS`; after an external JSON report write, the CLI immediately
+re-verifies the closed bundle before returning success.
 
 On resume, every existing planned shard is opened without following symlinks,
 hashed and fully decoded through the same held file descriptor, compared
 row-for-row with the plan, and re-indexed without encoding. The builder then
 resolves every requested logical key, inspects referenced shared shards one at
-a time, and encodes only true misses. It retains row/provenance metadata, not
-all decoded embedding vectors. Any missing shard named as complete, digest
+a time, and encodes only true misses. Evidence-owned verified rows are reported
+as `resumed_rows`; equivalent logical winners from other plans are reported as
+`reused_rows`. It retains row/provenance metadata, not all decoded embedding
+vectors. Any missing shard named as complete, digest
 drift, schema drift, metadata drift, fixed-time drift, changed batch/hardware/
 device/resolved config, or noncanonical recovered partition fails before
-`encode_batch` processes missing work.
+`encode_batch` processes missing work. Only the precise serialized
+logical-key-reservation race can be recovered after encoding, and only after an
+equivalent winner plus any evidence-owned planned path/state are reverified;
+all other cache corruption remains fatal and cannot seal an `ok: true` report.
 
 The report deliberately excludes the byte identity of the shared mutable
 `embeddings/index.sqlite`. It instead binds each requested key to an immutable

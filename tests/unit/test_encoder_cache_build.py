@@ -10,9 +10,14 @@ from typing import ClassVar
 import pytest
 
 import geno_lewm.encoder.cache_build as cache_build_module
-from geno_lewm.encoder import POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN, inspect_cache_shard
+from geno_lewm.encoder import (
+    POOL_CENTERED_MEAN,
+    POOL_GLOBAL_MEAN,
+    inspect_cache_shard,
+    shard_path_for,
+)
 from geno_lewm.encoder.cache_build import build_window_cache as _build_window_cache
-from geno_lewm.errors import CacheCorruptError, InputError
+from geno_lewm.errors import CacheCorruptError, CacheKeyAlreadyIndexedError, InputError
 from geno_lewm.observability import get_logger, shutdown_run
 from geno_lewm.provenance import canonical_json_sha256
 
@@ -90,6 +95,16 @@ def build_window_cache(**kwargs: object):  # type: ignore[no-untyped-def]
     kwargs.setdefault(
         "resolved_config",
         {"encoder": {"revision": "fixture", "state_contract_version": "l2_normalized_v2"}},
+    )
+    encoder = kwargs["encoder"]
+    digest = "sha256:" + encoder.encoder_hash.hex()  # type: ignore[attr-defined]
+    kwargs.setdefault(
+        "encoder_runtime_identity",
+        {
+            "state_contract_version": "l2_normalized_v2",
+            "expected": digest,
+            "observed": digest,
+        },
     )
     return _build_window_cache(**kwargs)  # type: ignore[arg-type]
 
@@ -617,7 +632,8 @@ def test_overlapping_request_namespace_reuses_unique_key_and_survives_index_grow
 
     assert first["configuration"]["cache_namespace"] != second["configuration"]["cache_namespace"]
     assert second["build"]["encoded_rows"] == 0
-    assert second["build"]["resumed_rows"] == 1
+    assert second["build"]["resumed_rows"] == 0
+    assert second["build"]["reused_rows"] == 1
     assert (
         second["cache_artifacts"]["shards"][0]["path"]
         == first["cache_artifacts"]["shards"][0]["path"]
@@ -697,7 +713,8 @@ def test_partial_overlap_encodes_only_misses_in_the_new_namespace(tmp_path: Path
 
     assert mixed_encoder.encoded_batches == [(("TTTTTTTTTTTT",), (0,))]
     assert mixed["build"]["encoded_rows"] == 1
-    assert mixed["build"]["resumed_rows"] == 1
+    assert mixed["build"]["resumed_rows"] == 0
+    assert mixed["build"]["reused_rows"] == 1
     assert mixed["build"]["resolved_unique_rows"] == 2
     assert len(mixed["cache_artifacts"]["shards"]) == 2
     state = json.loads(
@@ -737,7 +754,7 @@ def test_resume_rejects_execution_identity_drift_before_encoder_work(
         "hardware": "fixture CPU",
         "resolved_config": {"seed": 17},
     }
-    _build_window_cache(encoder=FakeRawEncoder(), **kwargs)  # type: ignore[arg-type]
+    build_window_cache(encoder=FakeRawEncoder(), **kwargs)
     plan_before = (tmp_path / "evidence/cache_build_plan.json").read_bytes()
     encoder = FailIfEncoded()
     if drift == "batch_size":
@@ -750,7 +767,7 @@ def test_resume_rejects_execution_identity_drift_before_encoder_work(
         encoder.device = "cuda"
 
     with pytest.raises(InputError, match="exact plan rederived from immutable inputs"):
-        _build_window_cache(encoder=encoder, **kwargs)  # type: ignore[arg-type]
+        build_window_cache(encoder=encoder, **kwargs)
 
     assert (tmp_path / "evidence/cache_build_plan.json").read_bytes() == plan_before
 
@@ -876,3 +893,297 @@ def test_builder_does_not_retain_decoded_embeddings_for_all_shards(
     )
 
     assert TrackedInspection.peak <= 2
+
+
+def test_unrelated_write_shard_corruption_is_never_reclassified_as_a_race(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_request_rows(
+        requests,
+        (
+            {
+                "request_id": "row",
+                "chrom": "22",
+                "start_bp": 0,
+                "end_bp": 12,
+                "window": "ACGTACGTACGT",
+                "edit_locus": 0,
+            },
+        ),
+    )
+
+    def corrupt_planned_path(
+        cache_dir: Path,
+        *,
+        encoder_id: str,
+        contig: str,
+        stride_block: int,
+        records: object,
+    ) -> Path:
+        first = records[0]  # type: ignore[index]
+        path = shard_path_for(
+            cache_dir,
+            encoder_id=encoder_id,
+            state_layer=first.state_layer,
+            pool_type=first.pool_type,
+            pool_radius=first.pool_radius,
+            contig=contig,
+            stride_block=stride_block,
+            encoder_hash=first.encoder_hash,
+            dtype=first.dtype,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"corrupt planned path")
+        raise CacheCorruptError("synthetic planned-path corruption")
+
+    monkeypatch.setattr(cache_build_module, "write_shard", corrupt_planned_path)
+    evidence = tmp_path / "evidence"
+    with pytest.raises(CacheCorruptError, match="planned-path corruption"):
+        build_window_cache(
+            requests_jsonl=requests,
+            cache_dir=tmp_path / "cache",
+            evidence_dir=evidence,
+            encoder=FakeRawEncoder(),
+            encoder_id="HuggingFaceBio/Carbon-500M",
+            batch_size=1,
+            rows_per_shard=1,
+            created_at_ns=1_750_000_000_000_000_000,
+        )
+
+    assert not (evidence / "cache_build_report.json").exists()
+    assert not (evidence / "SHA256SUMS").exists()
+
+
+def test_precise_equivalent_key_publication_race_is_verified_and_replayable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_request_rows(
+        requests,
+        (
+            {
+                "request_id": "row",
+                "chrom": "22",
+                "start_bp": 0,
+                "end_bp": 12,
+                "window": "ACGTACGTACGT",
+                "edit_locus": 0,
+            },
+        ),
+    )
+    real_write = cache_build_module.write_shard
+
+    def publish_concurrent_winner(
+        cache_dir: Path,
+        *,
+        encoder_id: str,
+        contig: str,
+        stride_block: int,
+        records: object,
+    ) -> Path:
+        real_write(
+            cache_dir,
+            encoder_id="independent-equivalent-winner",
+            contig=contig,
+            stride_block=stride_block,
+            records=records,  # type: ignore[arg-type]
+        )
+        return real_write(
+            cache_dir,
+            encoder_id=encoder_id,
+            contig=contig,
+            stride_block=stride_block,
+            records=records,  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr(cache_build_module, "write_shard", publish_concurrent_winner)
+    kwargs = {
+        "requests_jsonl": requests,
+        "cache_dir": tmp_path / "cache",
+        "evidence_dir": tmp_path / "evidence",
+        "encoder_id": "HuggingFaceBio/Carbon-500M",
+        "batch_size": 1,
+        "rows_per_shard": 1,
+        "created_at_ns": 1_750_000_000_000_000_000,
+    }
+
+    first = build_window_cache(encoder=FakeRawEncoder(), **kwargs)
+    replay = build_window_cache(encoder=FailIfEncoded(), **kwargs)
+    state = json.loads((tmp_path / "evidence/cache_build_state.json").read_text(encoding="utf-8"))
+
+    assert first.to_dict()["build"] == {
+        "planned_shards": 1,
+        "completed_shards": 1,
+        "encoded_shards": 0,
+        "encoded_rows": 0,
+        "resumed_rows": 0,
+        "reused_rows": 1,
+        "resolved_unique_rows": 1,
+    }
+    assert state["completed_shards"] == []
+    assert replay.to_dict() == first.to_dict()
+    assert replay.checksums_path.read_bytes() == first.checksums_path.read_bytes()
+
+
+def test_key_race_with_unowned_planned_path_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_request_rows(
+        requests,
+        (
+            {
+                "request_id": "row",
+                "chrom": "22",
+                "start_bp": 0,
+                "end_bp": 12,
+                "window": "ACGTACGTACGT",
+                "edit_locus": 0,
+            },
+        ),
+    )
+
+    def leave_unowned_path(
+        cache_dir: Path,
+        *,
+        encoder_id: str,
+        contig: str,
+        stride_block: int,
+        records: object,
+    ) -> Path:
+        first = records[0]  # type: ignore[index]
+        path = shard_path_for(
+            cache_dir,
+            encoder_id=encoder_id,
+            state_layer=first.state_layer,
+            pool_type=first.pool_type,
+            pool_radius=first.pool_radius,
+            contig=contig,
+            stride_block=stride_block,
+            encoder_hash=first.encoder_hash,
+            dtype=first.dtype,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"unowned")
+        raise CacheKeyAlreadyIndexedError("synthetic key race")
+
+    monkeypatch.setattr(cache_build_module, "write_shard", leave_unowned_path)
+    with pytest.raises(CacheCorruptError, match="unowned path"):
+        build_window_cache(
+            requests_jsonl=requests,
+            cache_dir=tmp_path / "cache",
+            evidence_dir=tmp_path / "evidence",
+            encoder=FakeRawEncoder(),
+            encoder_id="HuggingFaceBio/Carbon-500M",
+            batch_size=1,
+            rows_per_shard=1,
+            created_at_ns=1_750_000_000_000_000_000,
+        )
+
+
+@pytest.mark.parametrize(
+    "drift",
+    ["created_at_ns", "rows_per_shard", "batch_size", "hardware", "resolved_config", "runtime"],
+)
+def test_same_requests_with_distinct_immutable_plans_get_distinct_namespaces(
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_request_rows(
+        requests,
+        (
+            {
+                "request_id": "row",
+                "chrom": "22",
+                "start_bp": 0,
+                "end_bp": 12,
+                "window": "ACGTACGTACGT",
+                "edit_locus": 0,
+            },
+        ),
+    )
+    common: dict[str, object] = {
+        "requests_jsonl": requests,
+        "cache_dir": tmp_path / "cache",
+        "encoder_id": "HuggingFaceBio/Carbon-500M",
+        "batch_size": 2,
+        "rows_per_shard": 2,
+        "created_at_ns": 1_750_000_000_000_000_000,
+        "hardware": "fixture CPU",
+        "resolved_config": {"seed": 17},
+    }
+    first = build_window_cache(
+        evidence_dir=tmp_path / "first-evidence",
+        encoder=FakeRawEncoder(),
+        **common,
+    ).to_dict()
+    second_args = dict(common)
+    if drift == "created_at_ns":
+        second_args["created_at_ns"] = 1_750_000_000_000_000_001
+    elif drift == "rows_per_shard":
+        second_args["rows_per_shard"] = 1
+    elif drift == "batch_size":
+        second_args["batch_size"] = 1
+    elif drift == "hardware":
+        second_args["hardware"] = "different fixture CPU"
+    elif drift == "resolved_config":
+        second_args["resolved_config"] = {"seed": 18}
+    else:
+        digest = "sha256:" + FakeRawEncoder.encoder_hash.hex()
+        second_args["encoder_runtime_identity"] = {
+            "state_contract_version": "different-contract-version",
+            "expected": digest,
+            "observed": digest,
+        }
+
+    second = build_window_cache(
+        evidence_dir=tmp_path / "second-evidence",
+        encoder=FailIfEncoded(),
+        **second_args,
+    ).to_dict()
+    second_state = json.loads(
+        (tmp_path / "second-evidence/cache_build_state.json").read_text(encoding="utf-8")
+    )
+
+    assert first["configuration"]["cache_namespace"] != second["configuration"]["cache_namespace"]
+    assert first["plan"]["sha256"] != second["plan"]["sha256"]
+    assert second["build"]["encoded_rows"] == 0
+    assert second["build"]["resumed_rows"] == 0
+    assert second["build"]["reused_rows"] == 1
+    assert second_state["completed_shards"] == []
+
+
+@pytest.mark.parametrize(
+    "artifacts",
+    [
+        {"unsafe\nname.yaml": b"x"},
+        {"Config.yaml": b"first", "config.yaml": b"second"},
+        {"sha256sums": b"reserved portable alias"},
+    ],
+)
+def test_input_artifact_names_are_portable_and_case_unique(
+    tmp_path: Path,
+    artifacts: dict[str, bytes],
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_requests(requests)
+
+    with pytest.raises(InputError, match="safe unique basename"):
+        build_window_cache(
+            requests_jsonl=requests,
+            cache_dir=tmp_path / "cache",
+            evidence_dir=tmp_path / "evidence",
+            encoder=FailIfEncoded(),
+            encoder_id="HuggingFaceBio/Carbon-500M",
+            batch_size=1,
+            rows_per_shard=1,
+            created_at_ns=1_750_000_000_000_000_000,
+            input_artifacts=artifacts,
+        )
+
+    assert not (tmp_path / "evidence/cache_build_plan.json").exists()
