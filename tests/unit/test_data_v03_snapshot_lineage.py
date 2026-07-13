@@ -30,6 +30,7 @@ from tools.data.v03_snapshot_lineage import (
     SnapshotLineageError,
     _fsync_directory,
     assemble_snapshot_lineage,
+    capture_verified_snapshot_lineage,
     main,
     verify_snapshot_lineage,
 )
@@ -1733,6 +1734,24 @@ def test_lineage_verifier_recomputes_the_content_id_and_split_semantics(tmp_path
     _write_json(output_path, wrong_total)
     with pytest.raises(SnapshotLineageError, match="gnomAD total_records drifted"):
         verify_snapshot_lineage(output_path)
+
+
+def test_verified_lineage_capture_preserves_the_exact_single_read_bytes(tmp_path: Path) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    expected = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+    payload = ("\n" + json.dumps(expected, separators=(",", ":")) + "\n").encode()
+    output_path.write_bytes(payload)
+
+    captured = capture_verified_snapshot_lineage(output_path)
+
+    assert captured.payload == payload
+    assert captured.sha256 == "sha256:" + hashlib.sha256(payload).hexdigest()
+    assert captured.size_bytes == len(payload)
+    assert captured.lineage == expected
 
 
 @pytest.mark.parametrize(

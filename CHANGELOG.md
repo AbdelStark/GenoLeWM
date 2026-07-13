@@ -90,7 +90,9 @@ or incompatible command changes require an explicit compatibility note.
   and path replacement: outputs are durable no-clobber writes, remote evidence
   is verified from one capture per file, and the standalone lineage verifier
   now recomputes the content ID and all self-contained totals, split, audit,
-  identity, and claim-boundary invariants.
+  identity, and claim-boundary invariants. Downstream consumers can bind the
+  exact verified lineage bytes, hash, size, and parsed mapping through one
+  public capture result without reopening the path.
 - Made both v0.3 exact-revision postflight verifiers compare JSON values
   recursively and type-strictly, rejecting Python boolean/integer equality
   aliases in audit, receipt, runtime, and prepare evidence.

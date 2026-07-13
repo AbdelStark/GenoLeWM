@@ -197,6 +197,16 @@ class SnapshotLineageError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class VerifiedSnapshotLineage:
+    """Exact bytes and parsed value from one verified lineage-file capture."""
+
+    payload: bytes
+    lineage: Mapping[str, object]
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class _CapturedJson:
     """One JSON file captured once for hashing, sizing, parsing, and semantics."""
 
@@ -278,15 +288,30 @@ def assemble_snapshot_lineage(
     return lineage
 
 
+def capture_verified_snapshot_lineage(path: Path) -> VerifiedSnapshotLineage:
+    """Capture once and return the exact bytes of a verified lineage candidate."""
+    lineage_capture = _capture_json(path, "snapshot lineage")
+    _verify_snapshot_lineage_value(lineage_capture.value)
+    return VerifiedSnapshotLineage(
+        payload=lineage_capture.payload,
+        lineage=lineage_capture.value,
+        sha256=lineage_capture.sha256,
+        size_bytes=lineage_capture.size_bytes,
+    )
+
+
 def verify_snapshot_lineage(path: Path) -> dict[str, Any]:
-    """Capture and fail-closed verify one existing lineage candidate.
+    """Fail-closed verify one existing lineage candidate.
 
     JSON Schema validation is structural only. This verifier additionally
     recomputes the content-addressed ``lineage_id`` and enforces the semantic
     no-membership and autosome split contracts.
     """
-    lineage_capture = _capture_json(path, "snapshot lineage")
-    lineage = lineage_capture.value
+    return dict(capture_verified_snapshot_lineage(path).lineage)
+
+
+def _verify_snapshot_lineage_value(lineage: Mapping[str, object]) -> None:
+    """Verify the closed semantic contract of an already captured JSON value."""
     _require_exact_keys(
         lineage,
         {
@@ -336,7 +361,6 @@ def verify_snapshot_lineage(path: Path) -> dict[str, Any]:
         _require_mapping(lineage.get("clinvar"), "lineage.clinvar"),
         expected_repo=gnomad_repo,
     )
-    return dict(lineage)
 
 
 def _verify_lineage_assembly_inputs(assembly_inputs: Mapping[str, object]) -> str:

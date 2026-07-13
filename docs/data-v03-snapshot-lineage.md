@@ -195,6 +195,25 @@ audit invariants. A recomputed ID cannot legitimize internally inconsistent
 records, balances, totals, or evidence identities. Success prints a
 machine-readable JSON summary and does not modify the lineage.
 
+Python consumers that need to bind or persist the exact verified file must use
+the single-capture API and must not reopen the path after verification:
+
+```python
+from pathlib import Path
+
+from tools.data.v03_snapshot_lineage import capture_verified_snapshot_lineage
+
+verified = capture_verified_snapshot_lineage(Path("snapshot-lineage.json"))
+lineage = verified.lineage
+exact_bytes = verified.payload
+exact_sha256 = verified.sha256
+exact_size_bytes = verified.size_bytes
+```
+
+The returned payload, SHA-256, size, and parsed mapping all come from the same
+read. This prevents a verifier/consumer path-replacement race and avoids
+reconstructing bytes from a parsed JSON value.
+
 ## Upstream data-use boundary
 
 The assembled lineage records the following source-specific `data_use`
