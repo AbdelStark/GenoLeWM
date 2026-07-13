@@ -1,0 +1,204 @@
+{
+  "$schema": "./gnomad-v4.1-exomes-autosomes.source-lock.schema.json",
+  "schema_version": "geno-lewm.gnomad-source-lock.v1",
+  "dataset_id": "gnomad-v4.1-exomes-autosomes",
+  "release": "v4.1",
+  "reference_genome": "GRCh38",
+  "source": {
+    "bucket": "gcp-public-data--gnomad",
+    "metadata_api": "https://storage.googleapis.com/storage/v1",
+    "media_api": "https://storage.googleapis.com/download/storage/v1"
+  },
+  "transform": {
+    "command": "geno-lewm-prepare-gnomad",
+    "filter": "PASS",
+    "min_af": 0.01,
+    "max_allele_len": 16
+  },
+  "job": {
+    "repository": "https://github.com/AbdelStark/GenoLeWM.git",
+    "container_image": "ghcr.io/astral-sh/uv@sha256:35b0aa516fbcf6f18624919cfc38fa02ab3458e0ffcd3c03e932051b37f315db",
+    "upload_repo": "abdelstark/geno-lewm-data",
+    "upload_repo_type": "dataset",
+    "namespace_root": "staging/v0.3/gnomad-v4.1-exomes-autosomes"
+  },
+  "objects": [
+    {
+      "chromosome": "1",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr1.vcf.bgz",
+      "generation": "1713312293945645",
+      "size_bytes": 18789775480,
+      "md5_base64": "hIvk2FyVO8c6jk8MlwJqcg=="
+    },
+    {
+      "chromosome": "2",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr2.vcf.bgz",
+      "generation": "1713312296841984",
+      "size_bytes": 14282176877,
+      "md5_base64": "4vXYkaM3TojRwxNvlL7Q6g=="
+    },
+    {
+      "chromosome": "3",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr3.vcf.bgz",
+      "generation": "1713312294660363",
+      "size_bytes": 11586472818,
+      "md5_base64": "o1uUmzJFO0tavXsd5C4pig=="
+    },
+    {
+      "chromosome": "4",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr4.vcf.bgz",
+      "generation": "1713312294416533",
+      "size_bytes": 7712255367,
+      "md5_base64": "x8cAinOsu4/qaLgpUYQoMg=="
+    },
+    {
+      "chromosome": "5",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr5.vcf.bgz",
+      "generation": "1713312294573561",
+      "size_bytes": 8494344938,
+      "md5_base64": "wQFvVr5i3rLpR/7U0xMC3Q=="
+    },
+    {
+      "chromosome": "6",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr6.vcf.bgz",
+      "generation": "1713312295184845",
+      "size_bytes": 9132083331,
+      "md5_base64": "+WvIcR7QhdY7i9U5ZmStvA=="
+    },
+    {
+      "chromosome": "7",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr7.vcf.bgz",
+      "generation": "1713312295957573",
+      "size_bytes": 9675275184,
+      "md5_base64": "xBzVJXGwAc99PjiKZo5N/w=="
+    },
+    {
+      "chromosome": "8",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr8.vcf.bgz",
+      "generation": "1713312296656421",
+      "size_bytes": 7275385426,
+      "md5_base64": "pHd3/hQcAYdssXDywvLmtg=="
+    },
+    {
+      "chromosome": "9",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr9.vcf.bgz",
+      "generation": "1713312293936140",
+      "size_bytes": 8041521990,
+      "md5_base64": "xavU2K/xLyv4tOyER2l4Lw=="
+    },
+    {
+      "chromosome": "10",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr10.vcf.bgz",
+      "generation": "1713312293993190",
+      "size_bytes": 7858233309,
+      "md5_base64": "S+/I3FDq2IjoryT1Vsn91g=="
+    },
+    {
+      "chromosome": "11",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr11.vcf.bgz",
+      "generation": "1713312296300335",
+      "size_bytes": 11641720279,
+      "md5_base64": "ODPOOrBGr+ksm1Xfk6YeyA=="
+    },
+    {
+      "chromosome": "12",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr12.vcf.bgz",
+      "generation": "1713312296174152",
+      "size_bytes": 10632124827,
+      "md5_base64": "5TCp7SA83MkUYhq3Qwd0uw=="
+    },
+    {
+      "chromosome": "13",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr13.vcf.bgz",
+      "generation": "1713312295379814",
+      "size_bytes": 3540233028,
+      "md5_base64": "rx6rQMi+R8jHwE3HPgMz5A=="
+    },
+    {
+      "chromosome": "14",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr14.vcf.bgz",
+      "generation": "1713312297092816",
+      "size_bytes": 6669068987,
+      "md5_base64": "0OD6cdlL8BagYbpNwL2Gnw=="
+    },
+    {
+      "chromosome": "15",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr15.vcf.bgz",
+      "generation": "1713312295924760",
+      "size_bytes": 7374290946,
+      "md5_base64": "AbEW40s4Fc/R06+lOimkGw=="
+    },
+    {
+      "chromosome": "16",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr16.vcf.bgz",
+      "generation": "1713312295240775",
+      "size_bytes": 9774275728,
+      "md5_base64": "RBN4Q7LfOcimVEJxgb2pGQ=="
+    },
+    {
+      "chromosome": "17",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr17.vcf.bgz",
+      "generation": "1713312297486220",
+      "size_bytes": 12017042594,
+      "md5_base64": "xhl4IYqz6qB7Vx65lZ850g=="
+    },
+    {
+      "chromosome": "18",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr18.vcf.bgz",
+      "generation": "1713312296958112",
+      "size_bytes": 3390375115,
+      "md5_base64": "HscI1crpZXzO4GJnY+2ZRg=="
+    },
+    {
+      "chromosome": "19",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr19.vcf.bgz",
+      "generation": "1713312294660314",
+      "size_bytes": 12620525657,
+      "md5_base64": "UKN8+pqaPgMDiLzxW9q7eQ=="
+    },
+    {
+      "chromosome": "20",
+      "split_role": "validation",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr20.vcf.bgz",
+      "generation": "1713312293874769",
+      "size_bytes": 4760834034,
+      "md5_base64": "YFaAzZnkab318ARb0iNZyQ=="
+    },
+    {
+      "chromosome": "21",
+      "split_role": "evaluation",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr21.vcf.bgz",
+      "generation": "1713312294507401",
+      "size_bytes": 2250319809,
+      "md5_base64": "fKbVGkJCW4V+3bRte8WDLQ=="
+    },
+    {
+      "chromosome": "22",
+      "split_role": "train",
+      "object": "release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz",
+      "generation": "1713312296186865",
+      "size_bytes": 5060347554,
+      "md5_base64": "3PGRVj5pBUpxvU3HeGJ5mg=="
+    }
+  ],
+  "claim_boundary": "This source lock fixes upstream object identity and transform settings only. A staged chromosome is not evidence of snapshot membership, split leakage control, model quality, benchmark performance, or clinical validity."
+}

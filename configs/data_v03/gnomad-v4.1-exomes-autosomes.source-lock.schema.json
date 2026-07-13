@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AbdelStark/GenoLeWM/raw/main/configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json",
+  "title": "GenoLeWM v0.3 generation-pinned gnomAD autosome source lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "dataset_id",
+    "release",
+    "reference_genome",
+    "source",
+    "transform",
+    "job",
+    "objects",
+    "claim_boundary"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./gnomad-v4.1-exomes-autosomes.source-lock.schema.json"
+    },
+    "schema_version": {
+      "const": "geno-lewm.gnomad-source-lock.v1"
+    },
+    "dataset_id": {
+      "const": "gnomad-v4.1-exomes-autosomes"
+    },
+    "release": {
+      "const": "v4.1"
+    },
+    "reference_genome": {
+      "const": "GRCh38"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket", "metadata_api", "media_api"],
+      "properties": {
+        "bucket": {
+          "const": "gcp-public-data--gnomad"
+        },
+        "metadata_api": {
+          "const": "https://storage.googleapis.com/storage/v1"
+        },
+        "media_api": {
+          "const": "https://storage.googleapis.com/download/storage/v1"
+        }
+      }
+    },
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "filter", "min_af", "max_allele_len"],
+      "properties": {
+        "command": {
+          "const": "geno-lewm-prepare-gnomad"
+        },
+        "filter": {
+          "const": "PASS"
+        },
+        "min_af": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "max_allele_len": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "container_image",
+        "upload_repo",
+        "upload_repo_type",
+        "namespace_root"
+      ],
+      "properties": {
+        "repository": {
+          "const": "https://github.com/AbdelStark/GenoLeWM.git"
+        },
+        "container_image": {
+          "type": "string",
+          "pattern": "^[^@]+@sha256:[0-9a-f]{64}$"
+        },
+        "upload_repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "upload_repo_type": {
+          "const": "dataset"
+        },
+        "namespace_root": {
+          "type": "string",
+          "pattern": "^staging/v0\\.3/[A-Za-z0-9._/-]+$"
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "minItems": 22,
+      "maxItems": 22,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "chromosome",
+          "split_role",
+          "object",
+          "generation",
+          "size_bytes",
+          "md5_base64"
+        ],
+        "properties": {
+          "chromosome": {
+            "enum": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "10",
+              "11",
+              "12",
+              "13",
+              "14",
+              "15",
+              "16",
+              "17",
+              "18",
+              "19",
+              "20",
+              "21",
+              "22"
+            ]
+          },
+          "split_role": {
+            "enum": ["train", "validation", "evaluation"]
+          },
+          "object": {
+            "type": "string",
+            "pattern": "^release/4\\.1/vcf/exomes/gnomad\\.exomes\\.v4\\.1\\.sites\\.chr([1-9]|1[0-9]|2[0-2])\\.vcf\\.bgz$"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "md5_base64": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{22}==$"
+          }
+        }
+      }
+    },
+    "claim_boundary": {
+      "type": "string",
+      "minLength": 80
+    }
+  }
+}

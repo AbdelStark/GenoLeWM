@@ -47,7 +47,9 @@ def test_prepare_gnomad_shard_filters_common_pass_variants(tmp_path: Path) -> No
     ]
     assert rows[0].af_global == pytest.approx(0.02)
     assert rows[0].af_afr == pytest.approx(0.03)
-    assert rows[0].schema_version == GNOMAD_SCHEMA_VERSION
+    assert rows[0].af_mid == pytest.approx(0.04)
+    assert rows[0].af_remaining == pytest.approx(0.05)
+    assert rows[0].schema_version == GNOMAD_SCHEMA_VERSION == "2.0.0"
 
 
 def test_prepare_gnomad_shard_is_idempotent_without_overwrite(tmp_path: Path) -> None:
@@ -66,6 +68,35 @@ def test_prepare_gnomad_shard_is_idempotent_without_overwrite(tmp_path: Path) ->
     assert second.size_bytes == first.size_bytes
     assert second.to_dict()["already_exists"] is True
     assert second.elapsed_seconds >= 0
+
+
+@pytest.mark.parametrize("corruption", ["schema", "version"])
+def test_prepare_gnomad_shard_rejects_stale_existing_shard(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    vcf_path = _write_gnomad_vcf(tmp_path / "gnomad.vcf")
+    first = prepare_gnomad_shard(vcf_path, tmp_path, release="v4.1", min_af=0.01)
+    table = pq.read_table(first.output_path)
+    if corruption == "schema":
+        table = table.drop(["af_mid", "af_remaining"])
+    else:
+        version_index = table.schema.get_field_index("schema_version")
+        table = table.set_column(
+            version_index,
+            "schema_version",
+            pa.array(["1.0.0"] * table.num_rows, type=pa.string()),
+        )
+    pq.write_table(table, first.output_path)
+
+    with pytest.raises(
+        InputError, match=r"existing gnomAD shard is not schema 2\.0\.0"
+    ) as exc_info:
+        prepare_gnomad_shard(vcf_path, tmp_path, release="v4.1", min_af=0.01)
+
+    assert exc_info.value.remediation == "rerun with overwrite=True to rebuild the shard"
 
 
 def test_prepare_gnomad_shard_flushes_multiple_small_batches(
@@ -184,7 +215,9 @@ def test_gnomad_reports_and_private_float_validation(tmp_path: Path) -> None:
         af_sas=None,
         filter="PASS",
     )
-    assert variant.to_dict()["schema_version"] == GNOMAD_SCHEMA_VERSION
+    assert variant.to_dict()["schema_version"] == "1.0.0"
+    assert variant.af_mid is None
+    assert variant.af_remaining is None
     assert _optional_float("0.125") == pytest.approx(0.125)
     with pytest.raises(InputError, match="non-float allele frequency"):
         _optional_float(object())
@@ -198,7 +231,8 @@ def _write_gnomad_vcf(path: Path) -> Path:
             [
                 "##fileformat=VCFv4.2",
                 "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
-                "chr1\t10\trs1\tA\tC,G\t.\tPASS\tAF=0.02,0.005;AF_afr=0.03,0.001",
+                "chr1\t10\trs1\tA\tC,G\t.\tPASS\tAF=0.02,0.005;AF_afr=0.03,0.001;"
+                "AF_mid=0.04,0.002;AF_remaining=0.05,0.003",
                 "1\t20\trs2\tA\tT\t.\tLowQual\tAF=0.50",
                 "2\t30\trs3\tA\t<DEL>\t.\tPASS\tAF=0.20",
                 "chrM\t40\trs4\tC\tT\t.\tPASS\tAF_global=0.02;AF_eas=0.04",

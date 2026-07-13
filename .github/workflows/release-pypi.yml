@@ -77,6 +77,12 @@ jobs:
           --spec-json configs/first_experiment/dataset-snapshot-snv.json
           --check-spec
 
+      - name: Check correction-control dataset spec
+        run: >-
+          uv run python -m tools.release.dataset_snapshot
+          --spec-json configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json
+          --check-spec
+
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

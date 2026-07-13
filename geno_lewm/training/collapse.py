@@ -93,6 +93,7 @@ class CollapseMonitor:
     log_every_steps: int = 500
     thresholds: CollapseThresholds = field(default_factory=CollapseThresholds)
     initial_pairwise_pred_dist_mean: float | None = None
+    _kl_alert_enabled: bool = field(default=True, init=False, repr=False)
 
     def __post_init__(self) -> None:
         _require_positive_int("log_every_steps", self.log_every_steps)
@@ -130,10 +131,11 @@ class CollapseMonitor:
         metrics = compute_collapse_metrics(prediction, target, kl_reg=kl_reg)
         if self.initial_pairwise_pred_dist_mean is None:
             self.initial_pairwise_pred_dist_mean = metrics.pairwise_pred_dist_mean
-        alerts = detect_collapse(
+        alerts = _detect_collapse(
             metrics,
             thresholds=self.thresholds,
             initial_pairwise_pred_dist_mean=self.initial_pairwise_pred_dist_mean,
+            include_kl_alert=self._kl_alert_enabled,
         )
         record_collapse_metrics(metrics, alerts=alerts, logger=logger, step=step)
         return CollapseCheck(metrics=metrics, alerts=alerts)
@@ -183,6 +185,21 @@ def detect_collapse(
     initial_pairwise_pred_dist_mean: float | None = None,
 ) -> tuple[CollapseAlert, ...]:
     """Return the training contract alert criteria tripped by ``metrics``."""
+    return _detect_collapse(
+        metrics,
+        thresholds=thresholds,
+        initial_pairwise_pred_dist_mean=initial_pairwise_pred_dist_mean,
+        include_kl_alert=True,
+    )
+
+
+def _detect_collapse(
+    metrics: CollapseMetrics,
+    *,
+    thresholds: CollapseThresholds | None,
+    initial_pairwise_pred_dist_mean: float | None,
+    include_kl_alert: bool,
+) -> tuple[CollapseAlert, ...]:
     active_thresholds = thresholds if thresholds is not None else CollapseThresholds()
     if initial_pairwise_pred_dist_mean is not None:
         _require_nonnegative_finite(
@@ -212,7 +229,7 @@ def detect_collapse(
                 )
             )
 
-    if metrics.kl_reg > active_thresholds.kl_reg_max:
+    if include_kl_alert and metrics.kl_reg > active_thresholds.kl_reg_max:
         alerts.append(
             CollapseAlert(
                 criterion="kl_reg",

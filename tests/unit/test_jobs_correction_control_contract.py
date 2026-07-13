@@ -1,0 +1,150 @@
+"""Static contract tests for the clean-machine correction-control job."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+PROOF_RUN = Path("tools/jobs/proof_run.sh")
+PROOF_CONFIG = Path("configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml")
+
+
+def test_proof_job_pins_reduced_normalized_state_learning_rate() -> None:
+    config = yaml.safe_load(PROOF_CONFIG.read_text(encoding="utf-8"))
+
+    assert config["optimizer"]["lr"] == 3.0e-5
+
+
+def test_proof_job_uses_only_correction_control_config_and_immutable_sources() -> None:
+    script = PROOF_RUN.read_text(encoding="utf-8")
+
+    assert "configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml" in script
+    assert "configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json" in script
+    assert "configs/first_experiment" not in script
+    assert "configs/serious_completion" not in script
+    assert "archive_2.0/2026/clinvar_20260415.vcf.gz" in script
+    assert "vcf_GRCh38/clinvar.vcf.gz" not in script
+    assert "?generation=1713312296186865" in script
+    assert 'CLINVAR_MD5="e63b5c3a046010c098cc70e81bebaa8d"' in script
+    assert 'GNOMAD_MD5="dcf191563e69054a71bd4dc77862799a"' in script
+    assert "35b0aa516fbcf6f18624919cfc38fa02ab3458e0ffcd3c03e932051b37f315db" in script
+    assert "FASTA22_URL" not in script
+
+
+def test_proof_job_validates_before_writes_and_uploads_only_after_postflight() -> None:
+    script = PROOF_RUN.read_text(encoding="utf-8")
+
+    preflight = script.index("python -m tools.research.correction_control_preflight")
+    no_clobber = script.index("REMOTE_AUDIT_URL=")
+    first_work_write = script.index("mkdir -p")
+    state_audit = script.index("python -m tools.research.state_contract_audit")
+    training = script.index("geno-lewm-train --carbon-train")
+    postflight = script.index("python -m tools.research.correction_control_postflight")
+    export = script.index("geno-lewm-export")
+    model_upload = script.index(
+        'hf upload "$UPLOAD_REPO" "$WORK/model" "$RUN_NAME/model" --repo-type model'
+    )
+    dataset_upload = script.index(
+        'hf upload "$UPLOAD_REPO" "$WORK/dataset" "$RUN_NAME/dataset" --repo-type model'
+    )
+    completed_run_upload = script.index(
+        'hf upload "$UPLOAD_REPO" "$WORK/run" "$RUN_NAME/run" --repo-type model'
+    )
+
+    assert (
+        preflight
+        < no_clobber
+        < first_work_write
+        < state_audit
+        < training
+        < postflight
+        < export
+        < model_upload
+        < dataset_upload
+        < completed_run_upload
+    )
+    assert '--window-bp "$WINDOW_BP"' in script
+    assert "--no-trust-remote-code" in script
+    assert 'STEPS="${STEPS:-50}"' in script
+    assert 'RUN_ATTEMPT="${RUN_ATTEMPT:-1}"' in script
+    assert 'MAX_WINDOWS="${MAX_WINDOWS:-512}"' in script
+    assert 'CLINVAR_LINES="${CLINVAR_LINES:-60000}"' in script
+    assert 'TUPLE_THROUGHPUT_SAMPLES="${TUPLE_THROUGHPUT_SAMPLES:-400}"' in script
+    assert 'MIN_CUDA_VRAM_GB="120"' in script
+    assert 'if "H200" not in properties.name:' in script
+    assert 'cp "$WORK/dataset/dataset_input_check_report.json"' in script
+    assert 'if [ "$job_contract_rc" -ne 0 ]; then' in script
+    assert "printf '%s\\n' \"$JOB_CONTRACT_REPORT\" >&2" in script
+
+    postflight_invocation = script[postflight:completed_run_upload]
+    for evidence_flag in (
+        "--job-contract-preflight-json",
+        "--source-identity-report-json",
+        "--dataset-manifest-json",
+        "--dataset-snapshot-report-json",
+        "--training-preflight-report-json",
+        "--tuple-throughput-report-json",
+    ):
+        assert evidence_flag in postflight_invocation
+
+    training_invocation = script[training:postflight]
+    for override_flag in ("--set", "--seed", "--run-id", "--deterministic"):
+        assert override_flag not in training_invocation
+
+
+def test_proof_job_replay_uses_only_completed_reference_before_final_upload() -> None:
+    script = PROOF_RUN.read_text(encoding="utf-8")
+
+    postflight = script.index("python -m tools.research.correction_control_postflight")
+    replay = script.index("python -m tools.research.correction_control_replay")
+    export = script.index("geno-lewm-export")
+    completed_run_upload = script.index(
+        'hf upload "$UPLOAD_REPO" "$WORK/run" "$RUN_NAME/run" --repo-type model'
+    )
+
+    assert postflight < replay < export < completed_run_upload
+    assert 'REPLAY_REFERENCE_ATTEMPT="${REPLAY_REFERENCE_ATTEMPT:-}"' in script
+    assert (
+        'REFERENCE_RUN_NAME="geno-lewm-l2-p1-smoke-${COMMIT_SHA:0:12}-50-r${REPLAY_REFERENCE_ATTEMPT}"'
+        in script
+    )
+    assert '"$REFERENCE_RUN_NAME/run/**"' in script
+    assert (
+        '"$REFERENCE_RUN_NAME/run/correction_control/correction_control_postflight.json"' in script
+    )
+
+    replay_block = script[replay:export]
+    assert "run-partial" not in replay_block
+    for flag in (
+        "--reference-run-dir",
+        "--candidate-run-dir",
+        "--reference-run-name",
+        "--candidate-run-name",
+        "--expected-commit-sha",
+        "--output-json",
+    ):
+        assert flag in replay_block
+    assert "deterministic_replay_report.json" in script
+    assert "CONTROL_ARTIFACTS+=(deterministic_replay_report.json)" in script
+
+
+def test_proof_job_authors_and_revalidates_non_release_model_manifest_before_upload() -> None:
+    script = PROOF_RUN.read_text(encoding="utf-8")
+
+    export = script.index("geno-lewm-export")
+    author = script.index("python -m tools.research.correction_control_model_manifest author")
+    validate = script.index("python -m tools.research.correction_control_model_manifest validate")
+    model_upload = script.index(
+        'hf upload "$UPLOAD_REPO" "$WORK/model" "$RUN_NAME/model" --repo-type model'
+    )
+
+    assert export < author < validate < model_upload
+    manifest_slice = script[author:model_upload]
+    assert '"$WORK/model/manifest.json"' in manifest_slice
+    assert '"$WORK/model/manifest_validation.json"' in manifest_slice
+    assert '"$WORK/run/correction_control/correction_control_postflight.json"' in manifest_slice
+    assert '"$WORK/run/correction_control/state_contract_audit.json"' in manifest_slice
+    assert '"$WORK/run/training_config.effective.yaml"' in manifest_slice
+    assert '"$WORK/run/dataset_manifest.json"' in manifest_slice
+    assert '"$WORK/run/predictor_checkpoint.pt"' in manifest_slice

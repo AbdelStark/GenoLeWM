@@ -19,6 +19,7 @@ from geno_lewm.training.trainer import (
     TorchTrainer,
     TorchTrainerBatch,
     TrainerSeeds,
+    configure_torch_reproducibility,
     encode_training_batch,
     make_action_mask,
     set_optimizer_lr,
@@ -30,6 +31,40 @@ def test_trainer_seeds_are_distinct_and_stable() -> None:
     seeds = TrainerSeeds.from_base_seed(17)
 
     assert seeds.to_dict() == {"data": 17, "predictor": 18, "lora": 19}
+
+
+def test_nondeterministic_report_preserves_preexisting_cublas_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCuda:
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+    class FakeTorch:
+        cuda = FakeCuda()
+
+        @staticmethod
+        def manual_seed(_seed: int) -> None:
+            return None
+
+        @staticmethod
+        def use_deterministic_algorithms(enabled: bool) -> None:
+            FakeTorch.enabled = enabled
+
+        @staticmethod
+        def are_deterministic_algorithms_enabled() -> bool:
+            return FakeTorch.enabled
+
+    FakeTorch.enabled = False
+    monkeypatch.setattr(trainer_module, "torch", FakeTorch())
+    monkeypatch.setattr(trainer_module, "_seed_numpy", lambda _seed: None)
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":16:8")
+
+    report = configure_torch_reproducibility(seed=17, deterministic=False)
+
+    assert report.cublas_workspace_config == ":16:8"
+    assert report.torch_deterministic_algorithms is False
 
 
 def test_wsd_lr_multiplier_matches_warmup_stable_decay_taper() -> None:
@@ -425,6 +460,47 @@ def test_torch_trainer_records_live_collapse_alerts() -> None:
     assert any(alert["criterion"] == "pred_var_per_dim" for alert in trainer.last_collapse_alerts)
 
 
+def test_normalized_phase1_trainer_does_not_treat_kl_as_collapse_alert() -> None:
+    torch = pytest.importorskip("torch")
+    cfg = load_config(
+        {
+            "encoder": {
+                "normalize": True,
+                "state_contract_version": "l2_normalized_v2",
+            },
+            "predictor": {"d_state": 64},
+            "training": {"collapse_log_every_steps": 1},
+            "optimizer": {"warmup_steps": 0, "grad_clip": 0.0},
+        }
+    )
+    predictor = IdentityPredictor(torch)
+    action_encoder = DummyActionEncoder(torch)
+    optimizer = torch.optim.SGD(
+        list(predictor.parameters()) + list(action_encoder.parameters()),
+        lr=0.01,
+    )
+    trainer = TorchTrainer(
+        predictor=predictor,
+        action_encoder=action_encoder,
+        optimizer=optimizer,
+        config=cfg,
+        total_steps=1,
+    )
+    states = torch.eye(8, 64)
+    batch = TorchTrainerBatch(
+        state=states,
+        target=states.unsqueeze(1),
+        rel_edits=tuple((_edit(),) for _ in range(8)),
+        action_mask=torch.ones(8, 1, dtype=torch.bool),
+        window_ids=tuple(f"w{index}" for index in range(8)),
+    )
+
+    result = trainer.train_step(batch, step=1)
+
+    assert result.kl_reg > 10.0
+    assert not any(alert["criterion"] == "kl_reg" for alert in trainer.last_collapse_alerts)
+
+
 def _edit(rel_pos: int = 0) -> RelEdit:
     return RelEdit(rel_pos=rel_pos, edit_type=EditType.SNV, ref_bases="A", alt_bases="T")
 
@@ -507,3 +583,15 @@ class CollapsedPredictor:
     def __call__(self, state, actions, action_mask):
         del actions
         return self.bias.view(1, 1, 2).expand(state.shape[0], action_mask.shape[1], 2)
+
+
+class IdentityPredictor:
+    def __init__(self, torch_module) -> None:
+        self.scale = torch_module.nn.Parameter(torch_module.ones(()))
+
+    def parameters(self):
+        return (self.scale,)
+
+    def __call__(self, state, actions, action_mask):
+        del actions
+        return (state * self.scale).unsqueeze(1).expand(-1, action_mask.shape[1], -1)

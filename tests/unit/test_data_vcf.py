@@ -50,6 +50,19 @@ def test_iter_vcf_rows_parses_gzip_flags_and_skips_empty_alt(tmp_path: Path) -> 
     assert info_value_for_alt(row.info, ("AF",), 1) == "0.2"
 
 
+def test_iter_vcf_rows_parses_bgzip_suffix(tmp_path: Path) -> None:
+    path = tmp_path / "variants.vcf.bgz"
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            "chr22\t101\trs1\tA\tC\t.\tPASS\tAF=0.1\n"
+        )
+
+    rows = list(iter_vcf_rows(path))
+
+    assert [(row.chrom, row.pos, row.ref, row.alts) for row in rows] == [("22", 101, "A", ("C",))]
+
+
 @pytest.mark.parametrize(
     ("row", "message"),
     [

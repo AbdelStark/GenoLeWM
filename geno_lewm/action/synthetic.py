@@ -145,24 +145,21 @@ def uniform_snv(
     if n < 0:
         raise InputError("n must be non-negative", details={"n": n})
 
+    if n == 0:
+        return []
+    valid_positions = tuple(
+        pos for pos in range(edge_margin, len(window) - edge_margin) if window[pos] in _OTHER_BASE
+    )
+    if not valid_positions:
+        raise InputError(
+            "could not find an ACGT position in the window's interior",
+            details={"window_len": len(window), "edge_margin": edge_margin},
+        )
+
     out: list[RelEdit] = []
     for _ in range(n):
-        pos = _pick_position(rng, len(window), edge_margin)
+        pos = rng.choice(valid_positions)
         ref = window[pos]
-        if ref not in _OTHER_BASE:
-            # Window contains 'N' or other non-ACGT at this position; resample.
-            # Simple bounded retry; if window is mostly N's the caller
-            # should not be using a synthetic sampler.
-            for _retry in range(10):
-                pos = _pick_position(rng, len(window), edge_margin)
-                ref = window[pos]
-                if ref in _OTHER_BASE:
-                    break
-            else:  # pragma: no cover - defensive
-                raise InputError(
-                    "could not find an ACGT position in the window's interior",
-                    details={"window_len": len(window), "edge_margin": edge_margin},
-                )
         alt = rng.choice(_OTHER_BASE[ref])
         out.append(RelEdit(rel_pos=pos, edit_type=EditType.SNV, ref_bases=ref, alt_bases=alt))
     return out

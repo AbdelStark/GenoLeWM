@@ -1,0 +1,21 @@
+{
+  "dataset_manifest_sha256": "sha256:8d60360f365185451ebac80cb8c37f8aa4324bb915e16243ac9ce661d6748621",
+  "expected_files": {
+    "SHA256SUMS": "sha256:0c5086fcee2e5f25d9036807f74d487399b422c5dce87f4981561dc072a0a2aa",
+    "carbon/source-mix-windows.jsonl": "sha256:4c9bf87f92dfd1eeb990dda2bfdf586ec5e34c79eb6831b5849a976b0a46395b",
+    "clinvar/2026-04-15/variants.parquet": "sha256:56dafa73a96b7a24b080c70ba038f2093cafb6b5e72bcd19d20498347e12914d",
+    "data_card.md": "sha256:1b3b7c141c616b125cc5511972be1634767ac3b16c98b8bfb3baa725c7882cfb",
+    "dataset_input_check_report.json": "sha256:bc553783088cadbcef83713c34a1a35dd2b2bb20ce08ef7a93f963637daced1a",
+    "dataset_manifest.json": "sha256:8d60360f365185451ebac80cb8c37f8aa4324bb915e16243ac9ce661d6748621",
+    "dataset_package.json": "sha256:8d60360f365185451ebac80cb8c37f8aa4324bb915e16243ac9ce661d6748621",
+    "dataset_snapshot_report.json": "sha256:5bca7c6e2c069c8640b6d47b5bd001f3b04eb8b61a052d7875d436307340feda",
+    "gnomad/v4.1/variants.parquet": "sha256:37c1f1eb7735d26cbff93b32cb2b0fb33963e3ba64b1edf51d266c998f59d436",
+    "split_integrity.json": "sha256:b41678d49c9f71b9872faf52ad859ac5c320a8eef846ef6c48fefad72c744060"
+  },
+  "path": "geno-lewm-l2-p1-smoke-304128e4d4f3-50-r2/dataset",
+  "repo_id": "abdelstark/geno-lewm-runs",
+  "repo_type": "model",
+  "revision": "1200467a6b940cb5b1230d9a7db0be74e51bd50d",
+  "schema_version": "1.0.0",
+  "snapshot_id": "geno-lewm-data-correction-control-l2-p1-proof-v1"
+}
