@@ -14,7 +14,7 @@ def test_v03_gnomad_job_orders_preflight_transform_receipt_and_upload() -> None:
     exact_sha = script.index('OBSERVED_COMMIT_SHA="$(git rev-parse HEAD)"')
     lock_blob = script.index('git cat-file -e "$COMMIT_SHA:$SOURCE_LOCK"')
     select_lock = script.index("python -m tools.data.v03_gnomad_lock select")
-    first_collision_check = script.index("check_remote_namespace_absent")
+    first_collision_check = script.index("python -m tools.data.v03_gnomad_lock probe-namespace")
     first_work_write = script.index('rm -rf "$WORK"')
     metadata_fetch = script.index('curl "$METADATA_URL"')
     metadata_verify = script.index("python -m tools.data.v03_gnomad_lock verify-metadata")
@@ -22,8 +22,7 @@ def test_v03_gnomad_job_orders_preflight_transform_receipt_and_upload() -> None:
     source_hash = script.index("python -m tools.data.v03_gnomad_lock hash-source")
     transform = script.index("uv run geno-lewm-prepare-gnomad")
     receipt = script.index("python -m tools.data.v03_gnomad_lock author-receipt")
-    final_collision_check = script.rindex("check_remote_namespace_absent")
-    upload = script.index("api.upload_folder(")
+    upload = script.index("python -m tools.data.v03_gnomad_lock publish")
 
     assert (
         exact_sha
@@ -37,7 +36,6 @@ def test_v03_gnomad_job_orders_preflight_transform_receipt_and_upload() -> None:
         < source_hash
         < transform
         < receipt
-        < final_collision_check
         < upload
     )
     assert "set -euo pipefail" in script
@@ -58,18 +56,16 @@ def test_v03_gnomad_job_orders_preflight_transform_receipt_and_upload() -> None:
     )
     assert 'git cat-file -e "$COMMIT_SHA:$SOURCE_LOCK_SCHEMA"' in script
     assert 'cp "$SOURCE_LOCK_SCHEMA" "$EVIDENCE_DIR/source-lock.schema.json"' in script
-    assert 'REMOTE_PARENT_COMMIT="$(check_remote_namespace_absent)"' in script
-    assert "parent_commit=parent_commit" in script
+    assert '--commit-message "stage gnomAD $RELEASE chr$CHROMOSOME at $COMMIT_SHA"' in script
 
 
 def test_v03_gnomad_job_treats_namespace_and_claim_scope_as_hard_boundaries() -> None:
     script = STAGE_JOB.read_text(encoding="utf-8")
 
-    assert script.count("api.upload_folder(") == 1
-    assert "if exc.code == 404:" in script
-    assert "cannot prove remote namespace absence" in script
-    assert "immutable namespace already exists" in script
-    assert script.count("check_remote_namespace_absent") == 3  # definition plus two gates
+    assert script.count("python -m tools.data.v03_gnomad_lock publish") == 1
+    assert script.count("python -m tools.data.v03_gnomad_lock probe-namespace") == 1
+    assert "upload_folder(" not in script
+    assert "delete_patterns" not in script
     assert "run-partial" not in script
     assert "|| true" not in script
     for excluded_claim in (

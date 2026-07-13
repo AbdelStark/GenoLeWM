@@ -7,14 +7,22 @@ import argparse
 import base64
 import binascii
 import hashlib
+import importlib
 import json
+import math
+import os
 import re
 import shlex
+import struct
 import sys
+import time
+import urllib.error
 import urllib.parse
-from collections.abc import Mapping
+import urllib.request
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 LOCK_SCHEMA_VERSION = "geno-lewm.gnomad-source-lock.v1"
 SELECTION_SCHEMA_VERSION = "geno-lewm.gnomad-stage-selection.v1"
@@ -22,6 +30,10 @@ METADATA_VERIFICATION_SCHEMA_VERSION = "geno-lewm.gnomad-gcs-metadata-verificati
 SOURCE_IDENTITY_SCHEMA_VERSION = "geno-lewm.gnomad-stream-identity.v1"
 STAGING_RECEIPT_SCHEMA_VERSION = "geno-lewm.gnomad-staging-receipt.v1"
 _HASH_CHUNK_SIZE = 1 << 20
+_PARQUET_AUDIT_BATCH_ROWS = 131_072
+_HF_UPLOAD_MAX_ATTEMPTS = 5
+_HF_PARENT_CONFLICT_STATUS = 412
+_HF_PARENT_CONFLICT_MESSAGE = "A commit has happened since. Please refresh and try again."
 _AUTOSOMES = frozenset(str(chromosome) for chromosome in range(1, 23))
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 _CONTAINER_IMAGE = re.compile(r"[^@]+@sha256:[0-9a-f]{64}")
@@ -64,6 +76,20 @@ def main(argv: list[str] | None = None) -> int:
     receipt_parser.add_argument("--dataset-root", type=Path, required=True)
     receipt_parser.add_argument("--output-parquet", type=Path, required=True)
     receipt_parser.add_argument("--output-json", type=Path, required=True)
+    probe_parser = subparsers.add_parser(
+        "probe-namespace", help="prove one immutable Hugging Face namespace is absent"
+    )
+    probe_parser.add_argument("--repo-id", required=True)
+    probe_parser.add_argument("--repo-type", required=True)
+    probe_parser.add_argument("--namespace", required=True)
+    publish_parser = subparsers.add_parser(
+        "publish", help="publish one immutable shard with stale-parent conflict retries"
+    )
+    publish_parser.add_argument("--repo-id", required=True)
+    publish_parser.add_argument("--repo-type", required=True)
+    publish_parser.add_argument("--namespace", required=True)
+    publish_parser.add_argument("--publish-dir", type=Path, required=True)
+    publish_parser.add_argument("--commit-message", required=True)
     args = parser.parse_args(argv)
 
     try:
@@ -92,6 +118,25 @@ def main(argv: list[str] | None = None) -> int:
                 output_parquet=args.output_parquet,
             )
             _write_json(args.output_json, payload)
+        elif args.command == "probe-namespace":
+            print(
+                probe_hf_namespace_absent(
+                    repo_id=args.repo_id,
+                    repo_type=args.repo_type,
+                    namespace=args.namespace,
+                    token=_require_hf_token(),
+                )
+            )
+        elif args.command == "publish":
+            commit = publish_gnomad_folder(
+                repo_id=args.repo_id,
+                repo_type=args.repo_type,
+                namespace=args.namespace,
+                publish_dir=args.publish_dir,
+                commit_message=args.commit_message,
+                token=_require_hf_token(),
+            )
+            print(f"uploaded commit: {_require_str(getattr(commit, 'oid', None), 'commit.oid')}")
     except (OSError, json.JSONDecodeError, SourceLockError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -172,6 +217,305 @@ def hash_source(selection_path: Path, input_vcf: Path) -> dict[str, object]:
         "sha256": sha256.hexdigest(),
         "hash_method": "single_pass_chunked_file_read",
         "chunk_size_bytes": _HASH_CHUNK_SIZE,
+    }
+
+
+def probe_hf_namespace_absent(
+    *,
+    repo_id: str,
+    repo_type: str,
+    namespace: str,
+    token: str,
+    timeout_seconds: float = 30.0,
+) -> str:
+    """Return the current Hub parent SHA only when ``namespace`` is absent."""
+    if repo_type != "dataset":
+        raise SourceLockError(f"unsupported locked repo type: {repo_type}")
+    if repo_id.count("/") != 1:
+        raise SourceLockError("Hugging Face repo_id must be a namespace/name pair")
+    normalized_namespace = namespace.strip("/")
+    if not normalized_namespace or normalized_namespace != namespace:
+        raise SourceLockError("Hugging Face namespace must be non-empty without outer slashes")
+    if not token:
+        raise SourceLockError("HF_TOKEN must be non-empty")
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise SourceLockError("Hugging Face probe timeout_seconds must be finite and positive")
+
+    repo_path = urllib.parse.quote(repo_id, safe="/")
+    namespace_path = urllib.parse.quote(normalized_namespace, safe="/")
+    repo_url = f"https://huggingface.co/api/datasets/{repo_path}/revision/main"
+    tree_url = (
+        f"https://huggingface.co/api/datasets/{repo_path}/tree/main/{namespace_path}"
+        "?recursive=false&expand=false"
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(repo_url, headers=headers), timeout=timeout_seconds
+        ) as response:
+            repo_info: object = json.load(response)
+    except urllib.error.HTTPError as exc:
+        raise SourceLockError(f"cannot resolve remote parent commit: HTTP {exc.code}") from exc
+    except (OSError, ValueError) as exc:
+        raise SourceLockError(f"cannot resolve remote parent commit: {exc}") from exc
+
+    repo_sha = _require_str(
+        _require_mapping(repo_info, "Hugging Face repository metadata").get("sha"),
+        "Hugging Face repository metadata.sha",
+    )
+    if _COMMIT_SHA.fullmatch(repo_sha) is None:
+        raise SourceLockError("remote repository did not report a full lowercase parent commit")
+
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(tree_url, headers=headers), timeout=timeout_seconds
+        ) as response:
+            json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return repo_sha
+        raise SourceLockError(f"cannot prove remote namespace absence: HTTP {exc.code}") from exc
+    except (OSError, ValueError) as exc:
+        raise SourceLockError(f"cannot prove remote namespace absence: {exc}") from exc
+    raise SourceLockError(f"immutable namespace already exists: {namespace}")
+
+
+def is_hf_parent_head_conflict(exc: BaseException) -> bool:
+    """Recognize only the Hub's exact stale-parent precondition failure."""
+    try:
+        errors = importlib.import_module("huggingface_hub.errors")
+    except ImportError:
+        return False
+    error_type = getattr(errors, "HfHubHTTPError", None)
+    if not isinstance(error_type, type) or not isinstance(exc, error_type):
+        return False
+    response = getattr(exc, "response", None)
+    return getattr(
+        response, "status_code", None
+    ) == _HF_PARENT_CONFLICT_STATUS and _HF_PARENT_CONFLICT_MESSAGE in str(exc)
+
+
+def upload_folder_with_parent_retry(
+    *,
+    api: Any,
+    repo_id: str,
+    repo_type: str,
+    namespace: str,
+    publish_dir: Path,
+    commit_message: str,
+    prove_namespace_absent: Callable[[], str],
+    max_attempts: int = _HF_UPLOAD_MAX_ATTEMPTS,
+    sleep: Callable[[float], object] = time.sleep,
+    is_parent_head_conflict: Callable[[BaseException], bool] = is_hf_parent_head_conflict,
+) -> Any:
+    """Upload one immutable path, retrying only a stale Hub parent precondition."""
+    if max_attempts <= 0:
+        raise SourceLockError("Hugging Face upload max_attempts must be positive")
+
+    for attempt in range(1, max_attempts + 1):
+        parent_commit = prove_namespace_absent()
+        if _COMMIT_SHA.fullmatch(parent_commit) is None:
+            raise SourceLockError("namespace proof did not return a full lowercase parent commit")
+        try:
+            return api.upload_folder(
+                repo_id=repo_id,
+                repo_type=repo_type,
+                folder_path=publish_dir,
+                path_in_repo=namespace,
+                parent_commit=parent_commit,
+                commit_message=commit_message,
+            )
+        except Exception as exc:
+            if not is_parent_head_conflict(exc) or attempt == max_attempts:
+                raise
+            sleep(_hf_parent_conflict_backoff(namespace=namespace, conflict_number=attempt))
+
+    raise AssertionError("bounded Hugging Face upload loop exhausted without returning or raising")
+
+
+def publish_gnomad_folder(
+    *,
+    repo_id: str,
+    repo_type: str,
+    namespace: str,
+    publish_dir: Path,
+    commit_message: str,
+    token: str,
+) -> Any:
+    """Publish a completed shard through the conflict-safe immutable upload path."""
+    if not publish_dir.is_dir():
+        raise SourceLockError(f"publish directory is not a directory: {publish_dir}")
+    hub = importlib.import_module("huggingface_hub")
+    api = hub.HfApi(token=token)
+    return upload_folder_with_parent_retry(
+        api=api,
+        repo_id=repo_id,
+        repo_type=repo_type,
+        namespace=namespace,
+        publish_dir=publish_dir,
+        commit_message=commit_message,
+        prove_namespace_absent=lambda: probe_hf_namespace_absent(
+            repo_id=repo_id,
+            repo_type=repo_type,
+            namespace=namespace,
+            token=token,
+        ),
+    )
+
+
+def _hf_parent_conflict_backoff(*, namespace: str, conflict_number: int) -> float:
+    """Return bounded exponential backoff with deterministic per-namespace jitter."""
+    base_seconds = min(2.0 ** (conflict_number - 1), 8.0)
+    digest = hashlib.sha256(f"{namespace}:{conflict_number}".encode()).digest()
+    jitter_seconds = int.from_bytes(digest[:4], "big") / (2**32) * 0.5
+    return base_seconds + jitter_seconds
+
+
+def _require_hf_token() -> str:
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        raise SourceLockError("HF_TOKEN is required")
+    return token
+
+
+def audit_gnomad_parquet(
+    path: Path,
+    *,
+    chromosome: str,
+    expected_records: int,
+    min_af: float,
+    max_allele_len: int,
+) -> dict[str, object]:
+    """Independently scan a staged gnomAD Parquet shard and verify its row contract."""
+    if chromosome not in _AUTOSOMES:
+        raise SourceLockError(f"Parquet audit chromosome must be one of 1..22, got {chromosome!r}")
+    if expected_records <= 0:
+        raise SourceLockError("Parquet audit expected_records must be positive")
+    if not math.isfinite(min_af):
+        raise SourceLockError("Parquet audit min_af must be finite")
+    if not 0.0 <= min_af <= 1.0:
+        raise SourceLockError("Parquet audit min_af must be between 0 and 1")
+    if max_allele_len <= 0:
+        raise SourceLockError("Parquet audit max_allele_len must be positive")
+    if not path.is_file():
+        raise SourceLockError(f"Parquet audit input is not a regular file: {path}")
+
+    pa, pq = _require_pyarrow_for_audit()
+    expected_schema = _expected_gnomad_schema(pa)
+    parquet = pq.ParquetFile(path)
+    observed_schema = parquet.schema_arrow
+    if not observed_schema.equals(expected_schema, check_metadata=False):
+        raise SourceLockError(
+            "Parquet schema drifted from the independent gnomAD v1 contract: "
+            f"expected {expected_schema}, observed {observed_schema}"
+        )
+
+    metadata_row_count = int(parquet.metadata.num_rows)
+    if metadata_row_count != expected_records:
+        raise SourceLockError(
+            "Parquet metadata/preparer row-count mismatch: "
+            f"metadata={metadata_row_count}, preparer={expected_records}"
+        )
+
+    canonical_chromosome = f"chr{chromosome}"
+    stored_min_af = struct.unpack("!f", struct.pack("!f", min_af))[0]
+    scanned_row_count = 0
+    position_min: int | None = None
+    position_max: int | None = None
+    for batch in parquet.iter_batches(batch_size=_PARQUET_AUDIT_BATCH_ROWS):
+        columns = {
+            name: batch.column(observed_schema.get_field_index(name)).to_pylist()
+            for name in ("chrom", "pos", "ref", "alt", "af_global", "filter", "schema_version")
+        }
+        for values in zip(
+            columns["chrom"],
+            columns["pos"],
+            columns["ref"],
+            columns["alt"],
+            columns["af_global"],
+            columns["filter"],
+            columns["schema_version"],
+            strict=True,
+        ):
+            chrom, pos, ref, alt, af_global, filter_value, schema_version = values
+            row_number = scanned_row_count + 1
+            if chrom != canonical_chromosome:
+                raise SourceLockError(
+                    f"Parquet row {row_number} chromosome drifted: "
+                    f"expected {canonical_chromosome!r}, observed {chrom!r}"
+                )
+            if isinstance(pos, bool) or not isinstance(pos, int) or pos <= 0:
+                raise SourceLockError(
+                    f"Parquet row {row_number} position must be a positive integer"
+                )
+            if not _is_explicit_dna_allele(ref, max_allele_len=max_allele_len):
+                raise SourceLockError(
+                    f"Parquet row {row_number} REF must be explicit uppercase ACGT with "
+                    f"length 1..{max_allele_len}"
+                )
+            if not _is_explicit_dna_allele(alt, max_allele_len=max_allele_len):
+                raise SourceLockError(
+                    f"Parquet row {row_number} ALT must be explicit uppercase ACGT with "
+                    f"length 1..{max_allele_len}"
+                )
+            if ref == alt:
+                raise SourceLockError(f"Parquet row {row_number} REF and ALT must differ")
+            if isinstance(af_global, bool) or not isinstance(af_global, int | float):
+                raise SourceLockError(f"Parquet row {row_number} af_global must be numeric")
+            normalized_af = float(af_global)
+            if not math.isfinite(normalized_af):
+                raise SourceLockError(f"Parquet row {row_number} af_global must be finite")
+            if not stored_min_af <= normalized_af <= 1.0:
+                raise SourceLockError(
+                    f"Parquet row {row_number} af_global must be within [{min_af}, 1.0]"
+                )
+            if filter_value != "PASS":
+                raise SourceLockError(
+                    f"Parquet row {row_number} filter must be 'PASS', observed {filter_value!r}"
+                )
+            if schema_version != "1.0.0":
+                raise SourceLockError(
+                    f"Parquet row {row_number} schema_version must be '1.0.0', "
+                    f"observed {schema_version!r}"
+                )
+            scanned_row_count += 1
+            position_min = pos if position_min is None else min(position_min, pos)
+            position_max = pos if position_max is None else max(position_max, pos)
+
+    if scanned_row_count != metadata_row_count:
+        raise SourceLockError(
+            "Parquet full-scan/metadata row-count mismatch: "
+            f"scanned={scanned_row_count}, metadata={metadata_row_count}"
+        )
+    if position_min is None or position_max is None:
+        raise SourceLockError("Parquet audit found no rows")
+
+    return {
+        "audit_method": "pyarrow_metadata_and_full_iter_batches_scan_v1",
+        "batch_size_rows": _PARQUET_AUDIT_BATCH_ROWS,
+        "metadata_row_count": metadata_row_count,
+        "scanned_row_count": scanned_row_count,
+        "canonical_chromosome": canonical_chromosome,
+        "position_min": position_min,
+        "position_max": position_max,
+        "schema_version": "1.0.0",
+        "locked_min_af": min_af,
+        "stored_min_af_float32": stored_min_af,
+        "schema": [
+            {"name": field.name, "type": str(field.type), "nullable": field.nullable}
+            for field in observed_schema
+        ],
+        "checks": [
+            "exact_arrow_schema",
+            "canonical_chromosome",
+            "positive_position",
+            "explicit_acgt_alleles",
+            "distinct_ref_alt",
+            "finite_global_af_in_locked_range",
+            "pass_filter",
+            "exact_schema_version",
+            "metadata_scan_and_preparer_row_counts_equal",
+        ],
     }
 
 
@@ -297,6 +641,13 @@ def author_receipt(
         raise SourceLockError("prepare report counts must be non-negative")
     if counts["records_written"] <= 0:
         raise SourceLockError("prepare report.records_written must be positive")
+    parquet_audit = audit_gnomad_parquet(
+        output_parquet,
+        chromosome=_require_str(source.get("chromosome"), "selection.source.chromosome"),
+        expected_records=counts["records_written"],
+        min_af=min_af,
+        max_allele_len=max_allele_len,
+    )
 
     runtime = _require_mapping(prepare_report.get("runtime"), "prepare report.runtime")
     elapsed_seconds = _require_number(
@@ -355,7 +706,7 @@ def author_receipt(
             },
             "counts": counts,
         },
-        "output": output_identity,
+        "output": {**output_identity, "parquet_audit": parquet_audit},
         "execution": dict(_require_mapping(selection.get("execution"), "selection.execution")),
         "publication": dict(
             _require_mapping(selection.get("publication"), "selection.publication")
@@ -626,7 +977,10 @@ def _require_int(value: object, field: str) -> int:
 def _require_number(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise SourceLockError(f"{field} must be a number")
-    return float(value)
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        raise SourceLockError(f"{field} must be finite")
+    return normalized
 
 
 def _require_sha256(value: object, field: str) -> str:
@@ -634,6 +988,48 @@ def _require_sha256(value: object, field: str) -> str:
     if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise SourceLockError(f"{field} must be a lowercase SHA-256 hex digest")
     return digest
+
+
+def _require_pyarrow_for_audit() -> tuple[Any, Any]:
+    try:
+        pa = importlib.import_module("pyarrow")
+        pq = importlib.import_module("pyarrow.parquet")
+    except ImportError as exc:
+        raise SourceLockError(
+            "independent gnomAD Parquet audit requires pyarrow; install the train extra"
+        ) from exc
+    return pa, pq
+
+
+def _expected_gnomad_schema(pa: Any) -> Any:
+    return pa.schema(
+        [
+            ("chrom", pa.string()),
+            ("pos", pa.int64()),
+            ("ref", pa.string()),
+            ("alt", pa.string()),
+            ("af_global", pa.float32()),
+            ("af_afr", pa.float32()),
+            ("af_ami", pa.float32()),
+            ("af_amr", pa.float32()),
+            ("af_asj", pa.float32()),
+            ("af_eas", pa.float32()),
+            ("af_fin", pa.float32()),
+            ("af_nfe", pa.float32()),
+            ("af_oth", pa.float32()),
+            ("af_sas", pa.float32()),
+            ("filter", pa.string()),
+            ("schema_version", pa.string()),
+        ]
+    )
+
+
+def _is_explicit_dna_allele(value: object, *, max_allele_len: int) -> bool:
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= max_allele_len
+        and set(value) <= {"A", "C", "G", "T"}
+    )
 
 
 def _require_exact_keys(value: Mapping[str, object], expected: set[str], field: str) -> None:

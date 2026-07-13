@@ -89,64 +89,12 @@ OBSERVED_SCHEMA_BLOB="$(git hash-object "$SOURCE_LOCK_SCHEMA")"
 [ "$OBSERVED_SCHEMA_BLOB" = "$EXPECTED_SCHEMA_BLOB" ] \
   || fatal "source lock schema bytes drifted from $COMMIT_SHA"
 
-check_remote_namespace_absent() {
-  uv run python - "$UPLOAD_REPO" "$UPLOAD_REPO_TYPE" "$REMOTE_NAMESPACE" <<'PY'
-import json
-import os
-import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-
-repo_id, repo_type, namespace = sys.argv[1:]
-if repo_type != "dataset":
-    raise SystemExit(f"FATAL: unsupported locked repo type: {repo_type}")
-repo_path = urllib.parse.quote(repo_id, safe="/")
-namespace_path = urllib.parse.quote(namespace.strip("/"), safe="/")
-repo_url = f"https://huggingface.co/api/datasets/{repo_path}/revision/main"
-tree_url = (
-    f"https://huggingface.co/api/datasets/{repo_path}/tree/main/{namespace_path}"
-    "?recursive=false&expand=false"
-)
-repo_request = urllib.request.Request(
-    repo_url,
-    headers={"Authorization": f"Bearer {os.environ['HF_TOKEN']}"},
-)
-try:
-    with urllib.request.urlopen(repo_request, timeout=30) as response:
-        repo_info = json.load(response)
-except urllib.error.HTTPError as exc:
-    raise SystemExit(
-        f"FATAL: cannot resolve remote parent commit: HTTP {exc.code}"
-    ) from exc
-except (OSError, ValueError) as exc:
-    raise SystemExit(f"FATAL: cannot resolve remote parent commit: {exc}") from exc
-repo_sha = repo_info.get("sha")
-if not isinstance(repo_sha, str) or len(repo_sha) != 40:
-    raise SystemExit("FATAL: remote repository did not report a full parent commit")
-
-tree_request = urllib.request.Request(
-    tree_url,
-    headers={"Authorization": f"Bearer {os.environ['HF_TOKEN']}"},
-)
-try:
-    with urllib.request.urlopen(tree_request, timeout=30) as response:
-        json.load(response)
-except urllib.error.HTTPError as exc:
-    if exc.code == 404:
-        print(repo_sha)
-        raise SystemExit(0) from None
-    raise SystemExit(
-        f"FATAL: cannot prove remote namespace absence: HTTP {exc.code}"
-    ) from exc
-except (OSError, ValueError) as exc:
-    raise SystemExit(f"FATAL: cannot prove remote namespace absence: {exc}") from exc
-raise SystemExit(f"FATAL: immutable namespace already exists: {namespace}")
-PY
-}
-
 log "prove immutable namespace is unused before doing expensive work"
-check_remote_namespace_absent >/dev/null
+uv run python -m tools.data.v03_gnomad_lock probe-namespace \
+  --repo-id "$UPLOAD_REPO" \
+  --repo-type "$UPLOAD_REPO_TYPE" \
+  --namespace "$REMOTE_NAMESPACE" \
+  >/dev/null
 
 rm -rf "$WORK"
 PUBLISH_DIR="$WORK/publish"
@@ -223,44 +171,12 @@ uv run python -m tools.data.v03_gnomad_lock author-receipt \
 [ "$(json_field "$RECEIPT_JSON" publication.namespace)" = "$REMOTE_NAMESPACE" ] \
   || fatal "receipt namespace drifted after transform"
 
-log "recheck the immutable namespace immediately before publication"
-REMOTE_PARENT_COMMIT="$(check_remote_namespace_absent)"
-
-log "upload completed evidence and shard to $UPLOAD_REPO/$REMOTE_NAMESPACE"
-uv run python - \
-  "$UPLOAD_REPO" \
-  "$UPLOAD_REPO_TYPE" \
-  "$REMOTE_NAMESPACE" \
-  "$PUBLISH_DIR" \
-  "$REMOTE_PARENT_COMMIT" \
-  "$COMMIT_SHA" \
-  "$RELEASE" \
-  "$CHROMOSOME" <<'PY'
-import os
-import sys
-
-from huggingface_hub import HfApi
-
-(
-    repo_id,
-    repo_type,
-    namespace,
-    publish_dir,
-    parent_commit,
-    commit_sha,
-    release,
-    chromosome,
-) = sys.argv[1:]
-api = HfApi(token=os.environ["HF_TOKEN"])
-commit = api.upload_folder(
-    repo_id=repo_id,
-    repo_type=repo_type,
-    folder_path=publish_dir,
-    path_in_repo=namespace,
-    parent_commit=parent_commit,
-    commit_message=f"stage gnomAD {release} chr{chromosome} at {commit_sha}",
-)
-print(f"uploaded commit: {commit.oid}")
-PY
+log "re-prove immutable namespace and publish with bounded stale-parent retries"
+uv run python -m tools.data.v03_gnomad_lock publish \
+  --repo-id "$UPLOAD_REPO" \
+  --repo-type "$UPLOAD_REPO_TYPE" \
+  --namespace "$REMOTE_NAMESPACE" \
+  --publish-dir "$PUBLISH_DIR" \
+  --commit-message "stage gnomAD $RELEASE chr$CHROMOSOME at $COMMIT_SHA"
 
 log "completed immutable gnomAD staging namespace: $REMOTE_NAMESPACE"

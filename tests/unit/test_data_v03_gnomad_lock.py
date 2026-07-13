@@ -5,18 +5,279 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib
 import json
 import shlex
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
-from tools.data.v03_gnomad_lock import main, select_source
+from tools.data.v03_gnomad_lock import (
+    SourceLockError,
+    audit_gnomad_parquet,
+    is_hf_parent_head_conflict,
+    main,
+    select_source,
+    upload_folder_with_parent_retry,
+)
 
 SOURCE_LOCK = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json")
 SOURCE_LOCK_SCHEMA = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json")
+
+
+class _ParentConflict(RuntimeError):
+    """Test-only stale-parent signal selected by an injected classifier."""
+
+
+class _RecordingUploadApi:
+    def __init__(self, outcomes: list[object]) -> None:
+        self._outcomes = iter(outcomes)
+        self.calls: list[dict[str, object]] = []
+
+    def upload_folder(self, **kwargs: object) -> object:
+        self.calls.append(kwargs)
+        outcome = next(self._outcomes)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+
+def test_upload_retries_only_parent_conflicts_with_fresh_absence_proofs() -> None:
+    commit = SimpleNamespace(oid="f" * 40)
+    api = _RecordingUploadApi([_ParentConflict(), _ParentConflict(), commit])
+    parents = iter(["1" * 40, "2" * 40, "3" * 40])
+    proof_calls: list[None] = []
+    sleeps: list[float] = []
+
+    def prove_namespace_absent() -> str:
+        proof_calls.append(None)
+        return next(parents)
+
+    observed = upload_folder_with_parent_retry(
+        api=api,
+        repo_id="abdelstark/geno-lewm-data",
+        repo_type="dataset",
+        namespace="staging/v0.3/locked/chr22",
+        publish_dir=Path("/tmp/publish"),
+        commit_message="stage locked chr22",
+        prove_namespace_absent=prove_namespace_absent,
+        max_attempts=3,
+        sleep=sleeps.append,
+        is_parent_head_conflict=lambda exc: isinstance(exc, _ParentConflict),
+    )
+
+    assert observed is commit
+    assert len(proof_calls) == 3
+    assert [call["parent_commit"] for call in api.calls] == ["1" * 40, "2" * 40, "3" * 40]
+    assert {call["path_in_repo"] for call in api.calls} == {"staging/v0.3/locked/chr22"}
+    assert {call["folder_path"] for call in api.calls} == {Path("/tmp/publish")}
+    assert all("delete_patterns" not in call for call in api.calls)
+    assert len(sleeps) == 2
+    assert 1.0 <= sleeps[0] < 1.5
+    assert 2.0 <= sleeps[1] < 2.5
+
+
+def test_upload_parent_conflict_retry_is_bounded() -> None:
+    conflicts = [_ParentConflict() for _ in range(4)]
+    api = _RecordingUploadApi(conflicts)
+    proof_calls: list[None] = []
+
+    def prove_namespace_absent() -> str:
+        proof_calls.append(None)
+        return "1" * 40
+
+    with pytest.raises(_ParentConflict):
+        upload_folder_with_parent_retry(
+            api=api,
+            repo_id="abdelstark/geno-lewm-data",
+            repo_type="dataset",
+            namespace="staging/v0.3/locked/chr22",
+            publish_dir=Path("/tmp/publish"),
+            commit_message="stage locked chr22",
+            prove_namespace_absent=prove_namespace_absent,
+            max_attempts=3,
+            sleep=lambda _delay: None,
+            is_parent_head_conflict=lambda exc: isinstance(exc, _ParentConflict),
+        )
+
+    assert len(api.calls) == 3
+    assert len(proof_calls) == 3
+
+
+def test_upload_fails_immediately_for_non_conflict_errors() -> None:
+    auth_error = RuntimeError("401 unauthorized")
+    api = _RecordingUploadApi([auth_error])
+    proof_calls: list[None] = []
+
+    def prove_namespace_absent() -> str:
+        proof_calls.append(None)
+        return "1" * 40
+
+    with pytest.raises(RuntimeError, match="401 unauthorized"):
+        upload_folder_with_parent_retry(
+            api=api,
+            repo_id="abdelstark/geno-lewm-data",
+            repo_type="dataset",
+            namespace="staging/v0.3/locked/chr22",
+            publish_dir=Path("/tmp/publish"),
+            commit_message="stage locked chr22",
+            prove_namespace_absent=prove_namespace_absent,
+            max_attempts=5,
+            sleep=lambda _delay: pytest.fail("non-conflict errors must not back off"),
+            is_parent_head_conflict=lambda exc: isinstance(exc, _ParentConflict),
+        )
+
+    assert len(api.calls) == 1
+    assert len(proof_calls) == 1
+
+
+def test_upload_aborts_if_namespace_appears_after_parent_conflict() -> None:
+    api = _RecordingUploadApi([_ParentConflict(), SimpleNamespace(oid="f" * 40)])
+    proofs = iter(["1" * 40, SourceLockError("immutable namespace already exists")])
+
+    def prove_namespace_absent() -> str:
+        outcome = next(proofs)
+        if isinstance(outcome, SourceLockError):
+            raise outcome
+        return outcome
+
+    with pytest.raises(SourceLockError, match="immutable namespace already exists"):
+        upload_folder_with_parent_retry(
+            api=api,
+            repo_id="abdelstark/geno-lewm-data",
+            repo_type="dataset",
+            namespace="staging/v0.3/locked/chr22",
+            publish_dir=Path("/tmp/publish"),
+            commit_message="stage locked chr22",
+            prove_namespace_absent=prove_namespace_absent,
+            max_attempts=3,
+            sleep=lambda _delay: None,
+            is_parent_head_conflict=lambda exc: isinstance(exc, _ParentConflict),
+        )
+
+    assert len(api.calls) == 1
+
+
+def test_hf_parent_conflict_classifier_is_exact(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeHfHubHTTPError(RuntimeError):
+        def __init__(self, message: str, status_code: int) -> None:
+            super().__init__(message)
+            self.response = SimpleNamespace(status_code=status_code)
+
+    original_import_module = importlib.import_module
+
+    def fake_import_module(name: str) -> object:
+        if name == "huggingface_hub.errors":
+            return SimpleNamespace(HfHubHTTPError=FakeHfHubHTTPError)
+        return original_import_module(name)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+    exact = FakeHfHubHTTPError(
+        "412 Client Error: A commit has happened since. Please refresh and try again.", 412
+    )
+
+    assert is_hf_parent_head_conflict(exact)
+    assert not is_hf_parent_head_conflict(FakeHfHubHTTPError(str(exact), 409))
+    assert not is_hf_parent_head_conflict(FakeHfHubHTTPError("412 validation failed", 412))
+    assert not is_hf_parent_head_conflict(RuntimeError(str(exact)))
+
+
+def test_audit_gnomad_parquet_scans_exact_schema_and_binds_positions(tmp_path: Path) -> None:
+    parquet_path = _write_gnomad_parquet(
+        tmp_path / "variants.parquet",
+        [
+            {"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.01},
+            {"chrom": "chr22", "pos": 909, "ref": "AC", "alt": "GT", "af_global": 1.0},
+        ],
+    )
+
+    audit = audit_gnomad_parquet(
+        parquet_path,
+        chromosome="22",
+        expected_records=2,
+        min_af=0.01,
+        max_allele_len=16,
+    )
+
+    assert audit["audit_method"] == "pyarrow_metadata_and_full_iter_batches_scan_v1"
+    assert audit["metadata_row_count"] == 2
+    assert audit["scanned_row_count"] == 2
+    assert audit["canonical_chromosome"] == "chr22"
+    assert audit["position_min"] == 101
+    assert audit["position_max"] == 909
+    assert audit["schema_version"] == "1.0.0"
+
+
+@pytest.mark.parametrize(
+    ("row_update", "error"),
+    [
+        ({"chrom": "chr21"}, "chromosome drifted"),
+        ({"pos": 0}, "position must be a positive integer"),
+        ({"ref": "N"}, "REF must be explicit uppercase ACGT"),
+        ({"alt": "a"}, "ALT must be explicit uppercase ACGT"),
+        ({"alt": "A" * 17}, "ALT must be explicit uppercase ACGT"),
+        ({"alt": "A"}, "REF and ALT must differ"),
+        ({"af_global": float("nan")}, "af_global must be finite"),
+        ({"af_global": 0.009}, "af_global must be within"),
+        ({"af_global": 1.1}, "af_global must be within"),
+        ({"filter": "LowQual"}, "filter must be 'PASS'"),
+        ({"schema_version": "2.0.0"}, "schema_version must be '1.0.0'"),
+    ],
+)
+def test_audit_gnomad_parquet_rejects_invalid_rows(
+    tmp_path: Path, row_update: dict[str, object], error: str
+) -> None:
+    row = {"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}
+    row.update(row_update)
+    parquet_path = _write_gnomad_parquet(tmp_path / "variants.parquet", [row])
+
+    with pytest.raises(SourceLockError, match=error):
+        audit_gnomad_parquet(
+            parquet_path,
+            chromosome="22",
+            expected_records=1,
+            min_af=0.01,
+            max_allele_len=16,
+        )
+
+
+def test_audit_gnomad_parquet_rejects_schema_drift(tmp_path: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    parquet_path = _write_gnomad_parquet(
+        tmp_path / "variants.parquet",
+        [{"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
+    )
+    table = pq.read_table(parquet_path).append_column("unexpected", pa.array([1], type=pa.int64()))
+    pq.write_table(table, parquet_path)
+
+    with pytest.raises(SourceLockError, match="Parquet schema drifted"):
+        audit_gnomad_parquet(
+            parquet_path,
+            chromosome="22",
+            expected_records=1,
+            min_af=0.01,
+            max_allele_len=16,
+        )
+
+
+def test_audit_gnomad_parquet_rejects_preparer_count_mismatch(tmp_path: Path) -> None:
+    parquet_path = _write_gnomad_parquet(
+        tmp_path / "variants.parquet",
+        [{"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
+    )
+
+    with pytest.raises(SourceLockError, match="metadata/preparer row-count mismatch"):
+        audit_gnomad_parquet(
+            parquet_path,
+            chromosome="22",
+            expected_records=2,
+            min_af=0.01,
+            max_allele_len=16,
+        )
 
 
 def test_v03_gnomad_source_lock_covers_generation_pinned_autosomes() -> None:
@@ -89,6 +350,23 @@ def test_v03_gnomad_source_lock_has_a_closed_machine_readable_schema() -> None:
         "size_bytes",
         "md5_base64",
     }
+
+
+@pytest.mark.parametrize("non_finite", [float("nan"), float("inf"), float("-inf")])
+def test_source_lock_rejects_non_finite_numeric_fields(tmp_path: Path, non_finite: float) -> None:
+    lock = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))
+    lock["transform"]["min_af"] = non_finite
+    lock_path = tmp_path / SOURCE_LOCK.name
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    (tmp_path / SOURCE_LOCK_SCHEMA.name).write_bytes(SOURCE_LOCK_SCHEMA.read_bytes())
+
+    with pytest.raises(SourceLockError, match=r"transform\.min_af must be finite"):
+        select_source(
+            lock_path,
+            chromosome="22",
+            commit_sha="a" * 40,
+            container_image=lock["job"]["container_image"],
+        )
 
 
 def test_select_source_resolves_one_locked_object_and_immutable_namespace() -> None:
@@ -315,8 +593,14 @@ def test_author_receipt_cli_reconciles_transform_and_output_evidence(tmp_path: P
     source_path.write_bytes(b"locked gnomad bytes\n")
     dataset_root = tmp_path / "publish" / "data"
     output_parquet = dataset_root / "gnomad" / "v4.1" / "variants.parquet"
-    output_parquet.parent.mkdir(parents=True)
-    output_parquet.write_bytes(b"parquet fixture bytes\n")
+    _write_gnomad_parquet(
+        output_parquet,
+        [
+            {"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.01},
+            {"chrom": "chr22", "pos": 202, "ref": "G", "alt": "T", "af_global": 0.2},
+            {"chrom": "chr22", "pos": 303, "ref": "AC", "alt": "GT", "af_global": 1.0},
+        ],
+    )
     selection_path = tmp_path / "selection.json"
     source_md5_base64 = base64.b64encode(
         hashlib.md5(source_path.read_bytes(), usedforsecurity=False).digest()
@@ -479,4 +763,59 @@ def test_author_receipt_cli_reconciles_transform_and_output_evidence(tmp_path: P
     assert receipt["transform"]["runtime"]["process_peak_rss_bytes"] == 123456
     assert receipt["transform"]["counts"]["records_written"] == 3
     assert receipt["output"]["sha256"] == hashlib.sha256(output_parquet.read_bytes()).hexdigest()
+    parquet_audit = receipt["output"]["parquet_audit"]
+    assert parquet_audit["audit_method"] == "pyarrow_metadata_and_full_iter_batches_scan_v1"
+    assert parquet_audit["metadata_row_count"] == 3
+    assert parquet_audit["scanned_row_count"] == 3
+    assert parquet_audit["position_min"] == 101
+    assert parquet_audit["position_max"] == 303
     assert "not evidence" in receipt["claim_boundary"]
+
+
+def _write_gnomad_parquet(path: Path, rows: list[dict[str, object]]) -> Path:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    schema = pa.schema(
+        [
+            ("chrom", pa.string()),
+            ("pos", pa.int64()),
+            ("ref", pa.string()),
+            ("alt", pa.string()),
+            ("af_global", pa.float32()),
+            ("af_afr", pa.float32()),
+            ("af_ami", pa.float32()),
+            ("af_amr", pa.float32()),
+            ("af_asj", pa.float32()),
+            ("af_eas", pa.float32()),
+            ("af_fin", pa.float32()),
+            ("af_nfe", pa.float32()),
+            ("af_oth", pa.float32()),
+            ("af_sas", pa.float32()),
+            ("filter", pa.string()),
+            ("schema_version", pa.string()),
+        ]
+    )
+    normalized = [
+        {
+            **dict.fromkeys(
+                (
+                    "af_afr",
+                    "af_ami",
+                    "af_amr",
+                    "af_asj",
+                    "af_eas",
+                    "af_fin",
+                    "af_nfe",
+                    "af_oth",
+                    "af_sas",
+                )
+            ),
+            "filter": "PASS",
+            "schema_version": "1.0.0",
+            **row,
+        }
+        for row in rows
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pylist(normalized, schema=schema), path)
+    return path
