@@ -288,8 +288,10 @@ PyArrow is loaded only by build and verification adapters. Manifest parsing
 and read-only SQLite lookups stay on core dependencies. The current repository
 ships this contract and synthetic tests only: it does not contain or claim a
 real v0.3 membership store, split result, or phased-haplotype membership.
-ClinVar membership derivation admits only normalized P/LP rows; the gnomAD
-variant membership path is not presented as the RFC's phased-haplotype set.
+ClinVar membership derivation admits normalized B/LB/LP/P rows as labeled
+memberships: benign-family rows are negative benchmark labels, while P/LP rows
+on training chromosomes remain eligible training anchors. The gnomAD variant
+membership path is not presented as the RFC's phased-haplotype set.
 
 The stable `geno_lewm.data.membership_store` module is a small public facade.
 Its private implementation has one-way dependencies: the closed contract is

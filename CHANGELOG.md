@@ -113,10 +113,12 @@ or incompatible command changes require an explicit compatibility note.
   Python. Source bytes are captured through one immutable descriptor; interval
   lookup uses an integer R-tree; the self-contained lineage/receipt layout is
   independently verified and fsynced before atomic publication; and runtime
-  handles are pickle-, thread-, spawn-, and fork-safe. ClinVar membership is
-  restricted to normalized P/LP rows; gnomAD
-  variant membership is not represented as a phased-haplotype holdout. No real
-  v0.3 memberships or split evidence are published by this contract change.
+  handles are pickle-, thread-, spawn-, and fork-safe. ClinVar labeled
+  membership includes normalized B/LB/LP/P rows, with B/LB serving as negative
+  benchmark labels and train-chromosome P/LP rows remaining eligible anchors;
+  gnomAD variant membership is not represented as a phased-haplotype holdout.
+  No real v0.3 memberships or split evidence are published by this contract
+  change.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as

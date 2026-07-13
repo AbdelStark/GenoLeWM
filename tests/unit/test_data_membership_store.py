@@ -34,7 +34,7 @@ from geno_lewm.data.membership_store import (
     verify_membership_store,
 )
 from geno_lewm.data.variant_identity import CanonicalVariant
-from geno_lewm.errors import InputError, RuntimeSetupError
+from geno_lewm.errors import InputError, ResourceError, RuntimeSetupError
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from tools.data.v03_membership_store import main
 
@@ -1229,6 +1229,59 @@ def test_builder_does_not_publish_when_durability_barrier_fails(
             output_dir=output,
         )
     assert not output.exists()
+    assert not tuple(tmp_path.glob(".store.tmp-*"))
+    assert not tuple(tmp_path.glob(".store.sources-*"))
+
+
+def test_builder_reports_post_publication_parent_fsync_failure_honestly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_bundle: tuple[Path, tuple[MembershipSourceInput, ...]],
+) -> None:
+    lineage_path, sources = source_bundle
+    writer = importlib.import_module("geno_lewm.data._membership_store_writer")
+    real_fsync_directory = writer._fsync_directory
+    calls = 0
+
+    def _fail_after_publication(path: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected parent fsync failure")
+        real_fsync_directory(path)
+
+    monkeypatch.setattr(writer, "_fsync_directory", _fail_after_publication)
+    output = tmp_path / "store"
+    with pytest.raises(ResourceError) as raised:
+        build_membership_store(
+            artifact_id="post-publication-fsync-failure",
+            snapshot_lineage_path=lineage_path,
+            expected_snapshot_lineage_sha256=sha256_file(lineage_path),
+            builder_git_commit=BUILDER_GIT_COMMIT,
+            container_image=BUILDER_CONTAINER_IMAGE,
+            sources=sources,
+            output_dir=output,
+        )
+
+    error = raised.value
+    assert "was published" in error.message
+    assert "before publication" not in error.message
+    assert error.details == {
+        "path": str(output),
+        "publication_state": "published_durability_uncertain",
+    }
+    assert error.remediation is not None
+    assert "Do not rerun against the same output path" in error.remediation
+    assert calls == 2
+    assert output.is_dir()
+    assert {path.name for path in output.iterdir()} == {
+        "build-receipt.json",
+        "lookup.sqlite",
+        "manifest.json",
+        "memberships.parquet",
+        "snapshot-lineage.json",
+    }
+    assert verify_membership_store(output).ok is True
     assert not tuple(tmp_path.glob(".store.tmp-*"))
     assert not tuple(tmp_path.glob(".store.sources-*"))
 

@@ -68,7 +68,7 @@ from geno_lewm.data.membership import (
     MembershipRow,
 )
 from geno_lewm.data.variant_identity import CanonicalVariant, canonicalize_chromosome
-from geno_lewm.errors import InputError
+from geno_lewm.errors import InputError, ResourceError
 from geno_lewm.provenance.hashing import canonical_json_sha256, sha256_file
 
 
@@ -261,7 +261,22 @@ def build_membership_store(
                 details={"path": str(output)},
             )
         _publish_directory_noreplace(temporary, output)
-        _fsync_directory(output.parent)
+        try:
+            _fsync_directory(output.parent)
+        except OSError as exc:
+            raise ResourceError(
+                "membership store was published but parent-directory durability "
+                "could not be confirmed",
+                details={
+                    "path": str(output),
+                    "publication_state": "published_durability_uncertain",
+                },
+                remediation=(
+                    "Do not rerun against the same output path. Verify and either preserve "
+                    "or remove the published directory under operator control before retrying; "
+                    "its contents may be valid, but crash durability is unconfirmed."
+                ),
+            ) from exc
         return verified.manifest
     except InputError:
         if connection is not None:
