@@ -31,7 +31,7 @@ SOURCE_IDENTITY_SCHEMA_VERSION = "geno-lewm.gnomad-stream-identity.v1"
 STAGING_RECEIPT_SCHEMA_VERSION = "geno-lewm.gnomad-staging-receipt.v1"
 _HASH_CHUNK_SIZE = 1 << 20
 _PARQUET_AUDIT_BATCH_ROWS = 131_072
-_HF_UPLOAD_MAX_ATTEMPTS = 5
+_HF_UPLOAD_MAX_ATTEMPTS = 12
 _HF_PARENT_CONFLICT_STATUS = 412
 _HF_PARENT_CONFLICT_MESSAGE = "A commit has happened since. Please refresh and try again."
 _AUTOSOMES = frozenset(str(chromosome) for chromosome in range(1, 23))
@@ -406,7 +406,7 @@ def audit_gnomad_parquet(
     observed_schema = parquet.schema_arrow
     if not observed_schema.equals(expected_schema, check_metadata=False):
         raise SourceLockError(
-            "Parquet schema drifted from the independent gnomAD v1 contract: "
+            "Parquet schema drifted from the independent gnomAD schema 2.0.0 contract: "
             f"expected {expected_schema}, observed {observed_schema}"
         )
 
@@ -417,25 +417,61 @@ def audit_gnomad_parquet(
             f"metadata={metadata_row_count}, preparer={expected_records}"
         )
 
-    canonical_chromosome = f"chr{chromosome}"
+    canonical_chromosome = chromosome
     stored_min_af = struct.unpack("!f", struct.pack("!f", min_af))[0]
+    population_af_columns = (
+        "af_afr",
+        "af_ami",
+        "af_amr",
+        "af_asj",
+        "af_eas",
+        "af_fin",
+        "af_mid",
+        "af_nfe",
+        "af_oth",
+        "af_remaining",
+        "af_sas",
+    )
+    required_v41_population_columns = (
+        "af_afr",
+        "af_amr",
+        "af_asj",
+        "af_eas",
+        "af_fin",
+        "af_mid",
+        "af_nfe",
+        "af_remaining",
+        "af_sas",
+    )
+    population_af_non_null_counts = dict.fromkeys(population_af_columns, 0)
     scanned_row_count = 0
     position_min: int | None = None
     position_max: int | None = None
     for batch in parquet.iter_batches(batch_size=_PARQUET_AUDIT_BATCH_ROWS):
         columns = {
             name: batch.column(observed_schema.get_field_index(name)).to_pylist()
-            for name in ("chrom", "pos", "ref", "alt", "af_global", "filter", "schema_version")
+            for name in (
+                "chrom",
+                "pos",
+                "ref",
+                "alt",
+                "af_global",
+                *population_af_columns,
+                "filter",
+                "schema_version",
+            )
         }
-        for values in zip(
-            columns["chrom"],
-            columns["pos"],
-            columns["ref"],
-            columns["alt"],
-            columns["af_global"],
-            columns["filter"],
-            columns["schema_version"],
-            strict=True,
+        for index, values in enumerate(
+            zip(
+                columns["chrom"],
+                columns["pos"],
+                columns["ref"],
+                columns["alt"],
+                columns["af_global"],
+                columns["filter"],
+                columns["schema_version"],
+                strict=True,
+            )
         ):
             chrom, pos, ref, alt, af_global, filter_value, schema_version = values
             row_number = scanned_row_count + 1
@@ -469,13 +505,29 @@ def audit_gnomad_parquet(
                 raise SourceLockError(
                     f"Parquet row {row_number} af_global must be within [{min_af}, 1.0]"
                 )
+            for column in population_af_columns:
+                population_af = columns[column][index]
+                if population_af is None:
+                    continue
+                if isinstance(population_af, bool) or not isinstance(population_af, int | float):
+                    raise SourceLockError(
+                        f"Parquet row {row_number} {column} must be numeric or null"
+                    )
+                normalized_population_af = float(population_af)
+                if not math.isfinite(normalized_population_af):
+                    raise SourceLockError(f"Parquet row {row_number} {column} must be finite")
+                if not 0.0 <= normalized_population_af <= 1.0:
+                    raise SourceLockError(
+                        f"Parquet row {row_number} {column} must be within [0.0, 1.0]"
+                    )
+                population_af_non_null_counts[column] += 1
             if filter_value != "PASS":
                 raise SourceLockError(
                     f"Parquet row {row_number} filter must be 'PASS', observed {filter_value!r}"
                 )
-            if schema_version != "1.0.0":
+            if schema_version != "2.0.0":
                 raise SourceLockError(
-                    f"Parquet row {row_number} schema_version must be '1.0.0', "
+                    f"Parquet row {row_number} schema_version must be '2.0.0', "
                     f"observed {schema_version!r}"
                 )
             scanned_row_count += 1
@@ -489,6 +541,16 @@ def audit_gnomad_parquet(
         )
     if position_min is None or position_max is None:
         raise SourceLockError("Parquet audit found no rows")
+    missing_v41_populations = [
+        column
+        for column in required_v41_population_columns
+        if population_af_non_null_counts[column] == 0
+    ]
+    if missing_v41_populations:
+        raise SourceLockError(
+            "Parquet audit found no values for required gnomAD v4.1 population AF columns: "
+            f"{missing_v41_populations}"
+        )
 
     return {
         "audit_method": "pyarrow_metadata_and_full_iter_batches_scan_v1",
@@ -498,7 +560,8 @@ def audit_gnomad_parquet(
         "canonical_chromosome": canonical_chromosome,
         "position_min": position_min,
         "position_max": position_max,
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
+        "population_af_non_null_counts": population_af_non_null_counts,
         "locked_min_af": min_af,
         "stored_min_af_float32": stored_min_af,
         "schema": [
@@ -512,8 +575,10 @@ def audit_gnomad_parquet(
             "explicit_acgt_alleles",
             "distinct_ref_alt",
             "finite_global_af_in_locked_range",
+            "finite_population_af_in_unit_interval_or_null",
             "pass_filter",
             "exact_schema_version",
+            "v41_population_columns_nonempty",
             "metadata_scan_and_preparer_row_counts_equal",
         ],
     }
@@ -641,6 +706,17 @@ def author_receipt(
         raise SourceLockError("prepare report counts must be non-negative")
     if counts["records_written"] <= 0:
         raise SourceLockError("prepare report.records_written must be positive")
+    classified_alleles = (
+        counts["records_written"]
+        + counts["skipped_filter"]
+        + counts["skipped_af"]
+        + counts["skipped_allele"]
+    )
+    if classified_alleles != counts["allele_records_seen"]:
+        raise SourceLockError(
+            "prepare report allele counts do not reconcile: "
+            f"classified={classified_alleles}, seen={counts['allele_records_seen']}"
+        )
     parquet_audit = audit_gnomad_parquet(
         output_parquet,
         chromosome=_require_str(source.get("chromosome"), "selection.source.chromosome"),
@@ -1015,8 +1091,10 @@ def _expected_gnomad_schema(pa: Any) -> Any:
             ("af_asj", pa.float32()),
             ("af_eas", pa.float32()),
             ("af_fin", pa.float32()),
+            ("af_mid", pa.float32()),
             ("af_nfe", pa.float32()),
             ("af_oth", pa.float32()),
+            ("af_remaining", pa.float32()),
             ("af_sas", pa.float32()),
             ("filter", pa.string()),
             ("schema_version", pa.string()),

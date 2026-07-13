@@ -189,8 +189,8 @@ def test_audit_gnomad_parquet_scans_exact_schema_and_binds_positions(tmp_path: P
     parquet_path = _write_gnomad_parquet(
         tmp_path / "variants.parquet",
         [
-            {"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.01},
-            {"chrom": "chr22", "pos": 909, "ref": "AC", "alt": "GT", "af_global": 1.0},
+            {"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.01},
+            {"chrom": "22", "pos": 909, "ref": "AC", "alt": "GT", "af_global": 1.0},
         ],
     )
 
@@ -205,16 +205,18 @@ def test_audit_gnomad_parquet_scans_exact_schema_and_binds_positions(tmp_path: P
     assert audit["audit_method"] == "pyarrow_metadata_and_full_iter_batches_scan_v1"
     assert audit["metadata_row_count"] == 2
     assert audit["scanned_row_count"] == 2
-    assert audit["canonical_chromosome"] == "chr22"
+    assert audit["canonical_chromosome"] == "22"
     assert audit["position_min"] == 101
     assert audit["position_max"] == 909
-    assert audit["schema_version"] == "1.0.0"
+    assert audit["schema_version"] == "2.0.0"
+    assert audit["population_af_non_null_counts"]["af_mid"] == 2
+    assert audit["population_af_non_null_counts"]["af_remaining"] == 2
 
 
 @pytest.mark.parametrize(
     ("row_update", "error"),
     [
-        ({"chrom": "chr21"}, "chromosome drifted"),
+        ({"chrom": "21"}, "chromosome drifted"),
         ({"pos": 0}, "position must be a positive integer"),
         ({"ref": "N"}, "REF must be explicit uppercase ACGT"),
         ({"alt": "a"}, "ALT must be explicit uppercase ACGT"),
@@ -223,14 +225,19 @@ def test_audit_gnomad_parquet_scans_exact_schema_and_binds_positions(tmp_path: P
         ({"af_global": float("nan")}, "af_global must be finite"),
         ({"af_global": 0.009}, "af_global must be within"),
         ({"af_global": 1.1}, "af_global must be within"),
+        ({"af_afr": float("nan")}, "af_afr must be finite"),
+        ({"af_nfe": -0.1}, "af_nfe must be within"),
+        ({"af_sas": 1.1}, "af_sas must be within"),
+        ({"af_mid": None}, "required gnomAD v4.1 population AF columns"),
+        ({"af_remaining": None}, "required gnomAD v4.1 population AF columns"),
         ({"filter": "LowQual"}, "filter must be 'PASS'"),
-        ({"schema_version": "2.0.0"}, "schema_version must be '1.0.0'"),
+        ({"schema_version": "1.0.0"}, "schema_version must be '2.0.0'"),
     ],
 )
 def test_audit_gnomad_parquet_rejects_invalid_rows(
     tmp_path: Path, row_update: dict[str, object], error: str
 ) -> None:
-    row = {"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}
+    row = {"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}
     row.update(row_update)
     parquet_path = _write_gnomad_parquet(tmp_path / "variants.parquet", [row])
 
@@ -249,7 +256,7 @@ def test_audit_gnomad_parquet_rejects_schema_drift(tmp_path: Path) -> None:
     pq = pytest.importorskip("pyarrow.parquet")
     parquet_path = _write_gnomad_parquet(
         tmp_path / "variants.parquet",
-        [{"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
+        [{"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
     )
     table = pq.read_table(parquet_path).append_column("unexpected", pa.array([1], type=pa.int64()))
     pq.write_table(table, parquet_path)
@@ -267,7 +274,7 @@ def test_audit_gnomad_parquet_rejects_schema_drift(tmp_path: Path) -> None:
 def test_audit_gnomad_parquet_rejects_preparer_count_mismatch(tmp_path: Path) -> None:
     parquet_path = _write_gnomad_parquet(
         tmp_path / "variants.parquet",
-        [{"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
+        [{"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
     )
 
     with pytest.raises(SourceLockError, match="metadata/preparer row-count mismatch"):
@@ -596,9 +603,9 @@ def test_author_receipt_cli_reconciles_transform_and_output_evidence(tmp_path: P
     _write_gnomad_parquet(
         output_parquet,
         [
-            {"chrom": "chr22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.01},
-            {"chrom": "chr22", "pos": 202, "ref": "G", "alt": "T", "af_global": 0.2},
-            {"chrom": "chr22", "pos": 303, "ref": "AC", "alt": "GT", "af_global": 1.0},
+            {"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.01},
+            {"chrom": "22", "pos": 202, "ref": "G", "alt": "T", "af_global": 0.2},
+            {"chrom": "22", "pos": 303, "ref": "AC", "alt": "GT", "af_global": 1.0},
         ],
     )
     selection_path = tmp_path / "selection.json"
@@ -788,8 +795,10 @@ def _write_gnomad_parquet(path: Path, rows: list[dict[str, object]]) -> Path:
             ("af_asj", pa.float32()),
             ("af_eas", pa.float32()),
             ("af_fin", pa.float32()),
+            ("af_mid", pa.float32()),
             ("af_nfe", pa.float32()),
             ("af_oth", pa.float32()),
+            ("af_remaining", pa.float32()),
             ("af_sas", pa.float32()),
             ("filter", pa.string()),
             ("schema_version", pa.string()),
@@ -805,13 +814,24 @@ def _write_gnomad_parquet(path: Path, rows: list[dict[str, object]]) -> Path:
                     "af_asj",
                     "af_eas",
                     "af_fin",
+                    "af_mid",
                     "af_nfe",
                     "af_oth",
+                    "af_remaining",
                     "af_sas",
                 )
             ),
+            "af_afr": 0.1,
+            "af_amr": 0.1,
+            "af_asj": 0.1,
+            "af_eas": 0.1,
+            "af_fin": 0.1,
+            "af_mid": 0.1,
+            "af_nfe": 0.1,
+            "af_remaining": 0.1,
+            "af_sas": 0.1,
             "filter": "PASS",
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
             **row,
         }
         for row in rows

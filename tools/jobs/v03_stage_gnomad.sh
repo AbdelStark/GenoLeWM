@@ -6,6 +6,23 @@
 # for one chromosome only. It does not establish snapshot membership or split leakage control.
 # It does not establish dataset representativeness, model quality, benchmark performance,
 # or clinical validity.
+#
+# Exact HF Jobs submission recipe (repeat with CHROMOSOME=1..22 from the exact merge SHA):
+#   SHA="$(git rev-parse HEAD)"
+#   CHROMOSOME=22
+#   IMAGE="ghcr.io/astral-sh/uv@sha256:35b0aa516fbcf6f18624919cfc38fa02ab3458e0ffcd3c03e932051b37f315db"
+#   hf jobs run \
+#     --flavor cpu-upgrade \
+#     --secrets HF_TOKEN \
+#     --env COMMIT_SHA="$SHA" \
+#     --env CHROMOSOME="$CHROMOSOME" \
+#     --env CONTAINER_IMAGE="$IMAGE" \
+#     --label project=geno-lewm-v03 \
+#     --label task=gnomad-stage \
+#     --timeout 8h \
+#     --detach \
+#     -- "$IMAGE" \
+#     bash -lc 'set -euo pipefail; git clone https://github.com/AbdelStark/GenoLeWM.git /workspace/GenoLeWM; cd /workspace/GenoLeWM; git checkout --detach "$COMMIT_SHA"; test "$(git rev-parse HEAD)" = "$COMMIT_SHA"; uv sync --frozen --extra train; exec uv run --no-sync bash tools/jobs/v03_stage_gnomad.sh'
 set -euo pipefail
 
 WORK="${WORK:-/tmp/geno-lewm-v03-stage-gnomad}"

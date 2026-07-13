@@ -77,3 +77,23 @@ def test_v03_gnomad_job_treats_namespace_and_claim_scope_as_hard_boundaries() ->
         "clinical validity",
     ):
         assert excluded_claim in script
+
+
+def test_v03_gnomad_job_documents_exact_hf_submission_recipe() -> None:
+    script = STAGE_JOB.read_text(encoding="utf-8")
+
+    for token in (
+        "hf jobs run",
+        "--flavor cpu-upgrade",
+        "--secrets HF_TOKEN",
+        '--env COMMIT_SHA="$SHA"',
+        '--env CHROMOSOME="$CHROMOSOME"',
+        '--env CONTAINER_IMAGE="$IMAGE"',
+        "--timeout 8h",
+        '-- "$IMAGE"',
+        'git checkout --detach "$COMMIT_SHA"',
+        'test "$(git rev-parse HEAD)" = "$COMMIT_SHA"',
+        "uv sync --frozen --extra train",
+        "uv run --no-sync bash tools/jobs/v03_stage_gnomad.sh",
+    ):
+        assert token in script
