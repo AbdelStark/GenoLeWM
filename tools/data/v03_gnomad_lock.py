@@ -292,6 +292,7 @@ def verify_remote_gnomad_namespace(
 
     with tempfile.TemporaryDirectory(prefix="geno-lewm-gnomad-postflight-") as temporary:
         local_paths: dict[str, Path] = {}
+        cache_directory = Path(temporary) / "hf-cache"
         for relative_path in sorted(_REMOTE_NAMESPACE_FILES):
             filename = f"{namespace}/{relative_path}"
             try:
@@ -302,6 +303,8 @@ def verify_remote_gnomad_namespace(
                     filename=filename,
                     token=token,
                     local_dir=temporary,
+                    cache_dir=cache_directory,
+                    force_download=True,
                 )
             except Exception as exc:
                 raise SourceLockError(
@@ -1368,7 +1371,7 @@ def _audit_gnomad_parquet_stream(
     stream.seek(0)
     parquet = pq.ParquetFile(stream)
     observed_schema = parquet.schema_arrow
-    if not observed_schema.equals(expected_schema, check_metadata=False):
+    if not observed_schema.equals(expected_schema, check_metadata=True):
         raise SourceLockError(
             "Parquet schema drifted from the independent gnomAD schema 2.0.0 contract: "
             f"expected {expected_schema}, observed {observed_schema}"

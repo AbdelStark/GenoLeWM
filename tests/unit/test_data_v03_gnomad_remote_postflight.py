@@ -105,6 +105,12 @@ def test_remote_postflight_verifies_one_exact_revision_end_to_end(
     assert exact_revision_calls
     assert {call["revision"] for call in exact_revision_calls} == {HUB_REVISION}
     assert {call.get("repo_type") for call in exact_revision_calls} == {"dataset"}
+    assert {call.get("force_download") for call in hub.download_calls} == {True}
+    cache_directories = {Path(str(call["cache_dir"])) for call in hub.download_calls}
+    assert len(cache_directories) == 1
+    cache_directory = cache_directories.pop()
+    assert cache_directory.name == "hf-cache"
+    assert {Path(str(call["local_dir"])) for call in hub.download_calls} == {cache_directory.parent}
 
 
 def test_remote_postflight_rejects_mutable_main_before_hub_access(

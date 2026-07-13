@@ -166,6 +166,7 @@ def verify_remote_clinvar_namespace(
 
     with tempfile.TemporaryDirectory(prefix="geno-lewm-clinvar-postflight-") as temporary:
         local_paths: dict[str, Path] = {}
+        cache_directory = Path(temporary) / "hf-cache"
         for relative_path in sorted(relative_files):
             filename = f"{namespace}/{relative_path}"
             try:
@@ -176,6 +177,8 @@ def verify_remote_clinvar_namespace(
                     filename=filename,
                     token=token,
                     local_dir=temporary,
+                    cache_dir=cache_directory,
+                    force_download=True,
                 )
             except Exception as exc:
                 raise ClinvarPostflightError(
@@ -1029,10 +1032,11 @@ def _audit_clinvar_parquet_stream(
     )
     stream.seek(0)
     parquet = pq.ParquetFile(stream)
-    if parquet.schema_arrow != expected_schema:
+    observed_schema = parquet.schema_arrow
+    if not observed_schema.equals(expected_schema, check_metadata=True):
         raise ClinvarPostflightError(
             f"ClinVar Parquet schema drifted: expected {expected_schema}, "
-            f"observed {parquet.schema_arrow}"
+            f"observed {observed_schema}"
         )
     metadata_rows = int(parquet.metadata.num_rows)
     _require_equal(metadata_rows, expected_records, "Parquet metadata row count")
@@ -1080,6 +1084,8 @@ def _audit_clinvar_parquet_stream(
                     raise ClinvarPostflightError(
                         f"ClinVar Parquet {column} violates the trusted allele contract"
                     )
+        if any(ref == alt for ref, alt in zip(payload["ref"], payload["alt"], strict=True)):
+            raise ClinvarPostflightError("ClinVar Parquet ref and alt must differ")
         for column in ("review_status",):
             if any(not isinstance(value, str) or not value for value in payload[column]):
                 raise ClinvarPostflightError(f"ClinVar Parquet {column} values must be non-empty")

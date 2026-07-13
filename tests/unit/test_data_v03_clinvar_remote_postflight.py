@@ -99,6 +99,12 @@ def test_remote_postflight_verifies_one_exact_revision_end_to_end(
     assert exact_revision_calls
     assert {call["revision"] for call in exact_revision_calls} == {HUB_REVISION}
     assert {call.get("repo_type") for call in exact_revision_calls} == {"dataset"}
+    assert {call.get("force_download") for call in hub.download_calls} == {True}
+    cache_directories = {Path(str(call["cache_dir"])) for call in hub.download_calls}
+    assert len(cache_directories) == 1
+    cache_directory = cache_directories.pop()
+    assert cache_directory.name == "hf-cache"
+    assert {Path(str(call["local_dir"])) for call in hub.download_calls} == {cache_directory.parent}
 
 
 def test_remote_postflight_rejects_mutable_revision_before_hub_access(
@@ -719,6 +725,44 @@ def test_remote_postflight_rejects_coherently_rebound_schema_tampering(
     assert "ClinVar Parquet schema drifted" in capsys.readouterr().err
 
 
+def test_remote_postflight_rejects_coherently_rebound_schema_metadata_tampering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    _rewrite_parquet(fixture, schema_metadata={b"unexpected": b"metadata"})
+    _rebind_output_identities(fixture)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+
+    result = main(
+        _postflight_args(fixture, source_commit=source_commit, output=tmp_path / "out.json")
+    )
+
+    assert result == 2
+    assert "ClinVar Parquet schema drifted" in capsys.readouterr().err
+
+
+def test_remote_postflight_rejects_coherently_rebound_field_metadata_tampering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    _rewrite_parquet(fixture, first_field_metadata={b"unexpected": b"metadata"})
+    _rebind_output_identities(fixture)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+
+    result = main(
+        _postflight_args(fixture, source_commit=source_commit, output=tmp_path / "out.json")
+    )
+
+    assert result == 2
+    assert "ClinVar Parquet schema drifted" in capsys.readouterr().err
+
+
 def test_remote_postflight_rejects_coherently_rebound_class_tampering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -774,6 +818,25 @@ def test_remote_postflight_rejects_invalid_allele_after_identity_rebinding(
 
     assert result == 2
     assert "ref violates the trusted allele contract" in capsys.readouterr().err
+
+
+def test_remote_postflight_rejects_no_op_allele_after_identity_rebinding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    _rewrite_parquet(fixture, first_alt="A")
+    _rebind_output_identities(fixture)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+
+    result = main(
+        _postflight_args(fixture, source_commit=source_commit, output=tmp_path / "out.json")
+    )
+
+    assert result == 2
+    assert "ClinVar Parquet ref and alt must differ" in capsys.readouterr().err
 
 
 def test_remote_postflight_rejects_required_null_after_identity_rebinding(
@@ -1192,7 +1255,10 @@ def _rewrite_parquet(
     first_class: str = "P",
     first_chromosome: str = "1",
     first_ref: str = "A",
+    first_alt: str | None = None,
     first_review_status: str | None = "criteria_provided",
+    schema_metadata: dict[bytes, bytes] | None = None,
+    first_field_metadata: dict[bytes, bytes] | None = None,
 ) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -1202,6 +1268,8 @@ def _rewrite_parquet(
     rows[0]["clinical_significance"] = first_class
     rows[0]["chrom"] = first_chromosome
     rows[0]["ref"] = first_ref
+    if first_alt is not None:
+        rows[0]["alt"] = first_alt
     rows[0]["review_status"] = first_review_status
     if position_as_string:
         for row in rows:
@@ -1219,6 +1287,10 @@ def _rewrite_parquet(
             ("schema_version", pa.string()),
         ]
     )
+    if schema_metadata is not None:
+        schema = schema.with_metadata(schema_metadata)
+    if first_field_metadata is not None:
+        schema = schema.set(0, schema.field(0).with_metadata(first_field_metadata))
     pq.write_table(pa.Table.from_pylist(rows, schema=schema), parquet)
 
 

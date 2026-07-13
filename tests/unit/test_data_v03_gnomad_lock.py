@@ -300,6 +300,49 @@ def test_audit_gnomad_parquet_rejects_schema_drift(tmp_path: Path) -> None:
         )
 
 
+def test_audit_gnomad_parquet_rejects_schema_metadata_drift(tmp_path: Path) -> None:
+    pq = pytest.importorskip("pyarrow.parquet")
+    parquet_path = _write_gnomad_parquet(
+        tmp_path / "variants.parquet",
+        [{"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
+    )
+    table = pq.read_table(parquet_path).replace_schema_metadata({b"unexpected": b"metadata"})
+    pq.write_table(table, parquet_path)
+
+    with pytest.raises(SourceLockError, match="Parquet schema drifted"):
+        audit_gnomad_parquet(
+            parquet_path,
+            chromosome="22",
+            expected_records=1,
+            min_af=0.01,
+            max_allele_len=16,
+        )
+
+
+def test_audit_gnomad_parquet_rejects_field_metadata_drift(tmp_path: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    parquet_path = _write_gnomad_parquet(
+        tmp_path / "variants.parquet",
+        [{"chrom": "22", "pos": 101, "ref": "A", "alt": "C", "af_global": 0.1}],
+    )
+    table = pq.read_table(parquet_path)
+    schema = table.schema.set(
+        0,
+        table.schema.field(0).with_metadata({b"unexpected": b"metadata"}),
+    )
+    pq.write_table(pa.Table.from_arrays(table.columns, schema=schema), parquet_path)
+
+    with pytest.raises(SourceLockError, match="Parquet schema drifted"):
+        audit_gnomad_parquet(
+            parquet_path,
+            chromosome="22",
+            expected_records=1,
+            min_af=0.01,
+            max_allele_len=16,
+        )
+
+
 def test_audit_gnomad_parquet_rejects_preparer_count_mismatch(tmp_path: Path) -> None:
     parquet_path = _write_gnomad_parquet(
         tmp_path / "variants.parquet",
