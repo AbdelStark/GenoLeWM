@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import geno_lewm.training.real as real_module
-from geno_lewm.action import EditSpec
+from geno_lewm.action import EditSpec, EditType
 from geno_lewm.config import load_config
 from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import (
@@ -35,6 +35,7 @@ from geno_lewm.training.real import (
     _next_batch,
     _repeat_training_items,
     _training_device,
+    _training_edit_contract,
     _validate_resume_checkpoint_payload,
     _write_checkpoint,
     _write_metrics,
@@ -201,6 +202,39 @@ def test_release_training_loader_prefers_placed_windows(tmp_path: Path) -> None:
     assert _dataset_fallback_sources(windows) == {"clinvar": "synthetic_snv"}
 
 
+def test_release_training_loader_uses_carbon_when_snapshot_has_no_placed_windows(
+    tmp_path: Path,
+) -> None:
+    carbon_path = tmp_path / "carbon" / "source-mix-windows.jsonl"
+    carbon_path.parent.mkdir(parents=True)
+    carbon_path.write_text(
+        json.dumps(
+            {
+                "record_id": "carbon-1",
+                "source": "eukaryotic_genes",
+                "sequence": "ACGT" * 64,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    windows = tuple(
+        _load_windows(
+            tmp_path,
+            ({"path": "carbon/source-mix-windows.jsonl"},),
+        )
+    )
+
+    assert len(windows) == 1
+    assert windows[0].record_id == "carbon-1"
+    assert windows[0].chrom is None
+    assert _dataset_fallback_sources(windows) == {
+        "gnomad_common": "synthetic_snv",
+        "clinvar": "synthetic_snv",
+    }
+
+
 def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
     windows = (
         WindowContext(
@@ -230,6 +264,54 @@ def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
 
     assert {item.source_window.record_id for item in first_epoch} == {"placed-1"}
     assert next_epoch[0].source_window.record_id == "placed-1"
+
+
+def test_snv_only_training_contract_filters_indels_and_preserves_eight_actions(
+    tmp_path: Path,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    window = WindowContext(
+        record_id="carbon-1",
+        source="eukaryotic_genes",
+        sequence="ACGT" * 64,
+    )
+    providers, mix = _training_edit_contract(
+        config,
+        gnomad_edits=(
+            EditSpec(chrom="1", pos=1, ref="A", alt="T"),
+            EditSpec(chrom="1", pos=2, ref="C", alt="CA"),
+        ),
+        clinvar_edits=(EditSpec(chrom="1", pos=3, ref="G", alt="A"),),
+    )
+
+    assert [(entry.source, entry.count) for entry in mix] == [
+        (SOURCE_GNOMAD_COMMON, 3),
+        (SOURCE_SYNTHETIC_SNV, 4),
+        (SOURCE_CLINVAR, 1),
+    ]
+    iterator = _repeat_training_items(
+        (window,),
+        providers,
+        seed=11,
+        fallback_sources=_dataset_fallback_sources((window,)),
+        mix=mix,
+    )
+    items = _next_batch(iterator, 8)
+
+    assert len(items) == 8
+    assert all(item.training_tuple.rel_edits[0].edit_type is EditType.SNV for item in items)
+
+
+def test_training_edit_contract_rejects_unimplemented_action_subset(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    unsupported = replace(config, action=replace(config.action, sub_encoders=("snv", "ins")))
+
+    with pytest.raises(InputError, match="does not support"):
+        _training_edit_contract(
+            unsupported,
+            gnomad_edits=(EditSpec(chrom="1", pos=1, ref="A", alt="T"),),
+            clinvar_edits=(),
+        )
 
 
 def test_repeat_training_items_rejects_empty_epoch() -> None:
@@ -306,13 +388,23 @@ def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime
         observed.append((model_dir, state_contract_version))
         return _ENCODER_WEIGHTS_HASH
 
-    def stop_after_identity(_config: object) -> str:
-        raise RuntimeError("runtime setup reached")
+    def stop_at_edit_contract(
+        observed_config: object,
+        *,
+        gnomad_edits: object,
+        clinvar_edits: object,
+    ) -> tuple[dict[str, object], tuple[object, ...]]:
+        assert observed_config is config
+        assert tuple(gnomad_edits) == (EditSpec(chrom="1", pos=1, ref="A", alt="T"),)
+        assert tuple(clinvar_edits) == ()
+        raise RuntimeError("edit contract reached")
 
     monkeypatch.setattr(real_module, "encoder_identity_hash", fake_encoder_identity_hash)
-    monkeypatch.setattr(real_module, "_training_device", stop_after_identity)
+    monkeypatch.setattr(real_module, "_training_device", lambda _config: "cpu")
+    monkeypatch.setattr(real_module, "configure_torch_reproducibility", lambda **_kwargs: object())
+    monkeypatch.setattr(real_module, "_training_edit_contract", stop_at_edit_contract)
 
-    with pytest.raises(RuntimeError, match="runtime setup reached"):
+    with pytest.raises(RuntimeError, match="edit contract reached"):
         real_module.run_carbon_training(
             config=config,
             dataset_dir=dataset_dir,
@@ -571,6 +663,8 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
     assert payload["config"]["encoder.effective_normalize"] is False
     assert payload["config"]["encoder.identity_hash"] == _ENCODER_WEIGHTS_HASH
     assert payload["config"]["encoder.state_layer"] == config.encoder.state_layer
+    assert payload["config"]["action.sub_encoders"] == list(config.action.sub_encoders)
+    assert payload["config"]["predictor.dtype"] == config.predictor.dtype
 
 
 def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dict[str, object]:
@@ -586,7 +680,9 @@ def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dic
             "deterministic": config.deterministic,
             "data.batch_size": config.data.batch_size,
             "predictor.d_state": config.predictor.d_state,
+            "predictor.dtype": config.predictor.dtype,
             "action.d_action": config.action.d_action,
+            "action.sub_encoders": list(config.action.sub_encoders),
             "encoder.normalize": config.encoder.normalize,
             "encoder.state_contract_version": config.encoder.state_contract_version,
             "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),

@@ -11,6 +11,7 @@ from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_file
 from tools.research.state_contract_audit import (
     build_state_contract_report,
+    validate_audit_window_bp,
     verify_encoder_runtime,
     verify_encoder_weights,
 )
@@ -47,6 +48,7 @@ def _report(
         resolved_center_token=1025,
         expected_center_token=1025,
         execution_device="cpu",
+        window_bp=12_288,
         state_layer=20,
         pool_radius=8,
         dtype="bf16",
@@ -66,6 +68,15 @@ def test_state_contract_audit_accepts_unit_norm_raw_view_parity() -> None:
     assert report["encoder"]["weights_identity_verified"] is True
     assert report["encoder"]["runtime_identity_verified"] is True
     assert report["encoder"]["parameters_frozen"] is True
+    assert report["encoder"]["window_bp"] == 12_288
+
+
+def test_state_contract_audit_accepts_all_runtime_window_widths() -> None:
+    for window_bp in (4096, 12288, 24576):
+        validate_audit_window_bp(window_bp)
+
+    with pytest.raises(InputError, match="window_bp is unsupported"):
+        validate_audit_window_bp(4098)
 
 
 def test_state_contract_audit_rejects_uninformative_or_mismatched_view() -> None:
@@ -120,6 +131,7 @@ def test_state_contract_audit_rejects_wrong_pooling_coordinate() -> None:
         resolved_center_token=1024,
         expected_center_token=1025,
         execution_device="cpu",
+        window_bp=12_288,
         state_layer=20,
         pool_radius=8,
         dtype="bf16",
