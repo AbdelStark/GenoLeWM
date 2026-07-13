@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,9 @@ CONTAINER_IMAGE = (
     "ghcr.io/astral-sh/uv@sha256:35b0aa516fbcf6f18624919cfc38fa02ab3458e0ffcd3c03e932051b37f315db"
 )
 CODE_COMMIT = "c" * 40
+CLINVAR_ARCHIVE_URL = (
+    "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/archive_2.0/2026/clinvar_20260415.vcf.gz"
+)
 REMOTE_NAMESPACE_FILES = (
     "data/gnomad/v4.1/variants.parquet",
     "evidence/gcs-metadata-verification.json",
@@ -166,11 +170,21 @@ def test_assembler_builds_deterministic_lineage_without_memberships(tmp_path: Pa
         "VUS": 13,
     }
     assert lineage["clinvar"]["output"]["records"] == 41
+    raw_clinvar_postflight = json.loads(
+        (tmp_path / "clinvar-postflight.json").read_text(encoding="utf-8")
+    )
     assert lineage["clinvar"]["remote_postflight"] == {
         "schema_version": CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
         "sha256": _spec["clinvar"]["postflight_sha256"],
         "size_bytes": (tmp_path / "clinvar-postflight.json").stat().st_size,
         "verified_files": list(CLINVAR_REMOTE_FILES),
+        "file_identities": {
+            path: {
+                "sha256": "sha256:" + raw_clinvar_postflight["file_identities"][path]["sha256"],
+                "size_bytes": raw_clinvar_postflight["file_identities"][path]["size_bytes"],
+            }
+            for path in CLINVAR_REMOTE_FILES
+        },
         "checks": list(CLINVAR_REMOTE_CHECKS),
         "parquet_audit": _clinvar_parquet_audit(),
     }
@@ -263,6 +277,10 @@ def test_checked_schemas_are_closed_and_membership_free() -> None:
     assert remote_postflight["properties"]["verified_files"]["const"] == list(
         REMOTE_NAMESPACE_FILES
     )
+    assert remote_postflight["properties"]["file_identities"]["$ref"] == (
+        "#/$defs/gnomadFileIdentities"
+    )
+    assert "file_identities" in remote_postflight["required"]
     assert remote_postflight["properties"]["checks"]["const"] == list(REMOTE_POSTFLIGHT_CHECKS)
     assert remote_postflight["properties"]["parquet_audit"]["$ref"] == (
         "#/$defs/gnomadParquetAudit"
@@ -283,6 +301,10 @@ def test_checked_schemas_are_closed_and_membership_free() -> None:
     assert clinvar_postflight["properties"]["verified_files"]["prefixItems"] == [
         {"const": path} for path in CLINVAR_REMOTE_FILES
     ]
+    assert clinvar_postflight["properties"]["file_identities"]["$ref"] == (
+        "#/$defs/clinvarFileIdentities"
+    )
+    assert "file_identities" in clinvar_postflight["required"]
     assert clinvar_postflight["properties"]["checks"]["prefixItems"] == [
         {"const": check} for check in CLINVAR_REMOTE_CHECKS
     ]
@@ -486,12 +508,12 @@ def test_directory_fsync_is_skipped_when_the_platform_has_no_directory_flag(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delattr("tools.data.v03_snapshot_lineage.os.O_DIRECTORY", raising=False)
+    monkeypatch.delattr("tools.data._immutable_json.os.O_DIRECTORY", raising=False)
 
     def unexpected_open(*_args: object, **_kwargs: object) -> int:
         raise AssertionError("directory open must be skipped without O_DIRECTORY")
 
-    monkeypatch.setattr("tools.data.v03_snapshot_lineage.os.open", unexpected_open)
+    monkeypatch.setattr("tools.data._immutable_json.os.open", unexpected_open)
 
     _fsync_directory(tmp_path)
 
@@ -1749,9 +1771,131 @@ def test_verified_lineage_capture_preserves_the_exact_single_read_bytes(tmp_path
     captured = capture_verified_snapshot_lineage(output_path)
 
     assert captured.payload == payload
-    assert captured.sha256 == "sha256:" + hashlib.sha256(payload).hexdigest()
+    assert captured.payload_sha256 == "sha256:" + hashlib.sha256(payload).hexdigest()
     assert captured.size_bytes == len(payload)
-    assert captured.lineage == expected
+    assert verify_snapshot_lineage(output_path) == expected
+
+
+def test_verified_lineage_capture_is_deeply_immutable(tmp_path: Path) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+        output_path=output_path,
+    )
+
+    captured = capture_verified_snapshot_lineage(output_path)
+    gnomad = captured.lineage["gnomad"]
+    assert isinstance(gnomad, Mapping)
+    shards = gnomad["shards"]
+    assert isinstance(shards, tuple)
+    first = shards[0]
+    assert isinstance(first, Mapping)
+
+    with pytest.raises(TypeError):
+        captured.lineage["membership_status"] = "created"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        first["chromosome"] = "22"  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        shards.append(first)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_verify_cli_rejects_nonfinite_json_constants_cleanly(
+    constant: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_path = tmp_path / "lineage.json"
+    output_path.write_text('{"value": ' + constant + "}\n", encoding="utf-8")
+
+    assert main(["verify", "--lineage-json", str(output_path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert f"non-finite JSON number is not allowed: {constant}" in captured.err
+
+
+def test_lineage_verifier_cross_checks_gnomad_output_against_postflight_identity(
+    tmp_path: Path,
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+    shard = lineage["gnomad"]["shards"][0]
+    assert shard["remote_postflight"]["file_identities"]["data/gnomad/v4.1/variants.parquet"] == {
+        "sha256": shard["output"]["sha256"],
+        "size_bytes": shard["output"]["size_bytes"],
+    }
+    shard["output"]["sha256"] = "sha256:" + "0" * 64
+    _recommit_lineage(lineage)
+    _write_json(output_path, lineage)
+
+    with pytest.raises(SnapshotLineageError, match="postflight Parquet identity drifted"):
+        verify_snapshot_lineage(output_path)
+
+
+def test_lineage_verifier_cross_checks_clinvar_output_and_audit_postflight_identities(
+    tmp_path: Path,
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+    identities = lineage["clinvar"]["remote_postflight"]["file_identities"]
+    assert identities["evidence/audit.json"] == {
+        "sha256": lineage["clinvar"]["audit"]["sha256"],
+        "size_bytes": lineage["clinvar"]["audit"]["size_bytes"],
+    }
+    assert identities["clinvar/2026-04-15/variants.parquet"] == {
+        "sha256": lineage["clinvar"]["output"]["sha256"],
+        "size_bytes": lineage["clinvar"]["output"]["size_bytes"],
+    }
+    lineage["clinvar"]["audit"]["sha256"] = "sha256:" + "0" * 64
+    _recommit_lineage(lineage)
+    _write_json(output_path, lineage)
+
+    with pytest.raises(SnapshotLineageError, match="postflight audit identity drifted"):
+        verify_snapshot_lineage(output_path)
+
+
+def test_lineage_verifier_requires_the_exact_clinvar_archive_url(tmp_path: Path) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+    assert lineage["clinvar"]["source"]["url"] == CLINVAR_ARCHIVE_URL
+    lineage["clinvar"]["source"]["url"] = (
+        "https://attacker.invalid/vcf_GRCh38/clinvar_20260415.vcf.gz"
+    )
+    _recommit_lineage(lineage)
+    _write_json(output_path, lineage)
+
+    with pytest.raises(SnapshotLineageError, match=r"ClinVar source\.url drifted"):
+        verify_snapshot_lineage(output_path)
+
+
+def test_lineage_verifier_requires_canonical_numeric_gnomad_shard_order(tmp_path: Path) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    output_path = tmp_path / "lineage.json"
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+    shards = lineage["gnomad"]["shards"]
+    shards[0], shards[1] = shards[1], shards[0]
+    _recommit_lineage(lineage)
+    _write_json(output_path, lineage)
+
+    with pytest.raises(SnapshotLineageError, match="canonical chromosome order"):
+        verify_snapshot_lineage(output_path)
 
 
 @pytest.mark.parametrize(
@@ -2410,3 +2554,9 @@ def _walk_json(value: object, field: str = "$") -> list[tuple[str, object]]:
 
 def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _recommit_lineage(lineage: dict[str, Any]) -> None:
+    commitment = dict(lineage)
+    del commitment["lineage_id"]
+    lineage["lineage_id"] = canonical_json_sha256(commitment)

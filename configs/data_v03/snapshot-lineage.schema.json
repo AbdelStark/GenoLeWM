@@ -41,6 +41,74 @@
       ],
       "type": "object"
     },
+    "clinvarFileIdentities": {
+      "additionalProperties": false,
+      "properties": {
+        "clinvar/2026-04-15/variants.parquet": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/audit.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/prepare_report.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/runtime_report.json": {
+          "$ref": "#/$defs/fileIdentity"
+        }
+      },
+      "required": [
+        "clinvar/2026-04-15/variants.parquet",
+        "evidence/audit.json",
+        "evidence/prepare_report.json",
+        "evidence/runtime_report.json"
+      ],
+      "type": "object"
+    },
+    "gnomadFileIdentities": {
+      "additionalProperties": false,
+      "properties": {
+        "data/gnomad/v4.1/variants.parquet": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/gcs-metadata-verification.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/gcs-object-metadata.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/prepare-report.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/receipt.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/selection.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/source-lock.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/source-lock.schema.json": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "evidence/source-stream-identity.json": {
+          "$ref": "#/$defs/fileIdentity"
+        }
+      },
+      "required": [
+        "data/gnomad/v4.1/variants.parquet",
+        "evidence/gcs-metadata-verification.json",
+        "evidence/gcs-object-metadata.json",
+        "evidence/prepare-report.json",
+        "evidence/receipt.json",
+        "evidence/selection.json",
+        "evidence/source-lock.json",
+        "evidence/source-lock.schema.json",
+        "evidence/source-stream-identity.json"
+      ],
+      "type": "object"
+    },
     "gnomadParquetAudit": {
       "additionalProperties": false,
       "properties": {
@@ -592,6 +660,9 @@
               "minItems": 9,
               "type": "array"
             },
+            "file_identities": {
+              "$ref": "#/$defs/clinvarFileIdentities"
+            },
             "parquet_audit": {
               "$ref": "#/$defs/clinvarParquetAudit"
             },
@@ -632,6 +703,7 @@
             "sha256",
             "size_bytes",
             "verified_files",
+            "file_identities",
             "checks",
             "parquet_audit"
           ],
@@ -1240,6 +1312,9 @@
                       "parquet_full_scan_recomputed"
                     ]
                   },
+                  "file_identities": {
+                    "$ref": "#/$defs/gnomadFileIdentities"
+                  },
                   "parquet_audit": {
                     "$ref": "#/$defs/gnomadParquetAudit"
                   },
@@ -1273,6 +1348,7 @@
                   "sha256",
                   "size_bytes",
                   "verified_files",
+                  "file_identities",
                   "checks",
                   "parquet_audit"
                 ],

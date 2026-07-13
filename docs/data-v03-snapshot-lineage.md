@@ -189,11 +189,14 @@ fields throughout the closed artifact, removes `lineage_id`, recomputes the
 canonical SHA-256 commitment, and compares it type-strictly with the recorded
 ID. It also requires `membership_status: not_created`, the exact conservative
 claim boundary, exactly one shard per autosome, the fixed chromosome-to-role
-policy, common source/transform/execution bindings, exact artifact paths,
+policy in canonical numeric order, common source/transform/execution bindings,
+the exact archived ClinVar URL, exact artifact paths,
 gnomAD record and byte totals, and the complete gnomAD and ClinVar postflight
-audit invariants. A recomputed ID cannot legitimize internally inconsistent
-records, balances, totals, or evidence identities. Success prints a
-machine-readable JSON summary and does not modify the lineage.
+audit invariants. The persisted remote file-identity maps are cross-checked
+against each gnomAD receipt and Parquet output and the ClinVar audit and Parquet
+output. A recomputed ID cannot legitimize internally inconsistent records,
+balances, totals, or evidence identities. Success prints a machine-readable
+JSON summary and does not modify the lineage.
 
 Python consumers that need to bind or persist the exact verified file must use
 the single-capture API and must not reopen the path after verification:
@@ -206,13 +209,15 @@ from tools.data.v03_snapshot_lineage import capture_verified_snapshot_lineage
 verified = capture_verified_snapshot_lineage(Path("snapshot-lineage.json"))
 lineage = verified.lineage
 exact_bytes = verified.payload
-exact_sha256 = verified.sha256
+exact_sha256 = verified.payload_sha256
 exact_size_bytes = verified.size_bytes
 ```
 
-The returned payload, SHA-256, size, and parsed mapping all come from the same
-read. This prevents a verifier/consumer path-replacement race and avoids
-reconstructing bytes from a parsed JSON value.
+The returned payload, SHA-256, size, and deeply immutable parsed mapping all
+come from the same read. Nested objects are read-only mappings and nested arrays
+are tuples. This prevents a verifier/consumer path-replacement race, prevents a
+consumer from mutating verified semantics away from the committed bytes, and
+avoids reconstructing bytes from a parsed JSON value.
 
 ## Upstream data-use boundary
 

@@ -13,18 +13,21 @@ import binascii
 import hashlib
 import json
 import math
-import os
 import re
-import stat
 import struct
 import sys
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
-from typing import Any, Final
+from types import MappingProxyType
+from typing import Any, Final, cast
 
 from geno_lewm.provenance import canonical_json_sha256
+from tools.data._immutable_json import (
+    ImmutableJsonError,
+    _fsync_directory as _immutable_fsync_directory,
+    write_immutable_json,
+)
 from tools.data.v03_clinvar_postflight import (
     REMOTE_POSTFLIGHT_SCHEMA_VERSION as CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
 )
@@ -106,6 +109,9 @@ _CLINVAR_SOURCE_SCOPE: Final = (
 _CLINVAR_SOURCE_LIMITATION: Final = (
     "The source archive is not included in the Hub namespace; its MD5 and URL are "
     "receipt fields, not bytes recomputed by this postflight."
+)
+_CLINVAR_ARCHIVE_URL: Final = (
+    "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/archive_2.0/2026/clinvar_20260415.vcf.gz"
 )
 _GNOMAD_POPULATION_COLUMNS: Final = frozenset(
     {
@@ -202,7 +208,7 @@ class VerifiedSnapshotLineage:
 
     payload: bytes
     lineage: Mapping[str, object]
-    sha256: str
+    payload_sha256: str
     size_bytes: int
 
 
@@ -294,8 +300,8 @@ def capture_verified_snapshot_lineage(path: Path) -> VerifiedSnapshotLineage:
     _verify_snapshot_lineage_value(lineage_capture.value)
     return VerifiedSnapshotLineage(
         payload=lineage_capture.payload,
-        lineage=lineage_capture.value,
-        sha256=lineage_capture.sha256,
+        lineage=cast(Mapping[str, object], _deep_freeze_json(lineage_capture.value)),
+        payload_sha256=lineage_capture.sha256,
         size_bytes=lineage_capture.size_bytes,
     )
 
@@ -307,7 +313,8 @@ def verify_snapshot_lineage(path: Path) -> dict[str, Any]:
     recomputes the content-addressed ``lineage_id`` and enforces the semantic
     no-membership and autosome split contracts.
     """
-    return dict(capture_verified_snapshot_lineage(path).lineage)
+    captured = capture_verified_snapshot_lineage(path)
+    return cast(dict[str, Any], _deep_thaw_json(captured.lineage))
 
 
 def _verify_snapshot_lineage_value(lineage: Mapping[str, object]) -> None:
@@ -383,6 +390,20 @@ def _verify_file_identity(value: object, field: str) -> Mapping[str, object]:
     _require_sha256(identity.get("sha256"), f"{field}.sha256")
     _require_positive_int(identity.get("size_bytes"), f"{field}.size_bytes")
     return identity
+
+
+def _verify_remote_file_identities(
+    value: object,
+    field: str,
+    *,
+    expected_paths: tuple[str, ...],
+) -> dict[str, Mapping[str, object]]:
+    identities = _require_mapping(value, field)
+    _require_exact_keys(identities, set(expected_paths), field)
+    return {
+        path: _verify_file_identity(identities.get(path), f"{field}[{path!r}]")
+        for path in expected_paths
+    }
 
 
 def _verify_artifact_identity(
@@ -545,6 +566,11 @@ def _verify_gnomad_lineage_shard(
         raise SnapshotLineageError(
             f"lineage gnomAD chromosome must be one of 1..22: {chromosome!r}"
         )
+    _require_equal(
+        chromosome,
+        str(index + 1),
+        f"gnomAD canonical chromosome order at index {index}",
+    )
     _require_equal(shard.get("split_role"), _split_role(chromosome), f"chr{chromosome} split_role")
     _require_commit(shard.get("revision"), f"chr{chromosome} revision")
     namespace = _require_namespace(shard.get("namespace"), f"chr{chromosome} namespace")
@@ -593,7 +619,7 @@ def _verify_gnomad_lineage_shard(
         f"chr{chromosome}-g{generation}-{commit_sha[:12]}"
     )
     _require_equal(namespace, expected_namespace, f"chr{chromosome} namespace identity")
-    _verify_artifact_identity(
+    receipt = _verify_artifact_identity(
         shard.get("receipt"),
         f"chr{chromosome} receipt",
         expected_path=f"{namespace}/evidence/receipt.json",
@@ -622,7 +648,15 @@ def _verify_gnomad_lineage_shard(
     )
     _require_exact_keys(
         postflight,
-        {"schema_version", "sha256", "size_bytes", "verified_files", "checks", "parquet_audit"},
+        {
+            "schema_version",
+            "sha256",
+            "size_bytes",
+            "verified_files",
+            "file_identities",
+            "checks",
+            "parquet_audit",
+        },
         f"chr{chromosome} remote_postflight",
     )
     _require_equal(
@@ -638,6 +672,21 @@ def _verify_gnomad_lineage_shard(
         ),
         list(_REMOTE_NAMESPACE_FILES),
         f"chr{chromosome} postflight verified files",
+    )
+    file_identities = _verify_remote_file_identities(
+        postflight.get("file_identities"),
+        f"chr{chromosome} postflight file_identities",
+        expected_paths=_REMOTE_NAMESPACE_FILES,
+    )
+    _require_equal(
+        file_identities["evidence/receipt.json"],
+        {"sha256": receipt.get("sha256"), "size_bytes": receipt.get("size_bytes")},
+        f"chr{chromosome} postflight receipt identity",
+    )
+    _require_equal(
+        file_identities["data/gnomad/v4.1/variants.parquet"],
+        {"sha256": output.get("sha256"), "size_bytes": output.get("size_bytes")},
+        f"chr{chromosome} postflight Parquet identity",
     )
     _require_equal(
         _require_exact_string_list(postflight.get("checks"), f"chr{chromosome} postflight checks"),
@@ -775,7 +824,7 @@ def _verify_clinvar_lineage(
         CLINVAR_REQUIRED_CLAIM_BOUNDARY,
         "ClinVar evidence_claim_boundary",
     )
-    _verify_artifact_identity(
+    audit_identity = _verify_artifact_identity(
         clinvar.get("audit"),
         "ClinVar audit",
         expected_path=f"{namespace}/evidence/audit.json",
@@ -784,8 +833,7 @@ def _verify_clinvar_lineage(
     source = _require_mapping(clinvar.get("source"), "ClinVar source")
     _require_exact_keys(source, {"url", "md5", "sha256", "size_bytes"}, "ClinVar source")
     source_url = _require_str(source.get("url"), "ClinVar source.url")
-    if "vcf_GRCh38" not in source_url or not source_url.endswith("clinvar_20260415.vcf.gz"):
-        raise SnapshotLineageError("ClinVar source URL must bind the archived GRCh38 release")
+    _require_equal(source_url, _CLINVAR_ARCHIVE_URL, "ClinVar source.url")
     source_md5 = _require_str(source.get("md5"), "ClinVar source.md5")
     if re.fullmatch(r"[0-9a-f]{32}", source_md5) is None:
         raise SnapshotLineageError("ClinVar source.md5 must be a lowercase MD5 digest")
@@ -822,7 +870,15 @@ def _verify_clinvar_lineage(
     postflight = _require_mapping(clinvar.get("remote_postflight"), "ClinVar remote_postflight")
     _require_exact_keys(
         postflight,
-        {"schema_version", "sha256", "size_bytes", "verified_files", "checks", "parquet_audit"},
+        {
+            "schema_version",
+            "sha256",
+            "size_bytes",
+            "verified_files",
+            "file_identities",
+            "checks",
+            "parquet_audit",
+        },
         "ClinVar remote_postflight",
     )
     _require_equal(
@@ -838,6 +894,24 @@ def _verify_clinvar_lineage(
         ),
         list(_CLINVAR_REMOTE_FILES),
         "ClinVar postflight verified files",
+    )
+    file_identities = _verify_remote_file_identities(
+        postflight.get("file_identities"),
+        "ClinVar postflight file_identities",
+        expected_paths=_CLINVAR_REMOTE_FILES,
+    )
+    _require_equal(
+        file_identities["evidence/audit.json"],
+        {
+            "sha256": audit_identity.get("sha256"),
+            "size_bytes": audit_identity.get("size_bytes"),
+        },
+        "ClinVar postflight audit identity",
+    )
+    _require_equal(
+        file_identities["clinvar/2026-04-15/variants.parquet"],
+        {"sha256": output.get("sha256"), "size_bytes": output.get("size_bytes")},
+        "ClinVar postflight Parquet identity",
     )
     _require_equal(
         _require_exact_string_list(postflight.get("checks"), "ClinVar postflight.checks"),
@@ -1281,7 +1355,7 @@ def _validate_remote_postflight(
         set(_REMOTE_NAMESPACE_FILES),
         f"chr{chromosome} postflight.file_identities",
     )
-    normalized_identities: dict[str, tuple[str, int]] = {}
+    normalized_identities: dict[str, dict[str, object]] = {}
     for relative_path in _REMOTE_NAMESPACE_FILES:
         identity = _require_mapping(
             file_identities.get(relative_path),
@@ -1292,33 +1366,34 @@ def _validate_remote_postflight(
             {"sha256", "size_bytes"},
             f"chr{chromosome} postflight.file_identities[{relative_path!r}]",
         )
-        normalized_identities[relative_path] = (
-            _require_bare_sha256(
+        normalized_identities[relative_path] = {
+            "sha256": "sha256:"
+            + _require_bare_sha256(
                 identity.get("sha256"),
                 f"chr{chromosome} postflight.file_identities[{relative_path!r}].sha256",
             ),
-            _require_positive_int(
+            "size_bytes": _require_positive_int(
                 identity.get("size_bytes"),
                 f"chr{chromosome} postflight.file_identities[{relative_path!r}].size_bytes",
             ),
-        )
+        }
 
     _require_equal(
         normalized_identities["evidence/receipt.json"],
-        (receipt_sha256.removeprefix("sha256:"), receipt_size_bytes),
+        {"sha256": receipt_sha256, "size_bytes": receipt_size_bytes},
         f"chr{chromosome} postflight receipt identity",
     )
     output = _require_mapping(shard.get("output"), f"chr{chromosome} lineage output")
     _require_equal(
         normalized_identities["data/gnomad/v4.1/variants.parquet"],
-        (
-            _require_sha256(
+        {
+            "sha256": _require_sha256(
                 output.get("sha256"), f"chr{chromosome} lineage output.sha256"
-            ).removeprefix("sha256:"),
-            _require_positive_int(
+            ),
+            "size_bytes": _require_positive_int(
                 output.get("size_bytes"), f"chr{chromosome} lineage output.size_bytes"
             ),
-        ),
+        },
         f"chr{chromosome} postflight Parquet identity",
     )
     receipt_output = _require_mapping(receipt.get("output"), f"chr{chromosome} receipt.output")
@@ -1343,6 +1418,7 @@ def _validate_remote_postflight(
         "sha256": postflight_sha256,
         "size_bytes": postflight_size_bytes,
         "verified_files": verified_files,
+        "file_identities": normalized_identities,
         "checks": checks,
         "parquet_audit": dict(parquet_audit),
     }
@@ -1421,8 +1497,7 @@ def _assemble_clinvar(*, spec: Mapping[str, object], spec_dir: Path) -> dict[str
     if re.fullmatch(r"[0-9a-f]{32}", source_md5) is None:
         raise SnapshotLineageError("ClinVar source.md5 must be a lowercase MD5 digest")
     source_url = _require_str(source.get("url"), "ClinVar source.url")
-    if "vcf_GRCh38" not in source_url or not source_url.endswith("clinvar_20260415.vcf.gz"):
-        raise SnapshotLineageError("ClinVar source URL must bind the archived GRCh38 release")
+    _require_equal(source_url, _CLINVAR_ARCHIVE_URL, "ClinVar source.url")
 
     output = _require_mapping(audit.get("output"), "ClinVar output")
     _require_exact_keys(
@@ -1610,7 +1685,7 @@ def _validate_clinvar_remote_postflight(
         set(_CLINVAR_REMOTE_FILES),
         "ClinVar postflight.file_identities",
     )
-    normalized_file_identities: dict[str, tuple[str, int]] = {}
+    normalized_file_identities: dict[str, dict[str, object]] = {}
     for relative_path in _CLINVAR_REMOTE_FILES:
         identity = _require_mapping(
             file_identities.get(relative_path),
@@ -1621,24 +1696,25 @@ def _validate_clinvar_remote_postflight(
             {"sha256", "size_bytes"},
             f"ClinVar postflight.file_identities[{relative_path!r}]",
         )
-        normalized_file_identities[relative_path] = (
-            _require_bare_sha256(
+        normalized_file_identities[relative_path] = {
+            "sha256": "sha256:"
+            + _require_bare_sha256(
                 identity.get("sha256"),
                 f"ClinVar postflight.file_identities[{relative_path!r}].sha256",
             ),
-            _require_positive_int(
+            "size_bytes": _require_positive_int(
                 identity.get("size_bytes"),
                 f"ClinVar postflight.file_identities[{relative_path!r}].size_bytes",
             ),
-        )
+        }
     _require_equal(
         normalized_file_identities["evidence/audit.json"],
-        (audit_sha256.removeprefix("sha256:"), audit_size_bytes),
+        {"sha256": audit_sha256, "size_bytes": audit_size_bytes},
         "ClinVar postflight audit identity",
     )
     _require_equal(
         normalized_file_identities["clinvar/2026-04-15/variants.parquet"],
-        (output_sha256.removeprefix("sha256:"), output_size),
+        {"sha256": output_sha256, "size_bytes": output_size},
         "ClinVar postflight Parquet identity",
     )
 
@@ -1713,6 +1789,7 @@ def _validate_clinvar_remote_postflight(
         "sha256": postflight_sha256,
         "size_bytes": postflight_size_bytes,
         "verified_files": verified_files,
+        "file_identities": normalized_file_identities,
         "checks": checks,
         "parquet_audit": dict(parquet_audit),
     }
@@ -1899,7 +1976,16 @@ def main(argv: list[str] | None = None) -> int:
 
 def _capture_json(path: Path, field: str) -> _CapturedJson:
     payload = path.read_bytes()
-    raw: object = json.loads(payload, object_pairs_hook=_reject_duplicate_pairs)
+    try:
+        raw: object = json.loads(
+            payload,
+            object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=_reject_nonfinite_json_constant,
+        )
+    except SnapshotLineageError:
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise SnapshotLineageError(f"{field} is not valid JSON: {exc}") from exc
     return _CapturedJson(
         payload=payload,
         value=_require_mapping(raw, field),
@@ -1915,6 +2001,26 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object
             raise SnapshotLineageError(f"duplicate JSON key is not allowed: {key}")
         payload[key] = value
     return payload
+
+
+def _reject_nonfinite_json_constant(constant: str) -> object:
+    raise SnapshotLineageError(f"non-finite JSON number is not allowed: {constant}")
+
+
+def _deep_freeze_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _deep_freeze_json(child) for key, child in value.items()})
+    if isinstance(value, list | tuple):
+        return tuple(_deep_freeze_json(child) for child in value)
+    return value
+
+
+def _deep_thaw_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _deep_thaw_json(child) for key, child in value.items()}
+    if isinstance(value, tuple | list):
+        return [_deep_thaw_json(child) for child in value]
+    return value
 
 
 def _resolve_bundle_file(root: Path, value: object, field: str) -> Path:
@@ -1943,86 +2049,19 @@ def _resolve_bundle_file(root: Path, value: object, field: str) -> Path:
 
 
 def _write_immutable_json(path: Path, payload: Mapping[str, object]) -> None:
-    encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_text = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=path.parent,
-    )
-    temporary = Path(temporary_text)
     try:
-        with os.fdopen(descriptor, "wb") as stream:
-            descriptor = -1
-            stream.write(encoded)
-            stream.flush()
-            os.fsync(stream.fileno())
-
-        while True:
-            try:
-                os.link(temporary, path)
-            except FileExistsError:
-                try:
-                    observed = _read_regular_file_without_following_symlinks(path)
-                except FileNotFoundError:
-                    continue
-                if observed != encoded:
-                    raise SnapshotLineageError(
-                        f"refusing to replace different lineage bytes at immutable output: {path}"
-                    ) from None
-                return
-            _fsync_directory(path.parent)
-            return
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
-        else:
-            _fsync_directory(path.parent)
-
-
-def _read_regular_file_without_following_symlinks(path: Path) -> bytes:
-    metadata = path.lstat()
-    if not stat.S_ISREG(metadata.st_mode):
-        raise SnapshotLineageError(f"lineage output is a symlink or non-regular file: {path}")
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_NONBLOCK", 0)
-    )
-    descriptor = os.open(path, flags)
-    try:
-        opened = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(opened.st_mode)
-            or opened.st_dev != metadata.st_dev
-            or opened.st_ino != metadata.st_ino
-        ):
-            raise SnapshotLineageError(
-                f"lineage output is a replaced, symlink, or non-regular file: {path}"
-            )
-        chunks: list[bytes] = []
-        while chunk := os.read(descriptor, 1 << 20):
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        os.close(descriptor)
+        write_immutable_json(path, payload)
+    except ImmutableJsonError as exc:
+        message = str(exc).replace(
+            "different bytes at immutable output",
+            "different lineage bytes at immutable output",
+        )
+        message = message.replace("immutable output is", "lineage output is")
+        raise SnapshotLineageError(message) from exc
 
 
 def _fsync_directory(path: Path) -> None:
-    directory_flag = getattr(os, "O_DIRECTORY", None)
-    if directory_flag is None:
-        return
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | directory_flag
-    descriptor = os.open(path, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    _immutable_fsync_directory(path)
 
 
 def _split_role(chromosome: str) -> str:
