@@ -268,6 +268,50 @@ def test_remote_postflight_rejects_bool_int_equality_aliases(
     assert not output.exists()
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "needle", "duplicate_key"),
+    [
+        ("evidence/source-stream-identity.json", '"ok": true', "ok"),
+        (
+            "evidence/selection.json",
+            '"schema_version": "geno-lewm.gnomad-stage-selection.v1"',
+            "schema_version",
+        ),
+        (
+            "evidence/source-lock.json",
+            '"schema_version": "geno-lewm.gnomad-source-lock.v1"',
+            "schema_version",
+        ),
+    ],
+    ids=["source-identity-ok", "selection-schema-version", "source-lock-schema-version"],
+)
+def test_remote_postflight_rejects_duplicate_json_keys(
+    relative_path: str,
+    needle: str,
+    duplicate_key: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    evidence_path = fixture.root / fixture.namespace / relative_path
+    payload = evidence_path.read_text(encoding="utf-8")
+    assert payload.count(needle) == 1
+    evidence_path.write_text(
+        payload.replace(needle, f'{needle},\n  "{duplicate_key}": null', 1),
+        encoding="utf-8",
+    )
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+
+    result = main(_postflight_args(fixture, output=output))
+
+    assert result == 2
+    assert f"duplicate JSON key {duplicate_key!r}" in capsys.readouterr().err
+    assert not output.exists()
+
+
 def test_remote_postflight_rejects_expected_source_commit_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

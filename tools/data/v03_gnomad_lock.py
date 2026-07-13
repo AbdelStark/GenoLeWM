@@ -22,6 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,20 @@ _HF_UPLOAD_MAX_ATTEMPTS = 12
 _HF_PARENT_CONFLICT_STATUS = 412
 _HF_PARENT_CONFLICT_MESSAGE = "A commit has happened since. Please refresh and try again."
 _AUTOSOMES = frozenset(str(chromosome) for chromosome in range(1, 23))
+
+
+@dataclass(frozen=True, slots=True)
+class SourceLockSnapshot:
+    """One byte-captured source lock and its referenced checked schema."""
+
+    lock_path: Path
+    lock_bytes: bytes
+    lock: Mapping[str, object]
+    schema_path: Path
+    schema_bytes: bytes
+    schema: Mapping[str, object]
+
+
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 _CONTAINER_IMAGE = re.compile(r"[^@]+@sha256:[0-9a-f]{64}")
 _SAFE_HF_NAMESPACE = re.compile(r"[A-Za-z0-9._/-]+")
@@ -209,7 +224,7 @@ def verify_remote_gnomad_namespace(
         expected_source_commit,
         path=_SOURCE_LOCK_SCHEMA_REPO_PATH,
     )
-    trusted_lock = _require_mapping(json.loads(trusted_lock_bytes), "trusted source lock")
+    trusted_lock = _decode_json_mapping(trusted_lock_bytes, "trusted source lock")
     _validate_lock(trusted_lock)
     trusted_namespace = _locked_namespace(
         trusted_lock,
@@ -906,7 +921,7 @@ def _validate_remote_receipt(
         _require_equal(receipt[field], selection[field], f"receipt.{field}")
 
     selection_source = _require_mapping(selection["source"], "selection.source")
-    source_identity = _require_mapping(json.loads(source_identity_bytes), "remote source identity")
+    source_identity = _decode_json_mapping(source_identity_bytes, "remote source identity")
     expected_receipt_source = {
         "chromosome": selection_source["chromosome"],
         "split_role": selection_source["split_role"],
@@ -938,7 +953,7 @@ def _validate_remote_receipt(
     _require_equal(receipt_transform["filters"], expected_filters, "receipt.transform.filters")
     _require_equal(receipt_transform["runtime"], runtime, "receipt.transform.runtime")
     _require_equal(receipt_transform["counts"], dict(counts), "receipt.transform.counts")
-    prepare_report = _require_mapping(json.loads(prepare_report_bytes), "remote prepare report")
+    prepare_report = _decode_json_mapping(prepare_report_bytes, "remote prepare report")
     expected_argv = [
         "uv",
         "run",
@@ -1016,10 +1031,8 @@ def _require_trusted_blob(observed: bytes, expected: bytes, field: str) -> None:
 def verify_gcs_metadata(selection_path: Path, metadata_path: Path) -> dict[str, object]:
     """Verify generation, size, and upstream MD5 returned by the GCS JSON API."""
     selection_bytes = selection_path.read_bytes()
-    selection_raw: object = json.loads(selection_bytes)
-    metadata_raw: object = json.loads(metadata_path.read_bytes())
-    selection = _require_mapping(selection_raw, "selection")
-    metadata = _require_mapping(metadata_raw, "GCS metadata")
+    selection = _decode_json_mapping(selection_bytes, "selection")
+    metadata = _decode_json_mapping(metadata_path.read_bytes(), "GCS metadata")
     _require_equal(
         selection.get("schema_version"), SELECTION_SCHEMA_VERSION, "selection.schema_version"
     )
@@ -1053,8 +1066,7 @@ def verify_gcs_metadata(selection_path: Path, metadata_path: Path) -> dict[str, 
 def hash_source(selection_path: Path, input_vcf: Path) -> dict[str, object]:
     """Hash downloaded source bytes once and reject size or upstream-MD5 drift."""
     selection_bytes = selection_path.read_bytes()
-    selection_raw: object = json.loads(selection_bytes)
-    selection = _require_mapping(selection_raw, "selection")
+    selection = _decode_json_mapping(selection_bytes, "selection")
     _require_equal(
         selection.get("schema_version"), SELECTION_SCHEMA_VERSION, "selection.schema_version"
     )
@@ -1689,15 +1701,43 @@ def select_source(
     container_image: str,
 ) -> dict[str, object]:
     """Return one verified lock entry plus deterministic runtime/publication fields."""
+    return select_source_from_snapshot(
+        capture_source_lock(lock_path),
+        chromosome=chromosome,
+        commit_sha=commit_sha,
+        container_image=container_image,
+    )
+
+
+def capture_source_lock(lock_path: Path) -> SourceLockSnapshot:
+    """Capture a source lock and its referenced schema exactly once."""
     lock_bytes = lock_path.read_bytes()
-    raw: object = json.loads(lock_bytes)
-    lock = _require_mapping(raw, "source lock")
-    _validate_lock(lock)
+    lock = _decode_json_mapping(lock_bytes, "source lock")
     schema_reference = _require_str(lock["$schema"], "$schema")
     schema_path = lock_path.parent / schema_reference.removeprefix("./")
     schema_bytes = schema_path.read_bytes()
-    schema_raw: object = json.loads(schema_bytes)
-    schema = _require_mapping(schema_raw, "source lock schema")
+    schema = _decode_json_mapping(schema_bytes, "source lock schema")
+    return SourceLockSnapshot(
+        lock_path=lock_path,
+        lock_bytes=lock_bytes,
+        lock=lock,
+        schema_path=schema_path,
+        schema_bytes=schema_bytes,
+        schema=schema,
+    )
+
+
+def select_source_from_snapshot(
+    snapshot: SourceLockSnapshot,
+    *,
+    chromosome: str,
+    commit_sha: str,
+    container_image: str,
+) -> dict[str, object]:
+    """Select one source using only an already-captured lock snapshot."""
+    lock = snapshot.lock
+    schema = snapshot.schema
+    _validate_lock(lock)
     _require_equal(
         schema.get("$schema"),
         "https://json-schema.org/draft/2020-12/schema",
@@ -1732,19 +1772,19 @@ def select_source(
     encoded_object = urllib.parse.quote(object_name, safe="")
     metadata_api = _require_str(source_config["metadata_api"], "source.metadata_api")
     media_api = _require_str(source_config["media_api"], "source.media_api")
-    lock_sha256 = hashlib.sha256(lock_bytes).hexdigest()
+    lock_sha256 = hashlib.sha256(snapshot.lock_bytes).hexdigest()
     namespace_root = _require_str(job["namespace_root"], "job.namespace_root")
     md5_base64 = _require_str(selected["md5_base64"], "objects[].md5_base64")
 
     return {
         "schema_version": SELECTION_SCHEMA_VERSION,
         "source_lock": {
-            "path": lock_path.as_posix(),
+            "path": snapshot.lock_path.as_posix(),
             "sha256": lock_sha256,
             "schema_version": LOCK_SCHEMA_VERSION,
             "schema": {
-                "path": schema_path.as_posix(),
-                "sha256": hashlib.sha256(schema_bytes).hexdigest(),
+                "path": snapshot.schema_path.as_posix(),
+                "sha256": hashlib.sha256(snapshot.schema_bytes).hexdigest(),
                 "draft": "https://json-schema.org/draft/2020-12/schema",
             },
         },
@@ -2036,8 +2076,21 @@ def _json_equal(observed: object, expected: object) -> bool:
 
 def _read_json_mapping(path: Path, field: str) -> tuple[bytes, Mapping[str, object]]:
     payload_bytes = path.read_bytes()
-    raw: object = json.loads(payload_bytes)
-    return payload_bytes, _require_mapping(raw, field)
+    return payload_bytes, _decode_json_mapping(payload_bytes, field)
+
+
+def _decode_json_mapping(payload: bytes, field: str) -> Mapping[str, object]:
+    raw = json.loads(payload, object_pairs_hook=_reject_duplicate_pairs)
+    return _require_mapping(raw, field)
+
+
+def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise SourceLockError(f"duplicate JSON key {key!r}")
+        value[key] = item
+    return value
 
 
 def _file_identity(path: Path) -> dict[str, object]:

@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from tools.data.v03_clinvar_postflight import (
@@ -272,6 +274,63 @@ def test_checked_schemas_are_closed_and_membership_free() -> None:
     )
 
 
+def test_draft_2020_12_schemas_validate_real_artifacts_and_exact_arrays(
+    tmp_path: Path,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+    spec_schema = json.loads(SPEC_SCHEMA.read_text(encoding="utf-8"))
+    lineage_schema = json.loads(LINEAGE_SCHEMA.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(spec_schema)
+    Draft202012Validator.check_schema(lineage_schema)
+    assert not list(Draft202012Validator(spec_schema).iter_errors(spec))
+    validator = Draft202012Validator(lineage_schema)
+    assert not list(validator.iter_errors(lineage))
+
+    for path in (
+        ("clinvar", "remote_postflight", "checks"),
+        ("clinvar", "remote_postflight", "verified_files"),
+        ("clinvar", "remote_postflight", "parquet_audit", "schema"),
+    ):
+        invalid = copy.deepcopy(lineage)
+        target: Any = invalid
+        for component in path[:-1]:
+            target = target[component]
+        target[path[-1]] = []
+        assert list(validator.iter_errors(invalid)), path
+
+    for field, value in _walk_json(lineage_schema):
+        if isinstance(value, dict) and "prefixItems" in value:
+            expected = len(value["prefixItems"])
+            assert value.get("minItems") == expected, field
+            assert value.get("maxItems") == expected, field
+
+
+@pytest.mark.parametrize(
+    "unsafe_path",
+    ["../outside.json", "/tmp/outside.json", r"C:\outside.json", r"..\outside.json", "x.bin"],
+    ids=["parent", "absolute", "windows-drive", "backslash-parent", "wrong-extension"],
+)
+def test_spec_schema_and_runtime_reject_unsafe_json_paths(
+    unsafe_path: str,
+    tmp_path: Path,
+) -> None:
+    spec_path, spec = _write_evidence_bundle(tmp_path)
+    spec["gnomad"]["shards"][0]["receipt_file"] = unsafe_path
+    _write_json(spec_path, spec)
+    schema = json.loads(SPEC_SCHEMA.read_text(encoding="utf-8"))
+
+    assert list(Draft202012Validator(schema).iter_errors(spec))
+    with pytest.raises(SnapshotLineageError, match=r"relative in-bundle JSON path"):
+        assemble_snapshot_lineage(
+            spec_path=spec_path,
+            gnomad_source_lock_path=SOURCE_LOCK,
+        )
+
+
 def test_assembler_rejects_unknown_nested_receipt_fields(tmp_path: Path) -> None:
     spec_path, spec = _write_evidence_bundle(tmp_path)
     receipt_path = tmp_path / "receipts" / "chr1.json"
@@ -367,6 +426,144 @@ def test_assembler_rejects_receipt_byte_tampering(tmp_path: Path) -> None:
             spec_path=spec_path,
             gnomad_source_lock_path=SOURCE_LOCK,
         )
+
+
+def test_assembler_keeps_source_lock_bound_to_its_first_captured_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    copied_lock = tmp_path / SOURCE_LOCK.name
+    copied_schema = tmp_path / "gnomad-v4.1-exomes-autosomes.source-lock.schema.json"
+    original_lock_bytes = SOURCE_LOCK.read_bytes()
+    copied_lock.write_bytes(original_lock_bytes)
+    copied_schema.write_bytes(
+        Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json").read_bytes()
+    )
+    drifted_lock = json.loads(original_lock_bytes)
+    drifted_lock["job"]["namespace_root"] = "staging/v0.3/replaced-after-capture"
+    drifted_lock_bytes = (json.dumps(drifted_lock, indent=2, sort_keys=True) + "\n").encode()
+    original_read_bytes = Path.read_bytes
+    replaced = False
+
+    def _read_then_replace(path: Path) -> bytes:
+        nonlocal replaced
+        payload = original_read_bytes(path)
+        if path.resolve() == copied_lock.resolve() and not replaced:
+            replaced = True
+            copied_lock.write_bytes(drifted_lock_bytes)
+        return payload
+
+    monkeypatch.setattr(Path, "read_bytes", _read_then_replace)
+
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=copied_lock,
+    )
+
+    assert replaced is True
+    assert lineage["gnomad"]["source_lock"]["sha256"] == (
+        "sha256:" + hashlib.sha256(original_lock_bytes).hexdigest()
+    )
+
+
+def test_assembler_keeps_receipt_semantics_bound_to_hashed_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    receipt_path = tmp_path / "receipts/chr1.json"
+    original = json.loads(receipt_path.read_text(encoding="utf-8"))
+    original_streamed_sha256 = original["source"]["streamed_sha256"]
+    replacement = json.loads(receipt_path.read_text(encoding="utf-8"))
+    replacement["source"]["streamed_sha256"] = "9" * 64
+    state = _replace_after_first_binary_read(
+        monkeypatch,
+        target=receipt_path,
+        replacement=replacement,
+    )
+
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+
+    assert state["replaced"] is True
+    assert lineage["gnomad"]["shards"][0]["source"]["streamed_sha256"] == (
+        "sha256:" + original_streamed_sha256
+    )
+
+
+def test_assembler_keeps_gnomad_postflight_semantics_bound_to_hashed_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    postflight_path = tmp_path / "postflights/chr1.json"
+    replacement = json.loads(postflight_path.read_text(encoding="utf-8"))
+    replacement["checks"] = replacement["checks"][:-1]
+    state = _replace_after_first_binary_read(
+        monkeypatch,
+        target=postflight_path,
+        replacement=replacement,
+    )
+
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+
+    assert state["replaced"] is True
+    assert lineage["gnomad"]["shards"][0]["remote_postflight"]["checks"] == list(
+        REMOTE_POSTFLIGHT_CHECKS
+    )
+
+
+def test_assembler_keeps_clinvar_audit_semantics_bound_to_hashed_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    audit_path = tmp_path / "clinvar-audit.json"
+    original = json.loads(audit_path.read_text(encoding="utf-8"))
+    replacement = json.loads(audit_path.read_text(encoding="utf-8"))
+    replacement["source"]["sha256"] = "sha256:" + "9" * 64
+    state = _replace_after_first_binary_read(
+        monkeypatch,
+        target=audit_path,
+        replacement=replacement,
+    )
+
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+
+    assert state["replaced"] is True
+    assert lineage["clinvar"]["source"]["sha256"] == original["source"]["sha256"]
+
+
+def test_assembler_keeps_clinvar_postflight_semantics_bound_to_hashed_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec_path, _spec = _write_evidence_bundle(tmp_path)
+    postflight_path = tmp_path / "clinvar-postflight.json"
+    replacement = json.loads(postflight_path.read_text(encoding="utf-8"))
+    replacement["checks"] = replacement["checks"][:-1]
+    state = _replace_after_first_binary_read(
+        monkeypatch,
+        target=postflight_path,
+        replacement=replacement,
+    )
+
+    lineage = assemble_snapshot_lineage(
+        spec_path=spec_path,
+        gnomad_source_lock_path=SOURCE_LOCK,
+    )
+
+    assert state["replaced"] is True
+    assert lineage["clinvar"]["remote_postflight"]["checks"] == list(CLINVAR_REMOTE_CHECKS)
 
 
 def test_assembler_requires_per_shard_postflight_binding(tmp_path: Path) -> None:
@@ -531,7 +728,7 @@ def test_assembler_keeps_clinvar_postflight_inside_bundle(tmp_path: Path) -> Non
     spec["clinvar"]["postflight_file"] = "../outside-postflight.json"
     _write_json(spec_path, spec)
 
-    with pytest.raises(SnapshotLineageError, match=r"must be a relative in-bundle path"):
+    with pytest.raises(SnapshotLineageError, match=r"relative in-bundle JSON path"):
         assemble_snapshot_lineage(
             spec_path=spec_path,
             gnomad_source_lock_path=SOURCE_LOCK,
@@ -1774,6 +1971,53 @@ def _clinvar_parquet_audit() -> dict[str, object]:
         "clinvar_id_range": {"min": 1, "max": 9_999_999},
         "schema": _clinvar_parquet_schema(),
     }
+
+
+def _replace_after_first_binary_read(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    target: Path,
+    replacement: object,
+) -> dict[str, bool]:
+    replacement_path = target.with_name(target.name + ".replacement")
+    _write_json(replacement_path, replacement)
+    original_open = Path.open
+    state = {"wrapped": False, "replaced": False}
+
+    class _ReplaceOnExit:
+        def __init__(self, stream: Any) -> None:
+            self._stream = stream
+
+        def __enter__(self) -> Any:
+            return self._stream.__enter__()
+
+        def __exit__(self, *args: object) -> object:
+            result = self._stream.__exit__(*args)
+            replacement_path.replace(target)
+            state["replaced"] = True
+            return result
+
+    def _open(path: Path, *args: object, **kwargs: object) -> Any:
+        stream = original_open(path, *args, **kwargs)
+        mode = str(args[0]) if args else str(kwargs.get("mode", "r"))
+        if path.resolve() == target.resolve() and mode == "rb" and not state["wrapped"]:
+            state["wrapped"] = True
+            return _ReplaceOnExit(stream)
+        return stream
+
+    monkeypatch.setattr(Path, "open", _open)
+    return state
+
+
+def _walk_json(value: object, field: str = "$") -> list[tuple[str, object]]:
+    rows = [(field, value)]
+    if isinstance(value, dict):
+        for key, child in value.items():
+            rows.extend(_walk_json(child, f"{field}.{key}"))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            rows.extend(_walk_json(child, f"{field}[{index}]"))
+    return rows
 
 
 def _write_json(path: Path, payload: object) -> None:

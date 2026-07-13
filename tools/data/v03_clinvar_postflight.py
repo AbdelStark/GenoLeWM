@@ -16,10 +16,12 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import BinaryIO
 
 REMOTE_POSTFLIGHT_SCHEMA_VERSION = "geno-lewm.clinvar-remote-postflight.v1"
 _HASH_CHUNK_SIZE = 1 << 20
@@ -54,6 +56,21 @@ class _SourceContract:
     output_path_template: str
     prepare_report_enrichments: tuple[str, ...]
     file_identity_fields: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _CapturedJson:
+    payload: bytes
+    value: Mapping[str, object]
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class _BinarySnapshot:
+    stream: BinaryIO
+    sha256: str
+    size_bytes: int
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -580,13 +597,12 @@ def _audit_bundle(
 ) -> dict[str, object]:
     parquet_relative = f"clinvar/{release}/variants.parquet"
     parquet_path = paths[parquet_relative]
-    _audit_bytes, audit = _read_json_mapping(paths["evidence/audit.json"], "remote audit")
-    _prepare_bytes, prepare = _read_json_mapping(
-        paths["evidence/prepare_report.json"], "remote prepare report"
-    )
-    _runtime_bytes, runtime = _read_json_mapping(
-        paths["evidence/runtime_report.json"], "remote runtime report"
-    )
+    audit_capture = _capture_json(paths["evidence/audit.json"], "remote audit")
+    prepare_capture = _capture_json(paths["evidence/prepare_report.json"], "remote prepare report")
+    runtime_capture = _capture_json(paths["evidence/runtime_report.json"], "remote runtime report")
+    audit = audit_capture.value
+    prepare = prepare_capture.value
+    runtime = runtime_capture.value
     _validate_audit_header(
         audit,
         source_commit=source_commit,
@@ -601,26 +617,34 @@ def _audit_bundle(
         source_contract=source_contract,
     )
     _validate_runtime(audit, runtime=runtime, prepare=prepare, source_contract=source_contract)
-    output_identity, expected_class_balance = _validate_output_evidence(
-        audit,
-        prepare=prepare,
-        parquet_path=parquet_path,
-        release=release,
-        source_contract=source_contract,
-    )
-    parquet_audit = audit_clinvar_parquet(
-        parquet_path,
-        source_contract=source_contract,
-        expected_records=_require_int(output_identity["records"], "output.records"),
-        expected_class_balance=expected_class_balance,
-    )
-    file_identities = {
-        relative_path: {
-            "sha256": _file_sha256(path),
-            "size_bytes": path.stat().st_size,
+    with _private_binary_snapshot(parquet_path) as parquet_snapshot:
+        output_identity, expected_class_balance = _validate_output_evidence(
+            audit,
+            prepare=prepare,
+            parquet_sha256=parquet_snapshot.sha256,
+            parquet_size_bytes=parquet_snapshot.size_bytes,
+            release=release,
+            source_contract=source_contract,
+        )
+        parquet_audit = _audit_clinvar_parquet_stream(
+            parquet_snapshot.stream,
+            source_contract=source_contract,
+            expected_records=_require_int(output_identity["records"], "output.records"),
+            expected_class_balance=expected_class_balance,
+        )
+        captures: dict[str, _CapturedJson | _BinarySnapshot] = {
+            parquet_relative: parquet_snapshot,
+            "evidence/audit.json": audit_capture,
+            "evidence/prepare_report.json": prepare_capture,
+            "evidence/runtime_report.json": runtime_capture,
         }
-        for relative_path, path in sorted(paths.items())
-    }
+        file_identities = {
+            relative_path: {
+                "sha256": capture.sha256,
+                "size_bytes": capture.size_bytes,
+            }
+            for relative_path, capture in sorted(captures.items())
+        }
     source_contract_files = {
         path: {"sha256": hashlib.sha256(payload).hexdigest(), "size_bytes": len(payload)}
         for path, payload in sorted(source_blobs.items())
@@ -906,7 +930,8 @@ def _validate_output_evidence(
     audit: Mapping[str, object],
     *,
     prepare: Mapping[str, object],
-    parquet_path: Path,
+    parquet_sha256: str,
+    parquet_size_bytes: int,
     release: str,
     source_contract: _SourceContract,
 ) -> tuple[dict[str, object], dict[str, int]]:
@@ -933,8 +958,8 @@ def _validate_output_evidence(
     _require_equal(prepare["output_sha256"], f"sha256:{digest}", "prepare output_sha256")
     _require_equal(prepare["size_bytes"], size_bytes, "prepare size_bytes")
     _require_equal(prepare["records_written"], records, "prepare records_written")
-    _require_equal(_file_sha256(parquet_path), digest, "Parquet SHA-256")
-    _require_equal(parquet_path.stat().st_size, size_bytes, "Parquet size_bytes")
+    _require_equal(parquet_sha256, digest, "Parquet SHA-256")
+    _require_equal(parquet_size_bytes, size_bytes, "Parquet size_bytes")
     raw_balance = _require_mapping(output["class_balance"], "audit.output.class_balance")
     expected_labels = set(source_contract.normalized_classes)
     if not set(raw_balance) <= expected_labels or not raw_balance:
@@ -965,6 +990,23 @@ def audit_clinvar_parquet(
     expected_class_balance: Mapping[str, int],
 ) -> dict[str, object]:
     """Full-scan one ClinVar shard against schema derived from source commit bytes."""
+    with _private_binary_snapshot(path) as snapshot:
+        return _audit_clinvar_parquet_stream(
+            snapshot.stream,
+            source_contract=source_contract,
+            expected_records=expected_records,
+            expected_class_balance=expected_class_balance,
+        )
+
+
+def _audit_clinvar_parquet_stream(
+    stream: BinaryIO,
+    *,
+    source_contract: _SourceContract,
+    expected_records: int,
+    expected_class_balance: Mapping[str, int],
+) -> dict[str, object]:
+    """Full-scan one already captured ClinVar Parquet byte sequence."""
     try:
         pa = importlib.import_module("pyarrow")
         pq = importlib.import_module("pyarrow.parquet")
@@ -976,7 +1018,8 @@ def audit_clinvar_parquet(
     expected_schema = pa.schema(
         [(name, type_factories[kind]()) for name, kind in source_contract.parquet_schema]
     )
-    parquet = pq.ParquetFile(path)
+    stream.seek(0)
+    parquet = pq.ParquetFile(stream)
     if parquet.schema_arrow != expected_schema:
         raise ClinvarPostflightError(
             f"ClinVar Parquet schema drifted: expected {expected_schema}, "
@@ -1100,17 +1143,46 @@ def audit_clinvar_parquet(
     }
 
 
-def _read_json_mapping(path: Path, field: str) -> tuple[bytes, Mapping[str, object]]:
+def _capture_json(path: Path, field: str) -> _CapturedJson:
     payload = path.read_bytes()
-    return payload, _require_mapping(json.loads(payload), field)
+    return _CapturedJson(
+        payload=payload,
+        value=_decode_json_mapping(payload, field),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+    )
 
 
-def _file_sha256(path: Path) -> str:
+def _decode_json_mapping(payload: bytes, field: str) -> Mapping[str, object]:
+    raw = json.loads(payload, object_pairs_hook=_reject_duplicate_pairs)
+    return _require_mapping(raw, field)
+
+
+def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ClinvarPostflightError(f"duplicate JSON key {key!r}")
+        value[key] = item
+    return value
+
+
+@contextmanager
+def _private_binary_snapshot(path: Path) -> Iterator[_BinarySnapshot]:
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(_HASH_CHUNK_SIZE), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    size_bytes = 0
+    with tempfile.TemporaryFile(mode="w+b") as snapshot:
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(_HASH_CHUNK_SIZE), b""):
+                digest.update(chunk)
+                size_bytes += len(chunk)
+                snapshot.write(chunk)
+        snapshot.seek(0)
+        yield _BinarySnapshot(
+            stream=snapshot,
+            sha256=digest.hexdigest(),
+            size_bytes=size_bytes,
+        )
 
 
 def _require_mapping(value: object, field: str) -> Mapping[str, object]:

@@ -16,6 +16,8 @@
         { "const": "parquet_schema_derived_from_source_commit" },
         { "const": "parquet_full_scan_recomputed" }
       ],
+      "maxItems": 9,
+      "minItems": 9,
       "type": "array"
     },
     "claim_boundary": {
@@ -168,6 +170,8 @@
             { "const": "sha256_reconciled" },
             { "const": "size_bytes_reconciled" }
           ],
+          "maxItems": 3,
+          "minItems": 3,
           "type": "array"
         }
       },
@@ -200,6 +204,8 @@
             { "const": "sha256" },
             { "const": "size_bytes" }
           ],
+          "maxItems": 3,
+          "minItems": 3,
           "type": "array"
         },
         "files": {
@@ -235,6 +241,8 @@
         },
         "nullable_fields": {
           "items": false,
+          "maxItems": 1,
+          "minItems": 1,
           "prefixItems": [{ "const": "gene_symbol" }],
           "type": "array"
         },
@@ -248,6 +256,8 @@
             { "const": "output_parquet" },
             { "const": "runtime" }
           ],
+          "maxItems": 4,
+          "minItems": 4,
           "type": "array"
         },
         "schema_version": { "const": "1.0.0" }
@@ -279,6 +289,8 @@
         { "const": "evidence/prepare_report.json" },
         { "const": "evidence/runtime_report.json" }
       ],
+      "maxItems": 4,
+      "minItems": 4,
       "type": "array"
     }
   },

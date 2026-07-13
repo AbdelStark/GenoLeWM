@@ -91,6 +91,7 @@ dev = [
     "pytest-xdist>=3.6",
     "pytest-benchmark>=4",
     "hypothesis>=6.100",
+    "jsonschema>=4",
     # PyArrow 25 dropped the typed-package marker consumed by strict mypy CI.
     "pyarrow>=15,<25",
     "ruff>=0.5",

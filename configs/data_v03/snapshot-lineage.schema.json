@@ -228,6 +228,8 @@
               }
             }
           ],
+          "maxItems": 9,
+          "minItems": 9,
           "type": "array"
         },
         "schema_version_balance": {
@@ -451,6 +453,8 @@
                   "const": "parquet_full_scan_recomputed"
                 }
               ],
+              "maxItems": 9,
+              "minItems": 9,
               "type": "array"
             },
             "parquet_audit": {
@@ -483,6 +487,8 @@
                   "const": "evidence/runtime_report.json"
                 }
               ],
+              "maxItems": 4,
+              "minItems": 4,
               "type": "array"
             }
           },

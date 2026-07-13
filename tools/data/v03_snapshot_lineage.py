@@ -14,10 +14,11 @@ import math
 import re
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Any, Final
 
-from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from geno_lewm.provenance import canonical_json_sha256
 from tools.data.v03_clinvar_postflight import (
     REMOTE_POSTFLIGHT_SCHEMA_VERSION as CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
 )
@@ -26,7 +27,9 @@ from tools.data.v03_gnomad_lock import (
     REMOTE_POSTFLIGHT_SCHEMA_VERSION,
     STAGING_RECEIPT_SCHEMA_VERSION,
     SourceLockError,
-    select_source,
+    SourceLockSnapshot,
+    capture_source_lock,
+    select_source_from_snapshot,
 )
 
 SPEC_SCHEMA_VERSION: Final = "geno-lewm.v03-snapshot-lineage-spec.v1"
@@ -51,6 +54,9 @@ _BARE_SHA256: Final = re.compile(r"[0-9a-f]{64}")
 _COMMIT: Final = re.compile(r"[0-9a-f]{40}")
 _CONTAINER: Final = re.compile(r"[^@]+@sha256:[0-9a-f]{64}")
 _CANDIDATE_ID: Final = re.compile(r"geno-lewm-data-v0\.3\.[0-9]+-r[1-9][0-9]*")
+_SAFE_BUNDLE_JSON_PATH: Final = re.compile(
+    r"(?!/)(?![A-Za-z]:)(?!.*\\)(?!.*(?:^|/)\.\.(?:/|$)).+\.json"
+)
 _CLINVAR_CLASSES: Final = frozenset({"B", "LB", "LP", "OTHER", "P", "VUS"})
 _CLINVAR_REMOTE_FILES: Final = (
     "clinvar/2026-04-15/variants.parquet",
@@ -151,6 +157,16 @@ class SnapshotLineageError(ValueError):
     """Raised when snapshot-lineage evidence violates the closed contract."""
 
 
+@dataclass(frozen=True, slots=True)
+class _CapturedJson:
+    """One JSON file captured once for hashing, sizing, parsing, and semantics."""
+
+    payload: bytes
+    value: Mapping[str, object]
+    sha256: str
+    size_bytes: int
+
+
 def assemble_snapshot_lineage(
     *,
     spec_path: Path,
@@ -158,7 +174,8 @@ def assemble_snapshot_lineage(
     output_path: Path | None = None,
 ) -> dict[str, Any]:
     """Validate exact staging evidence and return a deterministic lineage candidate."""
-    spec_bytes, spec = _read_json_mapping(spec_path, "lineage spec")
+    spec_capture = _capture_json(spec_path, "lineage spec")
+    spec = spec_capture.value
     _require_exact_keys(
         spec,
         {
@@ -184,12 +201,11 @@ def assemble_snapshot_lineage(
         )
     _require_equal(spec.get("reference_genome"), "GRCh38", "lineage spec.reference_genome")
 
-    lock_bytes = gnomad_source_lock_path.read_bytes()
+    source_lock_snapshot = capture_source_lock(gnomad_source_lock_path)
     gnomad = _assemble_gnomad(
         spec=_require_mapping(spec.get("gnomad"), "lineage spec.gnomad"),
         spec_dir=spec_path.parent,
-        source_lock_path=gnomad_source_lock_path,
-        source_lock_bytes=lock_bytes,
+        source_lock_snapshot=source_lock_snapshot,
     )
     clinvar = _assemble_clinvar(
         spec=_require_mapping(spec.get("clinvar"), "lineage spec.clinvar"),
@@ -205,12 +221,12 @@ def assemble_snapshot_lineage(
         "membership_status": MEMBERSHIP_STATUS,
         "assembly_inputs": {
             "spec": {
-                "sha256": "sha256:" + hashlib.sha256(spec_bytes).hexdigest(),
-                "size_bytes": len(spec_bytes),
+                "sha256": spec_capture.sha256,
+                "size_bytes": spec_capture.size_bytes,
             },
             "gnomad_source_lock": {
-                "sha256": "sha256:" + hashlib.sha256(lock_bytes).hexdigest(),
-                "size_bytes": len(lock_bytes),
+                "sha256": "sha256:" + hashlib.sha256(source_lock_snapshot.lock_bytes).hexdigest(),
+                "size_bytes": len(source_lock_snapshot.lock_bytes),
             },
         },
         "gnomad": gnomad,
@@ -227,8 +243,7 @@ def _assemble_gnomad(
     *,
     spec: Mapping[str, object],
     spec_dir: Path,
-    source_lock_path: Path,
-    source_lock_bytes: bytes,
+    source_lock_snapshot: SourceLockSnapshot,
 ) -> dict[str, Any]:
     _require_exact_keys(spec, {"repo", "repo_type", "shards"}, "lineage spec.gnomad")
     repo = _require_repo(spec.get("repo"), "lineage spec.gnomad.repo")
@@ -279,14 +294,11 @@ def _assemble_gnomad(
         expected_receipt_sha256 = _require_sha256(
             shard_spec.get("receipt_sha256"), f"chr{chromosome} receipt_sha256"
         )
+        receipt_capture = _capture_json(receipt_path, f"chr{chromosome} staging receipt")
         _require_equal(
-            sha256_file(receipt_path),
-            expected_receipt_sha256,
-            f"chr{chromosome} receipt bytes",
+            receipt_capture.sha256, expected_receipt_sha256, f"chr{chromosome} receipt bytes"
         )
-        _receipt_bytes, receipt = _read_json_mapping(
-            receipt_path, f"chr{chromosome} staging receipt"
-        )
+        receipt = receipt_capture.value
         shard, execution, schema_hash = _validate_gnomad_receipt(
             receipt=receipt,
             chromosome=chromosome,
@@ -295,8 +307,8 @@ def _assemble_gnomad(
             namespace=namespace,
             repo=repo,
             receipt_sha256=expected_receipt_sha256,
-            receipt_size_bytes=receipt_path.stat().st_size,
-            source_lock_path=source_lock_path,
+            receipt_size_bytes=receipt_capture.size_bytes,
+            source_lock_snapshot=source_lock_snapshot,
         )
         postflight_path = _resolve_bundle_file(
             spec_dir,
@@ -306,18 +318,17 @@ def _assemble_gnomad(
         expected_postflight_sha256 = _require_sha256(
             shard_spec.get("postflight_sha256"), f"chr{chromosome} postflight_sha256"
         )
+        postflight_capture = _capture_json(postflight_path, f"chr{chromosome} remote postflight")
         _require_equal(
-            sha256_file(postflight_path),
+            postflight_capture.sha256,
             expected_postflight_sha256,
             f"chr{chromosome} postflight bytes",
         )
-        _postflight_bytes, postflight = _read_json_mapping(
-            postflight_path, f"chr{chromosome} remote postflight"
-        )
+        postflight = postflight_capture.value
         shard["remote_postflight"] = _validate_remote_postflight(
             postflight=postflight,
             postflight_sha256=expected_postflight_sha256,
-            postflight_size_bytes=postflight_path.stat().st_size,
+            postflight_size_bytes=postflight_capture.size_bytes,
             repo=repo,
             revision=revision,
             namespace=namespace,
@@ -325,7 +336,7 @@ def _assemble_gnomad(
             execution=execution,
             receipt=receipt,
             receipt_sha256=expected_receipt_sha256,
-            receipt_size_bytes=receipt_path.stat().st_size,
+            receipt_size_bytes=receipt_capture.size_bytes,
             shard=shard,
         )
         shards.append(shard)
@@ -351,7 +362,7 @@ def _assemble_gnomad(
         "data_use": _gnomad_data_use(),
         "source_lock": {
             "schema_version": LOCK_SCHEMA_VERSION,
-            "sha256": "sha256:" + hashlib.sha256(source_lock_bytes).hexdigest(),
+            "sha256": "sha256:" + hashlib.sha256(source_lock_snapshot.lock_bytes).hexdigest(),
             "schema_sha256": "sha256:" + common_lock_schema_hashes[0],
         },
         "transform": first["transform"],
@@ -377,7 +388,7 @@ def _validate_gnomad_receipt(
     repo: str,
     receipt_sha256: str,
     receipt_size_bytes: int,
-    source_lock_path: Path,
+    source_lock_snapshot: SourceLockSnapshot,
 ) -> tuple[dict[str, Any], Mapping[str, object], str]:
     _require_exact_keys(
         receipt,
@@ -411,8 +422,8 @@ def _validate_gnomad_receipt(
     container_image = _require_container(
         execution.get("container_image"), f"chr{chromosome} container_image"
     )
-    selection = select_source(
-        source_lock_path,
+    selection = select_source_from_snapshot(
+        source_lock_snapshot,
         chromosome=chromosome,
         commit_sha=commit_sha,
         container_image=container_image,
@@ -740,15 +751,17 @@ def _assemble_clinvar(*, spec: Mapping[str, object], spec_dir: Path) -> dict[str
         spec_dir, spec.get("audit_file"), "lineage spec.clinvar.audit_file"
     )
     audit_sha256 = _require_sha256(spec.get("audit_sha256"), "lineage spec.clinvar.audit_sha256")
-    _require_equal(sha256_file(audit_path), audit_sha256, "ClinVar audit bytes")
+    audit_capture = _capture_json(audit_path, "ClinVar audit")
+    _require_equal(audit_capture.sha256, audit_sha256, "ClinVar audit bytes")
     postflight_path = _resolve_bundle_file(
         spec_dir, spec.get("postflight_file"), "lineage spec.clinvar.postflight_file"
     )
     postflight_sha256 = _require_sha256(
         spec.get("postflight_sha256"), "lineage spec.clinvar.postflight_sha256"
     )
-    _require_equal(sha256_file(postflight_path), postflight_sha256, "ClinVar postflight bytes")
-    _audit_bytes, audit = _read_json_mapping(audit_path, "ClinVar audit")
+    postflight_capture = _capture_json(postflight_path, "ClinVar remote postflight")
+    _require_equal(postflight_capture.sha256, postflight_sha256, "ClinVar postflight bytes")
+    audit = audit_capture.value
     _require_exact_keys(
         audit,
         {
@@ -839,17 +852,17 @@ def _assemble_clinvar(*, spec: Mapping[str, object], spec_dir: Path) -> dict[str
     _require_positive_number(runtime.get("wall_time_seconds"), "ClinVar wall_time_seconds")
     _require_positive_int(runtime.get("peak_rss_bytes"), "ClinVar peak_rss_bytes")
 
-    _postflight_bytes, postflight = _read_json_mapping(postflight_path, "ClinVar remote postflight")
+    postflight = postflight_capture.value
     remote_postflight = _validate_clinvar_remote_postflight(
         postflight=postflight,
         postflight_sha256=postflight_sha256,
-        postflight_size_bytes=postflight_path.stat().st_size,
+        postflight_size_bytes=postflight_capture.size_bytes,
         repo=repo,
         revision=revision,
         namespace=namespace,
         audit=audit,
         audit_sha256=audit_sha256,
-        audit_size_bytes=audit_path.stat().st_size,
+        audit_size_bytes=audit_capture.size_bytes,
         commit_sha=commit_sha,
         source=source,
         output=output,
@@ -874,7 +887,7 @@ def _assemble_clinvar(*, spec: Mapping[str, object], spec_dir: Path) -> dict[str
         "audit": {
             "artifact_path": f"{namespace}/evidence/audit.json",
             "sha256": audit_sha256,
-            "size_bytes": audit_path.stat().st_size,
+            "size_bytes": audit_capture.size_bytes,
         },
         "source": {
             "url": source_url,
@@ -1249,10 +1262,15 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _read_json_mapping(path: Path, field: str) -> tuple[bytes, Mapping[str, object]]:
+def _capture_json(path: Path, field: str) -> _CapturedJson:
     payload = path.read_bytes()
     raw: object = json.loads(payload, object_pairs_hook=_reject_duplicate_pairs)
-    return payload, _require_mapping(raw, field)
+    return _CapturedJson(
+        payload=payload,
+        value=_require_mapping(raw, field),
+        sha256="sha256:" + hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+    )
 
 
 def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -1268,8 +1286,16 @@ def _resolve_bundle_file(root: Path, value: object, field: str) -> Path:
     text = _require_str(value, field)
     candidate = Path(text)
     windows = PureWindowsPath(text)
-    if candidate.is_absolute() or windows.is_absolute() or windows.drive or ".." in candidate.parts:
-        raise SnapshotLineageError(f"{field} must be a relative in-bundle path without '..'")
+    if (
+        _SAFE_BUNDLE_JSON_PATH.fullmatch(text) is None
+        or candidate.is_absolute()
+        or windows.is_absolute()
+        or windows.drive
+        or ".." in candidate.parts
+    ):
+        raise SnapshotLineageError(
+            f"{field} must be a relative in-bundle JSON path without traversal or backslashes"
+        )
     root_resolved = root.resolve()
     resolved = (root / candidate).resolve()
     try:

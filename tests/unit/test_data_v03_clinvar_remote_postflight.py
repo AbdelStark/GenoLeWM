@@ -3,14 +3,17 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from tools.data.v03_clinvar_postflight import main
 
@@ -370,6 +373,43 @@ def test_remote_postflight_rejects_bool_int_equality_aliases(
     assert not output.exists()
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "needle", "duplicate_key"),
+    [
+        ("evidence/audit.json", '"ok": true', "ok"),
+        ("evidence/runtime_report.json", '"returncode": 0', "returncode"),
+    ],
+    ids=["audit-ok", "runtime-returncode"],
+)
+def test_remote_postflight_rejects_duplicate_json_keys(
+    relative_path: str,
+    needle: str,
+    duplicate_key: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    evidence_path = _fixture_path(fixture, relative_path)
+    payload = evidence_path.read_text(encoding="utf-8")
+    assert payload.count(needle) == 1
+    evidence_path.write_text(
+        payload.replace(needle, f'{needle},\n  "{duplicate_key}": null', 1),
+        encoding="utf-8",
+    )
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "out.json"
+
+    result = main(_postflight_args(fixture, source_commit=source_commit, output=output))
+
+    assert result == 2
+    assert f"duplicate JSON key {duplicate_key!r}" in capsys.readouterr().err
+    assert not output.exists()
+
+
 def test_remote_postflight_rejects_weakened_claim_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -586,6 +626,79 @@ def test_remote_postflight_rejects_tampered_parquet_bytes(
     assert "Parquet SHA-256 drifted" in capsys.readouterr().err
 
 
+def test_remote_postflight_binds_audit_identity_to_validated_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    audit_path = _fixture_path(fixture, "evidence/audit.json")
+    original = audit_path.read_bytes()
+    replacement = original + b" "
+    replaced = False
+    read_bytes = Path.read_bytes
+
+    def replace_after_read(path: Path) -> bytes:
+        nonlocal replaced
+        payload = read_bytes(path)
+        if path == audit_path and not replaced:
+            audit_path.write_bytes(replacement)
+            replaced = True
+        return payload
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "out.json"
+
+    result = main(_postflight_args(fixture, source_commit=source_commit, output=output))
+
+    assert replaced
+    assert result == 0
+    report = _read_json(output)
+    assert report["file_identities"]["evidence/audit.json"] == {
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "size_bytes": len(original),
+    }
+
+
+def test_remote_postflight_scans_the_same_parquet_bytes_it_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    parquet = _fixture_path(fixture, f"clinvar/{RELEASE}/variants.parquet")
+    original = parquet.read_bytes()
+    replacement = parquet.with_name("replacement.parquet")
+    rows = pq.read_table(parquet).to_pylist()
+    rows[0]["clinical_significance"] = "LP"
+    pq.write_table(pa.Table.from_pylist(rows, schema=pq.read_schema(parquet)), replacement)
+    swapped = _replace_after_first_binary_read(
+        monkeypatch,
+        target=parquet,
+        replacement=replacement,
+    )
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "out.json"
+
+    result = main(_postflight_args(fixture, source_commit=source_commit, output=output))
+
+    assert swapped["done"]
+    assert result == 0
+    report = _read_json(output)
+    relative = f"clinvar/{RELEASE}/variants.parquet"
+    assert report["file_identities"][relative] == {
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "size_bytes": len(original),
+    }
+    assert report["parquet_audit"]["class_balance"] == {"B": 1, "P": 1, "VUS": 1}
+
+
 def test_remote_postflight_rejects_coherently_rebound_schema_tampering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -704,6 +817,44 @@ def test_remote_postflight_report_schema_closes_every_object() -> None:
     for field, value in _walk_json(schema):
         if isinstance(value, dict) and value.get("type") == "object":
             assert value.get("additionalProperties") is False, field
+
+
+def test_remote_postflight_schema_validates_real_report_and_exact_arrays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_commit = _write_source_repository(tmp_path / "source")
+    fixture = _write_remote_fixture(tmp_path / "hub", source_commit=source_commit)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.chdir(tmp_path / "source")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+    output = tmp_path / "postflight.json"
+    assert main(_postflight_args(fixture, source_commit=source_commit, output=output)) == 0
+
+    schema = _read_json(REPORT_SCHEMA)
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    report = _read_json(output)
+    assert not list(validator.iter_errors(report))
+    for path in (
+        ("checks",),
+        ("source_identity", "verification_scope"),
+        ("trusted_source_contract", "file_identity_fields"),
+        ("trusted_source_contract", "nullable_fields"),
+        ("trusted_source_contract", "prepare_report_enrichments"),
+        ("verified_files",),
+    ):
+        invalid = copy.deepcopy(report)
+        target: Any = invalid
+        for component in path[:-1]:
+            target = target[component]
+        target[path[-1]] = []
+        assert list(validator.iter_errors(invalid)), path
+
+    for field, value in _walk_json(schema):
+        if isinstance(value, dict) and "prefixItems" in value:
+            expected = len(value["prefixItems"])
+            assert value.get("minItems") == expected, field
+            assert value.get("maxItems") == expected, field
 
 
 class _RemoteFixture(SimpleNamespace):
@@ -1087,6 +1238,40 @@ def _rebind_output_identities(fixture: _RemoteFixture) -> None:
     audit["output"]["sha256"] = digest
     audit["output"]["size_bytes"] = size_bytes
     _write_json(audit_path, audit)
+
+
+def _replace_after_first_binary_read(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    target: Path,
+    replacement: Path,
+) -> dict[str, bool]:
+    path_open = Path.open
+    state = {"done": False}
+
+    class _ReplaceOnClose:
+        def __init__(self, stream: Any) -> None:
+            self._stream = stream
+
+        def __enter__(self) -> Any:
+            self._stream.__enter__()
+            return self._stream
+
+        def __exit__(self, *args: object) -> object:
+            result = self._stream.__exit__(*args)
+            replacement.replace(target)
+            state["done"] = True
+            return result
+
+    def open_and_replace(path: Path, *args: object, **kwargs: object) -> Any:
+        stream = path_open(path, *args, **kwargs)
+        mode = str(args[0]) if args else str(kwargs.get("mode", "r"))
+        if path == target and mode == "rb" and not state["done"]:
+            return _ReplaceOnClose(stream)
+        return stream
+
+    monkeypatch.setattr(Path, "open", open_and_replace)
+    return state
 
 
 def _walk_json(value: object, field: str = "$") -> list[tuple[str, object]]:
