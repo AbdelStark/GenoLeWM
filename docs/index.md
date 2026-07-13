@@ -32,6 +32,7 @@ benchmarked, and published with public artifacts.
 - [Architecture](architecture.md)
 - [v0.3 snapshot-lineage assembly](data-v03-snapshot-lineage.md)
 - [Public API contract](api/public-surface.md)
+- [v0.3 membership-store contract](data-v03-membership-store.md)
 - [API reference](reference/index.md)
 - [GenoLeWM-FX contract](research/fx-experiment-contract.md)
 - [GenoLeWM-FX feasibility report](research/fx-feasibility-report.md)
@@ -75,6 +76,8 @@ for Carbon-backed training paths.
 - No broad model-quality claim.
 - No K=20 rollout-speed closure.
 - No useful-planning claim from the current planning demo.
+- No real v0.3 membership store or phased-haplotype holdout is published; the
+  scalable Parquet/SQLite membership path is a fixture-validated contract.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
 - The FX precomputed-Borzoi rescue is complete as a no-positive-claim

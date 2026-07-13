@@ -101,6 +101,14 @@ or incompatible command changes require an explicit compatibility note.
   Parquet identities, and type-strict fresh Parquet audit. Added source-specific
   gnomAD and ClinVar license, attribution, terms, restriction, and materialized
   field metadata to the content-addressed lineage.
+- Added a fixture-validated scalable v0.3 membership-store contract. It
+  verifies exact snapshot-lineage source bytes, derives canonical rows through
+  source-specific streaming adapters, performs disk-backed ordering/dedup and
+  split-leakage checks, writes a closed Parquet/SQLite/JSON artifact, and
+  provides indexed holdout/validation lookup without loading every key into
+  Python. ClinVar membership is restricted to normalized P/LP rows; gnomAD
+  variant membership is not represented as a phased-haplotype holdout. No real
+  v0.3 memberships or split evidence are published by this contract change.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as

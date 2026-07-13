@@ -178,7 +178,7 @@ geno_lewm/
 ├── action/       edit specs, edit application, action encoder
 ├── cli/          train, score, eval, rollout, plan, verify, export commands
 ├── config/       typed config loading and closed config schema
-├── data/         VCF parsing, ClinVar/gnomAD prep, tuple streaming
+├── data/         VCF prep, tuple streaming, membership manifests/indexes
 ├── deploy/       runtime facade, scoring, import/export helpers
 ├── encoder/      Carbon wrapper, windowing, pooling, cache helpers
 ├── planning/     CEM planning, cost functions, action sampling
@@ -243,11 +243,47 @@ under `configs/data_v03/`. The output includes source-specific data-use terms
 and the exact fields materialized from gnomAD and ClinVar. These records are
 provenance and policy metadata, not a transfer of upstream rights.
 
-This component deliberately has no membership writer or network client. A
-lineage candidate cannot be described as a dataset snapshot until a separate
-future step constructs, audits, and commits memberships and leakage controls.
+The lineage assembler deliberately has no membership writer or network client.
+A lineage candidate cannot be described as a dataset snapshot until a separate
+downstream step constructs, audits, and commits memberships and leakage controls.
 See the [operator guide](docs/data-v03-snapshot-lineage.md) for required
 evidence and failure behavior.
+
+### Dataset membership boundary
+
+Fixture tests and small callers can continue to use the in-memory
+`MembershipArtifact` contract. Production-scale v0.3 memberships use a
+separate versioned store:
+
+```text
+snapshot-lineage.json + exact local staged Parquet shards
+                  │
+                  ├── verify revision/path/hash/size/count/schema
+                  ├── derive canonical MembershipRow values
+                  ├── SQLite-backed external sort, dedup, leakage checks
+                  └── memberships.parquet + lookup.sqlite + manifest.json
+```
+
+The Parquet file is the portable row artifact. The SQLite file is a derived,
+manifest-bound point/range index used by the tuple builder and validation
+stream without loading all variant keys into Python. A format-independent
+digest over length-framed canonical rows defines semantic identity; the
+manifest separately commits the exact Parquet and SQLite bytes. Full
+verification scans both files independently with bounded memory.
+
+PyArrow is loaded only by build and verification adapters. Manifest parsing
+and read-only SQLite lookups stay on core dependencies. The current repository
+ships this contract and synthetic tests only: it does not contain or claim a
+real v0.3 membership store, split result, or phased-haplotype membership.
+ClinVar membership derivation admits only normalized P/LP rows; the gnomAD
+variant membership path is not presented as the RFC's phased-haplotype set.
+
+The stable `geno_lewm.data.membership_store` module is a small public facade.
+Its private implementation has one-way dependencies: the closed contract is
+the base; lineage and storage depend on that contract; writer and verifier
+depend on lineage/storage; the read-only runtime depends on the verifier and
+storage. This keeps source ingestion, physical encoding, independent
+verification, and online lookup separately testable without import cycles.
 
 ## Inference Data Flow
 

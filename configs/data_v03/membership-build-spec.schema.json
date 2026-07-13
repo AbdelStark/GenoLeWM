@@ -1,0 +1,78 @@
+{
+  "$id": "https://github.com/AbdelStark/GenoLeWM/raw/main/configs/data_v03/membership-build-spec.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "./membership-build-spec.schema.json"
+    },
+    "artifact_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "geno-lewm.membership-build-spec.v1"
+    },
+    "snapshot_lineage": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "chromosome": {
+                "pattern": "^([1-9]|1[0-9]|2[0-2])$",
+                "type": "string"
+              },
+              "kind": {
+                "const": "gnomad"
+              },
+              "path": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "chromosome",
+              "path"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "clinvar"
+              },
+              "path": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "path"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "maxItems": 23,
+      "minItems": 23,
+      "type": "array"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "artifact_id",
+    "snapshot_lineage",
+    "sources"
+  ],
+  "title": "GenoLeWM v0.3 membership build specification",
+  "type": "object"
+}
