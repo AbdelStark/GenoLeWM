@@ -162,6 +162,37 @@ def test_bound_training_run_rejects_policy_content_mismatch(tmp_path: Path) -> N
         build_training_run_package(tmp_path, metadata_path)
 
 
+def test_bound_training_run_rejects_noncanonical_holdout_chromosomes(tmp_path: Path) -> None:
+    binding = _membership_runtime_binding()
+    policy = binding["holdout_policy"]
+    assert isinstance(policy, dict)
+    policy["excluded_chromosomes"] = ["1"]
+    binding["holdout_policy_identity"] = canonical_json_sha256(policy)
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+
+    with pytest.raises(InputError, match=r"do not match the v0\.3 split"):
+        build_training_run_package(tmp_path, metadata_path)
+
+
+def test_verify_bound_training_run_rejects_preflight_membership_mismatch(
+    tmp_path: Path,
+) -> None:
+    binding = _membership_runtime_binding()
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+    build_training_run_package(tmp_path, metadata_path)
+    preflight_path = tmp_path / TRAINING_PREFLIGHT_REPORT_NAME
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    del preflight["dataset"]["membership_and_split_evidence"]
+    preflight_path.write_text(
+        json.dumps(preflight, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _rewrite_manifest_artifact_identity(tmp_path, TRAINING_PREFLIGHT_REPORT_NAME)
+
+    with pytest.raises(InputError, match="preflight membership and split evidence"):
+        verify_training_run_manifest(tmp_path, require_preflight=True)
+
+
 def test_legacy_schema_rejects_membership_binding(tmp_path: Path) -> None:
     _write_training_files(tmp_path)
     payload = _metadata()
@@ -407,6 +438,19 @@ def _write_bound_training_run_inputs(
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     metrics["membership_and_split_evidence"] = binding
     metrics_path.write_text(json.dumps(metrics, sort_keys=True) + "\n", encoding="utf-8")
+    preflight_path = root / TRAINING_PREFLIGHT_REPORT_NAME
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["dataset"]["membership_and_split_evidence"] = dataset_binding
+    dataset_manifest_path = root / "dataset_manifest.json"
+    preflight["dataset"]["core_files"]["dataset_manifest.json"] = {
+        "path": "dataset_manifest.json",
+        "sha256": sha256_file(dataset_manifest_path),
+        "size_bytes": dataset_manifest_path.stat().st_size,
+    }
+    preflight_path.write_text(
+        json.dumps(preflight, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     metadata = _metadata()
     metadata["schema_version"] = "1.1.0"
     metadata["membership_and_split_evidence"] = binding

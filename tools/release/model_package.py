@@ -25,6 +25,7 @@ from tools.release.training_run import (
     CARD_NAME as TRAINING_RUN_CARD_NAME,
     CHECKSUMS_NAME as TRAINING_RUN_CHECKSUMS_NAME,
     MANIFEST_NAME as TRAINING_RUN_MANIFEST_NAME,
+    verify_training_run_manifest,
 )
 
 SCHEMA_VERSION: Final = "1.0.0"
@@ -125,6 +126,7 @@ def build_model_package(
     efficiency_report = _verify_efficiency_report_source(model_dir)
     _verify_release_evidence_identity(manifest, eval_input, efficiency_report)
     _verify_extra_files(model_dir, package.extra_files)
+    verify_training_run_manifest(model_dir, require_preflight=True)
     eval_artifact_files = _eval_artifact_checksum_files(model_dir, eval_input)
 
     metadata_output_path = model_dir / MODEL_PACKAGE_NAME

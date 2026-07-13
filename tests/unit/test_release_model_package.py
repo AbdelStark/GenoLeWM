@@ -128,6 +128,14 @@ def test_build_model_package_rejects_manifest_hash_mismatch(tmp_path: Path) -> N
         build_model_package(tmp_path, metadata_path)
 
 
+def test_build_model_package_rejects_invalid_training_run_manifest(tmp_path: Path) -> None:
+    metadata_path = _write_model_inputs(tmp_path)
+    (tmp_path / "training_run_manifest.json").write_text("not-json\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="training-run manifest JSON is invalid"):
+        build_model_package(tmp_path, metadata_path)
+
+
 def test_build_model_package_rejects_missing_eval_metrics_json(tmp_path: Path) -> None:
     metadata_path = _write_model_inputs(tmp_path)
     (tmp_path / EVAL_METRICS_NAME).unlink()

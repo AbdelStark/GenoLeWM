@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ from geno_lewm.provenance import (
     ReceiptOutput,
     ReceiptProvenance,
     ReceiptRuntime,
+    canonical_json_sha256,
     compute_output_commitment,
     sha256_bytes,
     sha256_file,
@@ -37,7 +39,10 @@ from tests.unit.test_release_dataset_package import (
     _write_dataset_inputs,
     _write_dataset_snapshot_report,
 )
-from tests.unit.test_release_training_run import _write_training_run_inputs
+from tests.unit.test_release_training_run import (
+    _write_bound_training_run_inputs,
+    _write_training_run_inputs,
+)
 from tools.demo.terminal_inference import (
     DEMO_MANIFEST_NAME,
     DemoArtifact,
@@ -611,6 +616,49 @@ def test_verify_package_rejects_training_run_dataset_snapshot_mismatch(
 
     assert report.ok is False
     assert "model.training_run.dataset_snapshot_mismatch" in _codes(report)
+
+
+def test_verify_package_accepts_exact_training_and_dataset_membership_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _write_complete_package(tmp_path)
+    shutil.rmtree(paths.dataset_dir)
+    paths.dataset_dir.mkdir()
+    _write_role_bound_dataset_verification_inputs(paths.dataset_dir, monkeypatch)
+    binding = _dataset_runtime_membership_binding(paths.dataset_dir)
+    _rewrite_model_training_membership_binding(paths, binding)
+
+    report = verify_package(paths)
+
+    assert report.ok is True
+
+
+def test_verify_package_rejects_cross_package_membership_binding_substitution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _write_complete_package(tmp_path)
+    shutil.rmtree(paths.dataset_dir)
+    paths.dataset_dir.mkdir()
+    _write_role_bound_dataset_verification_inputs(paths.dataset_dir, monkeypatch)
+    binding = _dataset_runtime_membership_binding(paths.dataset_dir)
+    store = dict(binding["membership_store"])
+    store["content_identity"] = "sha256:" + ("9" * 64)
+    policy = dict(binding["holdout_policy"])
+    policy["membership_content_identity"] = store["content_identity"]
+    substituted = {
+        **binding,
+        "membership_store": store,
+        "holdout_policy": policy,
+        "holdout_policy_identity": canonical_json_sha256(policy),
+    }
+    _rewrite_model_training_membership_binding(paths, substituted)
+
+    report = verify_package(paths)
+
+    assert report.ok is False
+    assert "model.training_run.dataset_membership_mismatch" in _codes(report)
 
 
 def test_verify_package_rejects_training_run_config_path_mismatch(tmp_path: Path) -> None:
@@ -1681,6 +1729,32 @@ def _write_role_bound_dataset_verification_inputs(
                     "content_identity": membership_manifest.content_identity,
                     "physical_identity": membership_manifest.physical_identity,
                     "rowset_sha256": membership_manifest.rowset_sha256,
+                    "chromosome_roles": {
+                        "train": [
+                            "1",
+                            "2",
+                            "3",
+                            "4",
+                            "5",
+                            "6",
+                            "7",
+                            "8",
+                            "9",
+                            "10",
+                            "11",
+                            "12",
+                            "13",
+                            "14",
+                            "15",
+                            "16",
+                            "17",
+                            "18",
+                            "19",
+                            "22",
+                        ],
+                        "validation": ["20"],
+                        "evaluation": ["21"],
+                    },
                 },
                 "training_windows": {
                     "source": {"artifact_path": "carbon/windows.jsonl"},
@@ -1788,6 +1862,46 @@ def _write_role_bound_dataset_verification_inputs(
     )
     build_dataset_package(root, metadata_path)
     _write_schema_1_1_dataset_snapshot_report(root)
+
+
+def _dataset_runtime_membership_binding(root: Path) -> dict[str, object]:
+    manifest = json.loads((root / "dataset_manifest.json").read_text(encoding="utf-8"))
+    evidence = manifest["membership_and_split_evidence"]
+    report_path = root / evidence["report"]["path"]
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    roles = report["membership_store"]["chromosome_roles"]
+    policy = {
+        "schema_version": "geno-lewm.membership-store.v1",
+        "membership_content_identity": evidence["membership_store"]["content_identity"],
+        "excluded_chromosomes": [*roles["validation"], *roles["evaluation"]],
+        "selection": "chromosome_roles",
+        "lookup": "lookup.sqlite",
+    }
+    return {
+        **evidence,
+        "holdout_policy": policy,
+        "holdout_policy_identity": canonical_json_sha256(policy),
+    }
+
+
+def _rewrite_model_training_membership_binding(
+    paths: PackagePaths,
+    binding: dict[str, object],
+) -> None:
+    metadata_path = _write_bound_training_run_inputs(paths.model_dir, binding=binding)
+    build_training_run_package(paths.model_dir, metadata_path)
+    build_model_package(
+        paths.model_dir,
+        paths.model_dir / "model_release_metadata.json",
+    )
+    assert paths.paper_path is not None
+    build_paper_draft(
+        model_dir=paths.model_dir,
+        dataset_dir=paths.dataset_dir,
+        demo_dir=paths.demo_dir,
+        output=paths.paper_path,
+        generated_at="2026-06-01T12:00:00Z",
+    )
 
 
 def _relative_file_identity(root: Path, relative: str) -> dict[str, object]:

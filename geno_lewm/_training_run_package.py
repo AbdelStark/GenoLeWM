@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any, Final
 
-from geno_lewm.data import MEMBERSHIP_STORE_SCHEMA_VERSION
+from geno_lewm.data import MEMBERSHIP_STORE_SCHEMA_VERSION, V03_CHROMOSOME_ROLES
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from geno_lewm.provenance.hashing import looks_like_sha256
@@ -640,6 +640,15 @@ def _parse_membership_holdout_policy(raw: Any) -> dict[str, object]:
         excluded.append(value)
     if len(set(excluded)) != len(excluded):
         raise InputError("membership holdout policy chromosomes must be unique")
+    expected_excluded = [
+        *V03_CHROMOSOME_ROLES.validation,
+        *V03_CHROMOSOME_ROLES.evaluation,
+    ]
+    if excluded != expected_excluded:
+        raise InputError(
+            "membership holdout policy chromosomes do not match the v0.3 split",
+            details={"expected": expected_excluded, "observed": excluded},
+        )
     return {
         "schema_version": schema_version,
         "membership_content_identity": content_identity,
@@ -954,6 +963,35 @@ def _verify_preflight_dataset_evidence(
     files = dataset.get("files")
     if not isinstance(files, list) or not files:
         raise InputError("training preflight dataset files must be a non-empty list")
+    binding = manifest.membership_and_split_evidence
+    observed_binding = dataset.get("membership_and_split_evidence")
+    if binding is None:
+        if "membership_and_split_evidence" in dataset:
+            raise InputError("legacy training preflight cannot bind membership evidence")
+        return
+    expected_binding = {
+        "membership_store": binding["membership_store"],
+        "report": binding["report"],
+    }
+    if observed_binding != expected_binding:
+        raise InputError(
+            "training preflight membership and split evidence does not match training run"
+        )
+    dataset_manifest = _single_artifact_of_kind(manifest.artifacts, "dataset_manifest")
+    observed_manifest_identity = core_files["dataset_manifest.json"]
+    expected_manifest_identity = {
+        "path": "dataset_manifest.json",
+        "sha256": dataset_manifest.sha256,
+        "size_bytes": dataset_manifest.size_bytes,
+    }
+    if observed_manifest_identity != expected_manifest_identity:
+        raise InputError(
+            "training preflight dataset manifest identity does not match training run",
+            details={
+                "expected": expected_manifest_identity,
+                "observed": observed_manifest_identity,
+            },
+        )
 
 
 def _verify_preflight_dataset_file_identity(

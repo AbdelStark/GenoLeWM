@@ -16,8 +16,9 @@ from geno_lewm._artifact_sources import (
     CARBON_ZERO_SHOT_GENERATED_BY,
     SCORE_JSONL_GENERATED_BY,
 )
+from geno_lewm.data import MEMBERSHIP_STORE_SCHEMA_VERSION, V03_CHROMOSOME_ROLES
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
-from geno_lewm.provenance import Manifest, load_manifest, sha256_file
+from geno_lewm.provenance import Manifest, canonical_json_sha256, load_manifest, sha256_file
 from geno_lewm.provenance.hashing import looks_like_sha256
 from geno_lewm.training.preflight import REPORT_NAME as TRAINING_PREFLIGHT_REPORT_NAME
 from tools.demo.terminal_inference import (
@@ -35,7 +36,12 @@ from tools.release.dataset_integrity import (
     GENERATED_BY as DATASET_INTEGRITY_GENERATED_BY,
     build_dataset_integrity_report,
 )
-from tools.release.dataset_package import ARTIFACT_ROLES, load_dataset_package, render_data_card
+from tools.release.dataset_package import (
+    ARTIFACT_ROLES,
+    DatasetPackage,
+    load_dataset_package,
+    render_data_card,
+)
 from tools.release.dataset_snapshot import (
     GENERATED_BY as DATASET_SNAPSHOT_GENERATED_BY,
     INPUT_CHECK_GENERATED_BY as DATASET_INPUT_CHECK_GENERATED_BY,
@@ -135,6 +141,13 @@ class RuntimePreflightEvidence:
     manifest_summary: dict[str, Any] | None
 
 
+@dataclass(frozen=True, slots=True)
+class _DatasetVerification:
+    snapshot_id: str | None
+    membership_runtime_binding: dict[str, object] | None
+    package_valid: bool
+
+
 def verify_package(
     paths: PackagePaths,
     *,
@@ -148,7 +161,8 @@ def verify_package(
         issues,
         allow_fixture_manifest=allow_fixture_manifest,
     )
-    dataset_snapshot = _verify_dataset_dir(paths.dataset_dir, issues)
+    dataset = _verify_dataset_dir(paths.dataset_dir, issues)
+    _verify_training_dataset_membership_binding(paths.model_dir, dataset, issues)
     _verify_demo_dir(
         paths.demo_dir,
         issues,
@@ -162,7 +176,7 @@ def verify_package(
             paths.paper_path,
             issues,
             model_id=None if manifest is None else manifest.model_id(),
-            dataset_snapshot=dataset_snapshot,
+            dataset_snapshot=dataset.snapshot_id,
             model_dir=paths.model_dir,
             dataset_dir=paths.dataset_dir,
             demo_dir=paths.demo_dir,
@@ -944,14 +958,20 @@ def _eval_report_has_baseline_rows(text: str) -> bool:
     return False
 
 
-def _verify_dataset_dir(dataset_dir: Path, issues: list[PackageIssue]) -> str | None:
+def _verify_dataset_dir(
+    dataset_dir: Path,
+    issues: list[PackageIssue],
+) -> _DatasetVerification:
     _require_markdown_sections(
         dataset_dir / "data_card.md",
         issues,
         code_prefix="dataset.card",
         sections=("Sources", "License", "Preprocessing", "Splits", "Limitations"),
     )
-    has_membership_and_split_evidence = _verify_dataset_package_metadata(dataset_dir, issues)
+    package = _verify_dataset_package_metadata(dataset_dir, issues)
+    has_membership_and_split_evidence = (
+        package is not None and package.membership_and_split_evidence is not None
+    )
     if has_membership_and_split_evidence and (dataset_dir / "data_card.md").is_file():
         _require_markdown_sections(
             dataset_dir / "data_card.md",
@@ -992,13 +1012,19 @@ def _verify_dataset_dir(dataset_dir: Path, issues: list[PackageIssue]) -> str | 
             *dataset_files,
         ),
     )
-    return snapshot_id
+    return _DatasetVerification(
+        snapshot_id=snapshot_id,
+        membership_runtime_binding=(
+            None if package is None else _dataset_membership_runtime_binding(package)
+        ),
+        package_valid=package is not None,
+    )
 
 
 def _verify_dataset_package_metadata(
     dataset_dir: Path,
     issues: list[PackageIssue],
-) -> bool:
+) -> DatasetPackage | None:
     metadata_path = dataset_dir / "dataset_package.json"
     manifest_path = dataset_dir / "dataset_manifest.json"
     data_card_path = dataset_dir / "data_card.md"
@@ -1009,7 +1035,7 @@ def _verify_dataset_package_metadata(
             metadata_path,
             "dataset_package.json is required",
         )
-        return False
+        return None
     try:
         package = load_dataset_package(dataset_dir, metadata_path)
     except GenoLeWMError as exc:
@@ -1019,7 +1045,7 @@ def _verify_dataset_package_metadata(
             metadata_path,
             exc.message or str(exc),
         )
-        return False
+        return None
     if manifest_path.is_file():
         try:
             observed_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1052,7 +1078,58 @@ def _verify_dataset_package_metadata(
                     data_card_path,
                     "data_card.md does not match dataset_package.json",
                 )
-    return package.membership_and_split_evidence is not None
+    return package
+
+
+def _dataset_membership_runtime_binding(
+    package: DatasetPackage,
+) -> dict[str, object] | None:
+    evidence = package.membership_and_split_evidence
+    if evidence is None:
+        return None
+    policy = {
+        "schema_version": MEMBERSHIP_STORE_SCHEMA_VERSION,
+        "membership_content_identity": evidence.membership_store.content_identity,
+        "excluded_chromosomes": [
+            *V03_CHROMOSOME_ROLES.validation,
+            *V03_CHROMOSOME_ROLES.evaluation,
+        ],
+        "selection": "chromosome_roles",
+        "lookup": "lookup.sqlite",
+    }
+    return {
+        **evidence.to_dict(),
+        "holdout_policy": policy,
+        "holdout_policy_identity": canonical_json_sha256(policy),
+    }
+
+
+def _verify_training_dataset_membership_binding(
+    model_dir: Path,
+    dataset: _DatasetVerification,
+    issues: list[PackageIssue],
+) -> None:
+    if not dataset.package_valid:
+        return
+    manifest_path = model_dir / TRAINING_RUN_MANIFEST_NAME
+    try:
+        run_manifest = verify_training_run_manifest(
+            model_dir,
+            manifest_path,
+            require_preflight=True,
+        )
+    except GenoLeWMError:
+        return
+    if run_manifest.membership_and_split_evidence != dataset.membership_runtime_binding:
+        _error(
+            issues,
+            "model.training_run.dataset_membership_mismatch",
+            manifest_path,
+            (
+                "training-run membership store, split report, and holdout policy must "
+                "match the verified dataset package"
+            ),
+        )
 
 
 def _expected_dataset_integrity_for_card(
