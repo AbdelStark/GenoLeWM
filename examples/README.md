@@ -24,9 +24,10 @@ model evidence.
 ### `02_score_brca2_saturation.ipynb`
 Partial. Enumerates every possible SNV across a small BRCA2 exon-scale
 fixture, produces a calibrated-surprise heatmap, and compares against a
-deterministic fixture functional-score column. It does not use the
-released scorer or Findlay et al. rows, so the published-data Spearman
-acceptance criterion remains open.
+deterministic fixture functional-score column. It does not use the corrected
+released scorer or the Sahu et al. assay rows from MaveDB
+`urn:mavedb:00001242-a-1`, so the full-cohort benchmark criterion remains
+open.
 
 ### `03_score_vcf.ipynb`
 Batch-scores a one-row fixture VCF against a local FASTA, writes one

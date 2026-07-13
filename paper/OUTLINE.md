@@ -105,7 +105,9 @@ specify the fail-closed experiment required before scientific claims resume.
    - 4,096 bp released windows versus 12,288 bp default.
    - No matched warm-cache benchmark or component profile.
    - AR micro-benchmark is not exact-checkpoint or end-to-end timing.
-   - Exact BRCA2 assay publication remains unverified.
+   - The BRCA2 assay is Sahu et al. (2025), bound through MaveDB
+     `urn:mavedb:00001242-a-1`; the historical 32-row score remains invalid
+     because of the mixed-norm residual, not because its label source is unknown.
 
 8. **Historical Released Measurements**
    - Keep values tied to original identities.
