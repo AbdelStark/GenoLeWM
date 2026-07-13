@@ -196,12 +196,13 @@ def test_snapshot_copy_opens_source_and_target_in_binary_mode(
     target = tmp_path / "stage" / "target.txt"
     source.write_bytes(b"canonical\nbytes\n")
     binary_flag = 1 << 30
+    platform_binary_flag = getattr(os, "O_BINARY", 0)
     observed_flags: list[int] = []
     os_open = os.open
 
     def tracking_open(path: str | os.PathLike[str], flags: int, mode: int = 0o600) -> int:
         observed_flags.append(flags)
-        return os_open(path, flags & ~binary_flag, mode)
+        return os_open(path, (flags & ~binary_flag) | platform_binary_flag, mode)
 
     monkeypatch.setattr(snapshot_module.os, "O_BINARY", binary_flag, raising=False)
     monkeypatch.setattr(snapshot_module.os, "open", tracking_open)
@@ -256,21 +257,7 @@ def test_assembler_builds_and_reverifies_a_closed_role_bound_snapshot(
     _patch_membership_store(monkeypatch, fixture.manifest, fixture.train_rows)
     output = tmp_path / "published-snapshot"
 
-    report = assemble_v03_dataset_snapshot(
-        membership_bundle_dir=fixture.membership_bundle,
-        split_bundle_dir=fixture.split_bundle,
-        gnomad_root=fixture.gnomad_root,
-        clinvar_root=fixture.clinvar_root,
-        training_windows_path=fixture.training_windows,
-        dataset_dir=output,
-        split_repository="owner/data",
-        split_revision="d" * 40,
-        split_artifact_path="candidates/v0.3/splits/r1/success",
-        snapshot_id="geno-lewm-data-v0.3.0-fixture-r1",
-        generated_at="2026-07-13T18:00:00Z",
-        producer_git_commit="e" * 40,
-        container_image="ghcr.io/example/uv@sha256:" + "f" * 64,
-    )
+    report = _assemble_fixture_snapshot(fixture, output, monkeypatch)
     verified = verify_v03_dataset_snapshot(output)
     strict_verified = verify_v03_dataset_snapshot(
         output,
@@ -356,7 +343,7 @@ def test_assembler_rejects_training_window_intersecting_held_variant(
     _write_checksums(fixture.split_bundle)
 
     with pytest.raises(InputError, match="dataset split leakage check failed") as excinfo:
-        _assemble_fixture_snapshot(fixture, tmp_path / f"overlap-{held_split}")
+        _assemble_fixture_snapshot(fixture, tmp_path / f"overlap-{held_split}", monkeypatch)
 
     assert excinfo.value.details["failure_reason"] == "intersecting_genomic_regions"
     assert excinfo.value.details["split_b"] == held_split
@@ -443,7 +430,7 @@ def test_standalone_verifier_rejects_coherently_repackaged_train_row_tampering(
     fixture = _write_assembly_fixture(tmp_path)
     _patch_membership_store(monkeypatch, fixture.manifest, fixture.train_rows)
     output = tmp_path / "published-snapshot"
-    _assemble_fixture_snapshot(fixture, output)
+    _assemble_fixture_snapshot(fixture, output, monkeypatch)
     shard = output / "gnomad/v4.1/train/chr1.variants.parquet"
     table = pq.read_table(shard)
     rows = table.to_pylist()
@@ -471,7 +458,7 @@ def test_strict_upstream_replay_rejects_nonidentity_value_tampering_that_default
     fixture = _write_assembly_fixture(tmp_path)
     _patch_membership_store(monkeypatch, fixture.manifest, fixture.train_rows)
     output = tmp_path / "published-snapshot"
-    _assemble_fixture_snapshot(fixture, output)
+    _assemble_fixture_snapshot(fixture, output, monkeypatch)
     shard = output / "gnomad/v4.1/train/chr1.variants.parquet"
     table = pq.read_table(shard)
     rows = table.to_pylist()
@@ -922,8 +909,23 @@ def _write_assembly_fixture(root: Path) -> SimpleNamespace:
     )
 
 
-def _assemble_fixture_snapshot(fixture: SimpleNamespace, output: Path) -> None:
-    assemble_v03_dataset_snapshot(
+def _assemble_fixture_snapshot(
+    fixture: SimpleNamespace,
+    output: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> snapshot_module.V03SnapshotReport:
+    if os.name == "nt":
+        monkeypatch.setattr(snapshot_module, "_fsync_tree", lambda _root: None)
+
+        def publish_fixture_directory(source: Path, target: Path) -> None:
+            source.rename(target)
+
+        monkeypatch.setattr(
+            snapshot_module,
+            "_publish_directory_noreplace",
+            publish_fixture_directory,
+        )
+    return assemble_v03_dataset_snapshot(
         membership_bundle_dir=fixture.membership_bundle,
         split_bundle_dir=fixture.split_bundle,
         gnomad_root=fixture.gnomad_root,
