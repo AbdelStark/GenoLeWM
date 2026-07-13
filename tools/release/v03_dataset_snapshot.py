@@ -2189,14 +2189,19 @@ def _copy_regular_file(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists() or target.is_symlink():
         raise InputError("snapshot target already exists", details={"path": str(target)})
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    binary_flag = getattr(os, "O_BINARY", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | binary_flag
     source_fd = os.open(src, flags)
     target_fd: int | None = None
     try:
         metadata = os.fstat(source_fd)
         if not stat.S_ISREG(metadata.st_mode):
             raise InputError("snapshot input changed from a regular file during capture")
-        target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        target_fd = os.open(
+            target,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | binary_flag,
+            0o600,
+        )
         while True:
             chunk = os.read(source_fd, 1 << 20)
             if not chunk:

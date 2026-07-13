@@ -188,6 +188,31 @@ def test_snapshot_copy_creates_private_staging_file(tmp_path: Path) -> None:
     assert target.stat().st_mode & 0o077 == 0
 
 
+def test_snapshot_copy_opens_source_and_target_in_binary_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.txt"
+    target = tmp_path / "stage" / "target.txt"
+    source.write_bytes(b"canonical\nbytes\n")
+    binary_flag = 1 << 30
+    observed_flags: list[int] = []
+    os_open = os.open
+
+    def tracking_open(path: str | os.PathLike[str], flags: int, mode: int = 0o777) -> int:
+        observed_flags.append(flags)
+        return os_open(path, flags & ~binary_flag, mode)
+
+    monkeypatch.setattr(snapshot_module.os, "O_BINARY", binary_flag, raising=False)
+    monkeypatch.setattr(snapshot_module.os, "open", tracking_open)
+
+    snapshot_module._copy_regular_file(source, target)
+
+    assert len(observed_flags) == 2
+    assert all(flags & binary_flag for flags in observed_flags)
+    assert target.read_bytes() == b"canonical\nbytes\n"
+
+
 def test_clinvar_filter_uses_the_exact_membership_source_row_identity(tmp_path: Path) -> None:
     pa = pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
