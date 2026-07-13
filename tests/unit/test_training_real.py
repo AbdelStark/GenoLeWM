@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +18,7 @@ from geno_lewm.data import (
     SOURCE_GNOMAD_COMMON,
     SOURCE_SYNTHETIC_INDEL,
     SOURCE_SYNTHETIC_SNV,
+    HoldoutPolicy,
     WindowContext,
     synthetic_indel_provider,
     synthetic_snv_provider,
@@ -45,6 +47,13 @@ from geno_lewm.training.trainer import TorchTrainerStepResult, TrainerSeeds
 from tests.unit.test_training_preflight import _write_release_dataset, _write_training_config
 
 _ENCODER_WEIGHTS_HASH = "sha256:" + ("a" * 64)
+_MEMBERSHIP_BINDING = {
+    "path": "evidence/membership-store",
+    "artifact_id": "geno-lewm-v03-membership-fixture-r1",
+    "content_identity": "sha256:" + ("b" * 64),
+    "physical_identity": "sha256:" + ("c" * 64),
+    "rowset_sha256": "sha256:" + ("d" * 64),
+}
 
 
 def _step_result(*, loss: float, var: float, step: int = 1) -> TorchTrainerStepResult:
@@ -112,6 +121,10 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
         _step_result(loss=0.3, var=0.9, step=3),
     ]
     path = tmp_path / "metrics.json"
+    membership_identity = {
+        "membership_store": dict(_MEMBERSHIP_BINDING),
+        "holdout_policy_identity": "sha256:" + ("e" * 64),
+    }
     _write_metrics(
         path,
         config=config,
@@ -124,6 +137,7 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
         collapse_alert_count=1,
         dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
         resume_checkpoint_path=None,
+        membership_identity=membership_identity,
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     metrics = payload["metrics"]
@@ -134,6 +148,7 @@ def test_write_metrics_emits_real_nan_and_collapse_floor(tmp_path: Path) -> None
     assert payload["samples_per_second"] == pytest.approx(8.0)
     assert metrics["elapsed_seconds"]["value"] == pytest.approx(3.0)
     assert metrics["samples_per_second"]["value"] == pytest.approx(8.0)
+    assert payload["membership_and_split_evidence"] == membership_identity
 
 
 def test_write_training_metadata_records_artifact_identities(tmp_path: Path) -> None:
@@ -157,6 +172,10 @@ def test_write_training_metadata_records_artifact_identities(tmp_path: Path) -> 
         (tmp_path / name).write_text(f"{name}\n", encoding="utf-8")
 
     metadata_path = tmp_path / "training_run.json"
+    membership_identity = {
+        "membership_store": dict(_MEMBERSHIP_BINDING),
+        "holdout_policy_identity": "sha256:" + ("e" * 64),
+    }
     _write_training_metadata(
         metadata_path,
         config=config,
@@ -172,15 +191,18 @@ def test_write_training_metadata_records_artifact_identities(tmp_path: Path) -> 
         sample_count=4,
         resumed_from_step=0,
         resume_checkpoint_path=None,
+        membership_identity=membership_identity,
     )
 
-    identities = json.loads(metadata_path.read_text(encoding="utf-8"))["artifact_identities"]
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    identities = metadata["artifact_identities"]
     assert identities["dataset_manifest"] == _identity(tmp_path, "dataset_manifest.json")
     assert identities["training_config"] == _identity(tmp_path, "training_config.effective.yaml")
     assert identities["metrics"] == _identity(tmp_path, "metrics.json")
     assert identities["logs"] == [_identity(tmp_path, "train.log")]
     assert identities["checkpoint_files"] == [_identity(tmp_path, "predictor_checkpoint.pt")]
     assert identities["training_preflight_report"] == _identity(tmp_path, REPORT_NAME)
+    assert metadata["membership_and_split_evidence"] == membership_identity
 
 
 def test_training_device_uses_runtime_config_device(tmp_path: Path) -> None:
@@ -235,6 +257,149 @@ def test_release_training_loader_uses_carbon_when_snapshot_has_no_placed_windows
     }
 
 
+def test_schema_1_1_window_loader_reads_only_split_data(tmp_path: Path) -> None:
+    placed = tmp_path / "placed"
+    placed.mkdir()
+    row = {
+        "record_id": "train-window",
+        "source": SOURCE_GNOMAD_COMMON,
+        "sequence": "ACGT" * 64,
+        "chrom": "1",
+    }
+    (placed / "train.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    (placed / "labels.jsonl").write_text("not-json\n", encoding="utf-8")
+
+    windows = tuple(
+        _load_windows(
+            tmp_path,
+            (
+                {"path": "placed/train.jsonl", "artifact_role": "split_data"},
+                {"path": "placed/labels.jsonl", "artifact_role": "split_companion"},
+            ),
+            schema_version="1.1.0",
+        )
+    )
+
+    assert [window.record_id for window in windows] == ["train-window"]
+
+
+def test_schema_1_1_variant_loader_reads_only_split_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gnomad = tmp_path / "gnomad"
+    gnomad.mkdir()
+    (gnomad / "train.parquet").write_bytes(b"train")
+    (gnomad / "labels.parquet").write_bytes(b"companion")
+    observed: list[Path] = []
+
+    def fake_iter(path: Path):
+        observed.append(path)
+        return iter(())
+
+    monkeypatch.setattr(real_module, "iter_gnomad_shard", fake_iter)
+
+    assert tuple(
+        real_module._load_gnomad_edits(
+            tmp_path,
+            (
+                {"path": "gnomad/train.parquet", "artifact_role": "split_data"},
+                {"path": "gnomad/labels.parquet", "artifact_role": "split_companion"},
+            ),
+            schema_version="1.1.0",
+        )
+    ) == ()
+    assert observed == [(gnomad / "train.parquet").resolve()]
+
+
+def test_membership_holdout_policy_opens_once_and_closes_on_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store_dir = tmp_path / "evidence" / "membership-store"
+    store_dir.mkdir(parents=True)
+    events: list[object] = []
+
+    class FakeStore:
+        manifest = SimpleNamespace(**{key: value for key, value in _MEMBERSHIP_BINDING.items() if key != "path"})
+
+        @classmethod
+        def open(cls, path: Path, *, verify: bool):
+            events.append(("open", path, verify))
+            return cls()
+
+        def close(self) -> None:
+            events.append("close")
+
+    class FakePolicy:
+        def __init__(self, store: object) -> None:
+            events.append(("policy", store))
+
+    monkeypatch.setattr(real_module, "MembershipStore", FakeStore)
+    monkeypatch.setattr(real_module, "MembershipStoreHoldoutPolicy", FakePolicy)
+    manifest = {"membership_and_split_evidence": {"membership_store": _MEMBERSHIP_BINDING}}
+
+    with real_module._membership_holdout_policy(tmp_path, manifest) as policy:
+        assert isinstance(policy, FakePolicy)
+        assert [event[0] for event in events if isinstance(event, tuple)].count("open") == 1
+
+    assert events[-1] == "close"
+
+
+def test_membership_holdout_policy_rejects_identity_drift_and_closes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store_dir = tmp_path / "evidence" / "membership-store"
+    store_dir.mkdir(parents=True)
+    events: list[str] = []
+
+    class FakeStore:
+        manifest = SimpleNamespace(
+            **{
+                **{key: value for key, value in _MEMBERSHIP_BINDING.items() if key != "path"},
+                "rowset_sha256": "sha256:" + ("e" * 64),
+            }
+        )
+
+        @classmethod
+        def open(cls, path: Path, *, verify: bool):
+            del path, verify
+            events.append("open")
+            return cls()
+
+        def close(self) -> None:
+            events.append("close")
+
+    monkeypatch.setattr(real_module, "MembershipStore", FakeStore)
+    manifest = {"membership_and_split_evidence": {"membership_store": _MEMBERSHIP_BINDING}}
+
+    with pytest.raises(InputError, match="identity does not match"):
+        with real_module._membership_holdout_policy(tmp_path, manifest):
+            pytest.fail("identity drift must fail before yielding")
+
+    assert events == ["open", "close"]
+
+
+def test_legacy_manifest_does_not_open_membership_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ForbiddenStore:
+        @classmethod
+        def open(cls, path: Path, *, verify: bool):
+            del path, verify
+            pytest.fail("legacy manifests must not open a membership store")
+
+    monkeypatch.setattr(real_module, "MembershipStore", ForbiddenStore)
+
+    with real_module._membership_holdout_policy(
+        tmp_path,
+        {"schema_version": "1.0.0"},
+    ) as policy:
+        assert policy is None
+
+
 def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
     windows = (
         WindowContext(
@@ -264,6 +429,45 @@ def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
 
     assert {item.source_window.record_id for item in first_epoch} == {"placed-1"}
     assert next_epoch[0].source_window.record_id == "placed-1"
+
+
+def test_repeat_training_items_applies_holdouts_to_every_epoch() -> None:
+    windows = (
+        WindowContext(
+            record_id="train-window",
+            source=SOURCE_GNOMAD_COMMON,
+            sequence="ACGT" * 64,
+            chrom="1",
+            start_bp=100,
+        ),
+        WindowContext(
+            record_id="evaluation-window",
+            source=SOURCE_GNOMAD_COMMON,
+            sequence="ACGT" * 64,
+            chrom="21",
+            start_bp=100,
+        ),
+    )
+    providers = {
+        SOURCE_GNOMAD_COMMON: synthetic_snv_provider,
+        SOURCE_SYNTHETIC_SNV: synthetic_snv_provider,
+        SOURCE_SYNTHETIC_INDEL: synthetic_indel_provider,
+        SOURCE_CLINVAR: lambda window, count, rng: (),
+    }
+
+    iterator = _repeat_training_items(
+        windows,
+        providers,
+        seed=11,
+        fallback_sources=_dataset_fallback_sources(windows),
+        holdouts=HoldoutPolicy(holdout_chroms=("21",)),
+    )
+
+    first_epoch = _next_batch(iterator, 8)
+    second_epoch = _next_batch(iterator, 8)
+
+    assert {item.source_window.record_id for item in first_epoch} == {"train-window"}
+    assert {item.source_window.record_id for item in second_epoch} == {"train-window"}
 
 
 def test_snv_only_training_contract_filters_indels_and_preserves_eight_actions(
@@ -401,16 +605,20 @@ def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime
     monkeypatch.setattr(
         real_module,
         "_load_dataset_manifest",
-        lambda _dataset_dir: {"snapshot_id": "fixture", "files": []},
+        lambda _dataset_dir: {
+            "schema_version": "1.0.0",
+            "snapshot_id": "fixture",
+            "files": [],
+        },
     )
     monkeypatch.setattr(real_module, "_dataset_files", lambda _manifest: ())
-    monkeypatch.setattr(real_module, "_load_windows", lambda *_args: iter((window,)))
+    monkeypatch.setattr(real_module, "_load_windows", lambda *_args, **_kwargs: iter((window,)))
     monkeypatch.setattr(
         real_module,
         "_load_gnomad_edits",
-        lambda *_args: iter((EditSpec(chrom="1", pos=1, ref="A", alt="T"),)),
+        lambda *_args, **_kwargs: iter((EditSpec(chrom="1", pos=1, ref="A", alt="T"),)),
     )
-    monkeypatch.setattr(real_module, "_load_clinvar_edits", lambda *_args: iter(()))
+    monkeypatch.setattr(real_module, "_load_clinvar_edits", lambda *_args, **_kwargs: iter(()))
 
     def fake_encoder_identity_hash(model_dir: Path, *, state_contract_version: str) -> str:
         observed.append((model_dir, state_contract_version))
@@ -595,6 +803,34 @@ def test_validate_resume_checkpoint_rejects_config_mismatch(tmp_path: Path) -> N
         )
 
 
+def test_validate_resume_checkpoint_rejects_membership_identity_drift(tmp_path: Path) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    expected = {
+        "membership_store": dict(_MEMBERSHIP_BINDING),
+        "holdout_policy_identity": "sha256:" + ("e" * 64),
+    }
+    payload = _resume_payload(config, seeds, steps_completed=3)
+    payload_config = payload["config"]
+    assert isinstance(payload_config, dict)
+    payload_config["data.membership_and_split_evidence"] = {
+        **expected,
+        "holdout_policy_identity": "sha256:" + ("f" * 64),
+    }
+
+    with pytest.raises(InputError, match="membership and split evidence"):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            config=config,
+            dataset_snapshot_id="geno-lewm-data-v0.1.0-r1",
+            seeds=seeds,
+            target_steps=5,
+            encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+            membership_identity=expected,
+        )
+
+
 def test_normalized_resume_rejects_encoder_identity_mismatch(tmp_path: Path) -> None:
     legacy_config = load_config(_write_training_config(tmp_path))
     config = replace(
@@ -658,6 +894,10 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
     action_encoder = torch.nn.Linear(2, 2)
     optimizer = torch.optim.AdamW(list(predictor.parameters()) + list(action_encoder.parameters()))
     path = tmp_path / "predictor_checkpoint.pt"
+    membership_identity = {
+        "membership_store": dict(_MEMBERSHIP_BINDING),
+        "holdout_policy_identity": "sha256:" + ("e" * 64),
+    }
 
     _write_checkpoint(
         path,
@@ -669,6 +909,7 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
         steps=7,
         seeds=seeds,
         encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        membership_identity=membership_identity,
     )
 
     payload = torch.load(path, map_location="cpu")
@@ -680,6 +921,7 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
         seeds=seeds,
         target_steps=8,
         encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
+        membership_identity=membership_identity,
     )
 
     assert checkpoint.steps_completed == 7
@@ -693,6 +935,7 @@ def test_write_checkpoint_emits_resume_compatible_payload(tmp_path: Path) -> Non
     assert payload["config"]["encoder.state_layer"] == config.encoder.state_layer
     assert payload["config"]["action.sub_encoders"] == list(config.action.sub_encoders)
     assert payload["config"]["predictor.dtype"] == config.predictor.dtype
+    assert payload["config"]["data.membership_and_split_evidence"] == membership_identity
 
 
 def _resume_payload(config, seeds: TrainerSeeds, *, steps_completed: int) -> dict[str, object]:
