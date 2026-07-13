@@ -96,7 +96,7 @@ def test_checked_serious_completion_snapshot_spec_is_valid() -> None:
 def test_checked_correction_control_snapshot_spec_is_valid() -> None:
     report = check_dataset_snapshot_spec(CORRECTION_CONTROL_SPEC)
 
-    assert report.snapshot_id == "geno-lewm-data-correction-control-l2-p1-smoke-v1"
+    assert report.snapshot_id == "geno-lewm-data-correction-control-l2-p1-proof-v1"
     assert report.generated_by == SPEC_CHECK_GENERATED_BY
     assert report.staged_paths == (
         "carbon/source-mix-windows.jsonl",

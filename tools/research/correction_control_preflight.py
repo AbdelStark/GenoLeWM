@@ -29,7 +29,7 @@ EXPECTED_SNAPSHOT_PATH: Final = Path(
     "configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json"
 )
 EXPECTED_RUN_ID: Final = "correction-control-l2-p1-smoke-v1"
-EXPECTED_SNAPSHOT_ID: Final = "geno-lewm-data-correction-control-l2-p1-smoke-v1"
+EXPECTED_SNAPSHOT_ID: Final = "geno-lewm-data-correction-control-l2-p1-proof-v1"
 EXPECTED_SEED: Final = 104729
 
 EXPECTED_CARBON_MODEL_DIR: Final = "/carbon"

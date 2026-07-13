@@ -49,7 +49,7 @@ def test_correction_control_preflight_accepts_exact_contract(tmp_path: Path) -> 
     assert report.issues == ()
     assert report.repository["observed_commit_sha"] == request.expected_commit_sha
     assert report.config["run_id"] == "correction-control-l2-p1-smoke-v1"
-    assert report.snapshot["snapshot_id"] == ("geno-lewm-data-correction-control-l2-p1-smoke-v1")
+    assert report.snapshot["snapshot_id"] == ("geno-lewm-data-correction-control-l2-p1-proof-v1")
     assert str(tmp_path) not in json.dumps(report.to_dict(), sort_keys=True)
     claim_boundary = report.to_dict()["claim_boundary"]
     assert isinstance(claim_boundary, str)

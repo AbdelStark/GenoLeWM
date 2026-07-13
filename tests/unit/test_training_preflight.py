@@ -125,6 +125,39 @@ def test_training_preflight_rejects_fixture_dataset_by_default(tmp_path: Path) -
     assert "dataset.fixture_snapshot" in _codes(report)
 
 
+def test_training_preflight_accepts_correction_control_proof_snapshot(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("pyarrow")
+    root = Path(__file__).resolve().parents[2]
+    snapshot_spec = json.loads(
+        (root / "configs/correction_control/dataset-snapshot-snv-l2-smoke-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    dataset_dir = _write_release_dataset(
+        tmp_path,
+        snapshot_id=snapshot_spec["snapshot_id"],
+    )
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_dir,
+            training_config=config,
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is True
+    assert report.dataset_snapshot_id == snapshot_spec["snapshot_id"]
+    assert "dataset.fixture_snapshot" not in _codes(report)
+
+
 def test_training_preflight_requires_release_dataset_evidence(tmp_path: Path) -> None:
     pytest.importorskip("pyarrow")
     dataset_dir = _write_release_dataset(tmp_path)

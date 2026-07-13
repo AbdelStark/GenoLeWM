@@ -42,7 +42,7 @@
     "Hold chromosome 22 out of the archived ClinVar evaluation rows."
   ],
   "schema_version": "1.0.0",
-  "snapshot_id": "geno-lewm-data-correction-control-l2-p1-smoke-v1",
+  "snapshot_id": "geno-lewm-data-correction-control-l2-p1-proof-v1",
   "source_integrity": {
     "clinvar_md5": "e63b5c3a046010c098cc70e81bebaa8d",
     "gnomad_md5": "dcf191563e69054a71bd4dc77862799a",

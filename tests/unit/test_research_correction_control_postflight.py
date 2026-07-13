@@ -23,7 +23,7 @@ from tools.research.state_contract_audit import (
 
 _COMMIT = "a" * 40
 _RUN_ID = "correction-control-l2-p1-smoke-v1"
-_SNAPSHOT_ID = "geno-lewm-data-correction-control-l2-p1-smoke-v1"
+_SNAPSHOT_ID = "geno-lewm-data-correction-control-l2-p1-proof-v1"
 _RUN_NAME = f"geno-lewm-l2-p1-smoke-{_COMMIT[:12]}-50-r2"
 
 
