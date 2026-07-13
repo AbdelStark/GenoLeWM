@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from geno_lewm.encoder._canonical import canonical_fp32
 from geno_lewm.errors import InputError
 
 __all__ = [
@@ -222,7 +223,7 @@ def _mean_rows(rows: Sequence[Sequence[float]]) -> tuple[float, ...]:
         for col, value in enumerate(row):
             totals[col] += value
     denom = float(len(rows))
-    return tuple(total / denom for total in totals)
+    return tuple(canonical_fp32(total / denom, field="pooled state") for total in totals)
 
 
 def _validate_center_token(center_token: int, token_count: int) -> int:

@@ -26,7 +26,7 @@ set -euo pipefail
 WORK="${WORK:-/tmp/geno-training-reproducibility}"
 CARBON_DIR="${CARBON_DIR:-/carbon}"
 MIN_CUDA_VRAM_GB="120"
-EXPECTED_CARBON_RUNTIME_HASH="sha256:71d27acc26bc809d850e9cd8cf558762c5bd4c1d611e2778c1614c0a8be77b38"
+EXPECTED_CARBON_RUNTIME_HASH="sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e"
 COMMIT_SHA="${COMMIT_SHA:?COMMIT_SHA is required}"
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-ghcr.io/astral-sh/uv@sha256:35b0aa516fbcf6f18624919cfc38fa02ab3458e0ffcd3c03e932051b37f315db}"
 

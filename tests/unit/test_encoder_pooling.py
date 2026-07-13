@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import struct
 
 import pytest
 
@@ -21,6 +22,23 @@ def test_global_mean_pools_all_tokens() -> None:
     hidden = ((1.0, 2.0), (3.0, 4.0), (5.0, 6.0))
 
     assert global_mean(hidden) == (3.0, 4.0)
+
+
+def test_pooling_canonicalizes_fractional_means_to_fp32() -> None:
+    expected = struct.unpack("<f", struct.pack("<f", 0.15))[0]
+
+    observed = global_mean(((0.1,), (0.2,)))
+
+    assert observed == (expected,)
+    assert struct.pack("<f", observed[0]) == struct.pack("<f", expected)
+
+
+def test_pooling_preserves_representable_fp32_subnormal_bits() -> None:
+    smallest_subnormal = struct.unpack("<f", bytes.fromhex("01000000"))[0]
+
+    observed = global_mean(((smallest_subnormal,), (smallest_subnormal,)))
+
+    assert struct.pack("<f", observed[0]) == bytes.fromhex("01000000")
 
 
 def test_centered_mean_pools_inclusive_radius_span() -> None:

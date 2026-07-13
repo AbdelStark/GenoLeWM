@@ -56,11 +56,24 @@ or incompatible command changes require an explicit compatibility note.
 - `WindowCacheKey` and `WindowCacheRecord` now require `center_token`, and
   cache schema `1.0.0` is intentionally not reusable.
 - New cache writes use schema `3.0.0`. Schema-2 Parquet remains read-only
-  compatible; callers that emit schema-bound rollout artifacts must regenerate
-  those artifacts with the schema-3 version.
+  compatible only through an explicit replay policy; corrected training and
+  schema-bound rollout artifacts require schema-3 provenance and canonical FP32
+  state bits.
 - `shard_path_for` accepts optional `encoder_hash` and `dtype` identity fields
-  for schema-3 paths. Omitting both retains the schema-2 path calculation for
-  locating legacy artifacts; callers predicting a new writer path must pass both.
+  for schema-3 paths. Encoder ID and contig components are fixed ASCII SHA-256
+  digests. Omitting both selects the read-only schema-2 construction namespace;
+  `reindex_cache` discovers historical legacy paths independently.
+- Cache schema 3 now serializes cross-process publication, installs immutable
+  shards with atomic no-clobber hard links, bit-verifies existing winners, and
+  records each batch in one FULL-durability direct SQLite transaction. Whole
+  reindex alone builds a private validated index and atomically replaces it.
+- The provenance-aware STRICT index records cache schema and physical encoding,
+  permits v2/v3 coexistence for one logical key, and requires an explicit read
+  policy. Grouped row-group lookup remains unchanged.
+- Pooling and normalization now emit canonical FP32 after their final operation,
+  making live and v3-cached downstream state bits identical for every supported
+  logical compute dtype. The encoder runtime hash directly commits this
+  canonicalization implementation.
 - Rollout state specs/examples move to schema `1.2.0` and bind cache schema,
   raw-storage semantics, materialized state contract, encoder identity,
   pooling locus, and state width. Older ambiguous rows must be regenerated.

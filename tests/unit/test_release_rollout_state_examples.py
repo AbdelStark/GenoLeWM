@@ -33,6 +33,7 @@ def test_rollout_state_examples_generate_jsonl_and_report(tmp_path: Path) -> Non
     row = json.loads(output.read_text(encoding="utf-8"))
     assert row["schema_version"] == "1.2.0"
     assert row["cache_schema_version"] == "3.0.0"
+    assert row["cache_physical_encoding"] == "fixed_size_list<float32>"
     assert row["cached_state_value_contract"] == "raw_pooled_v1"
     assert row["materialized_state_contract"] == "legacy_raw_v1"
     assert row["generated_by"] == "tools.release.rollout_state_examples"
@@ -47,6 +48,7 @@ def test_rollout_state_examples_generate_jsonl_and_report(tmp_path: Path) -> Non
     assert payload["horizons"] == [2]
     assert payload["normalization_views"] == [False]
     assert payload["unique_cache_state_keys"] == 3
+    assert payload["cache_physical_encoding"] == "fixed_size_list<float32>"
     assert payload["inputs"]["spec_jsonl"]["path"] == "eval/rollout_state_example_specs.jsonl"
     assert payload["inputs"]["cache_dir"]["path"] == "cache"
     assert payload["outputs"]["examples_jsonl"]["sha256"] == sha256_file(output)

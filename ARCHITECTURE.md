@@ -38,23 +38,33 @@ contract for compatibility only.
 
 Cache schema `3.0.0` stores raw post-pooling, pre-normalization vectors. Its
 identity includes the encoder runtime hash, layer, pooling mode/radius,
-`center_token`, and logical compute dtype. The physical Parquet representation
-is recorded separately as fixed-size `fp32`, which losslessly represents
-states produced in BF16, FP16, or FP32 without labeling FP16 bytes as another
-dtype. New shard paths include the schema generation, encoder hash, logical
-dtype, physical dtype, layer, and pooling identity. Schema-2 shards remain
-readable and reindexable but are never written by the schema-3 writer. Their
+`center_token`, and logical compute dtype. Pooling and normalization explicitly
+round their final outputs to canonical IEEE-754 FP32 before any downstream
+consumer. The physical Parquet representation is recorded separately as
+fixed-size FP32 and therefore preserves those canonical state bits for BF16,
+FP16, and FP32 compute modes without mislabeling FP16 bytes. New shard paths
+include the schema generation, encoder hash, logical dtype, physical dtype,
+layer, and pooling identity; encoder ID and contig components are fixed ASCII
+SHA-256 digests, avoiding filesystem, Unicode, case, and punctuation aliases.
+Schema-2 shards remain readable and reindexable under an explicit legacy replay
+policy but are never written by the schema-3 writer. Corrected training and
+schema-3 rollout evidence fail closed unless v3 provenance is selected. Their
 historical `dtype` column did not always describe the FP16 physical payload,
 so compatibility reads support replay only; dtype-faithful evidence requires
 regenerating the shard as schema 3.
 
-Shard writes stage to a same-directory temporary file, reopen and validate the
-complete schema and rows, then atomically install the shard. Index rebuilds are
-also staged and replace the prior SQLite index only after `integrity_check`
-passes. Batched lookup groups keys by shard and reads each required Parquet row
-group once. Normalization remains a consumer-side view, so raw cache rows can
-serve either state contract without colliding. Cache v1 omitted the pooling
-center and remains deliberately invalidated.
+Cross-process shard publication is serialized across path and key reservation.
+Writes use no-follow directory traversal where supported, durably create each
+namespace ancestor, stage and reopen a strict non-nullable Arrow schema, compare
+canonical serialized row bits, and hard-link the final name without clobbering
+an existing winner. A losing writer reopens and bit-verifies that winner. One
+direct `BEGIN IMMEDIATE` SQLite transaction then inserts the batch with FULL
+durability; whole-index repair/reindex alone uses a private database and atomic
+replacement after `integrity_check`. The index stores cache schema and physical
+encoding, allowing v2/v3 coexistence without ambiguous selection. Batched lookup
+groups keys by shard and reads each required Parquet row group once. Cache v1
+omitted the pooling center and remains deliberately invalidated. This foundation
+does not claim completion of a full cache build or corrected training/evaluation.
 
 The corrected Carbon path does not execute the upstream custom tokenizer. The
 pinned upstream `tokenizer.py` delegated to an unpinned, network-capable

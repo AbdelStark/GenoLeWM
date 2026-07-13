@@ -6,6 +6,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
+from geno_lewm.encoder._canonical import canonical_state_fp32
 from geno_lewm.errors import InputError
 
 
@@ -25,4 +26,7 @@ def l2_normalize_state(
             "pooled encoder state must have a finite non-zero norm",
             details=details,
         )
-    return tuple(value / norm for value in values)
+    return canonical_state_fp32(
+        tuple(value / norm for value in values),
+        field="normalized state",
+    )
