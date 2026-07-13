@@ -107,7 +107,7 @@ def test_release_pypi_workflow_uses_oidc_publish_and_sigstore_build_provenance()
     assert "tags:" in text
     assert '"v[0-9]+.[0-9]+.[0-9]+"' in text
     assert "pypa/gh-action-pypi-publish@release/v1" in text
-    assert "actions/attest-build-provenance@v4.1.0" in text
+    assert "actions/attest-build-provenance@v4.1.1" in text
     assert "id-token: write" in text
     assert "attestations: write" in text
     assert "dist/SHA256SUMS" in text
