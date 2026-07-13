@@ -199,13 +199,20 @@ def test_split_job_preserves_claim_boundary_and_exact_submission_recipe() -> Non
         "uv run --no-sync bash tools/jobs/v03_publish_membership_splits.sh",
         "variant memberships",
         "phased haplotypes",
-        "released v0.3 snapshot",
-        "dataset representativeness",
-        "model quality",
-        "benchmark performance",
-        "clinical validity",
     ):
         assert token in script
+
+
+def test_split_job_validates_claim_limitations_against_the_bundled_schema() -> None:
+    """Keep verifier wording bound to the schema instead of a drifting synonym list."""
+    script = JOB.read_text(encoding="utf-8")
+
+    assert (
+        'expected_limitations = schema["properties"]["claim_boundary"]'
+        '["properties"]["limitations"]["const"]'
+    ) in script
+    assert 'claim.get("limitations") != expected_limitations' in script
+    assert '"phased haplotypes",' not in script
 
 
 @pytest.mark.skipif(os.name == "nt", reason="HF Jobs executes this Bash contract on Linux")
