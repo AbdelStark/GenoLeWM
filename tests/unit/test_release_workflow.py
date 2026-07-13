@@ -45,7 +45,7 @@ def test_ci_type_dependencies_are_bounded_to_validated_versions() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
     dev_dependencies = text.split("dev = [", maxsplit=1)[1].split("]", maxsplit=1)[0]
 
-    assert '"mypy>=1.10,<2.2"' in dev_dependencies
+    assert '"mypy>=1.10,<2.3"' in dev_dependencies
     assert '"pyarrow>=15,<25"' in dev_dependencies
 
 
