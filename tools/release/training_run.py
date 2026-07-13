@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from geno_lewm._training_run_package import (
     ACCEPTED_STATUSES,
+    BOUND_SCHEMA_VERSION,
     CARD_NAME,
     CHECKSUMS_NAME,
     COMMIT_RE,
@@ -32,6 +33,7 @@ from geno_lewm._training_run_package import (
 
 __all__ = [
     "ACCEPTED_STATUSES",
+    "BOUND_SCHEMA_VERSION",
     "CARD_NAME",
     "CHECKSUMS_NAME",
     "COMMIT_RE",

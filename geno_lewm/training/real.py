@@ -16,6 +16,7 @@ import platform
 import shutil
 import time
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,9 @@ from geno_lewm.data import (
     SOURCE_SYNTHETIC_SNV,
     EditSourceCount,
     GenoLeWMDataset,
+    HoldoutPolicy,
+    MembershipStore,
+    MembershipStoreHoldoutPolicy,
     TrainingDatasetItem,
     WindowContext,
     iter_clinvar_shard,
@@ -45,7 +49,8 @@ from geno_lewm.encoder._identity import encoder_identity_hash
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
-from geno_lewm.provenance import sha256_file
+from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from geno_lewm.provenance.hashing import looks_like_sha256
 from geno_lewm.training._phase_contract import require_executable_training_phase
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
 from geno_lewm.training.trainer import (
@@ -72,6 +77,16 @@ CARBON_TRAINING_METADATA_NAME = "training_run.json"
 _SCHEMA_VERSION = "1.0.0"
 _TRAINING_RUN_PACKAGE_GENERATED_BY = "tools.release.training_run"
 _RESOLVED_CONFIG_NAME = "training_config.effective.yaml"
+_LEGACY_DATASET_SCHEMA_VERSION = "1.0.0"
+_ARTIFACT_ROLE_DATASET_SCHEMA_VERSION = "1.1.0"
+_DATASET_ARTIFACT_ROLES = frozenset({"split_data", "split_companion", "evidence"})
+_MEMBERSHIP_STORE_BINDING_KEYS = frozenset(
+    {"path", "artifact_id", "content_identity", "physical_identity", "rowset_sha256"}
+)
+_MEMBERSHIP_REPORT_BINDING_KEYS = frozenset(
+    {"path", "schema_path", "artifact_id", "schema_version"}
+)
+_MEMBERSHIP_EVIDENCE_BINDING_KEYS = frozenset({"membership_store", "report"})
 _ALL_V1_SUB_ENCODERS = ("snv", "ins", "del", "mnv")
 _SNV_ONLY_EDIT_SOURCE_COUNTS = (
     EditSourceCount(SOURCE_GNOMAD_COMMON, 3),
@@ -147,23 +162,65 @@ def run_carbon_training(
     _require_positive_int("steps", steps)
     _require_positive_int("data.batch_size", config.data.batch_size)
     run_dir.mkdir(parents=True, exist_ok=True)
-    config_path = write_resolved_config(config, run_dir / _RESOLVED_CONFIG_NAME)
+    write_resolved_config(config, run_dir / _RESOLVED_CONFIG_NAME)
+    run_dataset_manifest_path = run_dir / "dataset_manifest.json"
+
+    dataset_manifest = _load_dataset_manifest(dataset_dir)
+    shutil.copy2(dataset_dir / "dataset_manifest.json", run_dataset_manifest_path)
+    with _membership_holdout_policy(dataset_dir, dataset_manifest) as holdouts:
+        membership_identity = _membership_runtime_identity(dataset_manifest, holdouts)
+        return _run_carbon_training_with_dataset(
+            config=config,
+            dataset_dir=dataset_dir,
+            carbon_model_dir=carbon_model_dir,
+            run_dir=run_dir,
+            steps=steps,
+            command=command,
+            commit_sha=commit_sha,
+            package_version=package_version,
+            preflight_report=preflight_report,
+            resume_from=resume_from,
+            dataset_manifest=dataset_manifest,
+            holdouts=holdouts,
+            membership_identity=membership_identity,
+        )
+
+
+def _run_carbon_training_with_dataset(
+    *,
+    config: GenoLeWMConfig,
+    dataset_dir: Path,
+    carbon_model_dir: Path,
+    run_dir: Path,
+    steps: int,
+    command: str,
+    commit_sha: str,
+    package_version: str,
+    preflight_report: TrainingPreflightReport | None,
+    resume_from: Path | None,
+    dataset_manifest: dict[str, Any],
+    holdouts: HoldoutPolicy | None,
+    membership_identity: Mapping[str, object] | None,
+) -> CarbonTrainingReport:
+    config_path = run_dir / _RESOLVED_CONFIG_NAME
     log_path = run_dir / CARBON_LOG_NAME
     metrics_path = run_dir / CARBON_METRICS_NAME
     checkpoint_path = run_dir / CARBON_CHECKPOINT_NAME
     metadata_path = run_dir / CARBON_TRAINING_METADATA_NAME
     run_dataset_manifest_path = run_dir / "dataset_manifest.json"
     preflight_path = run_dir / REPORT_NAME if (run_dir / REPORT_NAME).is_file() else None
-
-    dataset_manifest = _load_dataset_manifest(dataset_dir)
-    shutil.copy2(dataset_dir / "dataset_manifest.json", run_dataset_manifest_path)
     dataset_snapshot_id = _required_text(dataset_manifest, "snapshot_id")
+    schema_version = _required_text(dataset_manifest, "schema_version")
     dataset_files = _dataset_files(dataset_manifest)
-    windows = tuple(_load_windows(dataset_dir, dataset_files))
+    windows = tuple(_load_windows(dataset_dir, dataset_files, schema_version=schema_version))
     if not windows:
         raise InputError("Carbon training requires at least one source window")
-    gnomad_edits = tuple(_load_gnomad_edits(dataset_dir, dataset_files))
-    clinvar_edits = tuple(_load_clinvar_edits(dataset_dir, dataset_files))
+    gnomad_edits = tuple(
+        _load_gnomad_edits(dataset_dir, dataset_files, schema_version=schema_version)
+    )
+    clinvar_edits = tuple(
+        _load_clinvar_edits(dataset_dir, dataset_files, schema_version=schema_version)
+    )
     if not gnomad_edits:
         raise InputError("Carbon training requires at least one gnomAD edit")
     carbon_identity_hash = _carbon_identity_hash(
@@ -187,6 +244,7 @@ def run_carbon_training(
         seed=seeds.data,
         fallback_sources=_dataset_fallback_sources(windows),
         mix=edit_source_counts,
+        holdouts=holdouts,
     )
     resumed_from_step = 0
     resume_checkpoint: _ResumeCheckpoint | None = None
@@ -199,6 +257,7 @@ def run_carbon_training(
             seeds=seeds,
             target_steps=steps,
             encoder_identity_hash=carbon_identity_hash,
+            membership_identity=membership_identity,
         )
         resumed_from_step = resume_checkpoint.steps_completed
         _skip_training_items(
@@ -329,6 +388,7 @@ def run_carbon_training(
                     steps=step,
                     seeds=seeds,
                     encoder_identity_hash=carbon_identity_hash,
+                    membership_identity=membership_identity,
                 )
             for alert in collapse_alerts:
                 log.write(
@@ -354,6 +414,7 @@ def run_carbon_training(
         collapse_alert_count=collapse_alert_count,
         dataset_snapshot_id=dataset_snapshot_id,
         resume_checkpoint_path=resume_from,
+        membership_identity=membership_identity,
     )
     _write_checkpoint(
         checkpoint_path,
@@ -365,6 +426,7 @@ def run_carbon_training(
         steps=steps,
         seeds=seeds,
         encoder_identity_hash=carbon_identity_hash,
+        membership_identity=membership_identity,
     )
     _write_training_metadata(
         metadata_path,
@@ -387,6 +449,7 @@ def run_carbon_training(
         sample_count=sample_count,
         resumed_from_step=resumed_from_step,
         resume_checkpoint_path=resume_from,
+        membership_identity=membership_identity,
     )
     return CarbonTrainingReport(
         run_id=config.run_id,
@@ -430,6 +493,7 @@ def _repeat_training_items(
     seed: int,
     fallback_sources: Mapping[str, str],
     mix: Sequence[EditSourceCount] = DEFAULT_EDIT_SOURCE_COUNTS,
+    holdouts: HoldoutPolicy | None = None,
 ) -> Iterator[TrainingDatasetItem]:
     """Yield deterministic repeated passes over a finite release dataset."""
     epoch = 0
@@ -440,6 +504,7 @@ def _repeat_training_items(
             seed=seed + epoch,
             fallback_sources=fallback_sources,
             mix=mix,
+            holdouts=holdouts,
         )
         produced = 0
         for item in dataset.iter_with_source_windows():
@@ -582,7 +647,13 @@ def _dataset_files(manifest: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     return tuple(files)
 
 
-def _load_windows(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[WindowContext]:
+def _load_windows(
+    dataset_dir: Path,
+    files: Sequence[dict[str, Any]],
+    *,
+    schema_version: str = _LEGACY_DATASET_SCHEMA_VERSION,
+) -> Iterator[WindowContext]:
+    files = _split_data_files(files, schema_version=schema_version)
     placed_paths = _window_jsonl_paths(files, prefix="placed/")
     path_texts = placed_paths or _window_jsonl_paths(files, prefix="carbon/")
     require_chrom = bool(placed_paths)
@@ -608,6 +679,181 @@ def _load_windows(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterato
                 )
 
 
+def _split_data_files(
+    files: Sequence[dict[str, Any]],
+    *,
+    schema_version: str,
+) -> tuple[dict[str, Any], ...]:
+    if schema_version == _LEGACY_DATASET_SCHEMA_VERSION:
+        return tuple(files)
+    if schema_version != _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION:
+        raise InputError(
+            "unsupported dataset manifest schema version",
+            details={"schema_version": schema_version},
+        )
+    selected: list[dict[str, Any]] = []
+    for index, item in enumerate(files):
+        role = item.get("artifact_role")
+        if role not in _DATASET_ARTIFACT_ROLES:
+            raise InputError(
+                "schema 1.1.0 dataset files require a recognized artifact_role",
+                details={"index": index, "artifact_role": role},
+            )
+        if role == "split_data":
+            selected.append(item)
+    return tuple(selected)
+
+
+@contextmanager
+def _membership_holdout_policy(
+    dataset_dir: Path,
+    manifest: dict[str, Any],
+) -> Iterator[MembershipStoreHoldoutPolicy | None]:
+    binding = _membership_store_binding(manifest)
+    if binding is None:
+        yield None
+        return
+    store_dir = _safe_dataset_directory(dataset_dir, binding["path"])
+    store = MembershipStore.open(store_dir, verify=True)
+    try:
+        store_manifest = store.manifest
+        observed = {
+            "artifact_id": store_manifest.artifact_id,
+            "content_identity": store_manifest.content_identity,
+            "physical_identity": store_manifest.physical_identity,
+            "rowset_sha256": store_manifest.rowset_sha256,
+        }
+        for field, value in observed.items():
+            expected = binding[field]
+            if value != expected:
+                raise InputError(
+                    "membership store identity does not match dataset manifest binding",
+                    details={"field": field, "expected": expected, "observed": value},
+                )
+        yield MembershipStoreHoldoutPolicy(store)
+    finally:
+        store.close()
+
+
+def _membership_store_binding(manifest: dict[str, Any]) -> dict[str, str] | None:
+    binding = _membership_evidence_binding(manifest)
+    return None if binding is None else dict(binding["membership_store"])
+
+
+def _membership_evidence_binding(
+    manifest: dict[str, Any],
+) -> dict[str, dict[str, str]] | None:
+    section = manifest.get("membership_and_split_evidence")
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise InputError("membership_and_split_evidence must be an object")
+    if "membership_store" not in section:
+        raise InputError("membership_and_split_evidence.membership_store is required")
+    if "report" not in section:
+        raise InputError("membership_and_split_evidence.report is required")
+    section_keys = frozenset(section)
+    if section_keys != _MEMBERSHIP_EVIDENCE_BINDING_KEYS:
+        raise InputError(
+            "membership_and_split_evidence fields do not match the runtime contract",
+            details={
+                "missing": sorted(_MEMBERSHIP_EVIDENCE_BINDING_KEYS - section_keys),
+                "unexpected": sorted(section_keys - _MEMBERSHIP_EVIDENCE_BINDING_KEYS),
+            },
+        )
+    raw_store = section["membership_store"]
+    if not isinstance(raw_store, dict):
+        raise InputError("membership_and_split_evidence.membership_store must be an object")
+    store_keys = frozenset(raw_store)
+    if store_keys != _MEMBERSHIP_STORE_BINDING_KEYS:
+        raise InputError(
+            "membership store binding fields do not match the runtime contract",
+            details={
+                "missing": sorted(_MEMBERSHIP_STORE_BINDING_KEYS - store_keys),
+                "unexpected": sorted(store_keys - _MEMBERSHIP_STORE_BINDING_KEYS),
+            },
+        )
+    store = {key: _required_text(raw_store, key) for key in sorted(_MEMBERSHIP_STORE_BINDING_KEYS)}
+    for key in ("content_identity", "physical_identity", "rowset_sha256"):
+        if not looks_like_sha256(store[key]):
+            raise InputError(
+                "membership store binding identity must be a canonical SHA-256",
+                details={"field": key, "observed": store[key]},
+            )
+
+    raw_report = section["report"]
+    if not isinstance(raw_report, dict):
+        raise InputError("membership_and_split_evidence.report must be an object")
+    report_keys = frozenset(raw_report)
+    if report_keys != _MEMBERSHIP_REPORT_BINDING_KEYS:
+        raise InputError(
+            "membership split report binding fields do not match the runtime contract",
+            details={
+                "missing": sorted(_MEMBERSHIP_REPORT_BINDING_KEYS - report_keys),
+                "unexpected": sorted(report_keys - _MEMBERSHIP_REPORT_BINDING_KEYS),
+            },
+        )
+    report = {
+        key: _required_text(raw_report, key) for key in sorted(_MEMBERSHIP_REPORT_BINDING_KEYS)
+    }
+    if manifest.get("schema_version") != _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION:
+        raise InputError(
+            "membership and split evidence requires dataset manifest schema 1.1.0",
+            details={"schema_version": manifest.get("schema_version")},
+        )
+    return {"membership_store": store, "report": report}
+
+
+def _membership_runtime_identity(
+    manifest: dict[str, Any],
+    holdouts: HoldoutPolicy | None,
+) -> dict[str, object] | None:
+    binding = _membership_evidence_binding(manifest)
+    if binding is None:
+        if holdouts is not None:
+            raise InputError("membership holdouts require a dataset manifest binding")
+        return None
+    if not isinstance(holdouts, MembershipStoreHoldoutPolicy):
+        raise InputError("membership store binding requires indexed membership holdouts")
+    policy = holdouts.to_dict()
+    policy_identity = canonical_json_sha256(policy)
+    if holdouts.identity() != policy_identity:
+        raise InputError("membership holdout policy identity is not canonical")
+    content_identity = binding["membership_store"]["content_identity"]
+    if policy.get("membership_content_identity") != content_identity:
+        raise InputError(
+            "membership holdout policy content identity does not match dataset binding",
+            details={
+                "dataset": content_identity,
+                "policy": policy.get("membership_content_identity"),
+            },
+        )
+    return {
+        "membership_store": dict(binding["membership_store"]),
+        "report": dict(binding["report"]),
+        "holdout_policy": policy,
+        "holdout_policy_identity": policy_identity,
+    }
+
+
+def _safe_dataset_directory(dataset_dir: Path, relative: str) -> Path:
+    path = Path(relative)
+    if path.is_absolute() or not path.parts or ".." in path.parts:
+        raise InputError("dataset manifest paths must stay inside dataset_dir")
+    root = dataset_dir.resolve()
+    candidate = dataset_dir
+    for part in path.parts:
+        candidate /= part
+        if candidate.is_symlink():
+            raise InputError("dataset manifest directory paths must not contain symlinks")
+    target = candidate.resolve()
+    if target == root or root not in target.parents:
+        raise InputError("dataset manifest paths must stay inside dataset_dir")
+    if not target.is_dir():
+        raise InputError("dataset manifest directory is missing", details={"path": str(target)})
+    return target
+
+
 def _window_jsonl_paths(files: Sequence[dict[str, Any]], *, prefix: str) -> tuple[str, ...]:
     paths: list[str] = []
     for item in files:
@@ -624,13 +870,25 @@ def _dataset_fallback_sources(windows: Sequence[WindowContext]) -> dict[str, str
     return dict(DEFAULT_SOURCE_FALLBACKS)
 
 
-def _load_gnomad_edits(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[EditSpec]:
+def _load_gnomad_edits(
+    dataset_dir: Path,
+    files: Sequence[dict[str, Any]],
+    *,
+    schema_version: str = _LEGACY_DATASET_SCHEMA_VERSION,
+) -> Iterator[EditSpec]:
+    files = _split_data_files(files, schema_version=schema_version)
     for path in _variant_shard_paths(dataset_dir, files, prefix="gnomad/"):
         for row in iter_gnomad_shard(path):
             yield EditSpec(row.chrom, row.pos, row.ref, row.alt)
 
 
-def _load_clinvar_edits(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[EditSpec]:
+def _load_clinvar_edits(
+    dataset_dir: Path,
+    files: Sequence[dict[str, Any]],
+    *,
+    schema_version: str = _LEGACY_DATASET_SCHEMA_VERSION,
+) -> Iterator[EditSpec]:
+    files = _split_data_files(files, schema_version=schema_version)
     for path in _variant_shard_paths(dataset_dir, files, prefix="clinvar/"):
         for row in iter_clinvar_shard(path):
             yield EditSpec(row.chrom, row.pos, row.ref, row.alt)
@@ -697,6 +955,7 @@ def _write_metrics(
     collapse_alert_count: int,
     dataset_snapshot_id: str,
     resume_checkpoint_path: Path | None,
+    membership_identity: Mapping[str, object] | None = None,
 ) -> None:
     new_sample_count = sample_count - (resumed_from_step * config.data.batch_size)
     samples_per_second = new_sample_count / max(elapsed_seconds, 1e-9)
@@ -730,6 +989,8 @@ def _write_metrics(
         },
         "history": [result.to_dict() for result in step_results],
     }
+    if membership_identity is not None:
+        payload["membership_and_split_evidence"] = dict(membership_identity)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -766,11 +1027,33 @@ def _write_checkpoint(
     steps: int,
     seeds: TrainerSeeds,
     encoder_identity_hash: str,
+    membership_identity: Mapping[str, object] | None = None,
 ) -> None:
     try:
         torch = importlib.import_module("torch")
     except ImportError as exc:  # pragma: no cover - guarded by trainer runtime.
         raise RuntimeSetupError("Carbon training checkpointing requires PyTorch") from exc
+    checkpoint_config: dict[str, object] = {
+        "run_id": config.run_id,
+        "seed": config.seed,
+        "deterministic": config.deterministic,
+        "data.batch_size": config.data.batch_size,
+        "predictor.d_state": config.predictor.d_state,
+        "predictor.dtype": config.predictor.dtype,
+        "action.d_action": config.action.d_action,
+        "action.sub_encoders": list(config.action.sub_encoders),
+        "encoder.normalize": config.encoder.normalize,
+        "encoder.state_contract_version": config.encoder.state_contract_version,
+        "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),
+        "encoder.identity_hash": encoder_identity_hash,
+        "encoder.revision": config.encoder.revision,
+        "encoder.dtype": config.encoder.dtype,
+        "encoder.state_layer": config.encoder.state_layer,
+        "encoder.pool_type": config.encoder.pool_type,
+        "encoder.pool_radius": config.encoder.pool_radius,
+    }
+    if membership_identity is not None:
+        checkpoint_config["data.membership_and_split_evidence"] = dict(membership_identity)
     torch.save(
         {
             "schema_version": _SCHEMA_VERSION,
@@ -781,25 +1064,7 @@ def _write_checkpoint(
             "predictor": _state_dict(predictor),
             "action_encoder": _state_dict(action_encoder),
             "optimizer": _state_dict(optimizer),
-            "config": {
-                "run_id": config.run_id,
-                "seed": config.seed,
-                "deterministic": config.deterministic,
-                "data.batch_size": config.data.batch_size,
-                "predictor.d_state": config.predictor.d_state,
-                "predictor.dtype": config.predictor.dtype,
-                "action.d_action": config.action.d_action,
-                "action.sub_encoders": list(config.action.sub_encoders),
-                "encoder.normalize": config.encoder.normalize,
-                "encoder.state_contract_version": config.encoder.state_contract_version,
-                "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),
-                "encoder.identity_hash": encoder_identity_hash,
-                "encoder.revision": config.encoder.revision,
-                "encoder.dtype": config.encoder.dtype,
-                "encoder.state_layer": config.encoder.state_layer,
-                "encoder.pool_type": config.encoder.pool_type,
-                "encoder.pool_radius": config.encoder.pool_radius,
-            },
+            "config": checkpoint_config,
         },
         path,
     )
@@ -833,6 +1098,7 @@ def _validate_resume_checkpoint_payload(
     seeds: TrainerSeeds,
     target_steps: int,
     encoder_identity_hash: str,
+    membership_identity: Mapping[str, object] | None = None,
 ) -> _ResumeCheckpoint:
     if payload.get("schema_version") != _SCHEMA_VERSION:
         raise InputError(
@@ -917,6 +1183,16 @@ def _validate_resume_checkpoint_payload(
                     "config": expected,
                 },
             )
+    checkpoint_membership_identity = checkpoint_config.get("data.membership_and_split_evidence")
+    if checkpoint_membership_identity != membership_identity:
+        raise InputError(
+            "resume checkpoint membership and split evidence does not match dataset package",
+            details={
+                "path": str(path),
+                "checkpoint": checkpoint_membership_identity,
+                "dataset": membership_identity,
+            },
+        )
     for key in ("predictor", "action_encoder", "optimizer"):
         if key not in payload:
             raise InputError(
@@ -1052,10 +1328,15 @@ def _write_training_metadata(
     sample_count: int,
     resumed_from_step: int,
     resume_checkpoint_path: Path | None,
+    membership_identity: Mapping[str, object] | None = None,
 ) -> None:
     artifact_identities = _training_artifact_identities(path.parent, artifacts)
     payload = {
-        "schema_version": _SCHEMA_VERSION,
+        "schema_version": (
+            _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION
+            if membership_identity is not None
+            else _SCHEMA_VERSION
+        ),
         "run_id": config.run_id,
         "generated_by": _TRAINING_RUN_PACKAGE_GENERATED_BY,
         "command": command,
@@ -1098,6 +1379,8 @@ def _write_training_metadata(
             path.parent / REPORT_NAME,
             label=REPORT_NAME,
         )
+    if membership_identity is not None:
+        payload["membership_and_split_evidence"] = dict(membership_identity)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 

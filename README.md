@@ -54,8 +54,8 @@ uv pip install -e ".[dev,docs]"
 | Python package | `geno-lewm==0.2.1` on PyPI |
 | Core data model | `EditSpec`, `RelEdit`, edit application, typed errors, metrics, redaction-safe logs |
 | Model code | action encoder, cross-attention predictor, AR rollout wrapper, CEM planner |
-| Data pipeline | local gnomAD/ClinVar VCF-to-Parquet builders, tuple builder, indexed membership-store contract, dataset packaging |
-| Training | fixture smoke trainer, Carbon preflight, single-process Carbon trainer, packaged run evidence |
+| Data pipeline | local gnomAD/ClinVar VCF-to-Parquet builders, tuple builder, indexed membership store, role-aware dataset packaging |
+| Training | fixture smoke trainer, role-aware Carbon preflight, single-process Carbon trainer, membership-bound run evidence |
 | Evaluation | scorer, Carbon baseline scorer, binary metrics, Spearman metrics, rollout-fidelity metrics, eval aggregation |
 | Demo | terminal scoring demo, checksum receipts, runtime preflight, batch receipt report, planning demo |
 | Release tooling | dataset/model/training/paper package validators, sdist inventory gate, clean-machine replay helpers |
@@ -169,46 +169,55 @@ See the [v0.3 snapshot-lineage guide](docs/data-v03-snapshot-lineage.md) for
 immutable gnomAD/ClinVar staging evidence. The offline assembler records
 lineage only and leaves dataset memberships uncreated.
 
-1. Validate the checked dataset rebuild spec.
+Dataset-package schema `1.1.0` assigns every file one semantic role:
+`split_data` is the counted data consumed by the appropriate loader,
+`split_companion` names the exact `split_data` file it accompanies, and
+`evidence` is verified provenance that is neither counted nor trained on. A
+membership-bound package records the exact membership store and split report,
+including the store's semantic, physical, and rowset identities. See the
+[membership split-evidence guide](docs/data-v03-membership-splits.md) for the
+full contract and claim boundary.
 
-   ```bash
-   python -m tools.release.dataset_snapshot \
-     --spec-json configs/first_experiment/dataset-snapshot-snv.json \
-     --check-spec
-   ```
+Carbon preflight preserves and checks those roles and the store/report
+binding. The training runtime opens the bound store once, applies
+`MembershipStoreHoldoutPolicy`, and carries the full binding, canonical policy
+payload, and policy digest into metrics, checkpoints, and schema-`1.1.0`
+training-run metadata. Training-run verification then requires exact equality
+with both the copied dataset manifest and metrics. Paper-package verification
+independently re-verifies the role-aware dataset package and its snapshot and
+input-check evidence.
 
-2. Check staged upstream inputs before building a dataset snapshot.
+Dataset schema `1.0.0` remains the strict role-less legacy format and rejects
+role, companion, and membership fields. Training-run schema `1.0.0` rejects
+membership binding and preserves its unbound manifest, card, and CLI report.
+The canonical producer for a complete schema-`1.1.0` v0.3 dataset package is
+implemented in `tools.release.v03_dataset_snapshot`. It filters the pinned
+prepared sources through the verified membership store, binds the published
+held-role streams and placed windows, and re-verifies the closed package. The
+producer is locally contract-verified, but no schema-`1.1.0` snapshot candidate
+has been published yet; none of these artifacts establishes a released v0.3
+snapshot or corrected model result.
 
-   ```bash
-   python -m tools.release.dataset_snapshot \
-     --spec-json configs/first_experiment/dataset-snapshot-snv.json \
-     --check-inputs
-   ```
+Legacy schema-`1.0.0` rebuilds remain available through
+`python -m tools.release.dataset_snapshot`.
 
-3. Run Carbon preflight for the packaged dataset and training config.
+Run preflight, then launch training and package its evidence:
 
-   ```bash
-   geno-lewm-train --carbon-preflight \
-     --dataset-dir /path/to/dataset-package \
-     --carbon-model-dir /path/to/carbon-model \
-     --training-config configs/first_experiment/train-carbon-500m-snv.yaml \
-     --run-dir /path/to/run \
-     --preflight-output /path/to/run/training_preflight_report.json
-   ```
-
-4. Launch training and package the run evidence.
-
-   ```bash
-   geno-lewm-train --carbon-train --package-release-run \
-     --dataset-dir /path/to/dataset-package \
-     --carbon-model-dir /path/to/carbon-model \
-     --training-config configs/first_experiment/train-carbon-500m-snv.yaml \
-     --run-dir /path/to/run
-   ```
+```bash
+geno-lewm-train --carbon-preflight \
+  --dataset-dir /path/to/dataset-package --carbon-model-dir /path/to/carbon-model \
+  --training-config configs/first_experiment/train-carbon-500m-snv.yaml \
+  --run-dir /path/to/run
+geno-lewm-train --carbon-train --package-release-run \
+  --dataset-dir /path/to/dataset-package --carbon-model-dir /path/to/carbon-model \
+  --training-config configs/first_experiment/train-carbon-500m-snv.yaml \
+  --run-dir /path/to/run
+```
 
 The run package contains the checkpoint, metrics, logs, resolved config,
-preflight report, manifest/card, and checksum inventory. Resume checks
-validate run id, dataset snapshot, seed split, and config identity.
+preflight report, manifest/card, and checksum inventory. Resume checks validate
+run id, dataset snapshot, seed split, config identity, and—when present—the
+complete membership and split-evidence identity.
 
 ## Evaluation And Benchmarks
 
@@ -243,22 +252,6 @@ python -m tools.release.v02_benchmark_suite \
   --manifest configs/first_experiment/v0.2_benchmark_suite.template.json \
   --output-report /path/to/v0.2_benchmark_suite_report.json \
   --execute
-```
-
-Measure release efficiency:
-
-```bash
-python -m bench.inference --release-efficiency \
-  --model-dir /path/to/model \
-  --variant chr17:43091983:A:T \
-  --window /path/to/window.txt \
-  --output /path/to/efficiency_report.json
-```
-
-Pure solver timing for planning:
-
-```bash
-python -m bench.planning --output /path/to/planning.performance.json
 ```
 
 ## Demo Pipeline

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import tools.release.dataset_package as dataset_package_module
 from geno_lewm._artifact_sources import (
     CARBON_ZERO_SHOT_GENERATED_BY,
     CARBON_ZERO_SHOT_SCHEMA_VERSION,
@@ -25,6 +28,7 @@ from geno_lewm.provenance import (
     ReceiptOutput,
     ReceiptProvenance,
     ReceiptRuntime,
+    canonical_json_sha256,
     compute_output_commitment,
     sha256_bytes,
     sha256_file,
@@ -35,7 +39,10 @@ from tests.unit.test_release_dataset_package import (
     _write_dataset_inputs,
     _write_dataset_snapshot_report,
 )
-from tests.unit.test_release_training_run import _write_training_run_inputs
+from tests.unit.test_release_training_run import (
+    _write_bound_training_run_inputs,
+    _write_training_run_inputs,
+)
 from tools.demo.terminal_inference import (
     DEMO_MANIFEST_NAME,
     DemoArtifact,
@@ -43,7 +50,14 @@ from tools.demo.terminal_inference import (
     write_demo_manifest,
 )
 from tools.release.batch_receipt_report import write_batch_receipt_report
+from tools.release.dataset_integrity import DEFAULT_REPORT_NAME
 from tools.release.dataset_package import build_dataset_package
+from tools.release.dataset_snapshot import (
+    GENERATED_BY as DATASET_SNAPSHOT_GENERATED_BY,
+    INPUT_CHECK_GENERATED_BY as DATASET_INPUT_CHECK_GENERATED_BY,
+    INPUT_CHECK_REPORT_NAME as DATASET_INPUT_CHECK_REPORT_NAME,
+    REPORT_NAME as DATASET_SNAPSHOT_REPORT_NAME,
+)
 from tools.release.efficiency_report import (
     GENERATED_BY as EFFICIENCY_REPORT_GENERATED_BY,
     REPORT_NAME as EFFICIENCY_REPORT_NAME,
@@ -61,6 +75,7 @@ from tools.release.paper_package import (
     PackageIssue,
     PackagePaths,
     PackageReport,
+    _verify_dataset_dir,
     _verify_eval_report,
     main,
     verify_package,
@@ -81,6 +96,190 @@ def test_verify_package_accepts_complete_artifact_set(tmp_path: Path) -> None:
     assert report.ok is True
     assert report.model_id is not None
     assert report.issues == ()
+
+
+def test_dataset_verifier_accepts_schema_1_1_role_bound_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_role_bound_dataset_verification_inputs(tmp_path, monkeypatch)
+    issues: list[PackageIssue] = []
+
+    _verify_dataset_dir(tmp_path, issues)
+
+    assert issues == []
+
+
+def test_dataset_verifier_requires_schema_1_1_snapshot_membership_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_role_bound_dataset_verification_inputs(tmp_path, monkeypatch)
+    report_path = tmp_path / DATASET_SNAPSHOT_REPORT_NAME
+    report_payload = json.loads(report_path.read_text(encoding="utf-8"))
+    del report_payload["package"]["membership_and_split_evidence"]
+    report_path.write_text(
+        json.dumps(report_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _refresh_sha256sums(tmp_path, tmp_path / "SHA256SUMS")
+    issues: list[PackageIssue] = []
+
+    _verify_dataset_dir(tmp_path, issues)
+
+    assert "dataset.snapshot_report.package.membership_and_split_evidence" in {
+        issue.code for issue in issues
+    }
+
+
+def test_dataset_verifier_requires_membership_evidence_data_card_section(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_role_bound_dataset_verification_inputs(tmp_path, monkeypatch)
+    card_path = tmp_path / "data_card.md"
+    card_path.write_text(
+        card_path.read_text(encoding="utf-8").replace(
+            "## Membership and Split Evidence",
+            "## Bound Evidence",
+        ),
+        encoding="utf-8",
+    )
+    _refresh_sha256sums(tmp_path, tmp_path / "SHA256SUMS")
+    issues: list[PackageIssue] = []
+
+    _verify_dataset_dir(tmp_path, issues)
+
+    assert "dataset.card.section_missing" in {issue.code for issue in issues}
+
+
+def test_dataset_verifier_keeps_schema_1_0_input_entry_shape_strict(tmp_path: Path) -> None:
+    _write_dataset_dir(tmp_path)
+    input_check_path = tmp_path / DATASET_INPUT_CHECK_REPORT_NAME
+    input_check = json.loads(input_check_path.read_text(encoding="utf-8"))
+    del input_check["inputs"][0]["description"]
+    input_check_path.write_text(
+        json.dumps(input_check, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    snapshot_path = tmp_path / DATASET_SNAPSHOT_REPORT_NAME
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    snapshot["input_check"] = _relative_file_identity(
+        tmp_path,
+        DATASET_INPUT_CHECK_REPORT_NAME,
+    )
+    snapshot_path.write_text(
+        json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _refresh_sha256sums(tmp_path, tmp_path / "SHA256SUMS")
+    issues: list[PackageIssue] = []
+
+    _verify_dataset_dir(tmp_path, issues)
+
+    assert "dataset.snapshot_report.input_check.inputs" in {issue.code for issue in issues}
+
+
+def test_dataset_verifier_rejects_schema_1_0_snapshot_membership_binding(
+    tmp_path: Path,
+) -> None:
+    _write_dataset_dir(tmp_path)
+    snapshot_path = tmp_path / DATASET_SNAPSHOT_REPORT_NAME
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    snapshot["package"]["membership_and_split_evidence"] = {"unexpected": True}
+    snapshot_path.write_text(
+        json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _refresh_sha256sums(tmp_path, tmp_path / "SHA256SUMS")
+    issues: list[PackageIssue] = []
+
+    _verify_dataset_dir(tmp_path, issues)
+
+    assert "dataset.snapshot_report.package.membership_and_split_evidence" in {
+        issue.code for issue in issues
+    }
+
+
+def test_dataset_verifier_rejects_schema_1_1_snapshot_companion_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_role_bound_dataset_verification_inputs(tmp_path, monkeypatch)
+    snapshot_path = tmp_path / DATASET_SNAPSHOT_REPORT_NAME
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    companion = next(
+        item for item in snapshot["files"] if item["artifact_role"] == "split_companion"
+    )
+    companion["companion_of"] = "carbon/windows.jsonl"
+    snapshot_path.write_text(
+        json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _refresh_sha256sums(tmp_path, tmp_path / "SHA256SUMS")
+    issues: list[PackageIssue] = []
+
+    _verify_dataset_dir(tmp_path, issues)
+
+    assert "dataset.snapshot_report.file.companion_of" in {issue.code for issue in issues}
+
+
+def test_dataset_verifier_revalidates_schema_1_1_membership_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_role_bound_dataset_verification_inputs(tmp_path, monkeypatch)
+    metadata_path = tmp_path / "dataset_package.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["membership_and_split_evidence"]["membership_store"]["content_identity"] = (
+        "sha256:" + "f" * 64
+    )
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _refresh_sha256sums(tmp_path, tmp_path / "SHA256SUMS")
+    issues: list[PackageIssue] = []
+
+    _verify_dataset_dir(tmp_path, issues)
+
+    metadata_issues = [issue for issue in issues if issue.code == "dataset.metadata_invalid"]
+    assert len(metadata_issues) == 1
+    assert "membership store binding identity mismatch" in metadata_issues[0].message
+
+
+def test_dataset_verifier_rejects_schema_1_1_input_check_role_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_role_bound_dataset_verification_inputs(tmp_path, monkeypatch)
+    input_check_path = tmp_path / DATASET_INPUT_CHECK_REPORT_NAME
+    input_check = json.loads(input_check_path.read_text(encoding="utf-8"))
+    companion = next(
+        item for item in input_check["inputs"] if item["artifact_role"] == "split_companion"
+    )
+    companion["artifact_role"] = "split_data"
+    del companion["companion_of"]
+    input_check_path.write_text(
+        json.dumps(input_check, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    snapshot_path = tmp_path / DATASET_SNAPSHOT_REPORT_NAME
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    snapshot["input_check"] = _relative_file_identity(
+        tmp_path,
+        DATASET_INPUT_CHECK_REPORT_NAME,
+    )
+    snapshot_path.write_text(
+        json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _refresh_sha256sums(tmp_path, tmp_path / "SHA256SUMS")
+    issues: list[PackageIssue] = []
+
+    _verify_dataset_dir(tmp_path, issues)
+
+    assert "dataset.snapshot_report.input_check.stale" in {issue.code for issue in issues}
 
 
 def test_paper_package_main_outputs_json_report(
@@ -417,6 +616,49 @@ def test_verify_package_rejects_training_run_dataset_snapshot_mismatch(
 
     assert report.ok is False
     assert "model.training_run.dataset_snapshot_mismatch" in _codes(report)
+
+
+def test_verify_package_accepts_exact_training_and_dataset_membership_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _write_complete_package(tmp_path)
+    shutil.rmtree(paths.dataset_dir)
+    paths.dataset_dir.mkdir()
+    _write_role_bound_dataset_verification_inputs(paths.dataset_dir, monkeypatch)
+    binding = _dataset_runtime_membership_binding(paths.dataset_dir)
+    _rewrite_model_training_membership_binding(paths, binding)
+
+    report = verify_package(paths)
+
+    assert report.ok is True
+
+
+def test_verify_package_rejects_cross_package_membership_binding_substitution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _write_complete_package(tmp_path)
+    shutil.rmtree(paths.dataset_dir)
+    paths.dataset_dir.mkdir()
+    _write_role_bound_dataset_verification_inputs(paths.dataset_dir, monkeypatch)
+    binding = _dataset_runtime_membership_binding(paths.dataset_dir)
+    store = dict(binding["membership_store"])
+    store["content_identity"] = "sha256:" + ("9" * 64)
+    policy = dict(binding["holdout_policy"])
+    policy["membership_content_identity"] = store["content_identity"]
+    substituted = {
+        **binding,
+        "membership_store": store,
+        "holdout_policy": policy,
+        "holdout_policy_identity": canonical_json_sha256(policy),
+    }
+    _rewrite_model_training_membership_binding(paths, substituted)
+
+    report = verify_package(paths)
+
+    assert report.ok is False
+    assert "model.training_run.dataset_membership_mismatch" in _codes(report)
 
 
 def test_verify_package_rejects_training_run_config_path_mismatch(tmp_path: Path) -> None:
@@ -1304,6 +1546,371 @@ def _write_dataset_dir(root: Path) -> None:
     metadata_path = _write_dataset_inputs(root)
     build_dataset_package(root, metadata_path)
     _write_dataset_snapshot_report(root)
+
+
+def _write_schema_1_1_dataset_snapshot_report(root: Path) -> None:
+    manifest = json.loads((root / "dataset_manifest.json").read_text(encoding="utf-8"))
+    snapshot_files: list[dict[str, object]] = []
+    for manifest_file in manifest["files"]:
+        path = root / manifest_file["path"]
+        snapshot_file = {
+            "path": manifest_file["path"],
+            "source_path": f"sources/{manifest_file['path']}",
+            "source_sha256": sha256_file(path),
+            "source_size_bytes": path.stat().st_size,
+            "sha256": sha256_file(path),
+            "size_bytes": path.stat().st_size,
+            "already_exists": False,
+        }
+        snapshot_file.update(
+            {
+                key: manifest_file[key]
+                for key in (
+                    "split",
+                    "records",
+                    "artifact_role",
+                    "companion_of",
+                    "description",
+                )
+                if key in manifest_file
+            }
+        )
+        snapshot_files.append(snapshot_file)
+
+    inputs = []
+    for item in snapshot_files:
+        input_item = {
+            "kind": "dataset_artifact",
+            "source_path": item["source_path"],
+            "staged_path": item["path"],
+            "sha256": item["source_sha256"],
+            "size_bytes": item["source_size_bytes"],
+        }
+        input_item.update(
+            {
+                key: item[key]
+                for key in ("split", "artifact_role", "companion_of", "description")
+                if key in item
+            }
+        )
+        inputs.append(input_item)
+    input_check_payload = {
+        "ok": True,
+        "schema_version": "1.0.0",
+        "generated_by": DATASET_INPUT_CHECK_GENERATED_BY,
+        "snapshot_id": manifest["snapshot_id"],
+        "snapshot_spec": {
+            "path": "dataset_snapshot.json",
+            "sha256": "sha256:" + "1" * 64,
+            "size_bytes": 1024,
+        },
+        "source_count": len(inputs),
+        "total_size_bytes": sum(int(item["size_bytes"]) for item in inputs),
+        "inputs": inputs,
+    }
+    (root / DATASET_INPUT_CHECK_REPORT_NAME).write_text(
+        json.dumps(input_check_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    package_files = [
+        {
+            key: item[key]
+            for key in (
+                "path",
+                "sha256",
+                "size_bytes",
+                "split",
+                "records",
+                "artifact_role",
+                "companion_of",
+                "description",
+            )
+            if key in item
+        }
+        for item in snapshot_files
+    ]
+    snapshot_payload = {
+        "schema_version": "1.0.0",
+        "generated_by": DATASET_SNAPSHOT_GENERATED_BY,
+        "generated_at": manifest["generated_at"],
+        "snapshot_id": manifest["snapshot_id"],
+        "report_path": DATASET_SNAPSHOT_REPORT_NAME,
+        "snapshot_spec": input_check_payload["snapshot_spec"],
+        "input_check_path": DATASET_INPUT_CHECK_REPORT_NAME,
+        "input_check": _relative_file_identity(root, DATASET_INPUT_CHECK_REPORT_NAME),
+        "metadata_path": "dataset_package.json",
+        "package": {
+            "snapshot_id": manifest["snapshot_id"],
+            "metadata": _relative_file_identity(root, "dataset_package.json"),
+            "manifest_path": "dataset_manifest.json",
+            "manifest": _relative_file_identity(root, "dataset_manifest.json"),
+            "data_card_path": "data_card.md",
+            "data_card": _relative_file_identity(root, "data_card.md"),
+            "integrity_path": DEFAULT_REPORT_NAME,
+            "integrity": _relative_file_identity(root, DEFAULT_REPORT_NAME),
+            "checksums_path": "SHA256SUMS",
+            "files": package_files,
+            "membership_and_split_evidence": manifest["membership_and_split_evidence"],
+        },
+        "files": snapshot_files,
+    }
+    (root / DATASET_SNAPSHOT_REPORT_NAME).write_text(
+        json.dumps(snapshot_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _write_sha256sums(
+        root,
+        (
+            "data_card.md",
+            "dataset_package.json",
+            "dataset_manifest.json",
+            DEFAULT_REPORT_NAME,
+            DATASET_INPUT_CHECK_REPORT_NAME,
+            DATASET_SNAPSHOT_REPORT_NAME,
+            *(file["path"] for file in manifest["files"]),
+        ),
+    )
+
+
+def _write_role_bound_dataset_verification_inputs(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata_path = _write_dataset_inputs(root)
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    companion_path = root / "clinvar" / "eval-copy.vcf"
+    companion_path.write_bytes((root / "clinvar" / "eval.vcf").read_bytes())
+    store_root = root / "membership" / "store"
+    store_root.mkdir(parents=True)
+    for name in (
+        "manifest.json",
+        "memberships.parquet",
+        "lookup.sqlite",
+        "snapshot-lineage.json",
+        "build-receipt.json",
+    ):
+        (store_root / name).write_text(name + "\n", encoding="utf-8")
+    schema_path = root / "contract" / "membership-split-evidence.schema.json"
+    schema_path.parent.mkdir()
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": [
+                    "artifact_id",
+                    "schema_version",
+                    "membership_store",
+                    "training_windows",
+                    "streams",
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    membership_manifest = SimpleNamespace(
+        artifact_id="fixture-membership",
+        content_identity="sha256:" + "1" * 64,
+        physical_identity="sha256:" + "2" * 64,
+        rowset_sha256="sha256:" + "3" * 64,
+    )
+    report_path = root / "evidence" / "membership-split-evidence.json"
+    report_path.parent.mkdir()
+    report_path.write_text(
+        json.dumps(
+            {
+                "artifact_id": "fixture-split-evidence",
+                "schema_version": "fixture.membership-split-evidence.v1",
+                "membership_store": {
+                    "artifact_id": membership_manifest.artifact_id,
+                    "content_identity": membership_manifest.content_identity,
+                    "physical_identity": membership_manifest.physical_identity,
+                    "rowset_sha256": membership_manifest.rowset_sha256,
+                    "chromosome_roles": {
+                        "train": [
+                            "1",
+                            "2",
+                            "3",
+                            "4",
+                            "5",
+                            "6",
+                            "7",
+                            "8",
+                            "9",
+                            "10",
+                            "11",
+                            "12",
+                            "13",
+                            "14",
+                            "15",
+                            "16",
+                            "17",
+                            "18",
+                            "19",
+                            "22",
+                        ],
+                        "validation": ["20"],
+                        "evaluation": ["21"],
+                    },
+                },
+                "training_windows": {
+                    "source": {"artifact_path": "carbon/windows.jsonl"},
+                    "sha256": sha256_file(root / "carbon" / "windows.jsonl"),
+                    "size_bytes": (root / "carbon" / "windows.jsonl").stat().st_size,
+                    "record_count": 1,
+                    "split": "train",
+                },
+                "streams": {
+                    "evaluation": {
+                        "role": "evaluation",
+                        "record_count": 1,
+                        "labels_jsonl": _relative_file_identity(root, "clinvar/eval.vcf"),
+                        "vcf": _relative_file_identity(root, "clinvar/eval-copy.vcf"),
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload["schema_version"] = "1.1.0"
+    payload["splits"]["evaluation"] = payload["splits"].pop("eval_clinvar_coding")
+    files = payload["files"]
+    files[0]["artifact_role"] = "split_data"
+    files[1]["artifact_role"] = "split_data"
+    files[1]["split"] = "evaluation"
+    files.append(
+        {
+            "path": "clinvar/eval-copy.vcf",
+            "artifact_role": "split_companion",
+            "split": "evaluation",
+            "records": 1,
+            "companion_of": "clinvar/eval.vcf",
+            "description": "alternate evaluation encoding",
+        }
+    )
+    evidence_paths = [
+        *(
+            f"membership/store/{name}"
+            for name in (
+                "manifest.json",
+                "memberships.parquet",
+                "lookup.sqlite",
+                "snapshot-lineage.json",
+                "build-receipt.json",
+            )
+        ),
+        "evidence/membership-split-evidence.json",
+        "contract/membership-split-evidence.schema.json",
+    ]
+    files.extend({"path": path, "artifact_role": "evidence"} for path in evidence_paths)
+    payload["membership_and_split_evidence"] = {
+        "membership_store": {
+            "path": "membership/store",
+            "artifact_id": membership_manifest.artifact_id,
+            "content_identity": membership_manifest.content_identity,
+            "physical_identity": membership_manifest.physical_identity,
+            "rowset_sha256": membership_manifest.rowset_sha256,
+        },
+        "report": {
+            "path": "evidence/membership-split-evidence.json",
+            "schema_path": "contract/membership-split-evidence.schema.json",
+            "artifact_id": "fixture-split-evidence",
+            "schema_version": "fixture.membership-split-evidence.v1",
+        },
+    }
+
+    class _Store:
+        def __init__(self) -> None:
+            self.manifest = membership_manifest
+
+        def __enter__(self) -> _Store:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        dataset_package_module,
+        "MembershipStore",
+        SimpleNamespace(open=lambda *_args, **_kwargs: _Store()),
+    )
+    monkeypatch.setattr(
+        dataset_package_module,
+        "MEMBERSHIP_SPLIT_EVIDENCE_SCHEMA_SHA256",
+        sha256_file(schema_path),
+    )
+    monkeypatch.setattr(
+        dataset_package_module,
+        "MEMBERSHIP_SPLIT_EVIDENCE_SCHEMA_VERSION",
+        "fixture.membership-split-evidence.v1",
+    )
+    monkeypatch.setattr(
+        dataset_package_module,
+        "_require_publication_eligible_split_evidence",
+        lambda _report: None,
+    )
+    metadata_path = root / "dataset_package.json"
+    metadata_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    build_dataset_package(root, metadata_path)
+    _write_schema_1_1_dataset_snapshot_report(root)
+
+
+def _dataset_runtime_membership_binding(root: Path) -> dict[str, object]:
+    manifest = json.loads((root / "dataset_manifest.json").read_text(encoding="utf-8"))
+    evidence = manifest["membership_and_split_evidence"]
+    report_path = root / evidence["report"]["path"]
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    roles = report["membership_store"]["chromosome_roles"]
+    policy = {
+        "schema_version": "geno-lewm.membership-store.v1",
+        "membership_content_identity": evidence["membership_store"]["content_identity"],
+        "excluded_chromosomes": [*roles["validation"], *roles["evaluation"]],
+        "selection": "chromosome_roles",
+        "lookup": "lookup.sqlite",
+    }
+    return {
+        **evidence,
+        "holdout_policy": policy,
+        "holdout_policy_identity": canonical_json_sha256(policy),
+    }
+
+
+def _rewrite_model_training_membership_binding(
+    paths: PackagePaths,
+    binding: dict[str, object],
+) -> None:
+    metadata_path = _write_bound_training_run_inputs(paths.model_dir, binding=binding)
+    build_training_run_package(paths.model_dir, metadata_path)
+    build_model_package(
+        paths.model_dir,
+        paths.model_dir / "model_release_metadata.json",
+    )
+    assert paths.paper_path is not None
+    build_paper_draft(
+        model_dir=paths.model_dir,
+        dataset_dir=paths.dataset_dir,
+        demo_dir=paths.demo_dir,
+        output=paths.paper_path,
+        generated_at="2026-06-01T12:00:00Z",
+    )
+
+
+def _relative_file_identity(root: Path, relative: str) -> dict[str, object]:
+    path = root / relative
+    return {
+        "path": relative,
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
 
 
 def _write_demo_inputs(vcf: Path, fasta: Path) -> None:

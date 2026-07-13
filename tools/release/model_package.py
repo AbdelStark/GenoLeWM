@@ -25,6 +25,8 @@ from tools.release.training_run import (
     CARD_NAME as TRAINING_RUN_CARD_NAME,
     CHECKSUMS_NAME as TRAINING_RUN_CHECKSUMS_NAME,
     MANIFEST_NAME as TRAINING_RUN_MANIFEST_NAME,
+    TrainingRunManifest,
+    verify_training_run_manifest,
 )
 
 SCHEMA_VERSION: Final = "1.0.0"
@@ -125,6 +127,8 @@ def build_model_package(
     efficiency_report = _verify_efficiency_report_source(model_dir)
     _verify_release_evidence_identity(manifest, eval_input, efficiency_report)
     _verify_extra_files(model_dir, package.extra_files)
+    run_manifest = verify_training_run_manifest(model_dir, require_preflight=True)
+    _verify_training_run_identity(manifest, eval_input, run_manifest)
     eval_artifact_files = _eval_artifact_checksum_files(model_dir, eval_input)
 
     metadata_output_path = model_dir / MODEL_PACKAGE_NAME
@@ -452,6 +456,52 @@ def _verify_release_evidence_identity(
             details={
                 "eval_metrics": eval_input.commit,
                 "efficiency_report": efficiency_report.commit,
+            },
+        )
+
+
+def _verify_training_run_identity(
+    manifest: Manifest,
+    eval_input: EvalReportInput,
+    run_manifest: TrainingRunManifest,
+) -> None:
+    expected_snapshot = _manifest_dataset_snapshot(manifest)
+    if expected_snapshot is not None and run_manifest.dataset_snapshot_id != expected_snapshot:
+        raise InputError(
+            "training_run_manifest.json dataset_snapshot_id must match manifest training data snapshot",
+            details={
+                "expected": expected_snapshot,
+                "observed": run_manifest.dataset_snapshot_id,
+            },
+        )
+    config_artifact = next(
+        (artifact for artifact in run_manifest.artifacts if artifact.kind == "training_config"),
+        None,
+    )
+    if config_artifact is None:
+        raise InputError("training_run_manifest.json must contain a training_config artifact")
+    if config_artifact.path != manifest.training.config_file:
+        raise InputError(
+            "training_run_manifest.json training_config path must match manifest training config",
+            details={
+                "expected": manifest.training.config_file,
+                "observed": config_artifact.path,
+            },
+        )
+    if config_artifact.sha256 != manifest.training.hash:
+        raise InputError(
+            "training_run_manifest.json training_config hash must match manifest training hash",
+            details={
+                "expected": manifest.training.hash,
+                "observed": config_artifact.sha256,
+            },
+        )
+    if run_manifest.commit_sha.lower() != eval_input.commit.lower():
+        raise InputError(
+            "training_run_manifest.json commit_sha must match eval_metrics.json commit",
+            details={
+                "expected": eval_input.commit,
+                "observed": run_manifest.commit_sha,
             },
         )
 

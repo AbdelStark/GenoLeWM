@@ -12,8 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any, Final
 
+from geno_lewm.data import MEMBERSHIP_STORE_SCHEMA_VERSION, V03_CHROMOSOME_ROLES
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
-from geno_lewm.provenance import sha256_file
+from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from geno_lewm.provenance.hashing import looks_like_sha256
 from geno_lewm.training.preflight import (
     GENERATED_BY as TRAINING_PREFLIGHT_GENERATED_BY,
@@ -22,6 +23,8 @@ from geno_lewm.training.preflight import (
 )
 
 SCHEMA_VERSION: Final = "1.0.0"
+BOUND_SCHEMA_VERSION: Final = "1.1.0"
+SUPPORTED_SCHEMA_VERSIONS: Final = frozenset({SCHEMA_VERSION, BOUND_SCHEMA_VERSION})
 GENERATED_BY: Final = "tools.release.training_run"
 MANIFEST_NAME: Final = "training_run_manifest.json"
 CARD_NAME: Final = "training_run_card.md"
@@ -42,6 +45,24 @@ REQUIRED_PREFLIGHT_DATASET_CORE_FILES: Final = (
     "dataset_input_check_report.json",
     "dataset_snapshot_report.json",
     "SHA256SUMS",
+)
+MEMBERSHIP_BINDING_KEYS: Final = frozenset(
+    {"membership_store", "report", "holdout_policy", "holdout_policy_identity"}
+)
+MEMBERSHIP_STORE_BINDING_KEYS: Final = frozenset(
+    {"path", "artifact_id", "content_identity", "physical_identity", "rowset_sha256"}
+)
+MEMBERSHIP_REPORT_BINDING_KEYS: Final = frozenset(
+    {"path", "schema_path", "artifact_id", "schema_version"}
+)
+MEMBERSHIP_HOLDOUT_POLICY_KEYS: Final = frozenset(
+    {
+        "schema_version",
+        "membership_content_identity",
+        "excluded_chromosomes",
+        "selection",
+        "lookup",
+    }
 )
 
 
@@ -86,9 +107,10 @@ class TrainingRunManifest:
     result_summary: str
     limitations: tuple[str, ...]
     artifacts: tuple[TrainingArtifact, ...]
+    membership_and_split_evidence: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "run_id": self.run_id,
             "generated_by": self.generated_by,
@@ -107,6 +129,9 @@ class TrainingRunManifest:
             "limitations": list(self.limitations),
             "artifacts": [artifact.to_dict() for artifact in self.artifacts],
         }
+        if self.membership_and_split_evidence is not None:
+            payload["membership_and_split_evidence"] = self.membership_and_split_evidence
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,10 +143,11 @@ class TrainingRunPackageReport:
     card_path: Path
     checksums_path: Path
     artifacts: tuple[TrainingArtifact, ...]
+    schema_version: str = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": self.schema_version,
             "generated_by": GENERATED_BY,
             "run_id": self.run_id,
             "manifest_path": self.manifest_path.name,
@@ -163,6 +189,7 @@ def build_training_run_package(
         card_path=card_path,
         checksums_path=checksums_path,
         artifacts=manifest.artifacts,
+        schema_version=manifest.schema_version,
     )
 
 
@@ -194,6 +221,7 @@ def verify_training_run_manifest(
         require_preflight=require_preflight,
     )
     _verify_metrics_artifact(run_dir, manifest.artifacts)
+    _verify_membership_artifact_bindings(run_dir, manifest)
     _verify_training_preflight_artifact(
         run_dir,
         manifest,
@@ -212,11 +240,12 @@ def parse_training_run_metadata(
     if not isinstance(payload, dict):
         raise InputError("training-run metadata must be a JSON object")
     schema_version = _required_text(payload, "schema_version")
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise InputError(
             "unsupported training-run schema version",
-            details={"expected": SCHEMA_VERSION, "observed": schema_version},
+            details={"expected": sorted(SUPPORTED_SCHEMA_VERSIONS), "observed": schema_version},
         )
+    membership_binding = _parse_versioned_membership_binding(payload, schema_version)
     command = _required_text(payload, "command")
     commit_sha = _validate_commit(_required_text(payload, "commit_sha"))
     status = _required_text(payload, "status")
@@ -252,8 +281,10 @@ def parse_training_run_metadata(
         result_summary=_required_text(payload, "result_summary"),
         limitations=_parse_text_list(payload.get("limitations"), field="limitations"),
         artifacts=artifacts,
+        membership_and_split_evidence=membership_binding,
     )
     _verify_metrics_artifact(run_dir, artifacts)
+    _verify_membership_artifact_bindings(run_dir, manifest)
     if not allow_placeholders:
         _reject_placeholders(_text_fields(manifest))
     return manifest
@@ -275,15 +306,21 @@ def render_training_run_card(manifest: TrainingRunManifest) -> str:
         f"- Package version: {manifest.package_version}",
         f"- Dataset snapshot: {manifest.dataset_snapshot_id}",
         "",
-        "## Command",
-        "",
-        "```console",
-        manifest.command,
-        "```",
-        "",
-        "## Hardware",
-        "",
     ]
+    if manifest.membership_and_split_evidence is not None:
+        lines.extend(_membership_card_lines(manifest.membership_and_split_evidence))
+    lines.extend(
+        [
+            "## Command",
+            "",
+            "```console",
+            manifest.command,
+            "```",
+            "",
+            "## Hardware",
+            "",
+        ]
+    )
     lines.extend(f"- {item}" for item in manifest.hardware)
     lines.extend(["", "## Runtime", ""])
     lines.extend(f"- {item}" for item in manifest.runtime)
@@ -309,6 +346,30 @@ def render_training_run_card(manifest: TrainingRunManifest) -> str:
     lines.extend(f"- {item}" for item in manifest.limitations)
     lines.append("")
     return "\n".join(lines)
+
+
+def _membership_card_lines(binding: dict[str, object]) -> list[str]:
+    store = binding["membership_store"]
+    report = binding["report"]
+    policy = binding["holdout_policy"]
+    assert isinstance(store, dict)
+    assert isinstance(report, dict)
+    assert isinstance(policy, dict)
+    excluded = policy["excluded_chromosomes"]
+    assert isinstance(excluded, list)
+    return [
+        "## Membership and Split Evidence",
+        "",
+        f"- Membership store artifact: {store['artifact_id']}",
+        f"- Membership content identity: {store['content_identity']}",
+        f"- Membership physical identity: {store['physical_identity']}",
+        f"- Membership rowset SHA-256: {store['rowset_sha256']}",
+        f"- Split report artifact: {report['artifact_id']}",
+        f"- Split report schema: {report['schema_version']}",
+        f"- Holdout policy identity: {binding['holdout_policy_identity']}",
+        f"- Excluded chromosomes: {', '.join(str(value) for value in excluded)}",
+        "",
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -419,11 +480,12 @@ def _collect_artifacts(payload: dict[str, Any], *, run_dir: Path) -> tuple[Train
 
 def _manifest_from_payload(payload: dict[str, Any]) -> TrainingRunManifest:
     schema_version = _required_text(payload, "schema_version")
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise InputError(
             "unsupported training-run manifest schema version",
-            details={"expected": SCHEMA_VERSION, "observed": schema_version},
+            details={"expected": sorted(SUPPORTED_SCHEMA_VERSIONS), "observed": schema_version},
         )
+    membership_binding = _parse_versioned_membership_binding(payload, schema_version)
     status = _required_text(payload, "status")
     if status not in ACCEPTED_STATUSES:
         raise InputError("training-run status is not releasable", details={"status": status})
@@ -453,7 +515,159 @@ def _manifest_from_payload(payload: dict[str, Any]) -> TrainingRunManifest:
         result_summary=_required_text(payload, "result_summary"),
         limitations=_parse_text_list(payload.get("limitations"), field="limitations"),
         artifacts=artifacts,
+        membership_and_split_evidence=membership_binding,
     )
+
+
+def _parse_versioned_membership_binding(
+    payload: dict[str, Any],
+    schema_version: str,
+) -> dict[str, object] | None:
+    field = "membership_and_split_evidence"
+    present = field in payload
+    if schema_version == SCHEMA_VERSION:
+        if present:
+            raise InputError("training-run schema 1.0.0 cannot bind membership evidence")
+        return None
+    if not present or payload[field] is None:
+        raise InputError("training-run schema 1.1.0 requires membership and split evidence")
+    return _parse_membership_binding(payload[field])
+
+
+def _parse_membership_binding(raw: Any) -> dict[str, object]:
+    if not isinstance(raw, dict):
+        raise InputError("membership_and_split_evidence must be an object")
+    _require_exact_keys(raw, MEMBERSHIP_BINDING_KEYS, field="membership_and_split_evidence")
+    store = _parse_membership_store_binding(raw["membership_store"])
+    report = _parse_membership_report_binding(raw["report"])
+    policy = _parse_membership_holdout_policy(raw["holdout_policy"])
+    policy_identity = _required_text(raw, "holdout_policy_identity")
+    if not looks_like_sha256(policy_identity):
+        raise InputError("membership holdout policy identity must be a canonical SHA-256")
+    expected_policy_identity = canonical_json_sha256(policy)
+    if policy_identity != expected_policy_identity:
+        raise InputError(
+            "membership holdout policy identity does not match the canonical policy payload",
+            details={"expected": expected_policy_identity, "observed": policy_identity},
+        )
+    if policy["membership_content_identity"] != store["content_identity"]:
+        raise InputError(
+            "membership holdout policy content identity does not match the membership store",
+            details={
+                "store": store["content_identity"],
+                "policy": policy["membership_content_identity"],
+            },
+        )
+    return {
+        "membership_store": store,
+        "report": report,
+        "holdout_policy": policy,
+        "holdout_policy_identity": policy_identity,
+    }
+
+
+def _parse_membership_store_binding(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        raise InputError("membership_and_split_evidence.membership_store must be an object")
+    _require_exact_keys(
+        raw,
+        MEMBERSHIP_STORE_BINDING_KEYS,
+        field="membership_and_split_evidence.membership_store",
+    )
+    parsed = {key: _required_text(raw, key) for key in sorted(MEMBERSHIP_STORE_BINDING_KEYS)}
+    for key in ("content_identity", "physical_identity", "rowset_sha256"):
+        if not looks_like_sha256(parsed[key]):
+            raise InputError(
+                "membership store binding identity must be a canonical SHA-256",
+                details={"field": key, "observed": parsed[key]},
+            )
+    if not _is_public_relative_reference(parsed["path"]):
+        raise InputError("membership store binding path must be public-relative")
+    return parsed
+
+
+def _parse_membership_report_binding(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        raise InputError("membership_and_split_evidence.report must be an object")
+    _require_exact_keys(
+        raw,
+        MEMBERSHIP_REPORT_BINDING_KEYS,
+        field="membership_and_split_evidence.report",
+    )
+    parsed = {key: _required_text(raw, key) for key in sorted(MEMBERSHIP_REPORT_BINDING_KEYS)}
+    for key in ("path", "schema_path"):
+        if not _is_public_relative_reference(parsed[key]):
+            raise InputError(
+                "membership split report paths must be public-relative",
+                details={"field": key, "observed": parsed[key]},
+            )
+    return parsed
+
+
+def _parse_membership_holdout_policy(raw: Any) -> dict[str, object]:
+    if not isinstance(raw, dict):
+        raise InputError("membership_and_split_evidence.holdout_policy must be an object")
+    _require_exact_keys(
+        raw,
+        MEMBERSHIP_HOLDOUT_POLICY_KEYS,
+        field="membership_and_split_evidence.holdout_policy",
+    )
+    schema_version = _required_text(raw, "schema_version")
+    if schema_version != MEMBERSHIP_STORE_SCHEMA_VERSION:
+        raise InputError(
+            "membership holdout policy schema version is invalid",
+            details={"expected": MEMBERSHIP_STORE_SCHEMA_VERSION, "observed": schema_version},
+        )
+    content_identity = _required_text(raw, "membership_content_identity")
+    if not looks_like_sha256(content_identity):
+        raise InputError("membership holdout policy content identity must be a canonical SHA-256")
+    selection = _required_text(raw, "selection")
+    if selection != "chromosome_roles":
+        raise InputError("membership holdout policy selection must be chromosome_roles")
+    lookup = _required_text(raw, "lookup")
+    if lookup != "lookup.sqlite":
+        raise InputError("membership holdout policy lookup must be lookup.sqlite")
+    excluded_raw = raw.get("excluded_chromosomes")
+    if not isinstance(excluded_raw, list) or not excluded_raw:
+        raise InputError("membership holdout policy excluded_chromosomes must be non-empty")
+    excluded: list[str] = []
+    for index, value in enumerate(excluded_raw):
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise InputError(
+                "membership holdout policy chromosomes must be canonical strings",
+                details={"index": index},
+            )
+        excluded.append(value)
+    if len(set(excluded)) != len(excluded):
+        raise InputError("membership holdout policy chromosomes must be unique")
+    expected_excluded = [
+        *V03_CHROMOSOME_ROLES.validation,
+        *V03_CHROMOSOME_ROLES.evaluation,
+    ]
+    if excluded != expected_excluded:
+        raise InputError(
+            "membership holdout policy chromosomes do not match the v0.3 split",
+            details={"expected": expected_excluded, "observed": excluded},
+        )
+    return {
+        "schema_version": schema_version,
+        "membership_content_identity": content_identity,
+        "excluded_chromosomes": excluded,
+        "selection": selection,
+        "lookup": lookup,
+    }
+
+
+def _require_exact_keys(raw: dict[str, Any], expected: frozenset[str], *, field: str) -> None:
+    observed = frozenset(raw)
+    if observed != expected:
+        raise InputError(
+            f"{field} fields do not match the release contract",
+            details={
+                "missing": sorted(expected - observed),
+                "unexpected": sorted(observed - expected),
+            },
+        )
 
 
 def _parse_manifest_artifacts(raw: Any) -> tuple[TrainingArtifact, ...]:
@@ -526,6 +740,72 @@ def _verify_training_artifacts(
                     "observed": observed_size,
                 },
             )
+
+
+def _verify_membership_artifact_bindings(
+    run_dir: Path,
+    manifest: TrainingRunManifest,
+) -> None:
+    binding = manifest.membership_and_split_evidence
+    if binding is None:
+        return
+    dataset_artifact = _single_artifact_of_kind(manifest.artifacts, "dataset_manifest")
+    dataset_payload = _load_json_object(
+        _safe_relative(run_dir, dataset_artifact.path),
+        label="training dataset manifest",
+    )
+    if dataset_payload.get("schema_version") != BOUND_SCHEMA_VERSION:
+        raise InputError(
+            "bound training dataset manifest must use schema 1.1.0",
+            details={"observed": dataset_payload.get("schema_version")},
+        )
+    if dataset_payload.get("snapshot_id") != manifest.dataset_snapshot_id:
+        raise InputError(
+            "training dataset manifest snapshot does not match training run",
+            details={
+                "expected": manifest.dataset_snapshot_id,
+                "observed": dataset_payload.get("snapshot_id"),
+            },
+        )
+    expected_dataset_binding = {
+        "membership_store": binding["membership_store"],
+        "report": binding["report"],
+    }
+    if dataset_payload.get("membership_and_split_evidence") != expected_dataset_binding:
+        raise InputError(
+            "dataset manifest membership and split evidence does not match training run"
+        )
+
+    metrics_artifact = _single_artifact_of_kind(manifest.artifacts, "metrics")
+    metrics_payload = _load_json_object(
+        _safe_relative(run_dir, metrics_artifact.path),
+        label="training metrics",
+    )
+    if metrics_payload.get("membership_and_split_evidence") != binding:
+        raise InputError("metrics membership and split evidence does not match training run")
+
+
+def _single_artifact_of_kind(
+    artifacts: tuple[TrainingArtifact, ...],
+    kind: str,
+) -> TrainingArtifact:
+    selected = tuple(artifact for artifact in artifacts if artifact.kind == kind)
+    if len(selected) != 1:
+        raise InputError(
+            "bound training-run archive must contain exactly one artifact of each bound kind",
+            details={"kind": kind, "observed": len(selected)},
+        )
+    return selected[0]
+
+
+def _load_json_object(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise InputError(f"{label} JSON is invalid", details={"path": str(path)}) from exc
+    if not isinstance(payload, dict):
+        raise InputError(f"{label} must be a JSON object", details={"path": str(path)})
+    return payload
 
 
 def _verify_training_preflight_artifact(
@@ -683,6 +963,35 @@ def _verify_preflight_dataset_evidence(
     files = dataset.get("files")
     if not isinstance(files, list) or not files:
         raise InputError("training preflight dataset files must be a non-empty list")
+    binding = manifest.membership_and_split_evidence
+    observed_binding = dataset.get("membership_and_split_evidence")
+    if binding is None:
+        if "membership_and_split_evidence" in dataset:
+            raise InputError("legacy training preflight cannot bind membership evidence")
+        return
+    expected_binding = {
+        "membership_store": binding["membership_store"],
+        "report": binding["report"],
+    }
+    if observed_binding != expected_binding:
+        raise InputError(
+            "training preflight membership and split evidence does not match training run"
+        )
+    dataset_manifest = _single_artifact_of_kind(manifest.artifacts, "dataset_manifest")
+    observed_manifest_identity = core_files["dataset_manifest.json"]
+    expected_manifest_identity = {
+        "path": "dataset_manifest.json",
+        "sha256": dataset_manifest.sha256,
+        "size_bytes": dataset_manifest.size_bytes,
+    }
+    if observed_manifest_identity != expected_manifest_identity:
+        raise InputError(
+            "training preflight dataset manifest identity does not match training run",
+            details={
+                "expected": expected_manifest_identity,
+                "observed": observed_manifest_identity,
+            },
+        )
 
 
 def _verify_preflight_dataset_file_identity(
@@ -844,6 +1153,26 @@ def _text_fields(manifest: TrainingRunManifest) -> dict[str, str]:
     for index, artifact in enumerate(manifest.artifacts):
         fields[f"artifacts[{index}].path"] = artifact.path
         fields[f"artifacts[{index}].description"] = artifact.description
+    if manifest.membership_and_split_evidence is not None:
+        fields.update(
+            _nested_text_fields(
+                manifest.membership_and_split_evidence,
+                prefix="membership_and_split_evidence",
+            )
+        )
+    return fields
+
+
+def _nested_text_fields(value: object, *, prefix: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    if isinstance(value, str):
+        fields[prefix] = value
+    elif isinstance(value, dict):
+        for key, child in value.items():
+            fields.update(_nested_text_fields(child, prefix=f"{prefix}.{key}"))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            fields.update(_nested_text_fields(child, prefix=f"{prefix}[{index}]"))
     return fields
 
 
