@@ -400,11 +400,11 @@ def test_select_source_resolves_one_locked_object_and_immutable_namespace() -> N
     selected_source = cast(Mapping[str, object], selection["source"])
     publication = cast(Mapping[str, object], selection["publication"])
     assert selection["source_lock"] == {
-        "path": str(SOURCE_LOCK),
+        "path": SOURCE_LOCK.as_posix(),
         "sha256": lock_sha256,
         "schema_version": "geno-lewm.gnomad-source-lock.v1",
         "schema": {
-            "path": str(SOURCE_LOCK_SCHEMA),
+            "path": SOURCE_LOCK_SCHEMA.as_posix(),
             "sha256": hashlib.sha256(SOURCE_LOCK_SCHEMA.read_bytes()).hexdigest(),
             "draft": "https://json-schema.org/draft/2020-12/schema",
         },
