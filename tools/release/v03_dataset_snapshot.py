@@ -2329,13 +2329,14 @@ def _commit(value: str, label: str) -> str:
 def _utc_timestamp(raw: object, label: str) -> str:
     if not isinstance(raw, str) or not _ISO_UTC_RE.fullmatch(raw):
         raise InputError(f"{label} must be a canonical UTC ISO-8601 timestamp ending in Z")
+    base, separator, fraction = raw.removesuffix("Z").partition(".")
+    timestamp_format = "%Y-%m-%dT%H:%M:%S" + (".%f" if separator else "") + "Z"
     try:
-        parsed = datetime.fromisoformat(raw.removesuffix("Z") + "+00:00")
+        parsed = datetime.strptime(raw, timestamp_format).replace(tzinfo=timezone.utc)
     except ValueError as exc:
         raise InputError(f"{label} is not a valid calendar timestamp") from exc
     if parsed.utcoffset() != timezone.utc.utcoffset(parsed):
         raise InputError(f"{label} must resolve to UTC")
-    base, separator, fraction = raw.removesuffix("Z").partition(".")
     if base != parsed.strftime("%Y-%m-%dT%H:%M:%S"):
         raise InputError(f"{label} is not a canonical calendar timestamp")
     if separator and parsed.microsecond != int(fraction) * 10 ** (6 - len(fraction)):
