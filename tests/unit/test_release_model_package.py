@@ -136,6 +136,70 @@ def test_build_model_package_rejects_invalid_training_run_manifest(tmp_path: Pat
         build_model_package(tmp_path, metadata_path)
 
 
+def test_build_model_package_rejects_training_run_commit_mismatch(tmp_path: Path) -> None:
+    metadata_path = _write_model_inputs(tmp_path)
+    training_metadata_path = tmp_path / "training_run.json"
+    training_metadata = json.loads(training_metadata_path.read_text(encoding="utf-8"))
+    training_metadata["commit_sha"] = "deadbee"
+    training_metadata_path.write_text(
+        json.dumps(training_metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    build_training_run_package(tmp_path, training_metadata_path)
+
+    with pytest.raises(InputError, match=r"commit_sha must match eval_metrics\.json commit"):
+        build_model_package(tmp_path, metadata_path)
+
+
+def test_build_model_package_rejects_training_run_dataset_snapshot_mismatch(
+    tmp_path: Path,
+) -> None:
+    metadata_path = _write_model_inputs(tmp_path)
+    training_metadata_path = tmp_path / "training_run.json"
+    training_metadata = json.loads(training_metadata_path.read_text(encoding="utf-8"))
+    training_metadata["dataset_snapshot_id"] = "other-dataset"
+    training_metadata_path.write_text(
+        json.dumps(training_metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    dataset_manifest_path = tmp_path / "dataset_manifest.json"
+    dataset_manifest = json.loads(dataset_manifest_path.read_text(encoding="utf-8"))
+    dataset_manifest["snapshot_id"] = "other-dataset"
+    dataset_manifest_path.write_text(
+        json.dumps(dataset_manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    preflight_path = tmp_path / TRAINING_PREFLIGHT_REPORT_NAME
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["dataset_snapshot_id"] = "other-dataset"
+    preflight["dataset"]["snapshot_id"] = "other-dataset"
+    preflight_path.write_text(
+        json.dumps(preflight, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    build_training_run_package(tmp_path, training_metadata_path)
+
+    with pytest.raises(InputError, match="dataset_snapshot_id must match manifest"):
+        build_model_package(tmp_path, metadata_path)
+
+
+def test_build_model_package_rejects_training_run_config_path_mismatch(tmp_path: Path) -> None:
+    metadata_path = _write_model_inputs(tmp_path)
+    alternate_config = tmp_path / "alternate_train_config.yaml"
+    alternate_config.write_bytes((tmp_path / "train_config.yaml").read_bytes())
+    training_metadata_path = tmp_path / "training_run.json"
+    training_metadata = json.loads(training_metadata_path.read_text(encoding="utf-8"))
+    training_metadata["training_config"] = alternate_config.name
+    training_metadata_path.write_text(
+        json.dumps(training_metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    build_training_run_package(tmp_path, training_metadata_path)
+
+    with pytest.raises(InputError, match="training_config path must match manifest"):
+        build_model_package(tmp_path, metadata_path)
+
+
 def test_build_model_package_rejects_missing_eval_metrics_json(tmp_path: Path) -> None:
     metadata_path = _write_model_inputs(tmp_path)
     (tmp_path / EVAL_METRICS_NAME).unlink()
