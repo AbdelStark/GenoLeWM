@@ -101,6 +101,32 @@ or incompatible command changes require an explicit compatibility note.
   Parquet identities, and type-strict fresh Parquet audit. Added source-specific
   gnomAD and ClinVar license, attribution, terms, restriction, and materialized
   field metadata to the content-addressed lineage.
+- Added a scalable v0.3 membership-store contract with synthetic fixture
+  coverage. Its non-fixture path consumes the official one-capture lineage
+  verifier, derives source bindings from its deeply immutable verified
+  semantics, and persists the exact captured lineage bytes without reopening
+  the input path. It
+  verifies exact snapshot-lineage source bytes, derives canonical rows through
+  source-specific streaming adapters, performs disk-backed ordering/dedup and
+  split-leakage checks, writes a closed Parquet/SQLite/JSON artifact, and
+  provides indexed holdout/validation lookup without loading every key into
+  Python. Source bytes are captured through one immutable descriptor; interval
+  lookup uses an integer R-tree; the self-contained lineage/receipt layout is
+  independently verified and fsynced before atomic publication; and runtime
+  handles are pickle-, thread-, spawn-, and fork-safe, with weak reclamation of
+  short-lived-thread SQLite connections. Manifests and verification summaries
+  expose whether lineage evidence is official or a synthetic fixture. ClinVar
+  labeled membership includes normalized B/LB/LP/P rows, with B/LB serving as
+  negative benchmark labels and train-chromosome P/LP rows remaining eligible
+  anchors;
+  gnomAD variant membership is not represented as a phased-haplotype holdout.
+  No real v0.3 memberships or split evidence are published by this contract
+  change.
+- Added a digest-pinned, exact-source Hugging Face Job runner for the first real
+  membership build. It keeps all inputs outside the provenance-clean checkout,
+  pins the independently audited 2,335,042-row semantic digest and split/class
+  cross-tabs, publishes only a checksum-closed successful bundle, and
+  re-downloads the immutable Hub commit for byte and semantic verification.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as
@@ -125,6 +151,11 @@ or incompatible command changes require an explicit compatibility note.
   identity, and claim-boundary invariants. Downstream consumers can bind the
   exact verified lineage bytes, hash, size, and parsed mapping through one
   public capture result without reopening the path.
+- Moved the single read-only v0.3 snapshot-lineage capture and semantic verifier
+  into dependency-closed installable package code. The assembly tool now
+  delegates to and re-exports that implementation, so wheel-installed
+  membership stores retain default full lineage verification without packaging
+  the operational `tools` tree or relaxing non-fixture checks.
 - Made both v0.3 exact-revision postflight verifiers compare JSON values
   recursively and type-strictly, rejecting Python boolean/integer equality
   aliases in audit, receipt, runtime, and prepare evidence.

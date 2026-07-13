@@ -1,0 +1,390 @@
+{
+  "$defs": {
+    "countMap": {
+      "additionalProperties": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "type": "object"
+    },
+    "roleCountMap": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation": {"minimum": 0, "type": "integer"},
+        "train": {"minimum": 0, "type": "integer"},
+        "validation": {"minimum": 0, "type": "integer"}
+      },
+      "required": ["train", "validation", "evaluation"],
+      "type": "object"
+    },
+    "file": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "enum": [
+            "build-receipt.json",
+            "lookup.sqlite",
+            "memberships.parquet",
+            "snapshot-lineage.json"
+          ]
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
+    },
+    "source": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "artifact_row_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "artifact_schema_version": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "artifact_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "artifact_size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "filtered_row_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "gnomad",
+            "clinvar"
+          ]
+        },
+        "membership_row_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "namespace": {
+          "pattern": "^staging/[A-Za-z0-9._/-]+$",
+          "type": "string"
+        },
+        "repository": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        },
+        "source_id": {
+          "pattern": "^[a-z0-9][a-z0-9._:-]*$",
+          "type": "string"
+        },
+        "verification_kind": {
+          "const": "remote_postflight"
+        },
+        "verification_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "kind",
+        "repository",
+        "revision",
+        "namespace",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_size_bytes",
+        "artifact_row_count",
+        "artifact_schema_version",
+        "verification_kind",
+        "verification_sha256",
+        "membership_row_count",
+        "filtered_row_count"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/AbdelStark/GenoLeWM/raw/main/configs/data_v03/membership-store.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "type": "string"
+    },
+    "assembly": {
+      "const": "GRCh38"
+    },
+    "chromosome_roles": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation": {
+          "const": [
+            "21"
+          ]
+        },
+        "train": {
+          "const": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "22"
+          ]
+        },
+        "validation": {
+          "const": [
+            "20"
+          ]
+        }
+      },
+      "required": [
+        "train",
+        "validation",
+        "evaluation"
+      ],
+      "type": "object"
+    },
+    "content_identity": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "files": {
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "build-receipt.json"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "lookup.sqlite"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "memberships.parquet"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "snapshot-lineage.json"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        }
+      ],
+      "items": {
+        "$ref": "#/$defs/file"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "physical_identity": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "role_counts": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "train": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "validation": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "train",
+        "validation",
+        "evaluation"
+      ],
+      "type": "object"
+    },
+    "row_count": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "rowset_sha256": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "geno-lewm.membership-store.v1"
+    },
+    "snapshot_lineage": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_snapshot_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence_profile": {
+          "enum": [
+            "official",
+            "synthetic_fixture"
+          ]
+        },
+        "lineage_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "lineage_id",
+        "sha256",
+        "size_bytes",
+        "candidate_snapshot_id",
+        "evidence_profile"
+      ],
+      "type": "object"
+    },
+    "source_counts": {
+      "$ref": "#/$defs/countMap"
+    },
+    "source_role_counts": {
+      "additionalProperties": {"$ref": "#/$defs/roleCountMap"},
+      "maxProperties": 23,
+      "minProperties": 23,
+      "type": "object"
+    },
+    "source_kind_role_counts": {
+      "additionalProperties": false,
+      "properties": {
+        "clinvar": {"$ref": "#/$defs/roleCountMap"},
+        "gnomad": {"$ref": "#/$defs/roleCountMap"}
+      },
+      "required": ["gnomad", "clinvar"],
+      "type": "object"
+    },
+    "clinvar_class_role_counts": {
+      "additionalProperties": false,
+      "properties": {
+        "B": {"$ref": "#/$defs/roleCountMap"},
+        "LB": {"$ref": "#/$defs/roleCountMap"},
+        "LP": {"$ref": "#/$defs/roleCountMap"},
+        "P": {"$ref": "#/$defs/roleCountMap"}
+      },
+      "required": ["B", "LB", "LP", "P"],
+      "type": "object"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/source"
+      },
+      "maxItems": 23,
+      "minItems": 23,
+      "type": "array"
+    },
+    "variant_count": {
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "artifact_id",
+    "assembly",
+    "chromosome_roles",
+    "snapshot_lineage",
+    "sources",
+    "row_count",
+    "variant_count",
+    "role_counts",
+    "source_counts",
+    "source_role_counts",
+    "source_kind_role_counts",
+    "clinvar_class_role_counts",
+    "rowset_sha256",
+    "files",
+    "content_identity",
+    "physical_identity"
+  ],
+  "title": "GenoLeWM scalable membership store manifest",
+  "type": "object"
+}

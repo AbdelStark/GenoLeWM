@@ -17,24 +17,28 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
-from geno_lewm.provenance import canonical_json_sha256, sha256_file
-from tools.data._immutable_json import supports_secure_immutable_json_publication
-from tools.data.v03_clinvar_postflight import (
-    REMOTE_POSTFLIGHT_SCHEMA_VERSION as CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
-)
-from tools.data.v03_gnomad_lock import REMOTE_POSTFLIGHT_SCHEMA_VERSION, select_source
-from tools.data.v03_snapshot_lineage import (
+from geno_lewm.data import _snapshot_lineage as snapshot_lineage_core
+from geno_lewm.data._snapshot_lineage import (
     CLINVAR_REQUIRED_CLAIM_BOUNDARY,
     GENERATED_BY,
     LINEAGE_CLAIM_BOUNDARY,
     LINEAGE_SCHEMA_VERSION,
     MEMBERSHIP_STATUS,
     SnapshotLineageError,
+    capture_verified_snapshot_lineage,
+    verify_snapshot_lineage,
+)
+from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from tools.data import v03_snapshot_lineage as snapshot_lineage_tool
+from tools.data._immutable_json import supports_secure_immutable_json_publication
+from tools.data.v03_clinvar_postflight import (
+    REMOTE_POSTFLIGHT_SCHEMA_VERSION as CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+)
+from tools.data.v03_gnomad_lock import REMOTE_POSTFLIGHT_SCHEMA_VERSION, select_source
+from tools.data.v03_snapshot_lineage import (
     _fsync_directory,
     assemble_snapshot_lineage,
-    capture_verified_snapshot_lineage,
     main,
-    verify_snapshot_lineage,
 )
 
 SOURCE_LOCK = Path("configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json")
@@ -102,6 +106,22 @@ requires_secure_immutable_json_publication = pytest.mark.skipif(
     not supports_secure_immutable_json_publication(),
     reason="secure immutable publication requires anchored dir_fd operations",
 )
+
+
+def test_tool_reexports_the_installable_snapshot_lineage_verifier() -> None:
+    assert snapshot_lineage_tool.SnapshotLineageError is snapshot_lineage_core.SnapshotLineageError
+    assert (
+        snapshot_lineage_tool.VerifiedSnapshotLineage
+        is snapshot_lineage_core.VerifiedSnapshotLineage
+    )
+    assert (
+        snapshot_lineage_tool.capture_verified_snapshot_lineage
+        is snapshot_lineage_core.capture_verified_snapshot_lineage
+    )
+    assert (
+        snapshot_lineage_tool.verify_snapshot_lineage
+        is snapshot_lineage_core.verify_snapshot_lineage
+    )
 
 
 @requires_secure_immutable_json_publication

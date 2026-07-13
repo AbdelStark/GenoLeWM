@@ -162,10 +162,10 @@ jobs:
         # enforces changed-file coverage over every cache line.
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            pytest --cov=geno_lewm --cov-branch --cov-report=term-missing --cov-fail-under=0 -v --tb=long 2>&1 | tee pytest.out
+            pytest --cov=geno_lewm --cov-branch --cov-report=term-missing --cov-fail-under=0 -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
             coverage report --show-missing --fail-under=84 --omit="*/encoder/cache.py"
           else
-            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee pytest.out
+            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
           fi
         shell: bash
       - name: Upload pytest output (on failure)
@@ -173,7 +173,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: pytest-${{ matrix.os }}-${{ matrix.python }}
-          path: pytest.out
+          path: ${{ runner.temp }}/pytest.out
           retention-days: 7
           if-no-files-found: ignore
       - name: Upload coverage to Codecov
@@ -260,8 +260,14 @@ jobs:
       - name: Smoke install
         run: |
           python -m pip install dist/*.whl
+          python -m pip install "pyarrow>=15,<25" pytest hypothesis jsonschema
           python -c "import geno_lewm; print(geno_lewm.__version__)"
           python -c "from geno_lewm import EditSpec, apply_edit; print(EditSpec(chrom='1', pos=1, ref='A', alt='T'))"
+          python -m tests.wheel_membership_smoke prepare "$RUNNER_TEMP/membership-wheel-smoke"
+          isolated_root="$(mktemp -d)"
+          cd "$isolated_root"
+          python -I "$GITHUB_WORKSPACE/tests/wheel_membership_smoke.py" \
+            verify "$RUNNER_TEMP/membership-wheel-smoke"
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v7
         with:

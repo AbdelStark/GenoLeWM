@@ -59,6 +59,7 @@ __all__ = [
     "ResourceError",
     "RuntimeSetupError",
     "SchemaCompatError",
+    "SnapshotLineageError",
     "TrainingError",
     "UnknownTopLevelKeyError",
     "UnreachableError",
@@ -369,6 +370,12 @@ class ReceiptSchemaError(ProvenanceError):
     code = "PROVENANCE.RECEIPT_SCHEMA"
 
 
+class SnapshotLineageError(ProvenanceError, ValueError):
+    """Snapshot-lineage evidence violates its closed semantic contract."""
+
+    code = "PROVENANCE.SNAPSHOT_LINEAGE"
+
+
 # ---------------------------------------------------------------------------
 # Internal
 
@@ -501,6 +508,11 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
         "Verifier does not understand receipt provenance kind",
     ),
     ErrorCodeEntry("PROVENANCE.RECEIPT_SCHEMA", ReceiptSchemaError, "Receipt JSON invalid"),
+    ErrorCodeEntry(
+        "PROVENANCE.SNAPSHOT_LINEAGE",
+        SnapshotLineageError,
+        "Snapshot-lineage evidence violates its closed semantic contract",
+    ),
     # Internal
     ErrorCodeEntry("INTERNAL.GENERIC", InternalError, "Internal error"),
     ErrorCodeEntry(

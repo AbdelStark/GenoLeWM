@@ -178,7 +178,7 @@ geno_lewm/
 ├── action/       edit specs, edit application, action encoder
 ├── cli/          train, score, eval, rollout, plan, verify, export commands
 ├── config/       typed config loading and closed config schema
-├── data/         VCF parsing, ClinVar/gnomAD prep, tuple streaming
+├── data/         VCF prep, tuple streaming, membership manifests/indexes
 ├── deploy/       runtime facade, scoring, import/export helpers
 ├── encoder/      Carbon wrapper, windowing, pooling, cache helpers
 ├── planning/     CEM planning, cost functions, action sampling
@@ -238,16 +238,69 @@ nine-field schema, full-scan counts, and original claim boundary. The existing
 audit validation remains mandatory; postflight evidence augments it rather
 than replacing it.
 
+Lineage assembly remains an operator tool, while its read-only capture and
+semantic verifier live in dependency-closed package code. The tool delegates
+to and re-exports that single verifier implementation. Consequently, an
+installed wheel can verify the exact bundled lineage during the default
+membership-store open path without resolving the repository's `tools` tree.
+The package verifier still performs one read, duplicate-key rejection,
+type-strict semantic checks, content-ID recomputation, and deep freezing of the
+captured value.
+
 The input and output formats are closed Draft 2020-12 schemas with stable IDs
 under `configs/data_v03/`. The output includes source-specific data-use terms
 and the exact fields materialized from gnomAD and ClinVar. These records are
 provenance and policy metadata, not a transfer of upstream rights.
 
-This component deliberately has no membership writer or network client. A
-lineage candidate cannot be described as a dataset snapshot until a separate
-future step constructs, audits, and commits memberships and leakage controls.
+The lineage assembler deliberately has no membership writer or network client.
+A lineage candidate cannot be described as a dataset snapshot until a separate
+downstream step constructs, audits, and commits memberships and leakage controls.
 See the [operator guide](docs/data-v03-snapshot-lineage.md) for required
 evidence and failure behavior.
+
+### Dataset membership boundary
+
+Fixture tests and small callers can continue to use the in-memory
+`MembershipArtifact` contract. Production-scale v0.3 memberships use a
+separate versioned store:
+
+```text
+snapshot-lineage.json + exact local staged Parquet shards
+                  │
+                  ├── private single-descriptor capture + exact verification
+                  ├── derive canonical MembershipRow values
+                  ├── SQLite-backed ordering, R-tree, dedup, leakage checks
+                  ├── independent temp-store verification + fsync
+                  └── atomic five-file store publication
+```
+
+The five files are `manifest.json`, `memberships.parquet`, `lookup.sqlite`,
+the exact bundled `snapshot-lineage.json`, and `build-receipt.json`. The
+Parquet file is the portable row artifact. The SQLite file is a derived,
+manifest-bound point/R-tree range index used by the tuple builder and validation
+stream without loading all variant keys into Python. A format-independent
+digest over length-framed canonical rows defines semantic identity; the
+manifest's separate physical identity commits the exact Parquet, SQLite,
+lineage, and receipt bytes. Full verification rejects layout drift and scans
+both row encodings independently with bounded memory.
+
+PyArrow is loaded only by build and verification adapters. Manifest parsing
+and read-only SQLite lookups stay on core dependencies. The current repository
+ships this contract and synthetic tests only: it does not contain or claim a
+real v0.3 membership store, split result, or phased-haplotype membership.
+ClinVar membership derivation admits normalized B/LB/LP/P rows as labeled
+memberships: benign-family rows are negative benchmark labels, while P/LP rows
+on training chromosomes remain eligible training anchors. The gnomAD variant
+membership path is not presented as the RFC's phased-haplotype set.
+
+The stable `geno_lewm.data.membership_store` module is a small public facade.
+Its private implementation has one-way dependencies: the closed contract is
+the base; lineage, receipt, and storage depend on that contract; the verifier
+depends on those three; the writer depends on the verifier; and the read-only
+runtime depends on the verifier and storage. The membership lineage adapter
+depends on the installable snapshot-lineage verifier, never on the operational
+tool package. This keeps source ingestion, physical encoding, independent
+verification, and online lookup separately testable without import cycles.
 
 ## Inference Data Flow
 

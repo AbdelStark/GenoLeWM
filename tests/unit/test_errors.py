@@ -50,6 +50,7 @@ LEAF_CLASSES: tuple[tuple[type[err.GenoLeWMError], str], ...] = (
     (err.OutputCommitmentMismatchError, "PROVENANCE.OUTPUT_COMMITMENT_MISMATCH"),
     (err.ProvenanceKindUnsupportedError, "PROVENANCE.KIND_UNSUPPORTED"),
     (err.ReceiptSchemaError, "PROVENANCE.RECEIPT_SCHEMA"),
+    (err.SnapshotLineageError, "PROVENANCE.SNAPSHOT_LINEAGE"),
     # Internal
     (err.InvariantViolation, "INTERNAL.INVARIANT_VIOLATION"),
     (err.UnreachableError, "INTERNAL.UNREACHABLE"),
@@ -172,3 +173,7 @@ def test_each_leaf_is_raisable_and_catchable() -> None:
             raise cls("boom", details={"why": "test"})
         assert ei.value.message == "boom"
         assert ei.value.details == {"why": "test"}
+
+
+def test_snapshot_lineage_error_preserves_legacy_value_error_compatibility() -> None:
+    assert issubclass(err.SnapshotLineageError, ValueError)
