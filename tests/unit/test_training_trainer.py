@@ -19,6 +19,7 @@ from geno_lewm.training.trainer import (
     TorchTrainer,
     TorchTrainerBatch,
     TrainerSeeds,
+    configure_torch_reproducibility,
     encode_training_batch,
     make_action_mask,
     set_optimizer_lr,
@@ -30,6 +31,40 @@ def test_trainer_seeds_are_distinct_and_stable() -> None:
     seeds = TrainerSeeds.from_base_seed(17)
 
     assert seeds.to_dict() == {"data": 17, "predictor": 18, "lora": 19}
+
+
+def test_nondeterministic_report_preserves_preexisting_cublas_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCuda:
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+    class FakeTorch:
+        cuda = FakeCuda()
+
+        @staticmethod
+        def manual_seed(_seed: int) -> None:
+            return None
+
+        @staticmethod
+        def use_deterministic_algorithms(enabled: bool) -> None:
+            FakeTorch.enabled = enabled
+
+        @staticmethod
+        def are_deterministic_algorithms_enabled() -> bool:
+            return FakeTorch.enabled
+
+    FakeTorch.enabled = False
+    monkeypatch.setattr(trainer_module, "torch", FakeTorch())
+    monkeypatch.setattr(trainer_module, "_seed_numpy", lambda _seed: None)
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":16:8")
+
+    report = configure_torch_reproducibility(seed=17, deterministic=False)
+
+    assert report.cublas_workspace_config == ":16:8"
+    assert report.torch_deterministic_algorithms is False
 
 
 def test_wsd_lr_multiplier_matches_warmup_stable_decay_taper() -> None:
