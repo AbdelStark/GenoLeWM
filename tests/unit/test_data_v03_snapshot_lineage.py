@@ -1801,7 +1801,7 @@ def test_verified_lineage_capture_is_deeply_immutable(tmp_path: Path) -> None:
         shards.append(first)  # type: ignore[attr-defined]
 
 
-@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity", "1e999"])
 def test_verify_cli_rejects_nonfinite_json_constants_cleanly(
     constant: str,
     tmp_path: Path,

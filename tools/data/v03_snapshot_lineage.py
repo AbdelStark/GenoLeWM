@@ -1981,6 +1981,7 @@ def _capture_json(path: Path, field: str) -> _CapturedJson:
             payload,
             object_pairs_hook=_reject_duplicate_pairs,
             parse_constant=_reject_nonfinite_json_constant,
+            parse_float=_parse_finite_json_float,
         )
     except SnapshotLineageError:
         raise
@@ -2005,6 +2006,13 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object
 
 def _reject_nonfinite_json_constant(constant: str) -> object:
     raise SnapshotLineageError(f"non-finite JSON number is not allowed: {constant}")
+
+
+def _parse_finite_json_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise SnapshotLineageError(f"non-finite JSON number is not allowed: {text}")
+    return value
 
 
 def _deep_freeze_json(value: object) -> object:
