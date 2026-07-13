@@ -122,6 +122,119 @@ def test_training_preflight_rejects_role_bound_package_binding_drift(
     assert "dataset.package.membership_binding_mismatch" in _codes(report)
 
 
+@pytest.mark.parametrize(
+    ("tamper", "expected_code"),
+    (
+        ("schema_version", "dataset.schema_version"),
+        ("invalid_role", "dataset.file.artifact_role"),
+        ("evidence_fields", "dataset.file.evidence_fields"),
+        ("missing_split", "dataset.file.split"),
+        ("invalid_records", "dataset.file.records"),
+        ("missing_companion", "dataset.file.companion_of"),
+        ("companion_on_split_data", "dataset.file.companion_of"),
+        ("companion_binding", "dataset.file.companion_binding"),
+    ),
+)
+def test_training_preflight_rejects_invalid_role_bound_file_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper: str,
+    expected_code: str,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_role_bound_release_dataset(tmp_path, monkeypatch)
+    manifest_path = dataset_dir / "dataset_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    files = manifest["files"]
+    split_data = next(item for item in files if item.get("artifact_role") == "split_data")
+    companion = next(item for item in files if item.get("artifact_role") == "split_companion")
+    evidence = next(item for item in files if item.get("artifact_role") == "evidence")
+
+    if tamper == "schema_version":
+        manifest["schema_version"] = "9.9.9"
+    elif tamper == "invalid_role":
+        split_data["artifact_role"] = "invalid"
+    elif tamper == "evidence_fields":
+        evidence["split"] = "train"
+    elif tamper == "missing_split":
+        split_data.pop("split")
+    elif tamper == "invalid_records":
+        split_data["records"] = -1
+    elif tamper == "missing_companion":
+        companion.pop("companion_of")
+    elif tamper == "companion_on_split_data":
+        split_data["companion_of"] = companion["companion_of"]
+    else:
+        companion["companion_of"] = split_data["path"]
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=_write_carbon_model_dir(tmp_path),
+            training_config=_write_training_config(tmp_path),
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is False
+    assert expected_code in _codes(report)
+
+
+@pytest.mark.parametrize(
+    ("tamper", "expected_code"),
+    (
+        ("shape", "dataset.membership_binding.shape"),
+        ("store", "dataset.membership_binding.store"),
+        ("report", "dataset.membership_binding.report"),
+        ("values", "dataset.membership_binding.values"),
+    ),
+)
+def test_training_preflight_rejects_invalid_membership_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper: str,
+    expected_code: str,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_role_bound_release_dataset(tmp_path, monkeypatch)
+    manifest_path = dataset_dir / "dataset_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    binding = manifest["membership_and_split_evidence"]
+    if tamper == "shape":
+        manifest["membership_and_split_evidence"] = {}
+    elif tamper == "store":
+        binding["membership_store"] = {}
+    elif tamper == "report":
+        binding["report"] = {}
+    else:
+        first_key = next(iter(binding["membership_store"]))
+        binding["membership_store"][first_key] = ""
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_training_preflight_report(
+        TrainingPreflightRequest(
+            dataset_dir=dataset_dir,
+            carbon_model_dir=_write_carbon_model_dir(tmp_path),
+            training_config=_write_training_config(tmp_path),
+            run_dir=tmp_path / "run",
+        ),
+        dependency_probe=_available_dependency,
+        accelerator_probe=_available_accelerator,
+    )
+
+    assert report.ok is False
+    assert expected_code in _codes(report)
+
+
 def test_training_preflight_writes_default_report_path(tmp_path: Path) -> None:
     pytest.importorskip("pyarrow")
     dataset_dir = _write_release_dataset(tmp_path)
