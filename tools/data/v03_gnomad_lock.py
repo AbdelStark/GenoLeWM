@@ -14,7 +14,9 @@ import os
 import re
 import shlex
 import struct
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -29,6 +31,7 @@ SELECTION_SCHEMA_VERSION = "geno-lewm.gnomad-stage-selection.v1"
 METADATA_VERIFICATION_SCHEMA_VERSION = "geno-lewm.gnomad-gcs-metadata-verification.v1"
 SOURCE_IDENTITY_SCHEMA_VERSION = "geno-lewm.gnomad-stream-identity.v1"
 STAGING_RECEIPT_SCHEMA_VERSION = "geno-lewm.gnomad-staging-receipt.v1"
+REMOTE_POSTFLIGHT_SCHEMA_VERSION = "geno-lewm.gnomad-remote-postflight.v1"
 _HASH_CHUNK_SIZE = 1 << 20
 _PARQUET_AUDIT_BATCH_ROWS = 131_072
 _HF_UPLOAD_MAX_ATTEMPTS = 12
@@ -37,6 +40,24 @@ _HF_PARENT_CONFLICT_MESSAGE = "A commit has happened since. Please refresh and t
 _AUTOSOMES = frozenset(str(chromosome) for chromosome in range(1, 23))
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 _CONTAINER_IMAGE = re.compile(r"[^@]+@sha256:[0-9a-f]{64}")
+_SAFE_HF_NAMESPACE = re.compile(r"[A-Za-z0-9._/-]+")
+_REMOTE_NAMESPACE_FILES = frozenset(
+    {
+        "data/gnomad/v4.1/variants.parquet",
+        "evidence/gcs-metadata-verification.json",
+        "evidence/gcs-object-metadata.json",
+        "evidence/prepare-report.json",
+        "evidence/receipt.json",
+        "evidence/selection.json",
+        "evidence/source-lock.json",
+        "evidence/source-lock.schema.json",
+        "evidence/source-stream-identity.json",
+    }
+)
+_SOURCE_LOCK_REPO_PATH = "configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json"
+_SOURCE_LOCK_SCHEMA_REPO_PATH = (
+    "configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json"
+)
 
 
 class SourceLockError(ValueError):
@@ -90,6 +111,16 @@ def main(argv: list[str] | None = None) -> int:
     publish_parser.add_argument("--namespace", required=True)
     publish_parser.add_argument("--publish-dir", type=Path, required=True)
     publish_parser.add_argument("--commit-message", required=True)
+    postflight_parser = subparsers.add_parser(
+        "remote-postflight",
+        help="download and verify one staging namespace at an immutable Hub revision",
+    )
+    postflight_parser.add_argument("--repo-id", required=True)
+    postflight_parser.add_argument("--revision", required=True)
+    postflight_parser.add_argument("--namespace", required=True)
+    postflight_parser.add_argument("--expected-source-commit", required=True)
+    postflight_parser.add_argument("--expected-chromosome", required=True)
+    postflight_parser.add_argument("--output-json", type=Path, required=True)
     args = parser.parse_args(argv)
 
     try:
@@ -137,10 +168,832 @@ def main(argv: list[str] | None = None) -> int:
                 token=_require_hf_token(),
             )
             print(f"uploaded commit: {_require_str(getattr(commit, 'oid', None), 'commit.oid')}")
+        elif args.command == "remote-postflight":
+            payload = verify_remote_gnomad_namespace(
+                repo_id=args.repo_id,
+                revision=args.revision,
+                namespace=args.namespace,
+                expected_source_commit=args.expected_source_commit,
+                expected_chromosome=args.expected_chromosome,
+                token=os.environ.get("HF_TOKEN"),
+            )
+            _write_json(args.output_json, payload)
     except (OSError, json.JSONDecodeError, SourceLockError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+def verify_remote_gnomad_namespace(
+    *,
+    repo_id: str,
+    revision: str,
+    namespace: str,
+    expected_source_commit: str,
+    expected_chromosome: str,
+    token: str | None,
+) -> dict[str, object]:
+    """Verify one complete staging namespace downloaded at an immutable Hub commit."""
+    _validate_remote_postflight_request(
+        repo_id=repo_id,
+        revision=revision,
+        namespace=namespace,
+        expected_source_commit=expected_source_commit,
+        expected_chromosome=expected_chromosome,
+    )
+    trusted_lock_bytes = _read_git_blob_at_commit(
+        expected_source_commit,
+        path=_SOURCE_LOCK_REPO_PATH,
+    )
+    trusted_schema_bytes = _read_git_blob_at_commit(
+        expected_source_commit,
+        path=_SOURCE_LOCK_SCHEMA_REPO_PATH,
+    )
+    trusted_lock = _require_mapping(json.loads(trusted_lock_bytes), "trusted source lock")
+    _validate_lock(trusted_lock)
+    trusted_namespace = _locked_namespace(
+        trusted_lock,
+        lock_sha256=hashlib.sha256(trusted_lock_bytes).hexdigest(),
+        chromosome=expected_chromosome,
+        source_commit=expected_source_commit,
+    )
+    if namespace != trusted_namespace:
+        raise SourceLockError(
+            "requested namespace drifted from the trusted source lock: "
+            f"expected {trusted_namespace!r}, observed {namespace!r}"
+        )
+    try:
+        hub = importlib.import_module("huggingface_hub")
+        api = hub.HfApi(token=token)
+        repo_info = api.repo_info(
+            repo_id=repo_id,
+            repo_type="dataset",
+            revision=revision,
+            files_metadata=False,
+        )
+        resolved_revision = _require_str(
+            getattr(repo_info, "sha", None), "Hugging Face repository revision"
+        )
+        _require_equal(resolved_revision, revision, "Hugging Face resolved revision")
+        repo_files = api.list_repo_files(
+            repo_id=repo_id,
+            repo_type="dataset",
+            revision=revision,
+        )
+    except SourceLockError:
+        raise
+    except Exception as exc:
+        raise SourceLockError(
+            f"cannot inspect exact Hugging Face revision {revision}: {exc}"
+        ) from exc
+
+    remote_files = _remote_namespace_file_set(repo_files, namespace=namespace)
+    if remote_files != _REMOTE_NAMESPACE_FILES:
+        raise SourceLockError(
+            "remote namespace file set drifted: "
+            f"missing={sorted(_REMOTE_NAMESPACE_FILES - remote_files)}, "
+            f"unexpected={sorted(remote_files - _REMOTE_NAMESPACE_FILES)}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="geno-lewm-gnomad-postflight-") as temporary:
+        local_paths: dict[str, Path] = {}
+        for relative_path in sorted(_REMOTE_NAMESPACE_FILES):
+            filename = f"{namespace}/{relative_path}"
+            try:
+                downloaded = hub.hf_hub_download(
+                    repo_id=repo_id,
+                    repo_type="dataset",
+                    revision=revision,
+                    filename=filename,
+                    token=token,
+                    local_dir=temporary,
+                )
+            except Exception as exc:
+                raise SourceLockError(
+                    f"cannot download {filename!r} at exact revision {revision}: {exc}"
+                ) from exc
+            local_path = Path(downloaded)
+            if not local_path.is_file():
+                raise SourceLockError(
+                    f"exact-revision download is not a regular file: {relative_path}"
+                )
+            local_paths[relative_path] = local_path
+
+        report = _audit_remote_gnomad_bundle(
+            local_paths,
+            repo_id=repo_id,
+            revision=revision,
+            namespace=namespace,
+            expected_source_commit=expected_source_commit,
+            expected_chromosome=expected_chromosome,
+            trusted_lock_bytes=trusted_lock_bytes,
+            trusted_schema_bytes=trusted_schema_bytes,
+        )
+    return report
+
+
+def _read_git_blob_at_commit(commit_sha: str, *, path: str) -> bytes:
+    """Read one trusted source artifact directly from an exact local Git commit."""
+    try:
+        result = subprocess.run(
+            ["git", "cat-file", "blob", f"{commit_sha}:{path}"],
+            check=False,
+            capture_output=True,
+            env={**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"},
+        )
+    except OSError as exc:
+        raise SourceLockError(f"cannot read trusted source artifact from Git: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise SourceLockError(
+            f"cannot read trusted source artifact {path!r} at {commit_sha}: {detail}"
+        )
+    return result.stdout
+
+
+def _validate_remote_postflight_request(
+    *,
+    repo_id: str,
+    revision: str,
+    namespace: str,
+    expected_source_commit: str,
+    expected_chromosome: str,
+) -> None:
+    if repo_id.count("/") != 1 or any(not part for part in repo_id.split("/")):
+        raise SourceLockError("Hugging Face repo_id must be a namespace/name pair")
+    if _COMMIT_SHA.fullmatch(revision) is None:
+        raise SourceLockError(
+            "Hugging Face revision must be a full lowercase 40-character commit SHA"
+        )
+    if _COMMIT_SHA.fullmatch(expected_source_commit) is None:
+        raise SourceLockError(
+            "expected source commit must be a full lowercase 40-character Git SHA"
+        )
+    if expected_chromosome not in _AUTOSOMES:
+        raise SourceLockError(
+            f"expected chromosome must be one of 1..22, got {expected_chromosome!r}"
+        )
+    if (
+        namespace != namespace.strip("/")
+        or not namespace.startswith("staging/v0.3/")
+        or _SAFE_HF_NAMESPACE.fullmatch(namespace) is None
+    ):
+        raise SourceLockError("Hugging Face namespace must be below staging/v0.3 without slashes")
+    parts = namespace.split("/")
+    if any(not part or part in {".", ".."} for part in parts):
+        raise SourceLockError("Hugging Face namespace contains an unsafe path component")
+
+
+def _remote_namespace_file_set(repo_files: object, *, namespace: str) -> frozenset[str]:
+    if not isinstance(repo_files, list) or any(not isinstance(path, str) for path in repo_files):
+        raise SourceLockError("Hugging Face file listing must be an array of paths")
+    prefix = f"{namespace}/"
+    relative_paths = [path.removeprefix(prefix) for path in repo_files if path.startswith(prefix)]
+    if len(relative_paths) != len(set(relative_paths)):
+        raise SourceLockError("Hugging Face namespace file listing contains duplicate paths")
+    return frozenset(relative_paths)
+
+
+def _audit_remote_gnomad_bundle(
+    paths: Mapping[str, Path],
+    *,
+    repo_id: str,
+    revision: str,
+    namespace: str,
+    expected_source_commit: str,
+    expected_chromosome: str,
+    trusted_lock_bytes: bytes,
+    trusted_schema_bytes: bytes,
+) -> dict[str, object]:
+    selection_path = paths["evidence/selection.json"]
+    metadata_path = paths["evidence/gcs-object-metadata.json"]
+    metadata_verification_path = paths["evidence/gcs-metadata-verification.json"]
+    source_identity_path = paths["evidence/source-stream-identity.json"]
+    prepare_report_path = paths["evidence/prepare-report.json"]
+    receipt_path = paths["evidence/receipt.json"]
+    source_lock_path = paths["evidence/source-lock.json"]
+    source_lock_schema_path = paths["evidence/source-lock.schema.json"]
+    parquet_path = paths["data/gnomad/v4.1/variants.parquet"]
+
+    lock_bytes, lock = _read_json_mapping(source_lock_path, "remote source lock")
+    schema_bytes, schema = _read_json_mapping(source_lock_schema_path, "remote source lock schema")
+    _require_trusted_blob(
+        lock_bytes,
+        trusted_lock_bytes,
+        "remote source lock bytes at source commit",
+    )
+    _require_trusted_blob(
+        schema_bytes,
+        trusted_schema_bytes,
+        "remote source lock schema bytes at source commit",
+    )
+    _validate_lock(lock)
+    _require_equal(
+        schema.get("$schema"),
+        "https://json-schema.org/draft/2020-12/schema",
+        "remote source lock schema.$schema",
+    )
+    _require_equal(
+        schema.get("additionalProperties"),
+        False,
+        "remote source lock schema.additionalProperties",
+    )
+
+    selection_bytes, selection = _read_json_mapping(selection_path, "remote selection")
+    _validate_remote_selection(
+        selection,
+        lock=lock,
+        lock_sha256=hashlib.sha256(lock_bytes).hexdigest(),
+        schema_sha256=hashlib.sha256(schema_bytes).hexdigest(),
+        repo_id=repo_id,
+        namespace=namespace,
+        expected_source_commit=expected_source_commit,
+        expected_chromosome=expected_chromosome,
+    )
+
+    _metadata_bytes, metadata_verification = _read_json_mapping(
+        metadata_verification_path, "remote metadata verification"
+    )
+    recomputed_metadata = verify_gcs_metadata(selection_path, metadata_path)
+    _require_equal(
+        dict(metadata_verification),
+        recomputed_metadata,
+        "remote metadata verification",
+    )
+
+    source_identity_bytes, source_identity = _read_json_mapping(
+        source_identity_path, "remote source identity"
+    )
+    _validate_remote_source_identity(
+        source_identity,
+        selection=selection,
+        selection_sha256=hashlib.sha256(selection_bytes).hexdigest(),
+    )
+    prepare_report_bytes, prepare_report = _read_json_mapping(
+        prepare_report_path, "remote prepare report"
+    )
+    counts, runtime, output_identity = _validate_remote_prepare_report(
+        prepare_report,
+        selection=selection,
+        source_identity=source_identity,
+        parquet_path=parquet_path,
+    )
+
+    source = _require_mapping(selection.get("source"), "selection.source")
+    transform = _require_mapping(selection.get("transform"), "selection.transform")
+    parquet_audit = audit_gnomad_parquet(
+        parquet_path,
+        chromosome=_require_str(source.get("chromosome"), "selection.source.chromosome"),
+        expected_records=counts["records_written"],
+        min_af=_require_number(transform.get("min_af"), "selection.transform.min_af"),
+        max_allele_len=_require_int(
+            transform.get("max_allele_len"), "selection.transform.max_allele_len"
+        ),
+    )
+    _receipt_bytes, receipt = _read_json_mapping(receipt_path, "remote receipt")
+    _validate_remote_receipt(
+        receipt,
+        selection=selection,
+        selection_path=selection_path,
+        metadata_verification_path=metadata_verification_path,
+        source_identity_path=source_identity_path,
+        source_identity_bytes=source_identity_bytes,
+        prepare_report_path=prepare_report_path,
+        prepare_report_bytes=prepare_report_bytes,
+        counts=counts,
+        runtime=runtime,
+        output_identity=output_identity,
+        parquet_audit=parquet_audit,
+    )
+
+    file_identities = {
+        relative: {
+            "sha256": _file_identity(path)["sha256"],
+            "size_bytes": path.stat().st_size,
+        }
+        for relative, path in sorted(paths.items())
+    }
+    return {
+        "schema_version": REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+        "ok": True,
+        "repo_id": repo_id,
+        "repo_type": "dataset",
+        "revision": revision,
+        "namespace": namespace,
+        "source_commit": expected_source_commit,
+        "chromosome": expected_chromosome,
+        "verified_files": sorted(paths),
+        "file_identities": file_identities,
+        "parquet_audit": parquet_audit,
+        "checks": [
+            "exact_hub_revision_resolved",
+            "complete_namespace_file_set",
+            "source_lock_and_schema_bound",
+            "source_lock_and_schema_match_source_commit",
+            "selection_rederived_from_source_lock",
+            "metadata_verification_recomputed",
+            "receipt_evidence_identities_recomputed",
+            "parquet_sha256_and_size_recomputed",
+            "parquet_full_scan_recomputed",
+        ],
+    }
+
+
+def _validate_remote_selection(
+    selection: Mapping[str, object],
+    *,
+    lock: Mapping[str, object],
+    lock_sha256: str,
+    schema_sha256: str,
+    repo_id: str,
+    namespace: str,
+    expected_source_commit: str,
+    expected_chromosome: str,
+) -> None:
+    _require_exact_keys(
+        selection,
+        {
+            "schema_version",
+            "source_lock",
+            "dataset_id",
+            "release",
+            "reference_genome",
+            "source",
+            "transform",
+            "execution",
+            "publication",
+            "claim_boundary",
+        },
+        "selection",
+    )
+    _require_equal(
+        selection["schema_version"], SELECTION_SCHEMA_VERSION, "selection.schema_version"
+    )
+    for field in ("dataset_id", "release", "reference_genome", "claim_boundary"):
+        _require_equal(selection[field], lock[field], f"selection.{field}")
+
+    lock_binding = _require_mapping(selection["source_lock"], "selection.source_lock")
+    _require_exact_keys(
+        lock_binding,
+        {"path", "sha256", "schema_version", "schema"},
+        "selection.source_lock",
+    )
+    _require_equal(lock_binding["path"], _SOURCE_LOCK_REPO_PATH, "selection.source_lock.path")
+    _require_equal(lock_binding["sha256"], lock_sha256, "selection.source_lock.sha256")
+    _require_equal(
+        lock_binding["schema_version"], LOCK_SCHEMA_VERSION, "selection.source_lock.schema_version"
+    )
+    schema_binding = _require_mapping(lock_binding["schema"], "selection.source_lock.schema")
+    _require_exact_keys(
+        schema_binding,
+        {"path", "sha256", "draft"},
+        "selection.source_lock.schema",
+    )
+    _require_equal(
+        schema_binding["path"],
+        _SOURCE_LOCK_SCHEMA_REPO_PATH,
+        "selection.source_lock.schema.path",
+    )
+    _require_equal(schema_binding["sha256"], schema_sha256, "selection.source_lock.schema.sha256")
+    _require_equal(
+        schema_binding["draft"],
+        "https://json-schema.org/draft/2020-12/schema",
+        "selection.source_lock.schema.draft",
+    )
+
+    source = _require_mapping(selection["source"], "selection.source")
+    source_config = _require_mapping(lock["source"], "source lock.source")
+    selected = next(
+        _require_mapping(entry, "source lock.objects[]")
+        for entry in _require_list(lock["objects"], "source lock.objects")
+        if _require_mapping(entry, "source lock.objects[]").get("chromosome") == expected_chromosome
+    )
+    object_name = _require_str(selected["object"], "source lock.objects[].object")
+    generation = _require_str(selected["generation"], "source lock.objects[].generation")
+    bucket = _require_str(source_config["bucket"], "source lock.source.bucket")
+    encoded_object = urllib.parse.quote(object_name, safe="")
+    expected_source = {
+        "bucket": bucket,
+        "chromosome": expected_chromosome,
+        "split_role": selected["split_role"],
+        "object": object_name,
+        "generation": generation,
+        "size_bytes": selected["size_bytes"],
+        "md5_base64": selected["md5_base64"],
+        "md5_hex": base64.b64decode(
+            _require_str(selected["md5_base64"], "source lock.objects[].md5_base64"),
+            validate=True,
+        ).hex(),
+        "metadata_url": (
+            f"{source_config['metadata_api']}/b/{urllib.parse.quote(bucket, safe='')}/"
+            f"o/{encoded_object}?generation={generation}"
+        ),
+        "media_url": (
+            f"{source_config['media_api']}/b/{urllib.parse.quote(bucket, safe='')}/"
+            f"o/{encoded_object}?alt=media&generation={generation}"
+        ),
+    }
+    _require_exact_keys(source, set(expected_source), "selection.source")
+    _require_equal(dict(source), expected_source, "selection.source")
+    _require_equal(selection["transform"], lock["transform"], "selection.transform")
+
+    job = _require_mapping(lock["job"], "source lock.job")
+    execution = _require_mapping(selection["execution"], "selection.execution")
+    expected_execution = {
+        "commit_sha": expected_source_commit,
+        "container_image": job["container_image"],
+        "repository": job["repository"],
+    }
+    _require_exact_keys(execution, set(expected_execution), "selection.execution")
+    _require_equal(dict(execution), expected_execution, "selection.execution")
+    expected_namespace = _locked_namespace(
+        lock,
+        lock_sha256=lock_sha256,
+        chromosome=expected_chromosome,
+        source_commit=expected_source_commit,
+    )
+    _require_equal(namespace, expected_namespace, "requested namespace")
+    publication = _require_mapping(selection["publication"], "selection.publication")
+    expected_publication = {
+        "repo": repo_id,
+        "repo_type": "dataset",
+        "namespace": expected_namespace,
+    }
+    _require_exact_keys(publication, set(expected_publication), "selection.publication")
+    _require_equal(dict(publication), expected_publication, "selection.publication")
+    _require_equal(job["upload_repo"], repo_id, "source lock.job.upload_repo")
+
+
+def _locked_namespace(
+    lock: Mapping[str, object],
+    *,
+    lock_sha256: str,
+    chromosome: str,
+    source_commit: str,
+) -> str:
+    job = _require_mapping(lock["job"], "source lock.job")
+    selected = next(
+        _require_mapping(entry, "source lock.objects[]")
+        for entry in _require_list(lock["objects"], "source lock.objects")
+        if _require_mapping(entry, "source lock.objects[]").get("chromosome") == chromosome
+    )
+    generation = _require_str(selected["generation"], "source lock.objects[].generation")
+    return (
+        f"{job['namespace_root']}/lock-{lock_sha256[:12]}/"
+        f"chr{chromosome}-g{generation}-{source_commit[:12]}"
+    )
+
+
+def _validate_remote_source_identity(
+    source_identity: Mapping[str, object],
+    *,
+    selection: Mapping[str, object],
+    selection_sha256: str,
+) -> None:
+    _require_exact_keys(
+        source_identity,
+        {
+            "schema_version",
+            "ok",
+            "selection_sha256",
+            "path",
+            "size_bytes",
+            "md5_base64",
+            "md5_hex",
+            "sha256",
+            "hash_method",
+            "chunk_size_bytes",
+        },
+        "source identity",
+    )
+    _require_equal(
+        source_identity["schema_version"],
+        SOURCE_IDENTITY_SCHEMA_VERSION,
+        "source identity.schema_version",
+    )
+    _require_equal(source_identity["ok"], True, "source identity.ok")
+    _require_equal(
+        source_identity["selection_sha256"], selection_sha256, "source identity.selection_sha256"
+    )
+    source = _require_mapping(selection["source"], "selection.source")
+    for field in ("size_bytes", "md5_base64", "md5_hex"):
+        _require_equal(source_identity[field], source[field], f"source identity.{field}")
+    _require_sha256(source_identity["sha256"], "source identity.sha256")
+    source_path = _require_str(source_identity["path"], "source identity.path")
+    expected_basename = _require_str(source["object"], "selection.source.object").rsplit("/", 1)[-1]
+    if not source_path.endswith(f"/{expected_basename}"):
+        raise SourceLockError("source identity.path drifted from the locked source object name")
+    _require_equal(
+        source_identity["hash_method"],
+        "single_pass_chunked_file_read",
+        "source identity.hash_method",
+    )
+    _require_equal(
+        source_identity["chunk_size_bytes"], _HASH_CHUNK_SIZE, "source identity.chunk_size_bytes"
+    )
+
+
+def _validate_remote_prepare_report(
+    prepare_report: Mapping[str, object],
+    *,
+    selection: Mapping[str, object],
+    source_identity: Mapping[str, object],
+    parquet_path: Path,
+) -> tuple[dict[str, int], Mapping[str, object], dict[str, object]]:
+    _require_exact_keys(
+        prepare_report,
+        {
+            "output_path",
+            "input_path",
+            "release",
+            "records_read",
+            "allele_records_seen",
+            "records_written",
+            "skipped_filter",
+            "skipped_af",
+            "skipped_allele",
+            "input_sha256",
+            "output_sha256",
+            "input_size_bytes",
+            "size_bytes",
+            "elapsed_seconds",
+            "already_exists",
+            "command",
+            "input_vcf",
+            "output_parquet",
+            "runtime",
+        },
+        "prepare report",
+    )
+    transform = _require_mapping(selection["transform"], "selection.transform")
+    source_path = _require_str(source_identity["path"], "source identity.path")
+    output_report = _require_mapping(
+        prepare_report["output_parquet"], "prepare report.output_parquet"
+    )
+    _require_exact_keys(
+        output_report, {"path", "sha256", "size_bytes"}, "prepare report.output_parquet"
+    )
+    output_path = _require_str(output_report["path"], "prepare report.output_parquet.path")
+    expected_output_suffix = f"/data/gnomad/{selection['release']}/variants.parquet"
+    if not output_path.endswith(expected_output_suffix):
+        raise SourceLockError("prepare report.output_parquet.path drifted from the staging layout")
+    output_identity = _file_identity(parquet_path)
+    for field in ("sha256", "size_bytes"):
+        _require_equal(
+            output_report[field], output_identity[field], f"prepare report.output_parquet.{field}"
+        )
+    input_report = _require_mapping(prepare_report["input_vcf"], "prepare report.input_vcf")
+    _require_exact_keys(input_report, {"path", "sha256", "size_bytes"}, "prepare report.input_vcf")
+    _require_equal(input_report["path"], source_path, "prepare report.input_vcf.path")
+    _require_equal(
+        input_report["sha256"], source_identity["sha256"], "prepare report.input_vcf.sha256"
+    )
+    _require_equal(
+        input_report["size_bytes"],
+        source_identity["size_bytes"],
+        "prepare report.input_vcf.size_bytes",
+    )
+
+    identity_fields = {
+        "output_path": output_path,
+        "input_path": source_path,
+        "input_sha256": source_identity["sha256"],
+        "output_sha256": output_identity["sha256"],
+        "input_size_bytes": source_identity["size_bytes"],
+        "size_bytes": output_identity["size_bytes"],
+        "release": selection["release"],
+        "already_exists": False,
+    }
+    for field, expected in identity_fields.items():
+        _require_equal(prepare_report[field], expected, f"prepare report.{field}")
+    elapsed_seconds = _require_number(
+        prepare_report["elapsed_seconds"], "prepare report.elapsed_seconds"
+    )
+    if elapsed_seconds < 0:
+        raise SourceLockError("prepare report.elapsed_seconds must be non-negative")
+
+    command = _require_str(transform["command"], "selection.transform.command")
+    dataset_root = output_path.removesuffix(f"/gnomad/{selection['release']}/variants.parquet")
+    report_argv = [
+        command,
+        "--input-vcf",
+        source_path,
+        "--output",
+        dataset_root,
+        "--release",
+        _require_str(selection["release"], "selection.release"),
+        "--min-af",
+        str(_require_number(transform["min_af"], "selection.transform.min_af")),
+        "--max-allele-len",
+        str(_require_int(transform["max_allele_len"], "selection.transform.max_allele_len")),
+    ]
+    _require_equal(prepare_report["command"], shlex.join(report_argv), "prepare report.command")
+
+    count_fields = (
+        "records_read",
+        "allele_records_seen",
+        "records_written",
+        "skipped_filter",
+        "skipped_af",
+        "skipped_allele",
+    )
+    counts = {
+        field: _require_int(prepare_report[field], f"prepare report.{field}")
+        for field in count_fields
+    }
+    if any(value < 0 for value in counts.values()) or counts["records_written"] <= 0:
+        raise SourceLockError("prepare report counts must be non-negative with records_written > 0")
+    classified = (
+        counts["records_written"]
+        + counts["skipped_filter"]
+        + counts["skipped_af"]
+        + counts["skipped_allele"]
+    )
+    if classified != counts["allele_records_seen"]:
+        raise SourceLockError(
+            "prepare report allele counts do not reconcile: "
+            f"classified={classified}, seen={counts['allele_records_seen']}"
+        )
+
+    runtime = _require_mapping(prepare_report["runtime"], "prepare report.runtime")
+    _require_exact_keys(
+        runtime,
+        {"elapsed_seconds", "process_peak_rss_bytes", "peak_memory_note"},
+        "prepare report.runtime",
+    )
+    runtime_elapsed = _require_number(
+        runtime["elapsed_seconds"], "prepare report.runtime.elapsed_seconds"
+    )
+    if runtime_elapsed < 0:
+        raise SourceLockError("prepare report.runtime.elapsed_seconds must be non-negative")
+    if (
+        _require_int(
+            runtime["process_peak_rss_bytes"], "prepare report.runtime.process_peak_rss_bytes"
+        )
+        <= 0
+    ):
+        raise SourceLockError("prepare report.runtime.process_peak_rss_bytes must be positive")
+    _require_str(runtime["peak_memory_note"], "prepare report.runtime.peak_memory_note")
+    return counts, runtime, output_identity
+
+
+def _validate_remote_receipt(
+    receipt: Mapping[str, object],
+    *,
+    selection: Mapping[str, object],
+    selection_path: Path,
+    metadata_verification_path: Path,
+    source_identity_path: Path,
+    source_identity_bytes: bytes,
+    prepare_report_path: Path,
+    prepare_report_bytes: bytes,
+    counts: Mapping[str, int],
+    runtime: Mapping[str, object],
+    output_identity: Mapping[str, object],
+    parquet_audit: Mapping[str, object],
+) -> None:
+    _require_exact_keys(
+        receipt,
+        {
+            "schema_version",
+            "created_at",
+            "ok",
+            "dataset_id",
+            "release",
+            "reference_genome",
+            "source_lock",
+            "source",
+            "transform",
+            "output",
+            "execution",
+            "publication",
+            "evidence",
+            "claim_boundary",
+        },
+        "receipt",
+    )
+    _require_equal(
+        receipt["schema_version"], STAGING_RECEIPT_SCHEMA_VERSION, "receipt.schema_version"
+    )
+    _require_str(receipt["created_at"], "receipt.created_at")
+    _require_equal(receipt["ok"], True, "receipt.ok")
+    for field in (
+        "dataset_id",
+        "release",
+        "reference_genome",
+        "source_lock",
+        "execution",
+        "publication",
+        "claim_boundary",
+    ):
+        _require_equal(receipt[field], selection[field], f"receipt.{field}")
+
+    selection_source = _require_mapping(selection["source"], "selection.source")
+    source_identity = _require_mapping(json.loads(source_identity_bytes), "remote source identity")
+    expected_receipt_source = {
+        "chromosome": selection_source["chromosome"],
+        "split_role": selection_source["split_role"],
+        "bucket": selection_source["bucket"],
+        "object": selection_source["object"],
+        "generation": selection_source["generation"],
+        "size_bytes": selection_source["size_bytes"],
+        "upstream_md5_base64": selection_source["md5_base64"],
+        "upstream_md5_hex": selection_source["md5_hex"],
+        "streamed_sha256": source_identity["sha256"],
+    }
+    receipt_source = _require_mapping(receipt["source"], "receipt.source")
+    _require_exact_keys(receipt_source, set(expected_receipt_source), "receipt.source")
+    _require_equal(dict(receipt_source), expected_receipt_source, "receipt.source")
+
+    selection_transform = _require_mapping(selection["transform"], "selection.transform")
+    receipt_transform = _require_mapping(receipt["transform"], "receipt.transform")
+    _require_exact_keys(
+        receipt_transform, {"command", "argv", "filters", "runtime", "counts"}, "receipt.transform"
+    )
+    _require_equal(
+        receipt_transform["command"], selection_transform["command"], "receipt.transform.command"
+    )
+    expected_filters = {
+        "filter": selection_transform["filter"],
+        "min_af": selection_transform["min_af"],
+        "max_allele_len": selection_transform["max_allele_len"],
+    }
+    _require_equal(receipt_transform["filters"], expected_filters, "receipt.transform.filters")
+    _require_equal(receipt_transform["runtime"], runtime, "receipt.transform.runtime")
+    _require_equal(receipt_transform["counts"], dict(counts), "receipt.transform.counts")
+    prepare_report = _require_mapping(json.loads(prepare_report_bytes), "remote prepare report")
+    expected_argv = [
+        "uv",
+        "run",
+        selection_transform["command"],
+        "--quiet",
+        "--no-banner",
+        *shlex.split(_require_str(prepare_report["command"], "prepare report.command"))[1:],
+    ]
+    _require_equal(receipt_transform["argv"], expected_argv, "receipt.transform.argv")
+
+    receipt_output = _require_mapping(receipt["output"], "receipt.output")
+    _require_exact_keys(
+        receipt_output, {"path", "sha256", "size_bytes", "parquet_audit"}, "receipt.output"
+    )
+    for field in ("sha256", "size_bytes"):
+        _require_equal(receipt_output[field], output_identity[field], f"receipt.output.{field}")
+    _require_equal(
+        receipt_output["path"],
+        _require_mapping(prepare_report["output_parquet"], "prepare report.output_parquet")["path"],
+        "receipt.output.path",
+    )
+    _require_equal(
+        receipt_output["parquet_audit"], dict(parquet_audit), "receipt.output.parquet_audit"
+    )
+
+    evidence = _require_mapping(receipt["evidence"], "receipt.evidence")
+    expected_evidence = {
+        "selection": (selection_path, "/publish/evidence/selection.json"),
+        "metadata_verification": (
+            metadata_verification_path,
+            "/publish/evidence/gcs-metadata-verification.json",
+        ),
+        "source_identity": (
+            source_identity_path,
+            "/publish/evidence/source-stream-identity.json",
+        ),
+        "prepare_report": (prepare_report_path, "/publish/evidence/prepare-report.json"),
+    }
+    _require_exact_keys(evidence, set(expected_evidence), "receipt.evidence")
+    for field, (path, suffix) in expected_evidence.items():
+        _validate_remote_file_binding(
+            _require_mapping(evidence[field], f"receipt.evidence.{field}"),
+            path=path,
+            expected_path_suffix=suffix,
+            field=f"receipt.evidence.{field}",
+        )
+
+
+def _validate_remote_file_binding(
+    binding: Mapping[str, object],
+    *,
+    path: Path,
+    expected_path_suffix: str,
+    field: str,
+) -> None:
+    _require_exact_keys(binding, {"path", "sha256", "size_bytes"}, field)
+    bound_path = _require_str(binding["path"], f"{field}.path")
+    if not bound_path.endswith(expected_path_suffix):
+        raise SourceLockError(f"{field}.path drifted from the staging layout")
+    identity = _file_identity(path)
+    for identity_field in ("sha256", "size_bytes"):
+        _require_equal(
+            binding[identity_field], identity[identity_field], f"{field}.{identity_field}"
+        )
+
+
+def _require_trusted_blob(observed: bytes, expected: bytes, field: str) -> None:
+    if observed != expected:
+        raise SourceLockError(
+            f"{field} drifted: expected sha256={hashlib.sha256(expected).hexdigest()}, "
+            f"observed sha256={hashlib.sha256(observed).hexdigest()}"
+        )
 
 
 def verify_gcs_metadata(selection_path: Path, metadata_path: Path) -> dict[str, object]:
@@ -869,11 +1722,11 @@ def select_source(
     return {
         "schema_version": SELECTION_SCHEMA_VERSION,
         "source_lock": {
-            "path": str(lock_path),
+            "path": lock_path.as_posix(),
             "sha256": lock_sha256,
             "schema_version": LOCK_SCHEMA_VERSION,
             "schema": {
-                "path": str(schema_path),
+                "path": schema_path.as_posix(),
                 "sha256": hashlib.sha256(schema_bytes).hexdigest(),
                 "draft": "https://json-schema.org/draft/2020-12/schema",
             },
