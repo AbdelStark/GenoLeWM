@@ -2402,3 +2402,7 @@ def _publish_directory_noreplace(source: Path, target: Path) -> None:
     if error in {errno.EEXIST, errno.ENOTEMPTY}:
         raise InputError("immutable snapshot output already exists")
     raise OSError(error, os.strerror(error), str(target))
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through subprocess tests
+    raise SystemExit(main())

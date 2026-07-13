@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +15,7 @@ import pytest
 
 import tools.release.dataset_package as dataset_package_module
 import tools.release.v03_dataset_snapshot as snapshot_module
-from geno_lewm.errors import InputError
+from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.provenance import sha256_file
 from geno_lewm.training.preflight import TrainingPreflightIssue, _inspect_dataset
 from tools.release.paper_package import PackageIssue, _verify_dataset_dir
@@ -371,14 +373,14 @@ def test_atomic_publication_fails_closed_without_noreplace_support(
     source = tmp_path / "source"
     source.mkdir()
     target = tmp_path / "target"
-    monkeypatch.setattr(snapshot_module.sys, "platform", "unsupported")
+    monkeypatch.setattr(sys, "platform", "unsupported")
     monkeypatch.setattr(
-        snapshot_module.ctypes,
+        ctypes,
         "CDLL",
         lambda *_args, **_kwargs: SimpleNamespace(),
     )
 
-    with pytest.raises(snapshot_module.RuntimeSetupError, match="no-replace"):
+    with pytest.raises(RuntimeSetupError, match="no-replace"):
         snapshot_module._publish_directory_noreplace(source, target)
 
     assert source.is_dir()
@@ -437,6 +439,18 @@ def test_snapshot_job_is_exact_revision_fail_closed_and_remotely_reverified() ->
     assert '"main"' not in script
     assert "|| true" not in script
     assert "hf upload" not in script
+
+
+def test_snapshot_module_cli_entrypoint_is_wired() -> None:
+    completed = subprocess.run(
+        (sys.executable, "-m", "tools.release.v03_dataset_snapshot", "--help"),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "assemble" in completed.stdout
+    assert "verify" in completed.stdout
 
 
 @pytest.mark.skipif(os.name == "nt", reason="HF Jobs executes this contract on Linux")
