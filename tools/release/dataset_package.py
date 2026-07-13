@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import sha256_file
@@ -21,6 +21,9 @@ from tools.release.dataset_integrity import (
 )
 
 SCHEMA_VERSION: Final = "1.0.0"
+ARTIFACT_ROLE_SCHEMA_VERSION: Final = "1.1.0"
+ArtifactRole = Literal["split_data", "split_companion", "evidence"]
+ARTIFACT_ROLES: Final[frozenset[str]] = frozenset({"split_data", "split_companion", "evidence"})
 GENERATED_BY: Final = "tools.release.dataset_package"
 GENERATED_FILES: Final = frozenset(
     {
@@ -46,6 +49,8 @@ class DatasetArtifact:
     size_bytes: int
     split: str | None = None
     records: int | None = None
+    artifact_role: ArtifactRole | None = None
+    companion_of: str | None = None
     description: str | None = None
 
     def to_manifest(self) -> dict[str, object]:
@@ -58,6 +63,10 @@ class DatasetArtifact:
             payload["split"] = self.split
         if self.records is not None:
             payload["records"] = self.records
+        if self.artifact_role is not None:
+            payload["artifact_role"] = self.artifact_role
+        if self.companion_of is not None:
+            payload["companion_of"] = self.companion_of
         if self.description is not None:
             payload["description"] = self.description
         return payload
@@ -109,6 +118,7 @@ class DatasetPackage:
 class DatasetPackageReport:
     """Files written by :func:`build_dataset_package`."""
 
+    schema_version: str
     snapshot_id: str
     manifest_path: Path
     data_card_path: Path
@@ -118,7 +128,7 @@ class DatasetPackageReport:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": self.schema_version,
             "generated_by": GENERATED_BY,
             "snapshot_id": self.snapshot_id,
             "manifest_path": self.manifest_path.name,
@@ -174,6 +184,7 @@ def build_dataset_package(
         ),
     )
     return DatasetPackageReport(
+        schema_version=package.schema_version,
         snapshot_id=package.snapshot_id,
         manifest_path=manifest_path,
         data_card_path=data_card_path,
@@ -218,10 +229,13 @@ def parse_dataset_package(
     if not isinstance(payload, dict):
         raise InputError("dataset metadata must be a JSON object")
     schema_version = _required_text(payload, "schema_version")
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in {SCHEMA_VERSION, ARTIFACT_ROLE_SCHEMA_VERSION}:
         raise InputError(
             "unsupported dataset-package schema version",
-            details={"expected": SCHEMA_VERSION, "observed": schema_version},
+            details={
+                "expected": [SCHEMA_VERSION, ARTIFACT_ROLE_SCHEMA_VERSION],
+                "observed": schema_version,
+            },
         )
 
     generated_by = _required_text(payload, "generated_by")
@@ -246,7 +260,12 @@ def parse_dataset_package(
         leakage_checks=_parse_text_list(payload.get("leakage_checks"), field="leakage_checks"),
         intended_use=_required_text(payload, "intended_use"),
         limitations=_parse_text_list(payload.get("limitations"), field="limitations"),
-        files=_parse_files(payload.get("files"), dataset_dir=dataset_dir, splits=frozenset(splits)),
+        files=_parse_files(
+            payload.get("files"),
+            dataset_dir=dataset_dir,
+            splits=frozenset(splits),
+            schema_version=schema_version,
+        ),
     )
     if not allow_placeholders:
         _reject_placeholders(_text_fields(package))
@@ -446,6 +465,7 @@ def _parse_files(
     *,
     dataset_dir: Path,
     splits: frozenset[str],
+    schema_version: str,
 ) -> tuple[DatasetArtifact, ...]:
     if not isinstance(raw, list) or not raw:
         raise InputError("files must be a non-empty list")
@@ -454,6 +474,13 @@ def _parse_files(
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             raise InputError("file entries must be objects", details={"index": index})
+        if schema_version == SCHEMA_VERSION:
+            forbidden = [key for key in ("artifact_role", "companion_of") if key in item]
+            if forbidden:
+                raise InputError(
+                    "schema 1.0.0 forbids artifact_role and companion_of",
+                    details={"index": index, "fields": forbidden},
+                )
         relative = _required_text(item, "path", prefix=f"files[{index}].")
         if relative in GENERATED_FILES:
             raise InputError(
@@ -466,15 +493,66 @@ def _parse_files(
         path = _safe_relative(dataset_dir, relative)
         if not path.is_file():
             raise InputError("dataset file is missing", details={"path": str(path)})
+        artifact_role_raw = _optional_text(item, "artifact_role", prefix=f"files[{index}].")
+        if schema_version == ARTIFACT_ROLE_SCHEMA_VERSION and artifact_role_raw is None:
+            raise InputError(
+                "file artifact_role must be declared for schema 1.1.0",
+                details={"path": relative},
+            )
+        if artifact_role_raw is not None and artifact_role_raw not in ARTIFACT_ROLES:
+            raise InputError(
+                "file artifact_role is invalid",
+                details={"path": relative, "artifact_role": artifact_role_raw},
+            )
+        artifact_role: ArtifactRole | None = None
+        if artifact_role_raw == "split_data":
+            artifact_role = "split_data"
+        elif artifact_role_raw == "split_companion":
+            artifact_role = "split_companion"
+        elif artifact_role_raw == "evidence":
+            artifact_role = "evidence"
+        if artifact_role == "evidence":
+            forbidden = [key for key in ("split", "records", "companion_of") if key in item]
+            if forbidden:
+                raise InputError(
+                    "evidence files forbid split, records, and companion_of",
+                    details={"path": relative, "fields": forbidden},
+                )
         split = _optional_text(item, "split", prefix=f"files[{index}].")
-        if split is None:
+        if artifact_role != "evidence" and split is None:
             raise InputError("file split must be declared", details={"path": relative})
+        if artifact_role == "evidence" and split is not None:
+            raise InputError(
+                "evidence files forbid split",
+                details={"path": relative},
+            )
         if split is not None and split not in splits:
             raise InputError(
                 "file split must be declared in splits",
                 details={"path": relative, "split": split},
             )
         records = _optional_non_negative_int(item, "records", prefix=f"files[{index}].")
+        if artifact_role in {"split_data", "split_companion"} and records is None:
+            raise InputError(
+                f"{artifact_role} files require records",
+                details={"path": relative},
+            )
+        if artifact_role == "evidence" and records is not None:
+            raise InputError(
+                "evidence files forbid records",
+                details={"path": relative},
+            )
+        if artifact_role != "split_companion" and "companion_of" in item:
+            raise InputError(
+                f"{artifact_role or 'legacy split_data'} files forbid companion_of",
+                details={"path": relative},
+            )
+        companion_of = _optional_text(item, "companion_of", prefix=f"files[{index}].")
+        if artifact_role == "split_companion" and companion_of is None:
+            raise InputError(
+                "split_companion files require companion_of",
+                details={"path": relative},
+            )
         description = _optional_text(item, "description", prefix=f"files[{index}].")
         files.append(
             DatasetArtifact(
@@ -483,10 +561,38 @@ def _parse_files(
                 size_bytes=path.stat().st_size,
                 split=split,
                 records=records,
+                artifact_role=artifact_role,
+                companion_of=companion_of,
                 description=description,
             )
         )
+    _validate_companion_targets(files)
     return tuple(files)
+
+
+def _validate_companion_targets(files: list[DatasetArtifact]) -> None:
+    by_path = {file.path: file for file in files}
+    for file in files:
+        if file.artifact_role != "split_companion":
+            continue
+        target = by_path.get(file.companion_of or "")
+        if target is None or target.artifact_role != "split_data":
+            raise InputError(
+                "split_companion companion_of must refer to exactly one split_data file",
+                details={"path": file.path, "companion_of": file.companion_of},
+            )
+        if (file.split, file.records) != (target.split, target.records):
+            raise InputError(
+                "split_companion must match companion_of split and records",
+                details={
+                    "path": file.path,
+                    "companion_of": target.path,
+                    "split": file.split,
+                    "companion_split": target.split,
+                    "records": file.records,
+                    "companion_records": target.records,
+                },
+            )
 
 
 def _write_sha256sums(dataset_dir: Path, path: Path, files: tuple[str, ...]) -> None:

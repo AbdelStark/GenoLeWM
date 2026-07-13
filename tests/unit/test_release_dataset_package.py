@@ -222,6 +222,190 @@ def test_parse_dataset_package_rejects_generated_file_as_input(tmp_path: Path) -
         parse_dataset_package(payload, dataset_dir=tmp_path)
 
 
+def test_parse_dataset_package_schema_1_1_emits_explicit_split_data_roles(
+    tmp_path: Path,
+) -> None:
+    _write_data_files(tmp_path)
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    for file in payload["files"]:
+        file["artifact_role"] = "split_data"
+
+    package = parse_dataset_package(payload, dataset_dir=tmp_path)
+
+    assert [file["artifact_role"] for file in package.manifest()["files"]] == [
+        "split_data",
+        "split_data",
+    ]
+
+
+def test_parse_dataset_package_schema_1_1_requires_explicit_roles(tmp_path: Path) -> None:
+    _write_data_files(tmp_path)
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+
+    with pytest.raises(InputError, match="artifact_role must be declared"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_parse_dataset_package_schema_1_1_rejects_unknown_role(tmp_path: Path) -> None:
+    _write_data_files(tmp_path)
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    for file in payload["files"]:
+        file["artifact_role"] = "split_data"
+    payload["files"][0]["artifact_role"] = "sidecar"
+
+    with pytest.raises(InputError, match="artifact_role is invalid"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_parse_dataset_package_schema_1_1_split_data_forbids_companion_of_key(
+    tmp_path: Path,
+) -> None:
+    _write_data_files(tmp_path)
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    for file in payload["files"]:
+        file["artifact_role"] = "split_data"
+    payload["files"][0]["companion_of"] = None
+
+    with pytest.raises(InputError, match="split_data files forbid companion_of"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+@pytest.mark.parametrize("field", ["artifact_role", "companion_of"])
+def test_parse_dataset_package_schema_1_0_rejects_role_fields_even_when_null(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    _write_data_files(tmp_path)
+    payload = _metadata()
+    payload["files"][0][field] = None
+
+    with pytest.raises(InputError, match=r"schema 1\.0\.0 forbids"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_parse_dataset_package_schema_1_1_accepts_unsplit_evidence(tmp_path: Path) -> None:
+    _write_data_files(tmp_path)
+    evidence_path = tmp_path / "evidence.json"
+    evidence_path.write_text('{"verified":true}\n', encoding="utf-8")
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    for file in payload["files"]:
+        file["artifact_role"] = "split_data"
+    payload["files"].append(
+        {
+            "path": evidence_path.name,
+            "artifact_role": "evidence",
+            "description": "release evidence",
+        }
+    )
+
+    package = parse_dataset_package(payload, dataset_dir=tmp_path)
+
+    assert package.manifest()["files"][-1] == {
+        "path": "evidence.json",
+        "sha256": sha256_file(evidence_path),
+        "size_bytes": evidence_path.stat().st_size,
+        "artifact_role": "evidence",
+        "description": "release evidence",
+    }
+
+
+@pytest.mark.parametrize("field", ["split", "records", "companion_of"])
+def test_parse_dataset_package_schema_1_1_evidence_forbids_split_fields_even_when_null(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    _write_data_files(tmp_path)
+    evidence_path = tmp_path / "evidence.json"
+    evidence_path.write_text('{"verified":true}\n', encoding="utf-8")
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    for file in payload["files"]:
+        file["artifact_role"] = "split_data"
+    payload["files"].append({"path": evidence_path.name, "artifact_role": "evidence", field: None})
+
+    with pytest.raises(InputError, match="evidence files forbid"):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_parse_dataset_package_schema_1_1_accepts_split_companion(
+    tmp_path: Path,
+) -> None:
+    _write_data_files(tmp_path)
+    companion_path = tmp_path / "carbon" / "windows.labels.jsonl"
+    companion_path.write_text('{"record_id":"r1"}\n', encoding="utf-8")
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    for file in payload["files"]:
+        file["artifact_role"] = "split_data"
+    payload["files"].append(
+        {
+            "path": "carbon/windows.labels.jsonl",
+            "artifact_role": "split_companion",
+            "split": "train",
+            "records": 1,
+            "companion_of": "carbon/windows.jsonl",
+        }
+    )
+
+    package = parse_dataset_package(payload, dataset_dir=tmp_path)
+
+    assert package.manifest()["files"][-1]["companion_of"] == "carbon/windows.jsonl"
+
+
+@pytest.mark.parametrize(
+    ("companion_of", "split", "records", "message"),
+    [
+        ("carbon/missing.jsonl", "train", 1, "exactly one split_data"),
+        ("carbon/windows.jsonl", "eval_clinvar_coding", 1, "match companion_of"),
+        ("carbon/windows.jsonl", "train", 2, "match companion_of"),
+    ],
+)
+def test_parse_dataset_package_schema_1_1_rejects_invalid_companion_binding(
+    tmp_path: Path,
+    companion_of: str,
+    split: str,
+    records: int,
+    message: str,
+) -> None:
+    _write_data_files(tmp_path)
+    companion_path = tmp_path / "carbon" / "windows.labels.jsonl"
+    companion_path.write_text('{"record_id":"r1"}\n', encoding="utf-8")
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+    for file in payload["files"]:
+        file["artifact_role"] = "split_data"
+    payload["files"].append(
+        {
+            "path": "carbon/windows.labels.jsonl",
+            "artifact_role": "split_companion",
+            "split": split,
+            "records": records,
+            "companion_of": companion_of,
+        }
+    )
+
+    with pytest.raises(InputError, match=message):
+        parse_dataset_package(payload, dataset_dir=tmp_path)
+
+
+def test_build_dataset_package_schema_1_1_reports_schema_version(tmp_path: Path) -> None:
+    metadata_path = _write_dataset_inputs(tmp_path)
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = "1.1.0"
+    for file in payload["files"]:
+        file["artifact_role"] = "split_data"
+    metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_dataset_package(tmp_path, metadata_path)
+
+    assert report.to_dict()["schema_version"] == "1.1.0"
+
+
 def _write_dataset_inputs(root: Path) -> Path:
     _write_data_files(root)
     metadata_path = root / "dataset_package.json"
