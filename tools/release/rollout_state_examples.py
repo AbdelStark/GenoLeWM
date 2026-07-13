@@ -37,7 +37,7 @@ from geno_lewm.provenance import sha256_file
 
 SCHEMA_VERSION: Final = "1.0.0"
 SPEC_SCHEMA_VERSION: Final = "1.2.0"
-EXAMPLE_SCHEMA_VERSION: Final = "1.2.0"
+EXAMPLE_SCHEMA_VERSION: Final = "1.3.0"
 GENERATED_BY: Final = "tools.release.rollout_state_examples"
 SPEC_GENERATED_BY: Final = "tools.release.rollout_state_example_specs"
 ISSUE_REFS: Final = ("#57", "#197")

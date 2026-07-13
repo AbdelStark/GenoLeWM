@@ -26,3 +26,13 @@ def test_cache_v3_docs_keep_full_build_and_corrected_run_unclaimed() -> None:
 
     assert "does not claim completion of a full cache build" in architecture
     assert re.search(r"No full cache build or\s+corrected model run is claimed", glossary)
+
+
+def test_cache_v3_docs_state_the_posix_only_safe_io_boundary() -> None:
+    architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    glossary = (ROOT / "docs" / "glossary.md").read_text(encoding="utf-8")
+    dossier = (ROOT / "paper" / "EVIDENCE_DOSSIER.md").read_text(encoding="utf-8")
+
+    for text in (architecture, glossary, dossier):
+        assert "Linux and macOS" in text
+        assert "fails closed on Windows" in text

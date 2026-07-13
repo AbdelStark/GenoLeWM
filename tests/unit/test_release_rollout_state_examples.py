@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,11 @@ from geno_lewm.encoder import POOL_CENTERED_MEAN, WindowCacheRecord, write_shard
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import sha256_file
 from tools.release import rollout_state_examples, rollout_state_rows
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="cache-backed rollout examples require secure POSIX dirfd primitives",
+)
 
 
 def test_rollout_state_examples_generate_jsonl_and_report(tmp_path: Path) -> None:
@@ -31,7 +37,7 @@ def test_rollout_state_examples_generate_jsonl_and_report(tmp_path: Path) -> Non
     )
 
     row = json.loads(output.read_text(encoding="utf-8"))
-    assert row["schema_version"] == "1.2.0"
+    assert row["schema_version"] == "1.3.0"
     assert row["cache_schema_version"] == "3.0.0"
     assert row["cache_physical_encoding"] == "fixed_size_list<float32>"
     assert row["cached_state_value_contract"] == "raw_pooled_v1"

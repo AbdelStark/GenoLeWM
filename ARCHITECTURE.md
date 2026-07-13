@@ -65,6 +65,12 @@ encoding, allowing v2/v3 coexistence without ambiguous selection. Batched lookup
 groups keys by shard and reads each required Parquet row group once. Cache v1
 omitted the pooling center and remains deliberately invalidated. This foundation
 does not claim completion of a full cache build or corrected training/evaluation.
+Race-resistant cache I/O requires the directory-descriptor and no-follow
+primitives provided by Linux and macOS; it fails closed on Windows and on any
+runtime without those primitives. There is no path-based publication fallback.
+A durable single-publication intent repairs a crash between final-shard linking
+and index commit without scanning existing shards, while first-index creation is
+private and atomically published so readers never observe an empty bootstrap.
 
 The corrected Carbon path does not execute the upstream custom tokenizer. The
 pinned upstream `tokenizer.py` delegated to an unpinned, network-capable

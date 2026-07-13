@@ -57,6 +57,9 @@ or ambiguous resume. Cache v2 remains readable only under an explicit labeled
 replay policy; corrected training and rollout evidence require v3. Cache v1
 omitted `center_token` and is intentionally invalidated. No full cache build or
 corrected model run is claimed by this schema foundation.
+Race-resistant cache I/O is supported on Linux and macOS and fails closed on Windows
+or when secure directory-descriptor/no-follow primitives are unavailable; no
+path-only mutation fallback is used.
 
 **Surprise.** A candidate residual between predicted and encoded post-edit
 states under the same validated state contract. Published `legacy_raw_v1`

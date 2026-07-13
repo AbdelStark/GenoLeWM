@@ -10,6 +10,7 @@ the development extra to use this module.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import secrets
@@ -54,15 +55,111 @@ __all__ = [
 CACHE_SCHEMA_VERSION = "3.0.0"
 _LEGACY_CACHE_SCHEMA_VERSION = "2.0.0"
 INDEX_DB_NAME = "index.sqlite"
-_INDEX_SCHEMA_VERSION = 3
+_INDEX_SCHEMA_VERSION = 4
 _EMBEDDINGS_DIR = "embeddings"
 _QUARANTINE_DIR = ".quarantine"
+_PENDING_PUBLICATION_NAME = ".pending-publication.json"
+_PENDING_PUBLICATION_SCHEMA_VERSION = "1.0.0"
 _STORAGE_DTYPE = "fp32"
 _V3_PHYSICAL_ENCODING = "fixed_size_list<float32>"
 _V2_PHYSICAL_ENCODING = "list<float16>"
 _ROW_GROUP_SIZE = 1_024
 _SUPPORTED_DTYPES = frozenset({"bf16", "fp16", "fp32"})
 _SUPPORTED_POOL_TYPES = frozenset({POOL_CENTERED_MEAN, POOL_GLOBAL_MEAN, "attention"})
+_DIR_FD_PRIMITIVES_AVAILABLE = all(
+    operation in getattr(os, "supports_dir_fd", set())
+    for operation in (os.open, os.mkdir, os.stat, os.unlink, os.link, os.rename)
+)
+
+_WINDOW_INDEX_SQL = """
+CREATE TABLE window_index (
+    window_hash ANY NOT NULL
+        CHECK (
+            typeof(window_hash) = 'text'
+            AND length(window_hash) = 64
+            AND window_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+    encoder_hash ANY NOT NULL
+        CHECK (
+            typeof(encoder_hash) = 'text'
+            AND length(encoder_hash) = 64
+            AND encoder_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+    state_layer ANY NOT NULL
+        CHECK (typeof(state_layer) = 'integer' AND state_layer BETWEEN -128 AND 127),
+    pool_type ANY NOT NULL
+        CHECK (
+            typeof(pool_type) = 'text'
+            AND pool_type IN ('centered_mean', 'global_mean', 'attention')
+        ),
+    pool_radius ANY NOT NULL
+        CHECK (
+            typeof(pool_radius) = 'integer'
+            AND pool_radius BETWEEN 0 AND 2147483647
+        ),
+    center_token ANY NOT NULL
+        CHECK (
+            typeof(center_token) = 'integer'
+            AND center_token BETWEEN -1 AND 2147483647
+        ),
+    dtype ANY NOT NULL
+        CHECK (typeof(dtype) = 'text' AND dtype IN ('bf16', 'fp16', 'fp32')),
+    cache_schema_version ANY NOT NULL
+        CHECK (
+            typeof(cache_schema_version) = 'text'
+            AND cache_schema_version IN ('2.0.0', '3.0.0')
+        ),
+    physical_encoding ANY NOT NULL
+        CHECK (
+            typeof(physical_encoding) = 'text'
+            AND physical_encoding IN ('list<float16>', 'fixed_size_list<float32>')
+        ),
+    shard_path ANY NOT NULL
+        CHECK (
+            typeof(shard_path) = 'text'
+            AND length(shard_path) > 0
+            AND substr(shard_path, 1, 11) = 'embeddings/'
+            AND substr(shard_path, -8) = '.parquet'
+            AND instr(shard_path, char(0)) = 0
+            AND instr(shard_path, '\\') = 0
+            AND shard_path NOT LIKE '%/../%'
+            AND shard_path NOT LIKE '../%'
+        ),
+    row_offset ANY NOT NULL
+        CHECK (
+            typeof(row_offset) = 'integer'
+            AND row_offset BETWEEN 0 AND 9223372036854775807
+        ),
+    created_at ANY NOT NULL
+        CHECK (
+            typeof(created_at) = 'integer'
+            AND created_at BETWEEN 0 AND 9223372036854775807
+        ),
+    CHECK (
+        (pool_type = 'global_mean' AND pool_radius = 0 AND center_token = -1)
+        OR
+        (pool_type IN ('centered_mean', 'attention') AND center_token >= 0)
+    ),
+    CHECK (
+        (cache_schema_version = '2.0.0' AND physical_encoding = 'list<float16>')
+        OR
+        (cache_schema_version = '3.0.0'
+            AND physical_encoding = 'fixed_size_list<float32>')
+    ),
+    PRIMARY KEY (
+        window_hash,
+        encoder_hash,
+        state_layer,
+        pool_type,
+        pool_radius,
+        center_token,
+        dtype,
+        cache_schema_version,
+        physical_encoding
+    )
+) STRICT
+"""
+_SHARD_PATH_INDEX_SQL = "CREATE INDEX idx_shard_path ON window_index(shard_path)"
 
 CacheReadPolicy = Literal["require_v3", "prefer_v3", "legacy_v2_only"]
 
@@ -239,6 +336,12 @@ class CacheLookupResult:
     provenance: CacheProvenance
 
 
+@dataclass(frozen=True, slots=True)
+class _RecoveredPublication:
+    path: Path
+    records: tuple[WindowCacheRecord, ...]
+
+
 def default_cache_dir() -> Path:
     """Return ``$GENO_LEWM_CACHE`` or the documented local default."""
     return Path(os.environ.get("GENO_LEWM_CACHE", ".geno-lewm-cache")).expanduser()
@@ -272,11 +375,11 @@ def shard_path_for(
             details={"stride_block": stride_block},
         )
     root = Path(cache_dir)
-    encoder_part = _digest_path_part("id", encoder_id)
-    contig_part = _digest_path_part("ctg", contig)
     if (encoder_hash is None) != (dtype is None):
         raise InputError("encoder_hash and dtype must be supplied together")
     if encoder_hash is not None and dtype is not None:
+        encoder_part = _digest_path_part("id", encoder_id)
+        contig_part = _digest_path_part("ctg", contig)
         encoder_hash_part = _hash_path_part("encoder_hash", encoder_hash)
         _validate_dtype(dtype)
         return (
@@ -290,13 +393,15 @@ def shard_path_for(
             / f"{pool_type}_{pool_radius}"
             / f"{contig_part}_{stride_block}.parquet"
         )
+    encoder_part = _legacy_path_part(encoder_id)
+    contig_part = _legacy_path_part(contig)
     return (
         root
         / _EMBEDDINGS_DIR
         / encoder_part
         / str(state_layer)
         / f"{pool_type}_{pool_radius}"
-        / f"{contig_part}_{stride_block}.parquet"
+        / f"chr{contig_part}_{stride_block}.parquet"
     )
 
 
@@ -356,19 +461,27 @@ def write_shard(
         encoder_hash=first.encoder_hash,
         dtype=first.dtype,
     )
-    with (
-        _cache_publication_lock(root),
-        _open_direct_index_database(root, create=True, write=True) as conn,
-    ):
-        if conn is None:  # create=True guarantees a database or raises.
-            raise CacheCorruptError("cache index could not be reserved")
-        return _write_shard_locked(
-            root=root,
-            path=path,
+    _require_secure_cache_io()
+    with _cache_publication_lock(root):
+        recovered = _recover_pending_publication(root)
+        if recovered is not None and _recovered_publication_matches(
+            recovered,
             requested=requested,
             normalized=normalized,
-            index=conn,
-        )
+        ):
+            return recovered.path
+        with _open_direct_index_database(root, create=True, write=True) as conn:
+            if conn is None:  # create=True guarantees a database or raises.
+                raise CacheCorruptError("cache index could not be reserved")
+            written = _write_shard_locked(
+                root=root,
+                path=path,
+                requested=requested,
+                normalized=normalized,
+                index=conn,
+            )
+        _clear_pending_publication(root)
+        return written
 
 
 def _write_shard_locked(
@@ -382,22 +495,16 @@ def _write_shard_locked(
     """Publish and index one shard while holding the cross-process cache lock."""
     _assert_safe_namespace_path(root, path, final_kind="regular file")
     with _secure_parent_directory(root, path, create=True) as parent:
-        if parent is not None:
-            return _write_shard_at(
-                root=root,
-                path=path,
-                parent_fd=parent,
-                requested=requested,
-                normalized=normalized,
-                index=index,
-            )
-    return _write_shard_portable(
-        root=root,
-        path=path,
-        requested=requested,
-        normalized=normalized,
-        index=index,
-    )
+        if parent is None:
+            raise CacheCorruptError("cache shard parent disappeared during secure creation")
+        return _write_shard_at(
+            root=root,
+            path=path,
+            parent_fd=parent,
+            requested=requested,
+            normalized=normalized,
+            index=index,
+        )
 
 
 def _write_shard_at(
@@ -440,6 +547,7 @@ def _write_shard_at(
         os.fsync(temp_fd)
         staged = _read_records_from_descriptor(temp_fd, path=path.with_name(temp_name))
         _assert_existing_shard_equivalent(path.with_name(temp_name), staged, normalized)
+        _write_pending_publication(root, path, normalized)
         try:
             os.link(
                 temp_name,
@@ -489,66 +597,210 @@ def _write_shard_at(
     return path
 
 
-def _write_shard_portable(
+def _pending_publication_path(cache_dir: Path) -> Path:
+    return cache_dir / _EMBEDDINGS_DIR / _PENDING_PUBLICATION_NAME
+
+
+def _write_pending_publication(
+    cache_dir: Path,
+    shard: Path,
+    records: Sequence[WindowCacheRecord],
+) -> None:
+    """Durably record the sole in-flight shard before its final name is linked."""
+    pending = _pending_publication_path(cache_dir)
+    relative_shard = shard.absolute().relative_to(cache_dir.absolute()).as_posix()
+    payload = {
+        "schema_version": _PENDING_PUBLICATION_SCHEMA_VERSION,
+        "shard_path": relative_shard,
+        "row_count": len(records),
+        "record_sha256": [
+            sha256(_canonical_record_bytes(record)).hexdigest() for record in records
+        ],
+    }
+    body = (
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
+    ).encode("ascii")
+    with _secure_parent_directory(cache_dir, pending, create=True) as parent_fd:
+        if parent_fd is None:
+            raise RuntimeSetupError(
+                "cache publication requires secure directory-descriptor operations"
+            )
+        existing = _open_regular_at(
+            parent_fd,
+            pending.name,
+            label="cache pending-publication record",
+        )
+        if existing is not None:
+            os.close(existing)
+            raise CacheCorruptError(
+                "cache has an unresolved pending publication",
+                details={"path": str(pending)},
+            )
+        temp_name = f".{pending.name}.{secrets.token_hex(16)}.tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        descriptor = os.open(temp_name, flags, 0o600, dir_fd=parent_fd)
+        try:
+            with os.fdopen(os.dup(descriptor), "wb") as handle:
+                handle.write(body)
+                handle.flush()
+            os.fsync(descriptor)
+            try:
+                os.link(
+                    temp_name,
+                    pending.name,
+                    src_dir_fd=parent_fd,
+                    dst_dir_fd=parent_fd,
+                    follow_symlinks=False,
+                )
+            except FileExistsError as exc:
+                raise CacheCorruptError(
+                    "cache pending-publication record appeared during reservation",
+                    details={"path": str(pending)},
+                ) from exc
+            os.fsync(parent_fd)
+        finally:
+            os.close(descriptor)
+            with suppress(FileNotFoundError):
+                os.unlink(temp_name, dir_fd=parent_fd)
+                os.fsync(parent_fd)
+
+
+def _recover_pending_publication(cache_dir: Path) -> _RecoveredPublication | None:
+    """Resolve the one durable in-flight publication without scanning cache shards."""
+    resolved_root = cache_dir.resolve()
+    pending = _pending_publication_path(resolved_root)
+    if not os.path.lexists(pending):
+        return None
+    payload = _read_pending_publication(resolved_root, pending)
+    shard = _indexed_shard_path(resolved_root, payload["shard_path"])
+    _assert_safe_namespace_path(resolved_root, shard, final_kind="regular file")
+    if not os.path.lexists(shard):
+        _clear_pending_publication(resolved_root)
+        return None
+    records = _read_records_from_cache_shard(resolved_root, shard)
+    observed_hashes = tuple(
+        sha256(_canonical_record_bytes(record)).hexdigest() for record in records
+    )
+    expected_hashes = payload["record_sha256"]
+    if len(records) != payload["row_count"] or observed_hashes != expected_hashes:
+        raise CacheCorruptError(
+            "pending cache publication does not match its final shard",
+            details={"shard_path": str(shard)},
+        )
+    with _open_direct_index_database(resolved_root, create=True, write=True) as conn:
+        if conn is None:
+            raise CacheCorruptError("cache index could not be reserved during recovery")
+        _insert_index_records(conn, resolved_root, shard, records)
+    _clear_pending_publication(resolved_root)
+    return _RecoveredPublication(
+        path=cache_dir / Path(payload["shard_path"]),
+        records=records,
+    )
+
+
+def _read_pending_publication(cache_dir: Path, pending: Path) -> dict[str, Any]:
+    with _secure_parent_directory(cache_dir, pending, create=False) as parent_fd:
+        if parent_fd is None:
+            raise RuntimeSetupError(
+                "cache recovery requires secure directory-descriptor operations"
+            )
+        descriptor = _open_regular_at(
+            parent_fd,
+            pending.name,
+            label="cache pending-publication record",
+        )
+        if descriptor is None:
+            raise CacheCorruptError("cache pending-publication record disappeared")
+        try:
+            with os.fdopen(os.dup(descriptor), "rb") as handle:
+                body = handle.read(1_000_001)
+        finally:
+            os.close(descriptor)
+    if len(body) > 1_000_000:
+        raise CacheCorruptError("cache pending-publication record is unreasonably large")
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CacheCorruptError(
+            "cache pending-publication record is invalid JSON",
+            details={"path": str(pending)},
+        ) from exc
+    if type(payload) is not dict or set(payload) != {
+        "record_sha256",
+        "row_count",
+        "schema_version",
+        "shard_path",
+    }:
+        raise CacheCorruptError("cache pending-publication record has an invalid schema")
+    if payload.get("schema_version") != _PENDING_PUBLICATION_SCHEMA_VERSION:
+        raise CacheCorruptError("cache pending-publication record has an unsupported version")
+    shard_path = payload.get("shard_path")
+    row_count = payload.get("row_count")
+    record_hashes = payload.get("record_sha256")
+    if type(shard_path) is not str or not shard_path:
+        raise CacheCorruptError("cache pending-publication shard_path is invalid")
+    if type(row_count) is not int or row_count <= 0:
+        raise CacheCorruptError("cache pending-publication row_count is invalid")
+    if (
+        type(record_hashes) is not list
+        or len(record_hashes) != row_count
+        or any(
+            type(value) is not str
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+            for value in record_hashes
+        )
+    ):
+        raise CacheCorruptError("cache pending-publication record hashes are invalid")
+    return {
+        "schema_version": payload["schema_version"],
+        "shard_path": shard_path,
+        "row_count": row_count,
+        "record_sha256": tuple(record_hashes),
+    }
+
+
+def _clear_pending_publication(cache_dir: Path) -> None:
+    pending = _pending_publication_path(cache_dir)
+    if not os.path.lexists(pending):
+        return
+    with _secure_parent_directory(cache_dir, pending, create=False) as parent_fd:
+        if parent_fd is None:
+            raise RuntimeSetupError(
+                "cache recovery requires secure directory-descriptor operations"
+            )
+        descriptor = _open_regular_at(
+            parent_fd,
+            pending.name,
+            label="cache pending-publication record",
+        )
+        if descriptor is None:
+            return
+        os.close(descriptor)
+        os.unlink(pending.name, dir_fd=parent_fd)
+        os.fsync(parent_fd)
+
+
+def _recovered_publication_matches(
+    recovered: _RecoveredPublication,
     *,
-    root: Path,
-    path: Path,
     requested: Sequence[WindowCacheRecord],
     normalized: Sequence[WindowCacheRecord],
-    index: sqlite3.Connection,
-) -> Path:
-    """Portable fail-closed fallback with repeated no-symlink validation."""
-    if path.exists():
-        existing = _read_records_from_shard(path)
-        comparable = normalized
-        if len(existing) == len(normalized):
-            comparable = tuple(
-                replace(incoming, created_at=prior.created_at)
-                if requested[index].created_at == 0
-                else incoming
-                for index, (prior, incoming) in enumerate(zip(existing, normalized, strict=True))
-            )
-        _assert_existing_shard_equivalent(path, existing, comparable)
-        _insert_index_records(index, root, path, existing)
-        return path
-    _assert_index_keys_available(index, normalized)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _assert_safe_namespace_path(root, path, final_kind="regular file")
-    file_descriptor, temp_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-    )
-    os.close(file_descriptor)
-    temp_path = Path(temp_name)
-    try:
-        _write_records_to_parquet(temp_path, normalized)
-        _fsync_file(temp_path)
-        staged = _read_records_from_shard(temp_path)
-        _assert_existing_shard_equivalent(temp_path, staged, normalized)
-        try:
-            os.link(temp_path, path, follow_symlinks=False)
-        except FileExistsError:
-            winner = _read_records_from_shard(path)
-            comparable = normalized
-            if len(winner) == len(normalized):
-                comparable = tuple(
-                    replace(incoming, created_at=prior.created_at)
-                    if requested[index].created_at == 0
-                    else incoming
-                    for index, (prior, incoming) in enumerate(zip(winner, normalized, strict=True))
-                )
-            _assert_existing_shard_equivalent(path, winner, comparable)
-            _insert_index_records(index, root, path, winner)
-            return path
-        _fsync_directory(path.parent)
-    finally:
-        temp_existed = os.path.lexists(temp_path)
-        temp_path.unlink(missing_ok=True)
-        if temp_existed:
-            _fsync_directory(path.parent)
-    _insert_index_records(index, root, path, normalized)
-    return path
+) -> bool:
+    if len(recovered.records) != len(normalized):
+        return False
+    for existing, requested_record, normalized_record in zip(
+        recovered.records,
+        requested,
+        normalized,
+        strict=True,
+    ):
+        comparable = normalized_record
+        if requested_record.created_at == 0:
+            comparable = replace(normalized_record, created_at=existing.created_at)
+        if _canonical_record_bytes(existing) != _canonical_record_bytes(comparable):
+            return False
+    return True
 
 
 @contextmanager
@@ -559,10 +811,7 @@ def _secure_parent_directory(
     create: bool,
 ) -> Iterator[int | None]:
     """Open a namespace parent using dirfd/no-follow traversal when supported."""
-    if os.name == "nt" or not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
-        _assert_safe_namespace_path(cache_dir, target, final_kind="regular file")
-        yield None
-        return
+    _require_secure_cache_io()
     root_created = not os.path.lexists(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     _reject_symlink_or_non_directory(cache_dir, label="cache root")
@@ -605,6 +854,23 @@ def _secure_parent_directory(
         if current_fd != root_fd:
             os.close(current_fd)
         os.close(root_fd)
+
+
+def _require_secure_cache_io() -> None:
+    if (
+        os.name == "nt"
+        or not hasattr(os, "O_DIRECTORY")
+        or not hasattr(os, "O_NOFOLLOW")
+        or not _DIR_FD_PRIMITIVES_AVAILABLE
+    ):
+        raise RuntimeSetupError(
+            "cache I/O requires secure POSIX directory-descriptor and no-follow primitives",
+            details={"platform": os.name},
+            remediation=(
+                "build, read, repair, or reindex corrected caches on Linux or macOS; "
+                "transfer immutable artifacts only after verification"
+            ),
+        )
 
 
 def _open_regular_at(parent_fd: int, name: str, *, label: str = "cache shard final") -> int | None:
@@ -650,41 +916,39 @@ def _cache_publication_lock(cache_dir: Path) -> Iterator[None]:
     lock_path = cache_dir / _EMBEDDINGS_DIR / ".publish.lock"
     with _secure_parent_directory(cache_dir, lock_path, create=True) as parent_fd:
         flags = os.O_RDWR | os.O_CREAT
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
+        flags |= os.O_NOFOLLOW
         try:
             if parent_fd is None:
-                descriptor = os.open(lock_path, flags, 0o600)
+                raise CacheCorruptError("cache publication-lock parent disappeared")
+            existing = _open_regular_at(
+                parent_fd,
+                lock_path.name,
+                label="cache publication lock",
+            )
+            if existing is not None:
+                descriptor = existing
             else:
-                existing = _open_regular_at(
-                    parent_fd,
-                    lock_path.name,
-                    label="cache publication lock",
-                )
-                if existing is not None:
-                    descriptor = existing
+                try:
+                    descriptor = os.open(
+                        lock_path.name,
+                        flags | os.O_EXCL,
+                        0o600,
+                        dir_fd=parent_fd,
+                    )
+                except FileExistsError:
+                    reserved_descriptor = _open_regular_at(
+                        parent_fd,
+                        lock_path.name,
+                        label="cache publication lock",
+                    )
+                    if reserved_descriptor is None:
+                        raise CacheCorruptError(
+                            "cache publication lock disappeared during reservation"
+                        ) from None
+                    descriptor = reserved_descriptor
                 else:
-                    try:
-                        descriptor = os.open(
-                            lock_path.name,
-                            flags | os.O_EXCL,
-                            0o600,
-                            dir_fd=parent_fd,
-                        )
-                    except FileExistsError:
-                        reserved_descriptor = _open_regular_at(
-                            parent_fd,
-                            lock_path.name,
-                            label="cache publication lock",
-                        )
-                        if reserved_descriptor is None:
-                            raise CacheCorruptError(
-                                "cache publication lock disappeared during reservation"
-                            ) from None
-                        descriptor = reserved_descriptor
-                    else:
-                        os.fsync(descriptor)
-                        os.fsync(parent_fd)
+                    os.fsync(descriptor)
+                    os.fsync(parent_fd)
         except OSError as exc:
             raise CacheCorruptError(
                 "cache publication lock is unsafe or unavailable",
@@ -696,31 +960,14 @@ def _cache_publication_lock(cache_dir: Path) -> Iterator[None]:
                     "cache publication lock must be a regular file",
                     details={"path": str(lock_path)},
                 )
-            if os.name == "nt":  # pragma: no cover - exercised by hosted Windows CI
-                import msvcrt
+            import fcntl
 
-                msvcrt_api: Any = msvcrt
-                if os.fstat(descriptor).st_size == 0:
-                    os.write(descriptor, b"\0")
-                    os.fsync(descriptor)
-                os.lseek(descriptor, 0, os.SEEK_SET)
-                msvcrt_api.locking(descriptor, msvcrt_api.LK_LOCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(descriptor, fcntl.LOCK_EX)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
             yield
         finally:
-            if os.name == "nt":  # pragma: no cover - exercised by hosted Windows CI
-                import msvcrt
+            import fcntl
 
-                msvcrt_api = msvcrt
-                os.lseek(descriptor, 0, os.SEEK_SET)
-                msvcrt_api.locking(descriptor, msvcrt_api.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
 
@@ -791,6 +1038,7 @@ def read_cache_entries(
     index_path = _index_path(root)
     if not os.path.lexists(index_path):
         return tuple(None for _key in keys)
+    _require_secure_cache_io()
     locations: dict[WindowCacheKey, CacheProvenance] = {}
     indexed_paths: dict[str, Path] = {}
     with _open_direct_index_database(root, create=False, write=False) as conn:
@@ -872,6 +1120,7 @@ def read_cache_entries(
 def reindex_cache(cache_dir: Path | str) -> CacheReindexReport:
     """Rebuild ``index.sqlite`` from every readable Parquet shard."""
     root = Path(cache_dir)
+    _require_secure_cache_io()
     with _cache_publication_lock(root):
         return _reindex_cache_locked(root)
 
@@ -898,6 +1147,7 @@ def _reindex_cache_locked(root: Path) -> CacheReindexReport:
                     details={"index_path": str(index_path), "result": integrity},
                 )
         _publish_index_bytes(root, working_path.read_bytes())
+        _recover_pending_publication(root)
     return CacheReindexReport(
         indexed_shards=indexed_shards,
         indexed_rows=indexed_rows,
@@ -908,6 +1158,7 @@ def _reindex_cache_locked(root: Path) -> CacheReindexReport:
 def repair_cache(cache_dir: Path | str) -> CacheRepairReport:
     """Quarantine unreadable Parquet shards and rebuild the SQLite index."""
     root = Path(cache_dir)
+    _require_secure_cache_io()
     quarantined: list[Path] = []
     checked = 0
     with _cache_publication_lock(root):
@@ -986,19 +1237,21 @@ def _read_records_from_descriptor(
 
 def _read_records_from_cache_shard(cache_dir: Path, path: Path) -> tuple[WindowCacheRecord, ...]:
     with _secure_parent_directory(cache_dir, path, create=False) as parent_fd:
-        if parent_fd is not None:
-            descriptor = _open_regular_at(parent_fd, path.name, label="cache shard")
-            if descriptor is None:
-                raise CacheCorruptError(
-                    "cache shard disappeared during secure open",
-                    details={"shard_path": str(path)},
-                )
-            try:
-                return _read_records_from_descriptor(descriptor, path=path)
-            finally:
-                os.close(descriptor)
-    _assert_safe_namespace_path(cache_dir, path, final_kind="regular file")
-    return _read_records_from_shard(path)
+        if parent_fd is None:
+            raise CacheCorruptError(
+                "cache shard parent disappeared during secure open",
+                details={"shard_path": str(path)},
+            )
+        descriptor = _open_regular_at(parent_fd, path.name, label="cache shard")
+        if descriptor is None:
+            raise CacheCorruptError(
+                "cache shard disappeared during secure open",
+                details={"shard_path": str(path)},
+            )
+        try:
+            return _read_records_from_descriptor(descriptor, path=path)
+        finally:
+            os.close(descriptor)
 
 
 def _read_records_from_source(
@@ -1014,8 +1267,16 @@ def _read_records_from_source(
             "cache shard could not be read",
             details={"shard_path": str(path), "error": str(exc)},
         ) from exc
-    schema_version = _schema_version_from_table(table, path=path)
-    _validate_physical_schema(pa, table, path=path, schema_version=schema_version)
+    try:
+        schema_version = _schema_version_from_table(table, path=path)
+        _validate_physical_schema(pa, table, path=path, schema_version=schema_version)
+    except CacheCorruptError:
+        raise
+    except Exception as exc:
+        raise CacheCorruptError(
+            "cache shard contains an invalid physical schema",
+            details={"shard_path": str(path), "error": str(exc)},
+        ) from exc
     try:
         return tuple(_record_from_row(row) for row in table.to_pylist())
     except (InputError, TypeError, ValueError) as exc:
@@ -1048,23 +1309,26 @@ def _read_records_at_offsets(
 ) -> dict[int, WindowCacheRecord]:
     if cache_dir is not None:
         with _secure_parent_directory(cache_dir, path, create=False) as parent_fd:
-            if parent_fd is not None:
-                descriptor = _open_regular_at(parent_fd, path.name, label="cache shard")
-                if descriptor is None:
-                    raise CacheCorruptError(
-                        "indexed cache shard disappeared during secure open",
-                        details={"shard_path": str(path)},
+            if parent_fd is None:
+                raise CacheCorruptError(
+                    "indexed cache shard parent disappeared during secure open",
+                    details={"shard_path": str(path)},
+                )
+            descriptor = _open_regular_at(parent_fd, path.name, label="cache shard")
+            if descriptor is None:
+                raise CacheCorruptError(
+                    "indexed cache shard disappeared during secure open",
+                    details={"shard_path": str(path)},
+                )
+            try:
+                with os.fdopen(os.dup(descriptor), "rb") as handle:
+                    return _read_records_at_offsets_from_source(
+                        handle,
+                        path=path,
+                        row_offsets=row_offsets,
                     )
-                try:
-                    with os.fdopen(os.dup(descriptor), "rb") as handle:
-                        return _read_records_at_offsets_from_source(
-                            handle,
-                            path=path,
-                            row_offsets=row_offsets,
-                        )
-                finally:
-                    os.close(descriptor)
-        _assert_safe_namespace_path(cache_dir, path, final_kind="regular file")
+            finally:
+                os.close(descriptor)
     _assert_path_is_regular_without_symlink(path, label="cache shard")
     with path.open("rb") as handle:
         return _read_records_at_offsets_from_source(handle, path=path, row_offsets=row_offsets)
@@ -1135,7 +1399,13 @@ def _schema_version_from_table(table: Any, *, path: Path) -> str:
             "cache shard is missing required column(s)",
             details={"shard_path": str(path), "missing": sorted(required - observed)},
         )
-    schema_versions = set(table.column("schema_version").to_pylist())
+    schema_version_values = table.column("schema_version").to_pylist()
+    if any(type(value) is not str for value in schema_version_values):
+        raise CacheCorruptError(
+            "cache shard schema_version must contain only text",
+            details={"shard_path": str(path)},
+        )
+    schema_versions = set(schema_version_values)
     if len(schema_versions) != 1:
         raise CacheCorruptError(
             "cache shard must contain one schema_version",
@@ -1162,7 +1432,13 @@ def _schema_version_from_table(table: Any, *, path: Path) -> str:
             details={"shard_path": str(path), "missing": sorted(required - observed)},
         )
     if schema_version == CACHE_SCHEMA_VERSION:
-        storage_dtypes = set(table.column("storage_dtype").to_pylist())
+        storage_dtype_values = table.column("storage_dtype").to_pylist()
+        if any(type(value) is not str for value in storage_dtype_values):
+            raise CacheCorruptError(
+                "cache shard storage_dtype must contain only text",
+                details={"shard_path": str(path)},
+            )
+        storage_dtypes = set(storage_dtype_values)
         if storage_dtypes != {_STORAGE_DTYPE}:
             raise CacheCorruptError(
                 "cache shard storage_dtype does not match its physical schema",
@@ -1450,34 +1726,16 @@ def _open_direct_index_database(
 ) -> Iterator[sqlite3.Connection | None]:
     """Open the real index under no-follow checks; never copy it per shard."""
     index_path = _index_path(cache_dir)
-    with _secure_parent_directory(cache_dir, index_path, create=create) as parent_fd:
-        if parent_fd is not None:
-            descriptor = _open_regular_at(parent_fd, index_path.name, label="cache index")
-            if descriptor is None:
-                if not create:
-                    yield None
-                    return
-                flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-                descriptor = os.open(index_path.name, flags, 0o600, dir_fd=parent_fd)
-                try:
-                    os.fsync(descriptor)
-                    os.fsync(parent_fd)
-                except Exception:
-                    os.close(descriptor)
-                    os.unlink(index_path.name, dir_fd=parent_fd)
-                    os.fsync(parent_fd)
-                    raise
-        else:
-            if not os.path.lexists(index_path):
-                if not create:
-                    yield None
-                    return
-                index_path.parent.mkdir(parents=True, exist_ok=True)
-            _assert_safe_namespace_path(cache_dir, index_path, final_kind="regular file")
-            flags = os.O_RDONLY | (os.O_CREAT if create else 0)
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            descriptor = os.open(index_path, flags, 0o600)
+    if create and not os.path.lexists(index_path):
+        _bootstrap_index_database(cache_dir)
+    with _secure_parent_directory(cache_dir, index_path, create=False) as parent_fd:
+        if parent_fd is None:
+            yield None
+            return
+        descriptor = _open_regular_at(parent_fd, index_path.name, label="cache index")
+        if descriptor is None:
+            yield None
+            return
         _verify_index_binding(index_path, descriptor, parent_fd=parent_fd)
         for suffix in ("-journal", "-wal", "-shm"):
             sidecar = index_path.with_name(index_path.name + suffix)
@@ -1490,7 +1748,7 @@ def _open_direct_index_database(
             if write:
                 conn.execute("PRAGMA journal_mode = DELETE")
                 conn.execute("PRAGMA synchronous = FULL")
-                _ensure_index_schema(conn, create=create)
+                _ensure_index_schema(conn, create=False)
                 conn.commit()
                 conn.execute("BEGIN IMMEDIATE")
             else:
@@ -1500,10 +1758,7 @@ def _open_direct_index_database(
             if write:
                 _verify_index_binding(index_path, descriptor, parent_fd=parent_fd)
                 conn.commit()
-                if parent_fd is not None:
-                    os.fsync(parent_fd)
-                else:
-                    _fsync_directory(index_path.parent)
+                os.fsync(parent_fd)
                 _verify_index_binding(index_path, descriptor, parent_fd=parent_fd)
         except Exception:
             conn.rollback()
@@ -1511,6 +1766,27 @@ def _open_direct_index_database(
         finally:
             conn.close()
             os.close(descriptor)
+
+
+def _bootstrap_index_database(cache_dir: Path) -> None:
+    """Create a complete private index and expose it with one atomic replacement."""
+    index_path = _index_path(cache_dir)
+    if os.path.lexists(index_path):
+        return
+    with tempfile.TemporaryDirectory(prefix="geno-lewm-index-bootstrap-") as working_dir:
+        working_path = Path(working_dir) / INDEX_DB_NAME
+        with closing(sqlite3.connect(working_path)) as conn:
+            _ensure_index_schema(conn, create=True)
+            conn.commit()
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()
+            if integrity != ("ok",):
+                raise CacheCorruptError(
+                    "new cache index failed SQLite integrity_check",
+                    details={"result": integrity},
+                )
+        if os.path.lexists(index_path):
+            return
+        _publish_index_bytes(cache_dir, working_path.read_bytes())
 
 
 def _verify_index_binding(index_path: Path, descriptor: int, *, parent_fd: int | None) -> None:
@@ -1538,48 +1814,30 @@ def _verify_index_binding(index_path: Path, descriptor: int, *, parent_fd: int |
 def _publish_index_bytes(cache_dir: Path, body: bytes) -> None:
     index_path = _index_path(cache_dir)
     with _secure_parent_directory(cache_dir, index_path, create=True) as parent_fd:
-        if parent_fd is not None:
-            existing = _open_regular_at(parent_fd, index_path.name, label="cache index")
-            if existing is not None:
-                os.close(existing)
-            temp_name = f".{index_path.name}.{secrets.token_hex(16)}.tmp"
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-            descriptor = os.open(temp_name, flags, 0o600, dir_fd=parent_fd)
-            try:
-                with os.fdopen(os.dup(descriptor), "wb") as handle:
-                    handle.write(body)
-                    handle.flush()
-                os.fsync(descriptor)
-                os.rename(
-                    temp_name,
-                    index_path.name,
-                    src_dir_fd=parent_fd,
-                    dst_dir_fd=parent_fd,
-                )
-                os.fsync(parent_fd)
-            finally:
-                os.close(descriptor)
-                with suppress(FileNotFoundError):
-                    os.unlink(temp_name, dir_fd=parent_fd)
-            return
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    _assert_safe_namespace_path(cache_dir, index_path, final_kind="regular file")
-    file_descriptor, temp_name = tempfile.mkstemp(
-        dir=index_path.parent,
-        prefix=f".{index_path.name}.",
-        suffix=".tmp",
-    )
-    temp_path = Path(temp_name)
-    try:
-        with os.fdopen(file_descriptor, "wb") as handle:
-            handle.write(body)
-            handle.flush()
-            os.fsync(handle.fileno())
-        _assert_safe_namespace_path(cache_dir, index_path, final_kind="regular file")
-        temp_path.replace(index_path)
-        _fsync_directory(index_path.parent)
-    finally:
-        temp_path.unlink(missing_ok=True)
+        if parent_fd is None:
+            raise CacheCorruptError("cache index parent disappeared during secure publication")
+        existing = _open_regular_at(parent_fd, index_path.name, label="cache index")
+        if existing is not None:
+            os.close(existing)
+        temp_name = f".{index_path.name}.{secrets.token_hex(16)}.tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        descriptor = os.open(temp_name, flags, 0o600, dir_fd=parent_fd)
+        try:
+            with os.fdopen(os.dup(descriptor), "wb") as handle:
+                handle.write(body)
+                handle.flush()
+            os.fsync(descriptor)
+            os.rename(
+                temp_name,
+                index_path.name,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+            )
+            os.fsync(parent_fd)
+        finally:
+            os.close(descriptor)
+            with suppress(FileNotFoundError):
+                os.unlink(temp_name, dir_fd=parent_fd)
 
 
 def _insert_index_records(
@@ -1654,88 +1912,81 @@ def _insert_index_records(
 
 
 def _ensure_index_schema(conn: sqlite3.Connection, *, create: bool) -> None:
+    _require_strict_sqlite()
+    objects = _index_schema_objects(conn)
+    if not objects:
+        if not create:
+            raise CacheCorruptError(
+                "cache index is empty or incomplete; run reindex_cache before corrected lookup"
+            )
+        conn.execute(_WINDOW_INDEX_SQL)
+        conn.execute(_SHARD_PATH_INDEX_SQL)
+        conn.execute(f"PRAGMA user_version = {_INDEX_SCHEMA_VERSION}")
+        objects = _index_schema_objects(conn)
     observed = conn.execute("PRAGMA table_info(window_index)").fetchall()
     user_version = conn.execute("PRAGMA user_version").fetchone()
-    strict_ok = True
-    if observed and sqlite3.sqlite_version_info >= (3, 37, 0):
-        table_info = conn.execute(
-            "SELECT strict FROM pragma_table_list WHERE name = 'window_index'"
-        ).fetchone()
-        strict_ok = table_info == (1,)
-    if observed:
-        if (
-            not _index_schema_matches(observed)
-            or user_version != (_INDEX_SCHEMA_VERSION,)
-            or not strict_ok
-        ):
-            raise CacheCorruptError(
-                "cache index schema is stale or unsafe; run reindex_cache for explicit migration"
-            )
-        return
-    if not create:
+    table_info = conn.execute(
+        "SELECT strict FROM pragma_table_list WHERE name = 'window_index'"
+    ).fetchone()
+    expected_objects = {
+        ("table", "window_index"): _normalize_sql(_WINDOW_INDEX_SQL),
+        ("index", "idx_shard_path"): _normalize_sql(_SHARD_PATH_INDEX_SQL),
+    }
+    if (
+        objects != expected_objects
+        or not _index_schema_matches(observed)
+        or user_version != (_INDEX_SCHEMA_VERSION,)
+        or table_info != (1,)
+    ):
         raise CacheCorruptError(
-            "cache index is empty or incomplete; run reindex_cache before corrected lookup"
+            "cache index schema is stale or unsafe; run reindex_cache for explicit migration"
         )
-    strict = " STRICT" if sqlite3.sqlite_version_info >= (3, 37, 0) else ""
-    conn.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS window_index (
-            window_hash TEXT NOT NULL
-                CHECK (length(window_hash) = 64 AND window_hash NOT GLOB '*[^0-9a-f]*'),
-            encoder_hash TEXT NOT NULL
-                CHECK (length(encoder_hash) = 64 AND encoder_hash NOT GLOB '*[^0-9a-f]*'),
-            state_layer INTEGER NOT NULL CHECK (state_layer BETWEEN -128 AND 127),
-            pool_type TEXT NOT NULL
-                CHECK (pool_type IN ('centered_mean', 'global_mean', 'attention')),
-            pool_radius INTEGER NOT NULL CHECK (pool_radius >= 0),
-            center_token INTEGER NOT NULL CHECK (center_token >= -1),
-            dtype TEXT NOT NULL CHECK (dtype IN ('bf16', 'fp16', 'fp32')),
-            cache_schema_version TEXT NOT NULL
-                CHECK (cache_schema_version IN ('2.0.0', '3.0.0')),
-            physical_encoding TEXT NOT NULL
-                CHECK (physical_encoding IN ('list<float16>', 'fixed_size_list<float32>')),
-            shard_path TEXT NOT NULL CHECK (length(shard_path) > 0),
-            row_offset ANY NOT NULL
-                CHECK (typeof(row_offset) = 'integer' AND row_offset >= 0),
-            created_at INTEGER NOT NULL CHECK (created_at >= 0),
-            CHECK (
-                (cache_schema_version = '2.0.0' AND physical_encoding = 'list<float16>')
-                OR
-                (cache_schema_version = '3.0.0'
-                    AND physical_encoding = 'fixed_size_list<float32>')
-            ),
-            PRIMARY KEY (
-                window_hash,
-                encoder_hash,
-                state_layer,
-                pool_type,
-                pool_radius,
-                center_token,
-                dtype,
-                cache_schema_version,
-                physical_encoding
-            )
-        ){strict}
+
+
+def _require_strict_sqlite() -> None:
+    if sqlite3.sqlite_version_info < (3, 37, 0):
+        raise RuntimeSetupError(
+            "cache schema 3 requires SQLite 3.37 or newer for STRICT index tables",
+            details={"sqlite_version": sqlite3.sqlite_version},
+            remediation="use a Python runtime linked against SQLite 3.37 or newer",
+        )
+
+
+def _index_schema_objects(conn: sqlite3.Connection) -> dict[tuple[str, str], str]:
+    rows = conn.execute(
         """
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_shard_path ON window_index(shard_path)")
-    conn.execute(f"PRAGMA user_version = {_INDEX_SCHEMA_VERSION}")
+        SELECT type, name, sql
+        FROM sqlite_schema
+        WHERE name NOT LIKE 'sqlite_%'
+        ORDER BY type, name
+        """
+    ).fetchall()
+    objects: dict[tuple[str, str], str] = {}
+    for object_type, name, sql in rows:
+        if type(object_type) is not str or type(name) is not str or type(sql) is not str:
+            raise CacheCorruptError("cache index schema contains an invalid object")
+        objects[(object_type, name)] = _normalize_sql(sql)
+    return objects
+
+
+def _normalize_sql(sql: str) -> str:
+    return " ".join(sql.split())
 
 
 def _index_schema_matches(columns: Sequence[tuple[Any, ...]]) -> bool:
     expected = (
-        ("window_hash", "TEXT", 1, 1),
-        ("encoder_hash", "TEXT", 1, 2),
-        ("state_layer", "INTEGER", 1, 3),
-        ("pool_type", "TEXT", 1, 4),
-        ("pool_radius", "INTEGER", 1, 5),
-        ("center_token", "INTEGER", 1, 6),
-        ("dtype", "TEXT", 1, 7),
-        ("cache_schema_version", "TEXT", 1, 8),
-        ("physical_encoding", "TEXT", 1, 9),
-        ("shard_path", "TEXT", 1, 0),
+        ("window_hash", "ANY", 1, 1),
+        ("encoder_hash", "ANY", 1, 2),
+        ("state_layer", "ANY", 1, 3),
+        ("pool_type", "ANY", 1, 4),
+        ("pool_radius", "ANY", 1, 5),
+        ("center_token", "ANY", 1, 6),
+        ("dtype", "ANY", 1, 7),
+        ("cache_schema_version", "ANY", 1, 8),
+        ("physical_encoding", "ANY", 1, 9),
+        ("shard_path", "ANY", 1, 0),
         ("row_offset", "ANY", 1, 0),
-        ("created_at", "INTEGER", 1, 0),
+        ("created_at", "ANY", 1, 0),
     )
     observed = tuple(
         (str(column[1]), str(column[2]).upper(), int(column[3]), int(column[5]))
@@ -1861,53 +2112,45 @@ def _quarantine_shard(cache_dir: Path, shard: Path) -> Path:
         _secure_parent_directory(cache_dir, shard, create=False) as source_parent,
         _secure_parent_directory(cache_dir, destination, create=True) as destination_parent,
     ):
-        if source_parent is not None and destination_parent is not None:
-            source_fd = _open_regular_at(source_parent, shard.name, label="cache shard")
-            if source_fd is None:
-                raise CacheCorruptError("cache shard disappeared during quarantine")
-            os.close(source_fd)
-            candidate = destination.name
+        if source_parent is None or destination_parent is None:
+            raise CacheCorruptError("cache shard parent disappeared during quarantine")
+        source_fd = _open_regular_at(source_parent, shard.name, label="cache shard")
+        if source_fd is None:
+            raise CacheCorruptError("cache shard disappeared during quarantine")
+        os.close(source_fd)
+        candidate = destination.name
+        existing = _open_regular_at(
+            destination_parent, candidate, label="cache quarantine destination"
+        )
+        while existing is not None:
+            os.close(existing)
+            candidate = f"{destination.name}.{time.time_ns()}.bad"
             existing = _open_regular_at(
-                destination_parent, candidate, label="cache quarantine destination"
+                destination_parent,
+                candidate,
+                label="cache quarantine destination",
             )
-            while existing is not None:
-                os.close(existing)
-                candidate = f"{destination.name}.{time.time_ns()}.bad"
-                existing = _open_regular_at(
-                    destination_parent,
-                    candidate,
-                    label="cache quarantine destination",
-                )
-            try:
-                os.link(
-                    shard.name,
-                    candidate,
-                    src_dir_fd=source_parent,
-                    dst_dir_fd=destination_parent,
-                    follow_symlinks=False,
-                )
-            except FileExistsError:
-                candidate = f"{destination.name}.{time.time_ns()}.bad"
-                os.link(
-                    shard.name,
-                    candidate,
-                    src_dir_fd=source_parent,
-                    dst_dir_fd=destination_parent,
-                    follow_symlinks=False,
-                )
-            os.fsync(destination_parent)
-            os.unlink(shard.name, dir_fd=source_parent)
-            os.fsync(source_parent)
-            return destination.with_name(candidate)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    _assert_safe_namespace_path(cache_dir, destination, final_kind="regular file")
-    if destination.exists():
-        destination = destination.with_name(f"{destination.name}.{time.time_ns()}.bad")
-    os.link(shard, destination, follow_symlinks=False)
-    _fsync_directory(destination.parent)
-    shard.unlink()
-    _fsync_directory(shard.parent)
-    return destination
+        try:
+            os.link(
+                shard.name,
+                candidate,
+                src_dir_fd=source_parent,
+                dst_dir_fd=destination_parent,
+                follow_symlinks=False,
+            )
+        except FileExistsError:
+            candidate = f"{destination.name}.{time.time_ns()}.bad"
+            os.link(
+                shard.name,
+                candidate,
+                src_dir_fd=source_parent,
+                dst_dir_fd=destination_parent,
+                follow_symlinks=False,
+            )
+        os.fsync(destination_parent)
+        os.unlink(shard.name, dir_fd=source_parent)
+        os.fsync(source_parent)
+        return destination.with_name(candidate)
 
 
 def _index_path(cache_dir: Path) -> Path:
@@ -1916,7 +2159,7 @@ def _index_path(cache_dir: Path) -> Path:
 
 def _indexed_shard_path(cache_dir: Path, relative_path: str) -> Path:
     candidate = Path(relative_path)
-    root = cache_dir.resolve()
+    root = cache_dir.absolute()
     if candidate.is_absolute():
         raise CacheCorruptError(
             "cache index shard path points outside cache root",
@@ -1924,13 +2167,14 @@ def _indexed_shard_path(cache_dir: Path, relative_path: str) -> Path:
         )
     lexical = root / candidate
     _assert_safe_namespace_path(root, lexical, final_kind="regular file")
+    resolved_root = root.resolve()
     resolved = lexical.resolve()
-    if not resolved.is_relative_to(root):
+    if not resolved.is_relative_to(resolved_root):
         raise CacheCorruptError(
             "cache index shard path points outside cache root",
             details={"shard_path": relative_path},
         )
-    return resolved
+    return lexical
 
 
 def _assert_safe_namespace_path(
@@ -1977,14 +2221,7 @@ def _assert_safe_namespace_path(
             )
 
 
-def _fsync_file(path: Path) -> None:
-    with path.open("rb") as handle:
-        os.fsync(handle.fileno())
-
-
 def _fsync_directory(path: Path) -> None:
-    if os.name == "nt":  # Directory handles cannot be fsynced this way on Windows.
-        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
@@ -2000,6 +2237,13 @@ def _digest_path_part(label: str, value: str) -> str:
             details={"label": label, "type": type(value).__name__},
         )
     return f"{label}-{sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def _legacy_path_part(value: str) -> str:
+    """Preserve the published schema-2 path escaping contract byte-for-byte."""
+    if type(value) is not str or not value or value in {".", ".."}:
+        raise InputError("cache path component must be non-empty text and not a dot segment")
+    return value.replace("/", "__").replace("\\", "__")
 
 
 def _validate_hash(name: str, value: bytes) -> None:

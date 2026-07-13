@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import multiprocessing
+import os
 import sqlite3
 import string
 import struct
+import threading
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
@@ -31,7 +33,12 @@ from geno_lewm.encoder import (
     write_shard,
 )
 from geno_lewm.encoder._normalization import l2_normalize_state
-from geno_lewm.errors import CacheCorruptError, InputError
+from geno_lewm.errors import CacheCorruptError, InputError, RuntimeSetupError
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="corrected cache I/O is intentionally fail-closed without POSIX dirfd primitives",
+)
 
 
 def _hash(seed: int) -> bytes:
@@ -325,6 +332,58 @@ def test_v3_loader_rejects_nullable_required_field_even_without_nulls(tmp_path: 
 
     with pytest.raises(CacheCorruptError, match="physical schema"):
         reindex_cache(tmp_path)
+
+
+def test_reindex_wraps_unhashable_arrow_schema_values_as_cache_corruption(tmp_path: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    record = _record(182)
+    shard = write_shard(
+        tmp_path,
+        encoder_id="carbon",
+        contig=record.chrom,
+        stride_block=0,
+        records=[record],
+    )
+    table = pq.read_table(shard)
+    schema_index = table.schema.get_field_index("schema_version")
+    malformed = table.set_column(
+        schema_index,
+        "schema_version",
+        pa.array([[CACHE_SCHEMA_VERSION]], type=pa.list_(pa.string())),
+    )
+    pq.write_table(malformed, shard)
+
+    with pytest.raises(CacheCorruptError, match="schema"):
+        reindex_cache(tmp_path)
+
+
+def test_repair_quarantines_unhashable_arrow_schema_values(tmp_path: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    record = _record(183)
+    shard = write_shard(
+        tmp_path,
+        encoder_id="carbon",
+        contig=record.chrom,
+        stride_block=0,
+        records=[record],
+    )
+    table = pq.read_table(shard)
+    storage_index = table.schema.get_field_index("storage_dtype")
+    malformed = table.set_column(
+        storage_index,
+        "storage_dtype",
+        pa.array([["fp32"]], type=pa.list_(pa.string())),
+    )
+    pq.write_table(malformed, shard)
+
+    report = repair_cache(tmp_path)
+
+    assert report.checked_shards == 1
+    assert len(report.quarantined) == 1
+    assert report.quarantined[0].is_file()
+    assert report.reindex.indexed_rows == 0
 
 
 def test_v2_shard_remains_readable_after_v3_reindex(tmp_path: Path) -> None:
@@ -666,6 +725,83 @@ def test_index_is_strict_and_rejects_invalid_row_offsets(tmp_path: Path) -> None
             conn.execute("UPDATE window_index SET row_offset = ?", (2**63,))
 
 
+def test_index_rejects_shape_compatible_table_without_contract_checks(tmp_path: Path) -> None:
+    index = tmp_path / "embeddings" / "index.sqlite"
+    index.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(index)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE window_index (
+                window_hash ANY NOT NULL,
+                encoder_hash ANY NOT NULL,
+                state_layer ANY NOT NULL,
+                pool_type ANY NOT NULL,
+                pool_radius ANY NOT NULL,
+                center_token ANY NOT NULL,
+                dtype ANY NOT NULL,
+                cache_schema_version ANY NOT NULL,
+                physical_encoding ANY NOT NULL,
+                shard_path ANY NOT NULL,
+                row_offset ANY NOT NULL,
+                created_at ANY NOT NULL,
+                PRIMARY KEY (
+                    window_hash, encoder_hash, state_layer, pool_type, pool_radius,
+                    center_token, dtype, cache_schema_version, physical_encoding
+                )
+            ) STRICT
+            """
+        )
+        conn.execute("CREATE INDEX idx_shard_path ON window_index(shard_path)")
+        conn.execute("PRAGMA user_version = 4")
+        conn.commit()
+
+    with pytest.raises(CacheCorruptError, match=r"schema.*unsafe|reindex"):
+        read_embedding(tmp_path, _record(178).key)
+
+
+def test_index_requires_the_canonical_secondary_index(tmp_path: Path) -> None:
+    record = _record(179)
+    write_shard(
+        tmp_path, encoder_id="carbon", contig=record.chrom, stride_block=0, records=[record]
+    )
+    with closing(sqlite3.connect(tmp_path / "embeddings" / "index.sqlite")) as conn:
+        conn.execute("DROP INDEX idx_shard_path")
+        conn.commit()
+
+    with pytest.raises(CacheCorruptError, match=r"schema.*unsafe|reindex"):
+        read_embedding(tmp_path, record.key)
+
+
+def test_index_rejects_losslessly_coercible_non_integer_contract_values(tmp_path: Path) -> None:
+    record = _record(180)
+    write_shard(
+        tmp_path, encoder_id="carbon", contig=record.chrom, stride_block=0, records=[record]
+    )
+    index = tmp_path / "embeddings" / "index.sqlite"
+
+    with closing(sqlite3.connect(index)) as conn:
+        for field in ("state_layer", "pool_radius", "center_token", "created_at"):
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(f"UPDATE window_index SET {field} = ?", (1.0,))
+            conn.rollback()
+
+
+def test_index_fails_closed_when_sqlite_cannot_enforce_strict_tables(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cache_module.sqlite3, "sqlite_version_info", (3, 36, 0))
+
+    with pytest.raises(RuntimeSetupError, match=r"SQLite.*3\.37|STRICT"):
+        write_shard(
+            tmp_path,
+            encoder_id="carbon",
+            contig="1",
+            stride_block=0,
+            records=[_record(181)],
+        )
+
+
 def test_append_uses_one_direct_index_transaction_without_full_copy_or_replace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -812,6 +948,51 @@ def test_concurrent_different_paths_same_key_leaves_no_orphan(tmp_path: Path) ->
     assert len(list(tmp_path.rglob("*.parquet"))) == 1
     assert read_embedding(tmp_path, record.key) == record.embedding
     assert list(tmp_path.rglob("*.tmp")) == []
+
+
+def test_first_index_bootstrap_is_never_visible_in_an_incomplete_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _record(177)
+    entered_schema_creation = threading.Event()
+    release_schema_creation = threading.Event()
+    original = cache_module._ensure_index_schema
+    failures: list[BaseException] = []
+
+    def paused_schema_creation(conn: sqlite3.Connection, *, create: bool) -> None:
+        if create and not entered_schema_creation.is_set():
+            entered_schema_creation.set()
+            if not release_schema_creation.wait(timeout=10):
+                raise AssertionError("timed out waiting to release index bootstrap")
+        original(conn, create=create)
+
+    def write_first_shard() -> None:
+        try:
+            write_shard(
+                tmp_path,
+                encoder_id="carbon",
+                contig=record.chrom,
+                stride_block=0,
+                records=[record],
+            )
+        except BaseException as exc:  # pragma: no cover - surfaced below in the main thread
+            failures.append(exc)
+
+    monkeypatch.setattr(cache_module, "_ensure_index_schema", paused_schema_creation)
+    writer = threading.Thread(target=write_first_shard)
+    writer.start()
+    assert entered_schema_creation.wait(timeout=10)
+    try:
+        assert not (tmp_path / "embeddings" / "index.sqlite").exists()
+        assert read_embedding(tmp_path, record.key) is None
+    finally:
+        release_schema_creation.set()
+        writer.join(timeout=10)
+
+    assert not writer.is_alive()
+    assert failures == []
+    assert read_embedding(tmp_path, record.key) == record.embedding
 
 
 def test_publication_rejects_symlinked_namespace_parent_without_outside_write(
@@ -985,7 +1166,7 @@ def test_publication_fsyncs_parent_after_staged_name_is_unlinked(
     assert events[unlink_index + 1] == "directory_fsync"
 
 
-def test_directory_fsync_failure_never_publishes_shard_or_index(
+def test_directory_fsync_failure_never_publishes_shard_or_index_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1014,7 +1195,10 @@ def test_directory_fsync_failure_never_publishes_shard_or_index(
         )
 
     assert list(tmp_path.rglob("*.parquet")) == []
-    assert not (tmp_path / "embeddings" / "index.sqlite").exists()
+    index = tmp_path / "embeddings" / "index.sqlite"
+    assert index.is_file()
+    with closing(sqlite3.connect(index)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM window_index").fetchone() == (0,)
 
 
 def test_existing_shard_resume_reuses_generated_created_at(tmp_path: Path) -> None:
@@ -1205,7 +1389,10 @@ def test_failed_parquet_write_leaves_no_final_or_partial_shard(
     assert not any(path.name.startswith("<_io.") for path in Path.cwd().iterdir())
 
 
-def test_index_transaction_failure_is_recoverable_from_valid_final_shard(tmp_path: Path) -> None:
+def test_index_transaction_failure_is_recoverable_from_valid_final_shard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     baseline = _record(39)
     pending = _record(40)
     write_shard(
@@ -1215,18 +1402,22 @@ def test_index_transaction_failure_is_recoverable_from_valid_final_shard(tmp_pat
         stride_block=0,
         records=[baseline],
     )
-    index = tmp_path / "embeddings" / "index.sqlite"
-    with closing(sqlite3.connect(index)) as conn:
-        conn.execute(
-            """
-            CREATE TRIGGER inject_index_failure
-            BEFORE INSERT ON window_index
-            BEGIN
-                SELECT RAISE(ABORT, 'injected index failure');
-            END
-            """
-        )
-        conn.commit()
+    original_insert = cache_module._insert_index_records
+    failed = False
+
+    def fail_after_insert(
+        conn: sqlite3.Connection,
+        cache_dir: Path,
+        shard: Path,
+        records: tuple[WindowCacheRecord, ...],
+    ) -> None:
+        nonlocal failed
+        original_insert(conn, cache_dir, shard, records)
+        if not failed:
+            failed = True
+            raise sqlite3.IntegrityError("injected index failure")
+
+    monkeypatch.setattr(cache_module, "_insert_index_records", fail_after_insert)
     expected = shard_path_for(
         tmp_path,
         encoder_id="carbon",
@@ -1250,9 +1441,7 @@ def test_index_transaction_failure_is_recoverable_from_valid_final_shard(tmp_pat
 
     assert expected.is_file()
     assert read_embedding(tmp_path, pending.key) is None
-    with closing(sqlite3.connect(index)) as conn:
-        conn.execute("DROP TRIGGER inject_index_failure")
-        conn.commit()
+    monkeypatch.setattr(cache_module, "_insert_index_records", original_insert)
 
     retried = write_shard(
         tmp_path,
@@ -1265,6 +1454,178 @@ def test_index_transaction_failure_is_recoverable_from_valid_final_shard(tmp_pat
     assert retried == expected
     assert read_embedding(tmp_path, baseline.key) == baseline.embedding
     assert read_embedding(tmp_path, pending.key) == pending.embedding
+
+
+@pytest.mark.parametrize("cache_mode", ["absolute", "relative", "symlinked_ancestor"])
+def test_index_failure_recovers_orphan_before_a_different_path_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cache_mode: str,
+) -> None:
+    if cache_mode == "relative":
+        monkeypatch.chdir(tmp_path)
+        cache_dir = Path("cache")
+    elif cache_mode == "symlinked_ancestor":
+        real_parent = tmp_path / "real-parent"
+        real_parent.mkdir()
+        alias_parent = tmp_path / "alias-parent"
+        alias_parent.symlink_to(real_parent, target_is_directory=True)
+        cache_dir = alias_parent / "cache"
+    else:
+        cache_dir = tmp_path
+    record = _record(176)
+    original_insert = cache_module._insert_index_records
+    failed = False
+
+    def fail_after_insert(
+        conn: sqlite3.Connection,
+        cache_dir: Path,
+        shard: Path,
+        records: tuple[WindowCacheRecord, ...],
+    ) -> None:
+        nonlocal failed
+        original_insert(conn, cache_dir, shard, records)
+        if not failed:
+            failed = True
+            raise sqlite3.IntegrityError("injected post-publication index failure")
+
+    monkeypatch.setattr(cache_module, "_insert_index_records", fail_after_insert)
+    with pytest.raises(sqlite3.IntegrityError, match="post-publication index failure"):
+        write_shard(
+            cache_dir,
+            encoder_id="carbon",
+            contig=record.chrom,
+            stride_block=0,
+            records=[record],
+        )
+
+    first_path = shard_path_for(
+        cache_dir,
+        encoder_id="carbon",
+        encoder_hash=record.encoder_hash,
+        dtype=record.dtype,
+        state_layer=record.state_layer,
+        pool_type=record.pool_type,
+        pool_radius=record.pool_radius,
+        contig=record.chrom,
+        stride_block=0,
+    )
+    second_path = shard_path_for(
+        cache_dir,
+        encoder_id="carbon",
+        encoder_hash=record.encoder_hash,
+        dtype=record.dtype,
+        state_layer=record.state_layer,
+        pool_type=record.pool_type,
+        pool_radius=record.pool_radius,
+        contig=record.chrom,
+        stride_block=1,
+    )
+    assert first_path.is_file()
+    assert read_embedding(cache_dir, record.key) is None
+
+    monkeypatch.setattr(cache_module, "_insert_index_records", original_insert)
+    recovered = write_shard(
+        cache_dir,
+        encoder_id="carbon",
+        contig=record.chrom,
+        stride_block=1,
+        records=[record],
+    )
+
+    assert recovered == first_path
+    assert not second_path.exists()
+    assert read_embedding(cache_dir, record.key) == record.embedding
+    report = reindex_cache(cache_dir)
+    assert report.indexed_shards == 1
+    assert report.indexed_rows == 1
+
+
+def test_reindex_resolves_a_durable_pending_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _record(185)
+    original_insert = cache_module._insert_index_records
+    failed = False
+
+    def fail_after_insert(
+        conn: sqlite3.Connection,
+        cache_dir: Path,
+        shard: Path,
+        records: tuple[WindowCacheRecord, ...],
+    ) -> None:
+        nonlocal failed
+        original_insert(conn, cache_dir, shard, records)
+        if not failed:
+            failed = True
+            raise sqlite3.IntegrityError("injected post-publication index failure")
+
+    monkeypatch.setattr(cache_module, "_insert_index_records", fail_after_insert)
+    with pytest.raises(sqlite3.IntegrityError, match="post-publication index failure"):
+        write_shard(
+            tmp_path,
+            encoder_id="carbon",
+            contig=record.chrom,
+            stride_block=0,
+            records=[record],
+        )
+    pending = tmp_path / "embeddings" / ".pending-publication.json"
+    assert pending.is_file()
+
+    monkeypatch.setattr(cache_module, "_insert_index_records", original_insert)
+    report = reindex_cache(tmp_path)
+
+    assert report.indexed_rows == 1
+    assert not pending.exists()
+    assert read_embedding(tmp_path, record.key) == record.embedding
+
+
+@pytest.mark.parametrize("retry_mode", ["subset", "reordered"])
+def test_recovery_only_acknowledges_the_exact_original_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    retry_mode: str,
+) -> None:
+    records = (_record(186), _record(187))
+    original_insert = cache_module._insert_index_records
+    failed = False
+
+    def fail_after_insert(
+        conn: sqlite3.Connection,
+        cache_dir: Path,
+        shard: Path,
+        rows: tuple[WindowCacheRecord, ...],
+    ) -> None:
+        nonlocal failed
+        original_insert(conn, cache_dir, shard, rows)
+        if not failed:
+            failed = True
+            raise sqlite3.IntegrityError("injected post-publication index failure")
+
+    monkeypatch.setattr(cache_module, "_insert_index_records", fail_after_insert)
+    with pytest.raises(sqlite3.IntegrityError, match="post-publication index failure"):
+        write_shard(
+            tmp_path,
+            encoder_id="carbon",
+            contig="1",
+            stride_block=0,
+            records=records,
+        )
+
+    monkeypatch.setattr(cache_module, "_insert_index_records", original_insert)
+    retried_records = [records[0]] if retry_mode == "subset" else list(reversed(records))
+    with pytest.raises(CacheCorruptError, match="already indexed"):
+        write_shard(
+            tmp_path,
+            encoder_id="carbon",
+            contig="1",
+            stride_block=1,
+            records=retried_records,
+        )
+
+    assert read_embedding(tmp_path, records[0].key) == records[0].embedding
+    assert read_embedding(tmp_path, records[1].key) == records[1].embedding
 
 
 def test_staged_shard_rejects_physical_dtype_that_contradicts_metadata(
@@ -1404,6 +1765,7 @@ def test_read_embedding_rejects_index_path_outside_cache_root(tmp_path: Path) ->
     record = _record(45)
     write_shard(tmp_path, encoder_id="carbon", contig="1", stride_block=0, records=[record])
     with closing(sqlite3.connect(tmp_path / "embeddings" / "index.sqlite")) as conn:
+        conn.execute("PRAGMA ignore_check_constraints = ON")
         conn.execute("UPDATE window_index SET shard_path = '../../outside.parquet'")
         conn.commit()
 
@@ -1433,7 +1795,9 @@ def test_read_embedding_rejects_symlinked_index_path_inside_cache_root(tmp_path:
         read_embedding(tmp_path, record.key)
 
 
-def test_shard_path_sanitizes_encoder_id(tmp_path: Path) -> None:
+def test_shard_path_without_v3_identity_preserves_the_literal_legacy_contract(
+    tmp_path: Path,
+) -> None:
     path = shard_path_for(
         tmp_path,
         encoder_id="HuggingFaceBio/Carbon-500M",
@@ -1444,10 +1808,14 @@ def test_shard_path_sanitizes_encoder_id(tmp_path: Path) -> None:
         stride_block=0,
     )
 
-    encoder_part = path.parts[path.parts.index("embeddings") + 1]
-    assert encoder_part.startswith("id-")
-    assert len(encoder_part) == 67
-    assert set(encoder_part[3:]) <= set(string.hexdigits.lower())
+    assert path == (
+        tmp_path
+        / "embeddings"
+        / "HuggingFaceBio__Carbon-500M"
+        / "-1"
+        / "centered_mean_256"
+        / "chr1_0.parquet"
+    )
 
 
 @pytest.mark.parametrize(

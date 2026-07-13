@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,10 @@ pa = pytest.importorskip("pyarrow")
 pq = pytest.importorskip("pyarrow.parquet")
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="cache-backed rollout inputs require secure POSIX dirfd primitives",
+)
 def test_v02_rollout_inputs_write_cache_specs_and_report(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
