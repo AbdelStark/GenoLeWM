@@ -162,10 +162,10 @@ jobs:
         # enforces changed-file coverage over every cache line.
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            pytest --cov=geno_lewm --cov-branch --cov-report=term-missing --cov-fail-under=0 -v --tb=long 2>&1 | tee pytest.out
+            pytest --cov=geno_lewm --cov-branch --cov-report=term-missing --cov-fail-under=0 -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
             coverage report --show-missing --fail-under=84 --omit="*/encoder/cache.py"
           else
-            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee pytest.out
+            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
           fi
         shell: bash
       - name: Upload pytest output (on failure)
@@ -173,7 +173,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: pytest-${{ matrix.os }}-${{ matrix.python }}
-          path: pytest.out
+          path: ${{ runner.temp }}/pytest.out
           retention-days: 7
           if-no-files-found: ignore
       - name: Upload coverage to Codecov

@@ -85,12 +85,19 @@ def test_ci_windows_coverage_excludes_only_the_posix_cache_module() -> None:
     assert "coverage report" not in non_windows_branch
     assert "--cov-report=xml" in non_windows_branch
     assert "--omit=" not in non_windows_branch
+    assert pytest_step.count('tee "$RUNNER_TEMP/pytest.out"') == 2
+    assert "tee pytest.out" not in pytest_step
 
     changed_files_gate = text.split("      - name: Changed-files coverage gate", maxsplit=1)[
         1
     ].split("  ml-smoke:", maxsplit=1)[0]
     assert "matrix.os == 'ubuntu-latest'" in changed_files_gate
     assert "--threshold 0.84" in changed_files_gate
+
+    upload_step = text.split("      - name: Upload pytest output", maxsplit=1)[1].split(
+        "      - name: Upload coverage to Codecov", maxsplit=1
+    )[0]
+    assert "path: ${{ runner.temp }}/pytest.out" in upload_step
 
 
 def test_ci_workflow_runs_dedicated_eval_smoke_gate() -> None:
