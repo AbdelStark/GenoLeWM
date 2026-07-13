@@ -19,7 +19,7 @@ from geno_lewm.encoder import (
 from geno_lewm.encoder.cache_build import build_window_cache as _build_window_cache
 from geno_lewm.errors import CacheCorruptError, CacheKeyAlreadyIndexedError, InputError
 from geno_lewm.observability import get_logger, shutdown_run
-from geno_lewm.provenance import canonical_json_sha256
+from geno_lewm.provenance import canonical_json_sha256, sha256_file
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt",
@@ -92,18 +92,28 @@ class InterruptBeforeAnyShard(FakeRawEncoder):
 def build_window_cache(**kwargs: object):  # type: ignore[no-untyped-def]
     """Supply the explicit fixture runtime identity required by the public API."""
     kwargs.setdefault("hardware", "fixture CPU")
-    kwargs.setdefault(
-        "resolved_config",
-        {"encoder": {"revision": "fixture", "state_contract_version": "l2_normalized_v2"}},
+    encoder_id = kwargs.get("encoder_id", "HuggingFaceBio/Carbon-500M")
+    revision = "fixture-revision-0001"
+    resolved_config = dict(kwargs.get("resolved_config", {}))  # type: ignore[arg-type]
+    resolved_config.setdefault(
+        "encoder",
+        {
+            "model_id": encoder_id,
+            "revision": revision,
+            "state_contract_version": "l2_normalized_v2",
+        },
     )
+    kwargs["resolved_config"] = resolved_config
     encoder = kwargs["encoder"]
     digest = "sha256:" + encoder.encoder_hash.hex()  # type: ignore[attr-defined]
     kwargs.setdefault(
         "encoder_runtime_identity",
         {
+            "schema_version": "1.0.0",
+            "model_id": encoder_id,
+            "revision": revision,
             "state_contract_version": "l2_normalized_v2",
-            "expected": digest,
-            "observed": digest,
+            "runtime_hash": digest,
         },
     )
     return _build_window_cache(**kwargs)  # type: ignore[arg-type]
@@ -154,6 +164,7 @@ def test_build_window_cache_keeps_distinct_centers_and_deduplicates_exact_keys(
 ) -> None:
     requests = tmp_path / "requests.jsonl"
     _write_requests(requests)
+
     encoder = FakeRawEncoder()
 
     report = build_window_cache(
@@ -1087,7 +1098,7 @@ def test_key_race_with_unowned_planned_path_is_rejected(
 
 @pytest.mark.parametrize(
     "drift",
-    ["created_at_ns", "rows_per_shard", "batch_size", "hardware", "resolved_config", "runtime"],
+    ["created_at_ns", "rows_per_shard", "batch_size", "hardware", "resolved_config"],
 )
 def test_same_requests_with_distinct_immutable_plans_get_distinct_namespaces(
     tmp_path: Path,
@@ -1133,13 +1144,6 @@ def test_same_requests_with_distinct_immutable_plans_get_distinct_namespaces(
         second_args["hardware"] = "different fixture CPU"
     elif drift == "resolved_config":
         second_args["resolved_config"] = {"seed": 18}
-    else:
-        digest = "sha256:" + FakeRawEncoder.encoder_hash.hex()
-        second_args["encoder_runtime_identity"] = {
-            "state_contract_version": "different-contract-version",
-            "expected": digest,
-            "observed": digest,
-        }
 
     second = build_window_cache(
         evidence_dir=tmp_path / "second-evidence",
@@ -1187,3 +1191,242 @@ def test_input_artifact_names_are_portable_and_case_unique(
         )
 
     assert not (tmp_path / "evidence/cache_build_plan.json").exists()
+
+
+def test_write_once_rejects_evidence_root_swap_without_touching_outside(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_requests(requests)
+    evidence = tmp_path / "evidence"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "victim.txt"
+    victim.write_text("untouched", encoding="utf-8")
+    original_open = cache_build_module.os.open
+    swapped = False
+
+    def swap_root_before_plan_install(
+        path: object,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        if path == "cache_build_plan.json" and flags & os.O_EXCL and not swapped:
+            swapped = True
+            evidence.rename(tmp_path / "evidence-held")
+            evidence.symlink_to(outside, target_is_directory=True)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(cache_build_module.os, "open", swap_root_before_plan_install)
+
+    with pytest.raises((CacheCorruptError, InputError), match=r"binding|symlink|unsafe"):
+        build_window_cache(
+            requests_jsonl=requests,
+            cache_dir=tmp_path / "cache",
+            evidence_dir=evidence,
+            encoder=FakeRawEncoder(),
+            encoder_id="HuggingFaceBio/Carbon-500M",
+            batch_size=1,
+            rows_per_shard=1,
+            created_at_ns=1_750_000_000_000_000_000,
+        )
+
+    assert swapped
+    assert victim.read_text(encoding="utf-8") == "untouched"
+    assert list(outside.iterdir()) == [victim]
+
+
+def test_atomic_write_rejects_evidence_root_swap_without_overwriting_outside(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_requests(requests)
+    evidence = tmp_path / "evidence"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "cache_build_state.json"
+    victim.write_text("outside victim", encoding="utf-8")
+    original_replace = cache_build_module.os.replace
+    swapped = False
+
+    def swap_root_before_state_replace(
+        source: object,
+        destination: object,
+        *,
+        src_dir_fd: int | None = None,
+        dst_dir_fd: int | None = None,
+    ) -> None:
+        nonlocal swapped
+        if destination == "cache_build_state.json" and not swapped:
+            swapped = True
+            evidence.rename(tmp_path / "evidence-held")
+            evidence.symlink_to(outside, target_is_directory=True)
+        original_replace(
+            source,
+            destination,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+        )
+
+    monkeypatch.setattr(cache_build_module.os, "replace", swap_root_before_state_replace)
+
+    with pytest.raises((CacheCorruptError, InputError), match=r"binding|symlink|unsafe"):
+        build_window_cache(
+            requests_jsonl=requests,
+            cache_dir=tmp_path / "cache",
+            evidence_dir=evidence,
+            encoder=FakeRawEncoder(),
+            encoder_id="HuggingFaceBio/Carbon-500M",
+            batch_size=1,
+            rows_per_shard=1,
+            created_at_ns=1_750_000_000_000_000_000,
+        )
+
+    assert swapped
+    assert victim.read_text(encoding="utf-8") == "outside victim"
+
+
+def test_evidence_capture_rejects_identical_external_symlink_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_requests(requests)
+    kwargs = {
+        "requests_jsonl": requests,
+        "cache_dir": tmp_path / "cache",
+        "evidence_dir": tmp_path / "evidence",
+        "encoder_id": "HuggingFaceBio/Carbon-500M",
+        "batch_size": 1,
+        "rows_per_shard": 1,
+        "created_at_ns": 1_750_000_000_000_000_000,
+    }
+    build_window_cache(encoder=FakeRawEncoder(), **kwargs)
+    plan = tmp_path / "evidence/cache_build_plan.json"
+    expected = plan.read_bytes()
+    outside = tmp_path / "outside-plan.json"
+    outside.write_bytes(expected)
+    original_read = cache_build_module._read_descriptor_bytes
+    swapped = False
+
+    def read_then_swap(descriptor: int) -> bytes:
+        nonlocal swapped
+        body = original_read(descriptor)
+        if body == expected and not swapped:
+            swapped = True
+            plan.unlink()
+            plan.symlink_to(outside)
+        return body
+
+    monkeypatch.setattr(cache_build_module, "_read_descriptor_bytes", read_then_swap)
+
+    with pytest.raises(CacheCorruptError, match=r"binding|symlink"):
+        build_window_cache(encoder=FailIfEncoded(), **kwargs)
+
+    assert swapped
+    assert outside.read_bytes() == expected
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    [
+        (("requests", "duplicate_rows"), 999),
+        (("configuration", "hardware", "description"), "forged accelerator"),
+        (("build", "encoded_rows"), 0),
+        (("throughput", "measurement_scope"), "forged timing scope"),
+        (("cache_contract", "normalized_states_persisted"), True),
+        (("claim_boundary", "model_quality_evaluated"), True),
+    ],
+)
+def test_completed_replay_rederives_report_after_coherent_checksum_forgery(
+    tmp_path: Path,
+    path: tuple[str, ...],
+    replacement: object,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    _write_requests(requests)
+    kwargs = {
+        "requests_jsonl": requests,
+        "cache_dir": tmp_path / "cache",
+        "evidence_dir": tmp_path / "evidence",
+        "encoder_id": "HuggingFaceBio/Carbon-500M",
+        "batch_size": 1,
+        "rows_per_shard": 1,
+        "created_at_ns": 1_750_000_000_000_000_000,
+    }
+    build_window_cache(encoder=FakeRawEncoder(), **kwargs)
+    report_path = tmp_path / "evidence/cache_build_report.json"
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    target = payload
+    for component in path[:-1]:
+        target = target[component]
+    target[path[-1]] = replacement
+    report_path.chmod(0o644)
+    report_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    checksums = tmp_path / "evidence/SHA256SUMS"
+    lines = checksums.read_text(encoding="ascii").splitlines()
+    digest = sha256_file(report_path).removeprefix("sha256:")
+    lines = [
+        f"{digest}  cache_build_report.json" if line.endswith("  cache_build_report.json") else line
+        for line in lines
+    ]
+    checksums.chmod(0o644)
+    checksums.write_text("\n".join(lines) + "\n", encoding="ascii")
+
+    with pytest.raises(CacheCorruptError, match=r"deterministic completion evidence"):
+        build_window_cache(encoder=FailIfEncoded(), **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("state_contract", "resolved_state_contract"),
+    [
+        ("future_state_v9", "future_state_v9"),
+        ("l2_normalized_v2", "legacy_raw_v1"),
+    ],
+)
+def test_public_builder_rejects_unsupported_or_mismatched_runtime_before_writes(
+    tmp_path: Path,
+    state_contract: str,
+    resolved_state_contract: str,
+) -> None:
+    digest = "sha256:" + FakeRawEncoder.encoder_hash.hex()
+    with pytest.raises(InputError, match=r"unsupported|does not match"):
+        _build_window_cache(
+            requests_jsonl=(
+                b'{"chrom":"22","edit_locus":0,"end_bp":12,'
+                b'"request_id":"row","start_bp":0,"window":"ACGTACGTACGT"}\n'
+            ),
+            cache_dir=tmp_path / "cache",
+            evidence_dir=tmp_path / "evidence",
+            encoder=FakeRawEncoder(),
+            encoder_id="HuggingFaceBio/Carbon-500M",
+            batch_size=1,
+            rows_per_shard=1,
+            created_at_ns=1_750_000_000_000_000_000,
+            hardware="fixture CPU",
+            resolved_config={
+                "encoder": {
+                    "model_id": "HuggingFaceBio/Carbon-500M",
+                    "revision": "fixture-revision-0001",
+                    "state_contract_version": resolved_state_contract,
+                }
+            },
+            encoder_runtime_identity={
+                "schema_version": "1.0.0",
+                "model_id": "HuggingFaceBio/Carbon-500M",
+                "revision": "fixture-revision-0001",
+                "state_contract_version": state_contract,
+                "runtime_hash": digest,
+            },
+        )
+
+    assert not (tmp_path / "evidence").exists()
+    assert not (tmp_path / "cache").exists()

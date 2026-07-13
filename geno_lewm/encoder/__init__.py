@@ -45,6 +45,12 @@ from geno_lewm.encoder.pooling import (
     global_mean,
     pool_hidden_states,
 )
+from geno_lewm.encoder.runtime_identity import (
+    ENCODER_RUNTIME_IDENTITY_SCHEMA_VERSION,
+    SUPPORTED_ENCODER_STATE_CONTRACTS,
+    EncoderRuntimeIdentity,
+    parse_encoder_runtime_identity_bytes,
+)
 from geno_lewm.encoder.windowing import (
     CARBON_DNA_CLOSE_TAG,
     CARBON_DNA_OPEN_TAG,
@@ -70,9 +76,11 @@ __all__ = [
     "DEFAULT_EDIT_MARGIN_BP",
     "DEFAULT_POOL_RADIUS_TOKENS",
     "DEFAULT_WINDOW_BP",
+    "ENCODER_RUNTIME_IDENTITY_SCHEMA_VERSION",
     "INDEX_DB_NAME",
     "POOL_CENTERED_MEAN",
     "POOL_GLOBAL_MEAN",
+    "SUPPORTED_ENCODER_STATE_CONTRACTS",
     "SUPPORTED_POOL_TYPES",
     "SUPPORTED_WINDOW_BP",
     "CacheBuildReport",
@@ -83,6 +91,7 @@ __all__ = [
     "CacheRepairReport",
     "CacheShardInspection",
     "CarbonStateEncoder",
+    "EncoderRuntimeIdentity",
     "ExtractedWindow",
     "PoolingResult",
     "WindowCacheKey",
@@ -95,6 +104,7 @@ __all__ = [
     "global_mean",
     "inspect_cache_shard",
     "pad_for_carbon_tokenizer",
+    "parse_encoder_runtime_identity_bytes",
     "pool_hidden_states",
     "read_cache_entries",
     "read_cache_entry",

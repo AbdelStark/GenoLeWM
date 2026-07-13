@@ -18,18 +18,10 @@ from geno_lewm.encoder import (
     WindowCacheRecord,
     write_shard,
 )
+from geno_lewm.encoder.runtime_identity import parse_encoder_runtime_identity_bytes
 from geno_lewm.errors import InputError
 from geno_lewm.observability import shutdown_run
-from geno_lewm.provenance import (
-    SCHEMA_VERSION,
-    Manifest,
-    ManifestArtifact,
-    ManifestEncoder,
-    ManifestTraining,
-    load_manifest,
-    sha256_file,
-    write_manifest,
-)
+from geno_lewm.provenance import sha256_file
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt",
@@ -107,6 +99,7 @@ def _write_build_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
         """\
 schema_version: 1.1.0
 encoder:
+  model_id: HuggingFaceBio/Carbon-500M
   revision: pinned-revision
   dtype: bf16
   state_layer: 20
@@ -118,25 +111,22 @@ encoder:
         encoding="utf-8",
     )
     digest = "sha256:" + "07" * 32
-    artifact = ManifestArtifact(file="artifact.bin", hash=digest)
-    manifest = Manifest(
-        schema_version=SCHEMA_VERSION,
-        model_name="cache-proof",
-        model_version="0.0.0",
-        release_id="cache-proof",
-        encoder=ManifestEncoder(
-            id="HuggingFaceBio/Carbon-500M",
-            revision="pinned-revision",
-            hash=digest,
-        ),
-        predictor=artifact,
-        action_encoder=artifact,
-        calibration=artifact,
-        training=ManifestTraining(config_file="cache.yaml", hash=digest),
-        eval=artifact,
+    identity_path = tmp_path / "encoder-runtime-identity.json"
+    identity_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "model_id": "HuggingFaceBio/Carbon-500M",
+                "revision": "pinned-revision",
+                "state_contract_version": "l2_normalized_v2",
+                "runtime_hash": digest,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
     )
-    manifest_path = write_manifest(manifest, tmp_path / "manifest.json")
-    return requests, config, manifest_path
+    return requests, config, identity_path
 
 
 def test_cache_windows_reindex_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -265,7 +255,7 @@ def test_cache_windows_build_cli_writes_finite_evidence_bundle(
     monkeypatch.setattr(cache_cli, "_build_encoder", lambda **_kwargs: _FakeRawEncoder())
     monkeypatch.setattr(
         cache_cli,
-        "encoder_identity_hash",
+        "encoder_runtime_hash",
         lambda *_args, **_kwargs: "sha256:" + "07" * 32,
     )
     report_copy = tmp_path / "report-copy.json"
@@ -281,7 +271,7 @@ def test_cache_windows_build_cli_writes_finite_evidence_bundle(
             str(requests),
             "--evidence-dir",
             str(tmp_path / "evidence"),
-            "--model-manifest",
+            "--encoder-runtime-identity",
             str(manifest),
             "--carbon-model-dir",
             str(tmp_path / "carbon"),
@@ -312,7 +302,7 @@ def test_cache_windows_build_cli_writes_finite_evidence_bundle(
     assert payload["claim_boundary"]["ten_percent_corpus_completed"] is False
     assert [item["path"] for item in payload["evidence_artifacts"]["inputs"]] == [
         "inputs/encoder_config.yaml",
-        "inputs/model_manifest.json",
+        "inputs/encoder_runtime_identity_source.json",
     ]
     assert payload["configuration"]["encoder_runtime_identity"]["path"] == (
         "encoder_runtime_identity.json"
@@ -341,7 +331,10 @@ def test_build_encoder_rejects_corrected_runtime_identity_at_cli_boundary(
 ) -> None:
     _requests, config_path, manifest_path = _write_build_inputs(tmp_path)
     config = load_config(config_path)
-    manifest = load_manifest(manifest_path)
+    identity = parse_encoder_runtime_identity_bytes(
+        manifest_path.read_bytes(),
+        source=str(manifest_path),
+    )
     carbon = tmp_path / "carbon"
     carbon.mkdir()
     monkeypatch.setattr(
@@ -356,7 +349,7 @@ def test_build_encoder_rejects_corrected_runtime_identity_at_cli_boundary(
     with pytest.raises(InputError, match="runtime identity does not match"):
         cache_cli._build_encoder(
             config=config,
-            manifest=manifest,
+            identity=identity,
             carbon_model_dir=carbon,
             device="cpu",
         )
@@ -387,7 +380,7 @@ def test_cache_windows_build_cli_rejects_mutable_outputs_inside_evidence(
             str(requests),
             "--evidence-dir",
             str(evidence),
-            "--model-manifest",
+            "--encoder-runtime-identity",
             str(manifest),
             "--carbon-model-dir",
             str(tmp_path / "carbon"),
@@ -437,7 +430,7 @@ def test_json_report_rejects_portable_evidence_path_aliases(
             str(requests),
             "--evidence-dir",
             str(evidence),
-            "--model-manifest",
+            "--encoder-runtime-identity",
             str(manifest),
             "--carbon-model-dir",
             str(tmp_path / "carbon"),
@@ -469,7 +462,7 @@ def test_cli_stages_and_uses_one_immutable_snapshot_of_every_file_input(
     manifest_snapshot = manifest.read_bytes()
     monkeypatch.setattr(
         cache_cli,
-        "encoder_identity_hash",
+        "encoder_runtime_hash",
         lambda *_args, **_kwargs: "sha256:" + "07" * 32,
     )
 
@@ -492,7 +485,7 @@ def test_cli_stages_and_uses_one_immutable_snapshot_of_every_file_input(
             str(requests),
             "--evidence-dir",
             str(evidence),
-            "--model-manifest",
+            "--encoder-runtime-identity",
             str(manifest),
             "--carbon-model-dir",
             str(tmp_path / "carbon"),
@@ -509,11 +502,13 @@ def test_cli_stages_and_uses_one_immutable_snapshot_of_every_file_input(
     assert rc == 0, captured.err
     assert (evidence / "cache_build_requests.jsonl").read_bytes() == request_snapshot
     assert (evidence / "inputs/encoder_config.yaml").read_bytes() == config_snapshot
-    assert (evidence / "inputs/model_manifest.json").read_bytes() == manifest_snapshot
+    assert (
+        evidence / "inputs/encoder_runtime_identity_source.json"
+    ).read_bytes() == manifest_snapshot
     runtime_identity = json.loads(
         (evidence / "encoder_runtime_identity.json").read_text(encoding="utf-8")
     )
-    assert runtime_identity["observed"] == "sha256:" + "07" * 32
+    assert runtime_identity["runtime_hash"] == "sha256:" + "07" * 32
     report = json.loads((evidence / "cache_build_report.json").read_text(encoding="utf-8"))
     assert report["configuration"]["resolved_config"]["sha256"] == sha256_file(
         evidence / "resolved_config.json"
@@ -531,7 +526,7 @@ def test_post_checksum_report_write_cannot_return_success_with_open_evidence(
     monkeypatch.setattr(cache_cli, "_build_encoder", lambda **_kwargs: _FakeRawEncoder())
     monkeypatch.setattr(
         cache_cli,
-        "encoder_identity_hash",
+        "encoder_runtime_hash",
         lambda *_args, **_kwargs: "sha256:" + "07" * 32,
     )
     real_write_report = cache_cli._write_json_report
@@ -552,7 +547,7 @@ def test_post_checksum_report_write_cannot_return_success_with_open_evidence(
             str(requests),
             "--evidence-dir",
             str(evidence),
-            "--model-manifest",
+            "--encoder-runtime-identity",
             str(manifest),
             "--carbon-model-dir",
             str(tmp_path / "carbon"),

@@ -25,7 +25,11 @@ from geno_lewm.cli._dispatch import (
 )
 from geno_lewm.config import GenoLeWMConfig, config_to_dict, load_config
 from geno_lewm.encoder import CarbonStateEncoder, build_window_cache
-from geno_lewm.encoder._identity import encoder_identity_hash
+from geno_lewm.encoder._identity import (
+    encoder_identity_hash,
+    encoder_runtime_hash,
+    encoder_weights_hash,
+)
 from geno_lewm.encoder.cache import (
     CacheReindexReport,
     CacheRepairReport,
@@ -33,9 +37,13 @@ from geno_lewm.encoder.cache import (
     reindex_cache,
     repair_cache,
 )
+from geno_lewm.encoder.runtime_identity import (
+    EncoderRuntimeIdentity,
+    parse_encoder_runtime_identity_bytes,
+)
 from geno_lewm.errors import InputError
 from geno_lewm.observability import Severity, get_logger
-from geno_lewm.provenance import Manifest, parse_manifest_bytes, sha256_file
+from geno_lewm.provenance import sha256_file
 
 __all__ = [
     "app",
@@ -89,9 +97,12 @@ def main(
         Path | None,
         typer.Option("--evidence-dir", help="Durable cache-build plan/state/report bundle."),
     ] = None,
-    model_manifest: Annotated[
+    encoder_runtime_identity: Annotated[
         Path | None,
-        typer.Option("--model-manifest", help="Manifest committing the Carbon encoder identity."),
+        typer.Option(
+            "--encoder-runtime-identity",
+            help="Closed JSON identity for the exact Carbon model revision and runtime bytes.",
+        ),
     ] = None,
     carbon_model_dir: Annotated[
         Path | None,
@@ -162,7 +173,7 @@ def main(
     build_inputs = (
         requests_jsonl,
         evidence_dir,
-        model_manifest,
+        encoder_runtime_identity,
         carbon_model_dir,
         created_at_ns,
         hardware,
@@ -217,7 +228,7 @@ def main(
         for option, value in (
             ("--requests-jsonl", requests_jsonl),
             ("--evidence-dir", evidence_dir),
-            ("--model-manifest", model_manifest),
+            ("--encoder-runtime-identity", encoder_runtime_identity),
             ("--carbon-model-dir", carbon_model_dir),
             ("--created-at-ns", created_at_ns),
             ("--hardware", hardware),
@@ -232,7 +243,7 @@ def main(
         )
     assert requests_jsonl is not None
     assert evidence_dir is not None
-    assert model_manifest is not None
+    assert encoder_runtime_identity is not None
     assert carbon_model_dir is not None
     assert created_at_ns is not None
     assert hardware is not None
@@ -246,7 +257,10 @@ def main(
     request_bytes = _capture_regular_bytes(requests_jsonl, label="cache build requests")
     config_path = Path(opts.config)
     config_bytes = _capture_regular_bytes(config_path, label="encoder config")
-    manifest_bytes = _capture_regular_bytes(model_manifest, label="model manifest")
+    runtime_identity_bytes = _capture_regular_bytes(
+        encoder_runtime_identity,
+        label="encoder runtime identity",
+    )
     resolved_config = _resolve_build_config(
         config_bytes=config_bytes,
         source_path=config_path,
@@ -255,18 +269,21 @@ def main(
         deterministic=opts.deterministic,
         run_id=opts.run_id,
     )
-    manifest = parse_manifest_bytes(manifest_bytes, source=str(model_manifest))
+    runtime_contract = parse_encoder_runtime_identity_bytes(
+        runtime_identity_bytes,
+        source=str(encoder_runtime_identity),
+    )
     runtime_identity = _capture_encoder_runtime_identity(
         config=resolved_config,
-        manifest=manifest,
+        identity=runtime_contract,
         carbon_model_dir=carbon_model_dir,
     )
     encoder = _build_encoder(
         config=resolved_config,
-        manifest=manifest,
+        identity=runtime_contract,
         carbon_model_dir=carbon_model_dir,
         device=device,
-        observed_identity=cast(str, runtime_identity["observed"]),
+        observed_identity=runtime_contract.cache_identity_hash,
     )
     logger = get_logger(
         "cache-build",
@@ -279,7 +296,7 @@ def main(
         "cache_dir": root,
         "evidence_dir": evidence_dir,
         "encoder": encoder,
-        "encoder_id": manifest.encoder.id,
+        "encoder_id": runtime_contract.model_id,
         "batch_size": batch_size,
         "rows_per_shard": rows_per_shard,
         "created_at_ns": created_at_ns,
@@ -288,7 +305,7 @@ def main(
         "encoder_runtime_identity": runtime_identity,
         "input_artifacts": {
             "encoder_config.yaml": config_bytes,
-            "model_manifest.json": manifest_bytes,
+            "encoder_runtime_identity_source.json": runtime_identity_bytes,
         },
     }
     report = build_window_cache(
@@ -375,17 +392,25 @@ def _apply_set_override(payload: dict[str, Any], raw: str) -> None:
 def _build_encoder(
     *,
     config: GenoLeWMConfig,
-    manifest: Manifest,
+    identity: EncoderRuntimeIdentity,
     carbon_model_dir: Path,
     device: str,
     observed_identity: str | None = None,
 ) -> CarbonStateEncoder:
-    if config.encoder.revision != manifest.encoder.revision:
+    if (
+        config.encoder.model_id != identity.model_id
+        or config.encoder.revision != identity.revision
+        or config.encoder.state_contract_version != identity.state_contract_version
+    ):
         raise InputError(
-            "config encoder revision does not match the model manifest",
+            "config encoder identity does not match the encoder runtime identity",
             details={
+                "config_model_id": config.encoder.model_id,
+                "identity_model_id": identity.model_id,
                 "config_revision": config.encoder.revision,
-                "manifest_revision": manifest.encoder.revision,
+                "identity_revision": identity.revision,
+                "config_state_contract_version": config.encoder.state_contract_version,
+                "identity_state_contract_version": identity.state_contract_version,
             },
         )
     if not device:
@@ -395,25 +420,25 @@ def _build_encoder(
             carbon_model_dir,
             state_contract_version=config.encoder.state_contract_version,
         )
-    if observed_identity != manifest.encoder.hash:
+    if observed_identity != identity.cache_identity_hash:
         raise InputError(
-            "local Carbon runtime identity does not match the model manifest",
+            "local Carbon runtime identity does not match the committed identity",
             details={
                 "state_contract_version": config.encoder.state_contract_version,
-                "expected": manifest.encoder.hash,
+                "expected": identity.cache_identity_hash,
                 "observed": observed_identity,
             },
             remediation="mount the exact corrected Carbon runtime committed by the manifest",
         )
     return CarbonStateEncoder(
         str(carbon_model_dir),
-        manifest.encoder.revision,
+        identity.revision,
         dtype=config.encoder.dtype,
         state_layer=config.encoder.state_layer,
         pool_type=config.encoder.pool_type,
         pool_radius=config.encoder.pool_radius,
         normalize=False,
-        encoder_hash=manifest.encoder.hash,
+        encoder_hash=identity.cache_identity_hash,
         local_files_only=True,
         trust_remote_code=config.encoder.trust_remote_code,
         device=device,
@@ -423,28 +448,38 @@ def _build_encoder(
 def _capture_encoder_runtime_identity(
     *,
     config: GenoLeWMConfig,
-    manifest: Manifest,
+    identity: EncoderRuntimeIdentity,
     carbon_model_dir: Path,
 ) -> dict[str, object]:
-    observed = encoder_identity_hash(
-        carbon_model_dir,
-        state_contract_version=config.encoder.state_contract_version,
-    )
-    if observed != manifest.encoder.hash:
+    if (
+        config.encoder.model_id != identity.model_id
+        or config.encoder.revision != identity.revision
+        or config.encoder.state_contract_version != identity.state_contract_version
+    ):
         raise InputError(
-            "local Carbon runtime identity does not match the model manifest",
+            "config encoder identity does not match the encoder runtime identity",
             details={
-                "state_contract_version": config.encoder.state_contract_version,
-                "expected": manifest.encoder.hash,
-                "observed": observed,
+                "config_model_id": config.encoder.model_id,
+                "identity_model_id": identity.model_id,
+                "config_revision": config.encoder.revision,
+                "identity_revision": identity.revision,
             },
-            remediation="mount the exact corrected Carbon runtime committed by the manifest",
         )
-    return {
-        "state_contract_version": config.encoder.state_contract_version,
-        "expected": manifest.encoder.hash,
-        "observed": observed,
-    }
+    observed_runtime = encoder_runtime_hash(carbon_model_dir)
+    if observed_runtime != identity.runtime_hash:
+        raise InputError(
+            "local Carbon runtime hash does not match the committed identity",
+            details={"expected": identity.runtime_hash, "observed": observed_runtime},
+            remediation="mount the exact corrected Carbon runtime committed by the identity",
+        )
+    if identity.weights_hash is not None:
+        observed_weights = encoder_weights_hash(carbon_model_dir)
+        if observed_weights != identity.weights_hash:
+            raise InputError(
+                "local Carbon weights hash does not match the committed identity",
+                details={"expected": identity.weights_hash, "observed": observed_weights},
+            )
+    return identity.to_dict()
 
 
 def _reject_evidence_output_overlap(

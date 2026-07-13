@@ -19,11 +19,12 @@ import json
 import math
 import os
 import re
+import secrets
 import stat
-import tempfile
 import time
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -41,6 +42,7 @@ from geno_lewm.encoder.cache import (
     write_shard,
 )
 from geno_lewm.encoder.pooling import POOL_GLOBAL_MEAN
+from geno_lewm.encoder.runtime_identity import encoder_runtime_identity_from_mapping
 from geno_lewm.encoder.windowing import canonicalize_dna, window_sha256
 from geno_lewm.errors import (
     CacheCorruptError,
@@ -49,7 +51,7 @@ from geno_lewm.errors import (
     RuntimeSetupError,
 )
 from geno_lewm.observability import GenoLeWMLogger
-from geno_lewm.provenance import canonical_json_sha256, sha256_bytes, sha256_file
+from geno_lewm.provenance import canonical_json_sha256, sha256_bytes
 
 __all__ = [
     "CACHE_BUILD_REPORT_NAME",
@@ -59,7 +61,7 @@ __all__ = [
 ]
 
 
-CACHE_BUILD_SCHEMA_VERSION = "1.2.0"
+CACHE_BUILD_SCHEMA_VERSION = "1.3.0"
 CACHE_BUILD_REPORT_NAME = "cache_build_report.json"
 _GENERATED_BY = "geno_lewm.encoder.cache_build"
 _REQUEST_COPY_NAME = "cache_build_requests.jsonl"
@@ -162,6 +164,302 @@ class _EncodeResult:
     encode_batch_seconds: float
 
 
+@dataclass(frozen=True, slots=True)
+class _CapturedFile:
+    body: bytes
+    sha256: str
+    size_bytes: int
+
+
+class _EvidenceStore:
+    """Evidence namespace accessed only through no-follow directory descriptors."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root.absolute()
+        descriptor = _open_absolute_directory(self.root, create=True)
+        try:
+            observed = os.fstat(descriptor)
+            self._identity = (observed.st_dev, observed.st_ino)
+        finally:
+            os.close(descriptor)
+
+    @contextmanager
+    def _parent(self, relative: str, *, create: bool) -> Iterator[int | None]:
+        path = _evidence_relative_path(relative)
+        root_fd = self._open_root()
+        current_fd = root_fd
+        bindings: list[tuple[int, str, int]] = []
+        try:
+            for part in path.parent.parts:
+                try:
+                    child_fd = os.open(
+                        part,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=current_fd,
+                    )
+                except FileNotFoundError:
+                    if not create:
+                        yield None
+                        return
+                    with suppress(FileExistsError):
+                        os.mkdir(part, 0o700, dir_fd=current_fd)
+                    os.fsync(current_fd)
+                    child_fd = os.open(
+                        part,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=current_fd,
+                    )
+                except OSError as exc:
+                    raise CacheCorruptError(
+                        "cache build evidence parent is a symlink or unsafe directory",
+                        details={"path": relative, "component": part, "error": str(exc)},
+                    ) from exc
+                bindings.append((current_fd, part, child_fd))
+                current_fd = child_fd
+            yield current_fd
+            for parent_fd, name, child_fd in bindings:
+                _verify_bound_directory_at(parent_fd, name, child_fd)
+            self._verify_root_binding(root_fd)
+        finally:
+            for _, _, descriptor in reversed(bindings):
+                os.close(descriptor)
+            os.close(root_fd)
+
+    def _open_root(self) -> int:
+        try:
+            descriptor = _open_absolute_directory(self.root, create=False)
+        except InputError as exc:
+            raise CacheCorruptError(
+                "cache build evidence root became a symlink or unsafe directory"
+            ) from exc
+        held = os.fstat(descriptor)
+        if (held.st_dev, held.st_ino) != self._identity:
+            os.close(descriptor)
+            raise CacheCorruptError("cache build evidence root binding changed")
+        return descriptor
+
+    def _verify_root_binding(self, held_descriptor: int) -> None:
+        held = os.fstat(held_descriptor)
+        if (held.st_dev, held.st_ino) != self._identity:
+            raise CacheCorruptError("cache build evidence root binding changed")
+        try:
+            observed_descriptor = _open_absolute_directory(self.root, create=False)
+        except InputError as exc:
+            raise CacheCorruptError(
+                "cache build evidence root became a symlink or unsafe directory"
+            ) from exc
+        try:
+            observed = os.fstat(observed_descriptor)
+        finally:
+            os.close(observed_descriptor)
+        if (observed.st_dev, observed.st_ino) != self._identity:
+            raise CacheCorruptError("cache build evidence root binding changed")
+
+    def exists(self, relative: str) -> bool:
+        path = _evidence_relative_path(relative)
+        with self._parent(relative, create=False) as parent_fd:
+            if parent_fd is None:
+                return False
+            try:
+                os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return False
+            return True
+
+    def capture(self, relative: str, *, label: str) -> _CapturedFile:
+        path = _evidence_relative_path(relative)
+        with self._parent(relative, create=False) as parent_fd:
+            if parent_fd is None:
+                raise CacheCorruptError(f"{label} parent is missing")
+            try:
+                descriptor = os.open(
+                    path.name,
+                    os.O_RDONLY | os.O_NOFOLLOW,
+                    dir_fd=parent_fd,
+                )
+            except OSError as exc:
+                raise CacheCorruptError(
+                    f"{label} could not be opened as a regular non-symlink file",
+                    details={"path": relative, "error": str(exc)},
+                ) from exc
+            try:
+                before = os.fstat(descriptor)
+                if not stat.S_ISREG(before.st_mode):
+                    raise CacheCorruptError(f"{label} must be a regular non-symlink file")
+                body = _read_descriptor_bytes(descriptor)
+                after = os.fstat(descriptor)
+                _verify_bound_regular_at(parent_fd, path.name, descriptor, label=label)
+            finally:
+                os.close(descriptor)
+        if (
+            _stable_file_identity(before) != _stable_file_identity(after)
+            or len(body) != before.st_size
+        ):
+            raise CacheCorruptError(f"{label} changed while it was being captured")
+        return _CapturedFile(
+            body=body,
+            sha256=sha256_bytes(body),
+            size_bytes=before.st_size,
+        )
+
+    def write_once(self, relative: str, body: bytes, *, label: str) -> None:
+        path = _evidence_relative_path(relative)
+        with self._parent(relative, create=True) as parent_fd:
+            assert parent_fd is not None
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+            try:
+                descriptor = os.open(path.name, flags, 0o444, dir_fd=parent_fd)
+            except FileExistsError:
+                observed = self.capture(relative, label=label).body
+                if observed != body:
+                    raise InputError(f"existing {label} does not match this build") from None
+                return
+            except OSError as exc:
+                raise CacheCorruptError(
+                    f"{label} could not be installed safely",
+                    details={"path": relative, "error": str(exc)},
+                ) from exc
+            try:
+                _write_descriptor_bytes(descriptor, body)
+                os.fchmod(descriptor, 0o444)
+                os.fsync(descriptor)
+                _verify_bound_regular_at(parent_fd, path.name, descriptor, label=label)
+            finally:
+                os.close(descriptor)
+            os.fsync(parent_fd)
+
+    def atomic_write(self, relative: str, body: bytes) -> None:
+        path = _evidence_relative_path(relative)
+        with self._parent(relative, create=True) as parent_fd:
+            assert parent_fd is not None
+            temporary = f".{path.name}.{secrets.token_hex(16)}.tmp"
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent_fd,
+            )
+            installed = False
+            try:
+                _write_descriptor_bytes(descriptor, body)
+                os.fchmod(descriptor, 0o444)
+                os.fsync(descriptor)
+                os.replace(
+                    temporary,
+                    path.name,
+                    src_dir_fd=parent_fd,
+                    dst_dir_fd=parent_fd,
+                )
+                installed = True
+                _verify_bound_regular_at(
+                    parent_fd,
+                    path.name,
+                    descriptor,
+                    label=f"cache build evidence {relative}",
+                )
+                os.fsync(parent_fd)
+            finally:
+                os.close(descriptor)
+                if not installed:
+                    with suppress(FileNotFoundError):
+                        os.unlink(temporary, dir_fd=parent_fd)
+
+    def inventory(
+        self,
+        *,
+        expected_names: tuple[str, ...],
+        require_complete: bool,
+    ) -> None:
+        expected = set(expected_names)
+        allowed_directories = {
+            Path(name).parent.as_posix()
+            for name in expected_names
+            if Path(name).parent.as_posix() != "."
+        }
+        root_fd = self._open_root()
+        observed: list[str] = []
+        try:
+            self._scan_directory(
+                root_fd,
+                prefix="",
+                allowed_directories=allowed_directories,
+                observed=observed,
+            )
+            self._verify_root_binding(root_fd)
+        finally:
+            os.close(root_fd)
+        unexpected = set(observed) - expected
+        if unexpected:
+            raise CacheCorruptError(
+                "cache build evidence contains an unexpected artifact",
+                details={"unexpected": sorted(unexpected)},
+            )
+        if require_complete and set(observed) != expected:
+            raise CacheCorruptError(
+                "cache build evidence is missing a required artifact",
+                details={"missing": sorted(expected - set(observed))},
+            )
+
+    def _scan_directory(
+        self,
+        descriptor: int,
+        *,
+        prefix: str,
+        allowed_directories: set[str],
+        observed: list[str],
+    ) -> None:
+        for name in sorted(os.listdir(descriptor)):
+            relative = f"{prefix}/{name}" if prefix else name
+            entry = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            if stat.S_ISLNK(entry.st_mode):
+                raise CacheCorruptError(
+                    "cache build evidence contains a symlink",
+                    details={"path": relative},
+                )
+            if stat.S_ISDIR(entry.st_mode):
+                if relative not in allowed_directories:
+                    raise CacheCorruptError(
+                        "cache build evidence contains an unexpected directory",
+                        details={"path": relative},
+                    )
+                child = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=descriptor,
+                )
+                try:
+                    self._scan_directory(
+                        child,
+                        prefix=relative,
+                        allowed_directories=allowed_directories,
+                        observed=observed,
+                    )
+                    _verify_bound_directory_at(descriptor, name, child)
+                finally:
+                    os.close(child)
+                continue
+            if not stat.S_ISREG(entry.st_mode):
+                raise CacheCorruptError(
+                    "cache build evidence contains a non-regular artifact",
+                    details={"path": relative},
+                )
+            file_descriptor = os.open(
+                name,
+                os.O_RDONLY | os.O_NOFOLLOW,
+                dir_fd=descriptor,
+            )
+            try:
+                _verify_bound_regular_at(
+                    descriptor,
+                    name,
+                    file_descriptor,
+                    label=f"cache build evidence {relative}",
+                )
+            finally:
+                os.close(file_descriptor)
+            observed.append(relative)
+
+
 def build_window_cache(
     *,
     requests_jsonl: Path | str | bytes,
@@ -203,6 +501,8 @@ def build_window_cache(
     runtime_identity_payload = _encoder_runtime_identity_payload(
         encoder_runtime_identity,
         contract=contract,
+        encoder_id=encoder_id,
+        resolved_config=resolved_config_payload,
     )
     runtime_identity_bytes = _pretty_json_bytes(runtime_identity_payload)
     request_bytes = (
@@ -218,16 +518,11 @@ def build_window_cache(
 
     cache_root = Path(cache_dir).absolute()
     evidence_root = Path(evidence_dir).absolute()
-    _ensure_real_directory(evidence_root)
+    evidence = _EvidenceStore(evidence_root)
     staged_inputs = _read_input_artifacts(input_artifacts or {})
     input_identities = tuple(item.identity for item in staged_inputs)
-    request_copy_path = evidence_root / _REQUEST_COPY_NAME
-    plan_path = evidence_root / _PLAN_NAME
-    state_path = evidence_root / _STATE_NAME
     report_path = evidence_root / CACHE_BUILD_REPORT_NAME
     checksums_path = evidence_root / _CHECKSUMS_NAME
-    resolved_config_path = evidence_root / _RESOLVED_CONFIG_NAME
-    runtime_identity_path = evidence_root / _RUNTIME_IDENTITY_NAME
     resolved_config_identity = {
         "path": _RESOLVED_CONFIG_NAME,
         "sha256": sha256_bytes(resolved_config_bytes),
@@ -240,7 +535,7 @@ def build_window_cache(
     }
     expected_evidence_names = _expected_evidence_names(input_identities)
     _assert_evidence_inventory(
-        evidence_root,
+        evidence,
         expected_names=expected_evidence_names,
         require_complete=False,
     )
@@ -261,33 +556,37 @@ def build_window_cache(
         encoder_runtime_identity=runtime_identity,
         input_artifacts=input_identities,
     )
-    if os.path.lexists(plan_path):
-        plan_payload = _read_json_object(plan_path, label="cache build plan")
+    if evidence.exists(_PLAN_NAME):
+        plan_payload = _read_json_object(evidence, _PLAN_NAME, label="cache build plan")
         plan = _load_plan(
             plan_payload,
             expected=expected_plan,
         )
     else:
         plan = expected_plan
-        _write_once(plan_path, _pretty_json_bytes(plan.payload), label="cache build plan")
+        _write_once(
+            evidence, _PLAN_NAME, _pretty_json_bytes(plan.payload), label="cache build plan"
+        )
     # The immutable plan is validated or installed before any caller-provided
     # artifact is staged. A failed invocation therefore cannot seed files that
     # a later, differently configured invocation would accidentally close.
-    _write_once(request_copy_path, request_bytes, label="cache build request copy")
+    _write_once(evidence, _REQUEST_COPY_NAME, request_bytes, label="cache build request copy")
     _write_once(
-        resolved_config_path,
+        evidence,
+        _RESOLVED_CONFIG_NAME,
         resolved_config_bytes,
         label="cache build resolved config",
     )
     _write_once(
-        runtime_identity_path,
+        evidence,
+        _RUNTIME_IDENTITY_NAME,
         runtime_identity_bytes,
         label="cache build encoder runtime identity",
     )
-    _stage_input_artifacts(evidence_root, staged_inputs)
-    plan_sha256 = sha256_file(plan_path)
+    _stage_input_artifacts(evidence, staged_inputs)
+    plan_sha256 = evidence.capture(_PLAN_NAME, label="cache build plan").sha256
 
-    state = _load_or_initialize_state(state_path, plan_sha256=plan_sha256)
+    state = _load_or_initialize_state(evidence, plan_sha256=plan_sha256)
     completed = _completed_by_id(state, plan=plan)
     adopted_or_changed = False
 
@@ -338,15 +637,16 @@ def build_window_cache(
             records=inspection.records,
         )
 
-    if adopted_or_changed or not os.path.lexists(state_path):
+    if adopted_or_changed or not evidence.exists(_STATE_NAME):
         state = _state_payload(plan_sha256=plan_sha256, completed=completed)
-        _atomic_write(state_path, _pretty_json_bytes(state))
+        _atomic_write(evidence, _STATE_NAME, _pretty_json_bytes(state))
 
     resolved_before = _resolve_plan_cache(cache_root, plan, require_all=False)
     evidence_owned_keys = _completed_row_keys(completed)
     resumed_rows = sum(key in evidence_owned_keys for key in resolved_before.rows)
-    if os.path.lexists(checksums_path):
+    if evidence.exists(_CHECKSUMS_NAME):
         return _verify_completed_bundle(
+            evidence=evidence,
             evidence_root=evidence_root,
             cache_root=cache_root,
             plan=plan,
@@ -440,7 +740,7 @@ def build_window_cache(
         encoded_rows += len(execution_shard.rows)
         encoded_shards += 1
         state = _state_payload(plan_sha256=plan_sha256, completed=completed)
-        _atomic_write(state_path, _pretty_json_bytes(state))
+        _atomic_write(evidence, _STATE_NAME, _pretty_json_bytes(state))
         if logger is not None:
             logger.info(
                 "data.shard.write",
@@ -470,13 +770,26 @@ def build_window_cache(
     reused_rows = len(resolved.rows) - resumed_rows - encoded_rows
     if reused_rows < 0:
         raise CacheCorruptError("cache build row provenance accounting is inconsistent")
-    state = _state_payload(plan_sha256=plan_sha256, completed=completed)
-    _atomic_write(state_path, _pretty_json_bytes(state))
+    elapsed_seconds = round(max(time.perf_counter() - started, 0.0), 6)
+    completion = _completion_payload(
+        encoded_rows=encoded_rows,
+        encoded_shards=encoded_shards,
+        resumed_rows=resumed_rows,
+        reused_rows=reused_rows,
+        resolved_unique_rows=len(resolved.rows),
+        planned_shards=len(plan.shards),
+        invocation_elapsed_seconds=elapsed_seconds,
+        run_id=None if logger is None else logger.run_id,
+    )
+    state = _state_payload(
+        plan_sha256=plan_sha256,
+        completed=completed,
+        completion=completion,
+    )
+    _atomic_write(evidence, _STATE_NAME, _pretty_json_bytes(state))
     report_payload = _report_payload(
+        evidence=evidence,
         plan=plan,
-        plan_path=plan_path,
-        state_path=state_path,
-        request_copy_path=request_copy_path,
         request_identity=request_identity,
         request_count=len(requests),
         cache_root=cache_root,
@@ -486,7 +799,7 @@ def build_window_cache(
         encoded_shards=encoded_shards,
         resumed_rows=resumed_rows,
         reused_rows=reused_rows,
-        elapsed_seconds=time.perf_counter() - started,
+        elapsed_seconds=elapsed_seconds,
         batch_size=batch_size,
         rows_per_shard=rows_per_shard,
         created_at_ns=created_at_ns,
@@ -494,7 +807,7 @@ def build_window_cache(
         encoder_device=encoder_device,
         resolved_config=resolved_config_identity,
         encoder_runtime_identity=runtime_identity,
-        logger=logger,
+        run_id=None if logger is None else logger.run_id,
         input_artifacts=input_identities,
     )
     if logger is not None:
@@ -510,14 +823,14 @@ def build_window_cache(
         )
     # Logging is complete before the checksum closure. No builder-owned write
     # occurs after SHA256SUMS is installed and verified.
-    _atomic_write(report_path, _pretty_json_bytes(report_payload))
-    _write_checksums(evidence_root, expected_names=expected_evidence_names)
+    _atomic_write(evidence, CACHE_BUILD_REPORT_NAME, _pretty_json_bytes(report_payload))
+    _write_checksums(evidence, expected_names=expected_evidence_names)
     _assert_evidence_inventory(
-        evidence_root,
+        evidence,
         expected_names=expected_evidence_names,
         require_complete=True,
     )
-    _verify_checksums(evidence_root, expected_names=expected_evidence_names)
+    _verify_checksums(evidence, expected_names=expected_evidence_names)
     return CacheBuildReport(
         report_path=report_path,
         checksums_path=checksums_path,
@@ -1145,10 +1458,8 @@ def _assert_race_planned_path_is_evidence_owned(
 
 def _report_payload(
     *,
+    evidence: _EvidenceStore,
     plan: _BuildPlan,
-    plan_path: Path,
-    state_path: Path,
-    request_copy_path: Path,
     request_identity: Mapping[str, object],
     request_count: int,
     cache_root: Path,
@@ -1166,7 +1477,7 @@ def _report_payload(
     encoder_device: str,
     resolved_config: Mapping[str, object],
     encoder_runtime_identity: Mapping[str, object],
-    logger: GenoLeWMLogger | None,
+    run_id: str | None,
     input_artifacts: tuple[Mapping[str, object], ...],
 ) -> dict[str, object]:
     measured_rows = sum(
@@ -1188,14 +1499,14 @@ def _report_payload(
         "schema_version": CACHE_BUILD_SCHEMA_VERSION,
         "generated_by": _GENERATED_BY,
         "ok": True,
-        "run_id": None if logger is None else logger.run_id,
+        "run_id": run_id,
         "requests": {
             **request_identity,
             "input_rows": request_count,
             "unique_cache_keys": unique_rows,
             "duplicate_rows": request_count - unique_rows,
         },
-        "plan": _file_identity(plan_path, root=plan_path.parent),
+        "plan": _file_identity(evidence, _PLAN_NAME),
         "configuration": {
             "batch_size": batch_size,
             "rows_per_shard": rows_per_shard,
@@ -1253,9 +1564,9 @@ def _report_payload(
             "shards": _resolved_shard_payloads(plan, resolved, cache_root=cache_root),
         },
         "evidence_artifacts": {
-            "requests": _file_identity(request_copy_path, root=request_copy_path.parent),
-            "plan": _file_identity(plan_path, root=plan_path.parent),
-            "state": _file_identity(state_path, root=state_path.parent),
+            "requests": _file_identity(evidence, _REQUEST_COPY_NAME),
+            "plan": _file_identity(evidence, _PLAN_NAME),
+            "state": _file_identity(evidence, _STATE_NAME),
             "resolved_config": dict(resolved_config),
             "encoder_runtime_identity": dict(encoder_runtime_identity),
             "inputs": [dict(identity) for identity in input_artifacts],
@@ -1280,15 +1591,20 @@ def _report_payload(
     }
 
 
-def _load_or_initialize_state(path: Path, *, plan_sha256: str) -> dict[str, object]:
-    if not os.path.lexists(path):
+def _load_or_initialize_state(
+    evidence: _EvidenceStore,
+    *,
+    plan_sha256: str,
+) -> dict[str, object]:
+    if not evidence.exists(_STATE_NAME):
         return _state_payload(plan_sha256=plan_sha256, completed={})
-    payload = _read_json_object(path, label="cache build state")
+    payload = _read_json_object(evidence, _STATE_NAME, label="cache build state")
     if set(payload) != {
         "schema_version",
         "generated_by",
         "plan_sha256",
         "completed_shards",
+        "completion",
     }:
         raise CacheCorruptError("cache build state has an invalid schema")
     if (
@@ -1300,6 +1616,9 @@ def _load_or_initialize_state(path: Path, *, plan_sha256: str) -> dict[str, obje
         raise CacheCorruptError("cache build state is bound to a different plan")
     if type(payload.get("completed_shards")) is not list:
         raise CacheCorruptError("cache build state completed_shards must be a list")
+    completion = payload.get("completion")
+    if completion is not None:
+        _validate_completion_payload(_corrupt_mapping(completion, field="state.completion"))
     return dict(payload)
 
 
@@ -1403,13 +1722,79 @@ def _state_payload(
     *,
     plan_sha256: str,
     completed: Mapping[str, Mapping[str, object]],
+    completion: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "schema_version": CACHE_BUILD_SCHEMA_VERSION,
         "generated_by": _GENERATED_BY,
         "plan_sha256": plan_sha256,
         "completed_shards": [dict(completed[key]) for key in sorted(completed)],
+        "completion": None if completion is None else dict(completion),
     }
+
+
+def _completion_payload(
+    *,
+    encoded_rows: int,
+    encoded_shards: int,
+    resumed_rows: int,
+    reused_rows: int,
+    resolved_unique_rows: int,
+    planned_shards: int,
+    invocation_elapsed_seconds: float,
+    run_id: str | None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "encoded_rows": encoded_rows,
+        "encoded_shards": encoded_shards,
+        "resumed_rows": resumed_rows,
+        "reused_rows": reused_rows,
+        "resolved_unique_rows": resolved_unique_rows,
+        "planned_shards": planned_shards,
+        "invocation_elapsed_seconds": invocation_elapsed_seconds,
+        "run_id": run_id,
+    }
+    _validate_completion_payload(payload)
+    return payload
+
+
+def _validate_completion_payload(payload: Mapping[str, object]) -> None:
+    expected = {
+        "encoded_rows",
+        "encoded_shards",
+        "resumed_rows",
+        "reused_rows",
+        "resolved_unique_rows",
+        "planned_shards",
+        "invocation_elapsed_seconds",
+        "run_id",
+    }
+    if set(payload) != expected:
+        raise CacheCorruptError("cache build state completion has an invalid schema")
+    integer_fields = expected - {"invocation_elapsed_seconds", "run_id"}
+    for field in integer_fields:
+        value = payload[field]
+        if type(value) is not int or value < 0:
+            raise CacheCorruptError(
+                "cache build state completion has an invalid count",
+                details={"field": field, "value": repr(value)},
+            )
+    elapsed = payload["invocation_elapsed_seconds"]
+    if (
+        isinstance(elapsed, bool)
+        or not isinstance(elapsed, int | float)
+        or not math.isfinite(float(elapsed))
+        or elapsed < 0
+    ):
+        raise CacheCorruptError("cache build state completion has invalid elapsed timing")
+    run_id = payload["run_id"]
+    if run_id is not None and (type(run_id) is not str or not run_id):
+        raise CacheCorruptError("cache build state completion has an invalid run_id")
+    total = cast(int, payload["resolved_unique_rows"])
+    if cast(int, payload["encoded_rows"]) + cast(int, payload["resumed_rows"]) + cast(
+        int, payload["reused_rows"]
+    ) != total or cast(int, payload["encoded_shards"]) > cast(int, payload["planned_shards"]):
+        raise CacheCorruptError("cache build state completion accounting is inconsistent")
 
 
 def _completed_entry(
@@ -1521,6 +1906,7 @@ def _expected_evidence_names(
 
 def _verify_completed_bundle(
     *,
+    evidence: _EvidenceStore,
     evidence_root: Path,
     cache_root: Path,
     plan: _BuildPlan,
@@ -1528,36 +1914,78 @@ def _verify_completed_bundle(
     expected_evidence_names: tuple[str, ...],
 ) -> CacheBuildReport:
     _assert_evidence_inventory(
-        evidence_root,
+        evidence,
         expected_names=expected_evidence_names,
         require_complete=True,
     )
-    _verify_checksums(evidence_root, expected_names=expected_evidence_names)
+    _verify_checksums(evidence, expected_names=expected_evidence_names)
     report_path = evidence_root / CACHE_BUILD_REPORT_NAME
-    payload = _read_json_object(report_path, label="cache build report")
-    if payload.get("schema_version") != CACHE_BUILD_SCHEMA_VERSION or payload.get("ok") is not True:
-        raise CacheCorruptError("completed cache build report is invalid")
-    plan_identity = _corrupt_mapping(payload.get("plan"), field="report.plan")
-    if plan_identity.get("sha256") != plan_sha256:
-        raise CacheCorruptError("completed cache build report is bound to another plan")
+    payload = _read_json_object(
+        evidence,
+        CACHE_BUILD_REPORT_NAME,
+        label="cache build report",
+    )
+    state = _load_or_initialize_state(evidence, plan_sha256=plan_sha256)
+    completed = _completed_by_id(state, plan=plan)
+    raw_completion = state.get("completion")
+    if raw_completion is None:
+        raise CacheCorruptError("completed cache build state is missing completion evidence")
+    completion = _corrupt_mapping(raw_completion, field="state.completion")
+    _validate_completion_payload(completion)
     resolved = _resolve_plan_cache(cache_root, plan, require_all=True)
-    artifacts = _corrupt_mapping(payload.get("cache_artifacts"), field="report.cache_artifacts")
-    raw_shards = artifacts.get("shards")
-    expected_shards = _resolved_shard_payloads(plan, resolved, cache_root=cache_root)
-    if raw_shards != expected_shards:
-        raise CacheCorruptError("completed cache build report shard identities have drifted")
-    index_identity = _corrupt_mapping(artifacts.get("index"), field="report.cache_artifacts.index")
-    index_path = cache_root / "embeddings" / INDEX_DB_NAME
-    expected_index = {
-        "path": index_path.relative_to(cache_root).as_posix(),
-        "schema_version": 4,
-        "verified_logical_keys": len(resolved.rows),
-        "identity_scope": (
-            "request-scoped logical-key mappings; mutable shared index bytes are excluded"
+    if completion.get("resolved_unique_rows") != len(resolved.rows) or completion.get(
+        "planned_shards"
+    ) != len(plan.shards):
+        raise CacheCorruptError("cache build completion does not match the resolved plan")
+    requests = _corrupt_mapping(plan.payload.get("requests"), field="plan.requests")
+    execution = _corrupt_mapping(plan.payload.get("execution"), field="plan.execution")
+    hardware = _corrupt_mapping(execution.get("hardware"), field="plan.execution.hardware")
+    sharding = _corrupt_mapping(plan.payload.get("sharding"), field="plan.sharding")
+    encoder = _corrupt_mapping(plan.payload.get("encoder"), field="plan.encoder")
+    raw_inputs = plan.payload.get("input_artifacts")
+    if type(raw_inputs) is not list:
+        raise CacheCorruptError("plan.input_artifacts must be a list")
+    inputs = tuple(_corrupt_mapping(item, field="plan.input_artifacts[]") for item in raw_inputs)
+    expected = _report_payload(
+        evidence=evidence,
+        plan=plan,
+        request_identity={
+            "sha256": requests.get("sha256"),
+            "size_bytes": requests.get("size_bytes"),
+        },
+        request_count=cast(int, requests.get("input_rows")),
+        cache_root=cache_root,
+        resolved=resolved,
+        completed=completed,
+        encoded_rows=cast(int, completion["encoded_rows"]),
+        encoded_shards=cast(int, completion["encoded_shards"]),
+        resumed_rows=cast(int, completion["resumed_rows"]),
+        reused_rows=cast(int, completion["reused_rows"]),
+        elapsed_seconds=cast(float, completion["invocation_elapsed_seconds"]),
+        batch_size=cast(int, execution.get("batch_size")),
+        rows_per_shard=cast(int, sharding.get("rows_per_shard")),
+        created_at_ns=cast(int, plan.payload.get("created_at_ns")),
+        hardware=cast(str, hardware.get("description")),
+        encoder_device=cast(str, hardware.get("encoder_device")),
+        resolved_config=_corrupt_mapping(
+            execution.get("resolved_config"),
+            field="plan.execution.resolved_config",
         ),
-    }
-    if dict(index_identity) != expected_index:
-        raise CacheCorruptError("completed cache build index mapping evidence has drifted")
+        encoder_runtime_identity=_corrupt_mapping(
+            encoder.get("runtime_identity"),
+            field="plan.encoder.runtime_identity",
+        ),
+        run_id=cast(str | None, completion["run_id"]),
+        input_artifacts=inputs,
+    )
+    if payload != expected:
+        raise CacheCorruptError(
+            "completed cache build report does not match deterministic completion evidence",
+            details={
+                "expected_sha256": canonical_json_sha256(expected),
+                "observed_sha256": canonical_json_sha256(payload),
+            },
+        )
     return CacheBuildReport(
         report_path=report_path,
         checksums_path=evidence_root / _CHECKSUMS_NAME,
@@ -1565,23 +1993,22 @@ def _verify_completed_bundle(
     )
 
 
-def _write_checksums(evidence_root: Path, *, expected_names: tuple[str, ...]) -> None:
+def _write_checksums(evidence: _EvidenceStore, *, expected_names: tuple[str, ...]) -> None:
     _assert_evidence_inventory(
-        evidence_root,
+        evidence,
         expected_names=expected_names,
         require_complete=False,
     )
     names = tuple(name for name in expected_names if name != _CHECKSUMS_NAME)
     body = "".join(
-        f"{sha256_file(evidence_root / name).removeprefix(_HASH_PREFIX)}  {name}\n"
+        f"{evidence.capture(name, label=f'cache build evidence {name}').sha256.removeprefix(_HASH_PREFIX)}  {name}\n"
         for name in names
     ).encode("ascii")
-    _write_once(evidence_root / _CHECKSUMS_NAME, body, label="cache build checksums")
+    _write_once(evidence, _CHECKSUMS_NAME, body, label="cache build checksums")
 
 
-def _verify_checksums(evidence_root: Path, *, expected_names: tuple[str, ...]) -> None:
-    path = evidence_root / _CHECKSUMS_NAME
-    body = _read_regular_bytes(path, label="cache build checksums").decode("ascii")
+def _verify_checksums(evidence: _EvidenceStore, *, expected_names: tuple[str, ...]) -> None:
+    body = evidence.capture(_CHECKSUMS_NAME, label="cache build checksums").body.decode("ascii")
     checksum_names = tuple(name for name in expected_names if name != _CHECKSUMS_NAME)
     lines = body.splitlines()
     if len(lines) != len(checksum_names):
@@ -1590,7 +2017,10 @@ def _verify_checksums(evidence_root: Path, *, expected_names: tuple[str, ...]) -
         parts = line.split("  ")
         if len(parts) != 2 or parts[1] != name or len(parts[0]) != 64:
             raise CacheCorruptError("cache build SHA256SUMS has an invalid entry")
-        observed = sha256_file(evidence_root / name).removeprefix(_HASH_PREFIX)
+        observed = evidence.capture(
+            name,
+            label=f"cache build evidence {name}",
+        ).sha256.removeprefix(_HASH_PREFIX)
         if parts[0] != observed:
             raise CacheCorruptError(
                 "cache build evidence checksum mismatch",
@@ -1599,49 +2029,12 @@ def _verify_checksums(evidence_root: Path, *, expected_names: tuple[str, ...]) -
 
 
 def _assert_evidence_inventory(
-    evidence_root: Path,
+    evidence: _EvidenceStore,
     *,
     expected_names: tuple[str, ...],
     require_complete: bool,
 ) -> None:
-    observed_names: list[str] = []
-    allowed_directories = {
-        Path(name).parent.as_posix()
-        for name in expected_names
-        if Path(name).parent.as_posix() != "."
-    }
-    for path in sorted(evidence_root.rglob("*")):
-        relative = path.relative_to(evidence_root).as_posix()
-        mode = path.lstat().st_mode
-        if stat.S_ISLNK(mode):
-            raise CacheCorruptError(
-                "cache build evidence contains a symlink",
-                details={"path": relative},
-            )
-        if stat.S_ISDIR(mode):
-            if relative not in allowed_directories:
-                raise CacheCorruptError(
-                    "cache build evidence contains an unexpected directory",
-                    details={"path": relative},
-                )
-            continue
-        if not stat.S_ISREG(mode):
-            raise CacheCorruptError(
-                "cache build evidence contains a non-regular artifact",
-                details={"path": relative},
-            )
-        observed_names.append(relative)
-    unexpected = set(observed_names) - set(expected_names)
-    if unexpected:
-        raise CacheCorruptError(
-            "cache build evidence contains an unexpected artifact",
-            details={"unexpected": sorted(unexpected)},
-        )
-    if require_complete and set(observed_names) != set(expected_names):
-        raise CacheCorruptError(
-            "cache build evidence is missing a required artifact",
-            details={"missing": sorted(set(expected_names) - set(observed_names))},
-        )
+    evidence.inventory(expected_names=expected_names, require_complete=require_complete)
 
 
 def _parse_requests(body: bytes) -> tuple[_Request, ...]:
@@ -1732,28 +2125,37 @@ def _encoder_runtime_identity_payload(
     raw: Mapping[str, object],
     *,
     contract: _EncoderContract,
+    encoder_id: str,
+    resolved_config: Mapping[str, object],
 ) -> dict[str, object]:
-    payload = _json_object_copy(raw, field="encoder_runtime_identity")
-    expected_keys = {"state_contract_version", "expected", "observed"}
-    if set(payload) != expected_keys:
+    identity = encoder_runtime_identity_from_mapping(raw)
+    encoder_config = _mapping(resolved_config.get("encoder"), field="resolved_config.encoder")
+    expected_config = {
+        "model_id": identity.model_id,
+        "revision": identity.revision,
+        "state_contract_version": identity.state_contract_version,
+    }
+    observed_config = {key: encoder_config.get(key) for key in expected_config}
+    if encoder_id != identity.model_id or observed_config != expected_config:
         raise InputError(
-            "encoder_runtime_identity has an invalid schema",
-            details={"expected": sorted(expected_keys), "observed": sorted(payload)},
+            "encoder runtime identity does not match encoder_id and resolved_config.encoder",
+            details={
+                "encoder_id": encoder_id,
+                "runtime_model_id": identity.model_id,
+                "expected_config": expected_config,
+                "observed_config": observed_config,
+            },
         )
-    _text(
-        payload["state_contract_version"], field="encoder_runtime_identity.state_contract_version"
-    )
     contract_hash = _hash_text(contract.encoder_hash)
-    if payload["expected"] != contract_hash or payload["observed"] != contract_hash:
+    if identity.cache_identity_hash != contract_hash:
         raise InputError(
             "encoder runtime identity must match the encoder content identity",
             details={
                 "encoder_hash": contract_hash,
-                "expected": payload["expected"],
-                "observed": payload["observed"],
+                "expected": identity.cache_identity_hash,
             },
         )
-    return payload
+    return identity.to_dict()
 
 
 def _encoder_contract(encoder: object) -> _EncoderContract:
@@ -1979,26 +2381,24 @@ def _read_input_artifacts(
 
 
 def _stage_input_artifacts(
-    evidence_root: Path,
+    evidence: _EvidenceStore,
     artifacts: tuple[_InputArtifact, ...],
 ) -> None:
     for artifact in artifacts:
-        destination = evidence_root / cast(str, artifact.identity["path"])
-        _ensure_real_directory(destination.parent)
         _write_once(
-            destination,
+            evidence,
+            cast(str, artifact.identity["path"]),
             artifact.body,
             label=f"cache build input artifact copy {artifact.name}",
         )
 
 
-def _file_identity(path: Path, *, root: Path) -> dict[str, object]:
-    if path.is_symlink() or not path.is_file():
-        raise CacheCorruptError("evidence artifact must be a regular non-symlink file")
+def _file_identity(evidence: _EvidenceStore, relative: str) -> dict[str, object]:
+    captured = evidence.capture(relative, label=f"cache build evidence {relative}")
     return {
-        "path": path.relative_to(root).as_posix(),
-        "sha256": sha256_file(path),
-        "size_bytes": path.stat().st_size,
+        "path": relative,
+        "sha256": captured.sha256,
+        "size_bytes": captured.size_bytes,
     }
 
 
@@ -2033,8 +2433,13 @@ def _pretty_json_bytes(payload: Mapping[str, object]) -> bytes:
     return (json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
 
 
-def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
-    body = _read_regular_bytes(path, label=label)
+def _read_json_object(
+    evidence: _EvidenceStore,
+    relative: str,
+    *,
+    label: str,
+) -> dict[str, object]:
+    body = evidence.capture(relative, label=label).body
     try:
         payload = json.loads(body, object_pairs_hook=_reject_duplicate_keys)
     except (UnicodeDecodeError, json.JSONDecodeError, InputError) as exc:
@@ -2070,46 +2475,18 @@ def _read_regular_bytes(path: Path, *, label: str) -> bytes:
     return body
 
 
-def _ensure_real_directory(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    mode = path.lstat().st_mode
-    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
-        raise InputError("cache build evidence_dir must be a real directory")
+def _write_once(
+    evidence: _EvidenceStore,
+    relative: str,
+    body: bytes,
+    *,
+    label: str,
+) -> None:
+    evidence.write_once(relative, body, label=label)
 
 
-def _write_once(path: Path, body: bytes, *, label: str) -> None:
-    if os.path.lexists(path):
-        observed = _read_regular_bytes(path, label=label)
-        if observed != body:
-            raise InputError(f"existing {label} does not match this build")
-        return
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags, 0o444)
-    try:
-        with os.fdopen(os.dup(descriptor), "wb") as handle:
-            handle.write(body)
-            handle.flush()
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    _fsync_directory(path.parent)
-
-
-def _atomic_write(path: Path, body: bytes) -> None:
-    _ensure_real_directory(path.parent)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(body)
-            handle.flush()
-            os.fsync(handle.fileno())
-        temporary.chmod(0o444)
-        temporary.replace(path)
-        _fsync_directory(path.parent)
-    finally:
-        if os.path.lexists(temporary):
-            temporary.unlink()
+def _atomic_write(evidence: _EvidenceStore, relative: str, body: bytes) -> None:
+    evidence.atomic_write(relative, body)
 
 
 def _fsync_directory(path: Path) -> None:
@@ -2118,6 +2495,116 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _open_absolute_directory(path: Path, *, create: bool) -> int:
+    """Open an absolute directory by traversing every component without symlinks."""
+    absolute = path.absolute()
+    if not absolute.is_absolute():
+        raise InputError("cache build evidence_dir must resolve to an absolute path")
+    current = os.open(absolute.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in absolute.parts[1:]:
+            try:
+                child = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current,
+                )
+            except FileNotFoundError:
+                if not create:
+                    raise CacheCorruptError(
+                        "cache build evidence directory binding disappeared",
+                        details={"path": str(absolute), "component": part},
+                    ) from None
+                with suppress(FileExistsError):
+                    os.mkdir(part, 0o700, dir_fd=current)
+                os.fsync(current)
+                child = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current,
+                )
+            except OSError as exc:
+                raise InputError(
+                    "cache build evidence_dir contains a symlink or unsafe component",
+                    details={"path": str(absolute), "component": part, "error": str(exc)},
+                ) from exc
+            os.close(current)
+            current = child
+        return current
+    except BaseException:
+        os.close(current)
+        raise
+
+
+def _evidence_relative_path(relative: str) -> Path:
+    path = Path(relative)
+    if (
+        type(relative) is not str
+        or not relative
+        or path.is_absolute()
+        or path.as_posix() != relative
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise InputError("cache build evidence artifact path must be canonical and relative")
+    return path
+
+
+def _verify_bound_directory_at(parent_fd: int, name: str, descriptor: int) -> None:
+    held = os.fstat(descriptor)
+    try:
+        observed = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise CacheCorruptError(
+            "cache build evidence directory binding changed",
+            details={"name": name, "error": str(exc)},
+        ) from exc
+    if not stat.S_ISDIR(observed.st_mode) or (held.st_dev, held.st_ino) != (
+        observed.st_dev,
+        observed.st_ino,
+    ):
+        raise CacheCorruptError("cache build evidence directory binding changed")
+
+
+def _verify_bound_regular_at(parent_fd: int, name: str, descriptor: int, *, label: str) -> None:
+    held = os.fstat(descriptor)
+    try:
+        observed = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise CacheCorruptError(
+            f"{label} name binding changed",
+            details={"name": name, "error": str(exc)},
+        ) from exc
+    if not stat.S_ISREG(observed.st_mode) or (held.st_dev, held.st_ino) != (
+        observed.st_dev,
+        observed.st_ino,
+    ):
+        raise CacheCorruptError(f"{label} name binding changed")
+
+
+def _stable_file_identity(value: os.stat_result) -> tuple[int, int, int, int]:
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+
+
+def _read_descriptor_bytes(descriptor: int) -> bytes:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(descriptor, 1024 * 1024)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _write_descriptor_bytes(descriptor: int, body: bytes) -> None:
+    view = memoryview(body)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            raise CacheCorruptError("short write while installing cache build evidence")
+        view = view[written:]
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:

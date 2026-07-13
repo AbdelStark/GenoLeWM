@@ -31,18 +31,30 @@ when their edit loci map to different `center_token` values.
 
 ## Build command
 
-Use an exact model manifest, committed config, local pinned Carbon runtime, and
-an explicit UTC nanosecond timestamp. Cache production always constructs Carbon
-with `normalize=False`; normalization remains a consumer-side view.
+Use a closed encoder-runtime identity, committed config, local pinned Carbon
+runtime, and an explicit UTC nanosecond timestamp. Cache production always
+constructs Carbon with `normalize=False`; normalization remains a consumer-side
+view.
+
+For the corrected Carbon runtime, the identity file is independent of any
+predictor, action encoder, training run, calibration, or evaluation release:
+
+```json
+{"model_id":"/carbon","revision":"5d31d59b3c845b288a13aedb1358934196852eec","runtime_hash":"sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e","schema_version":"1.0.0","state_contract_version":"l2_normalized_v2"}
+```
+
+The object is closed: unknown fields are rejected. `runtime_hash` is always
+required; `weights_hash` is optional for corrected L2 runtimes and required for
+`legacy_raw_v1`. Floating revisions such as `main` are rejected.
 
 ```bash
 geno-lewm-cache-windows \
   --cache-dir /work/cache \
   --requests-jsonl /inputs/cache-requests.jsonl \
   --evidence-dir /work/evidence \
-  --model-manifest /inputs/model/manifest.json \
+  --encoder-runtime-identity /inputs/model/encoder-runtime-identity.json \
   --carbon-model-dir /carbon \
-  --config configs/reproducibility/train-carbon-500m-snv-baseline-500.yaml \
+  --config configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml \
   --created-at-ns 1783965600000000000 \
   --batch-size 8 \
   --rows-per-shard 1024 \
@@ -51,12 +63,12 @@ geno-lewm-cache-windows \
   --run-id cache-proof-example
 ```
 
-The CLI captures the request, config, and manifest files once, then parses,
+The CLI captures the request, config, and runtime-identity files once, then parses,
 validates, stages, and builds from those same immutable bytes. It verifies the
-local Carbon identity with the rule selected by the resolved state contract. In
-particular, `l2_normalized_v2` requires the full corrected runtime identity, not
-merely matching weight bytes, and the observed identity is included in the
-checksum-closed evidence. Newly encoded paths use a namespace derived from the
+local Carbon runtime hash and, when declared, its weight hash. The model id,
+exact revision, and state-contract version must match the resolved encoder
+configuration. In particular, `l2_normalized_v2` requires the full corrected
+runtime identity, not merely matching weight bytes. Newly encoded paths use a namespace derived from the
 complete immutable plan identity: request bytes, resolved logical rows,
 encoder/runtime identity, fixed timestamp, batch and shard sizes,
 hardware/device, resolved config, and staged input identities. Distinct plans
@@ -74,18 +86,23 @@ The evidence directory contains:
   identity, shard size, and fixed creation timestamp;
 - `cache_build_state.json`: evidence-owned shard byte identities and wall time
   measured strictly inside `encoder.encode_batch`, atomically updated after each
-  verified shard;
+  verified shard, plus the sealed completion invocation used to replay the
+  report;
 - `resolved_config.json`: canonical resolved configuration after CLI overrides;
-- `encoder_runtime_identity.json`: expected and observed corrected Carbon
-  runtime identity plus the selected state-contract version;
+- `encoder_runtime_identity.json`: canonical closed Carbon runtime identity;
 - `cache_build_report.json`: counts, request-scoped logical index mappings,
   immutable shard identities, narrowly labeled timing, event contract, and
   explicit claim boundary;
-- `inputs/encoder_config.yaml` and `inputs/model_manifest.json`: exact CLI
-  contract inputs copied into the bundle;
+- `inputs/encoder_config.yaml` and
+  `inputs/encoder_runtime_identity_source.json`: exact CLI contract inputs
+  copied into the bundle;
 - `SHA256SUMS`: checksum closure over the exact fixed evidence inventory above.
 
-The plan is validated or installed before caller-provided artifacts are staged.
+Evidence traversal, capture, no-clobber installation, atomic replacement,
+inventory, and checksum hashing use no-follow directory descriptors. Every held
+parent and final filename is rebound after I/O, so parent swaps, same-directory
+replacement, and symlink races fail closed without overwriting an outside
+target. The plan is validated or installed before caller-provided artifacts are staged.
 Unexpected files, directories, symlinks, logs, or report copies in the evidence
 tree are rejected rather than dynamically added to `SHA256SUMS`; unsafe or
 case-aliased input artifact names are rejected. `--log-dir` and `--json-report`
@@ -108,6 +125,10 @@ device/resolved config, or noncanonical recovered partition fails before
 logical-key-reservation race can be recovered after encoding, and only after an
 equivalent winner plus any evidence-owned planned path/state are reverified;
 all other cache corruption remains fatal and cannot seal an `ok: true` report.
+The completed report is not trusted merely because its checksum was recomputed:
+replay reconstructs the complete deterministic payload from the immutable plan,
+durable state, and freshly resolved cache. Invocation elapsed time and run id
+are accepted only from the narrowly typed completion record in state.
 
 The report deliberately excludes the byte identity of the shared mutable
 `embeddings/index.sqlite`. It instead binds each requested key to an immutable
@@ -125,3 +146,8 @@ artifact under the recorded encoder/cache identities. It does **not** prove a
 10% Carbon corpus build, completion within 24 hours, model quality, biological
 validity, or clinical validity. Those require separate hardware and scientific
 evidence.
+
+Training cache requests must mirror the consumer's pooling identity. The
+corrected trainer supplies each edit's `rel_pos`, so its source-state lookups are
+`centered_mean` with an edit-conditioned `center_token`; an `edit_locus: null`
+global-mean artifact will not satisfy those lookups.

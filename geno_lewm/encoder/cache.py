@@ -399,6 +399,13 @@ def inspect_cache_shard(
             digest = _sha256_descriptor(descriptor)
             records = _read_records_from_descriptor(descriptor, path=path)
             after = os.fstat(descriptor)
+            _verify_directory_binding(path.parent, parent_fd)
+            _verify_regular_name_binding(
+                parent_fd,
+                path.name,
+                descriptor,
+                label="cache shard",
+            )
         finally:
             os.close(descriptor)
     if (
@@ -985,6 +992,28 @@ def _verify_directory_binding(path: Path, descriptor: int) -> None:
         raise CacheCorruptError("cache namespace directory became a symlink or unsafe")
     if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
         raise CacheCorruptError("cache namespace directory binding changed during operation")
+
+
+def _verify_regular_name_binding(
+    parent_fd: int,
+    name: str,
+    descriptor: int,
+    *,
+    label: str,
+) -> None:
+    """Require ``name`` to remain bound to the held regular-file descriptor."""
+    held = os.fstat(descriptor)
+    try:
+        observed = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise CacheCorruptError(
+            f"{label} name binding changed during operation",
+            details={"name": name, "error": str(exc)},
+        ) from exc
+    if stat.S_ISLNK(observed.st_mode) or not stat.S_ISREG(observed.st_mode):
+        raise CacheCorruptError(f"{label} name became a symlink or unsafe file")
+    if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
+        raise CacheCorruptError(f"{label} name binding changed during operation")
 
 
 @contextmanager
