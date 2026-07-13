@@ -250,10 +250,13 @@ def filter_membership_parquet(
         if written != len(expected):
             raise InputError("filtered Parquet cardinality does not match membership selection")
         observed = pq.ParquetFile(temporary)
-        if not observed.schema_arrow.equals(schema, check_metadata=True):
-            raise InputError("filtered Parquet did not preserve the exact source Arrow schema")
-        if int(observed.metadata.num_rows) != written:
-            raise InputError("filtered Parquet footer cardinality drifted")
+        try:
+            if not observed.schema_arrow.equals(schema, check_metadata=True):
+                raise InputError("filtered Parquet did not preserve the exact source Arrow schema")
+            if int(observed.metadata.num_rows) != written:
+                raise InputError("filtered Parquet footer cardinality drifted")
+        finally:
+            observed.close()
         temporary.replace(output)
     except Exception:
         if writer is not None:

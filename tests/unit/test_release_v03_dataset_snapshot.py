@@ -62,6 +62,60 @@ def test_filter_membership_parquet_preserves_rows_schema_and_order(tmp_path: Pat
     assert report.source_rows == 3
 
 
+def test_filter_membership_parquet_closes_footer_reader_before_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    source = tmp_path / "source.parquet"
+    output = tmp_path / "filtered.parquet"
+    pq.write_table(
+        pa.Table.from_pylist([{"chrom": "1", "pos": 10, "ref": "A", "alt": "C"}]),
+        source,
+    )
+    opened: list[object] = []
+    parquet_file = pq.ParquetFile
+
+    class TrackingParquetFile:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._inner = parquet_file(*args, **kwargs)
+            opened.append(self)
+
+        @property
+        def closed(self) -> bool:
+            return bool(self._inner.closed)
+
+        def close(self) -> None:
+            self._inner.close()
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._inner, name)
+
+    parquet_proxy = SimpleNamespace(
+        ParquetFile=TrackingParquetFile,
+        ParquetWriter=pq.ParquetWriter,
+    )
+    monkeypatch.setattr(snapshot_module, "_require_pyarrow", lambda: (pa, parquet_proxy))
+    path_replace = Path.replace
+
+    def guarded_replace(path: Path, target: str | Path) -> Path:
+        assert len(opened) == 2
+        assert opened[-1].closed is True
+        return path_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", guarded_replace)
+
+    filter_membership_parquet(
+        source,
+        output,
+        kind="gnomad",
+        expected_source_row_ids={"1:10:A:C"},
+    )
+
+    assert output.is_file()
+
+
 def test_filter_membership_parquet_rejects_missing_membership_row(tmp_path: Path) -> None:
     pa = pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
