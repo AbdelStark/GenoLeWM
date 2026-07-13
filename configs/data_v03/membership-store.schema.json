@@ -12,8 +12,10 @@
       "properties": {
         "path": {
           "enum": [
+            "build-receipt.json",
             "lookup.sqlite",
-            "memberships.parquet"
+            "memberships.parquet",
+            "snapshot-lineage.json"
           ]
         },
         "sha256": {
@@ -173,12 +175,75 @@
       "type": "string"
     },
     "files": {
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "build-receipt.json"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "lookup.sqlite"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "memberships.parquet"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "snapshot-lineage.json"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        }
+      ],
       "items": {
         "$ref": "#/$defs/file"
       },
-      "maxItems": 2,
-      "minItems": 2,
-      "type": "array"
+      "maxItems": 4,
+      "minItems": 4,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "physical_identity": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
     },
     "role_counts": {
       "additionalProperties": false,
@@ -271,7 +336,8 @@
     "source_counts",
     "rowset_sha256",
     "files",
-    "content_identity"
+    "content_identity",
+    "physical_identity"
   ],
   "title": "GenoLeWM scalable membership store manifest",
   "type": "object"

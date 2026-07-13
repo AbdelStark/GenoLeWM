@@ -106,7 +106,11 @@ or incompatible command changes require an explicit compatibility note.
   source-specific streaming adapters, performs disk-backed ordering/dedup and
   split-leakage checks, writes a closed Parquet/SQLite/JSON artifact, and
   provides indexed holdout/validation lookup without loading every key into
-  Python. ClinVar membership is restricted to normalized P/LP rows; gnomAD
+  Python. Source bytes are captured through one immutable descriptor; interval
+  lookup uses an integer R-tree; the self-contained lineage/receipt layout is
+  independently verified and fsynced before atomic publication; and runtime
+  handles are pickle-, thread-, spawn-, and fork-safe. ClinVar membership is
+  restricted to normalized P/LP rows; gnomAD
   variant membership is not represented as a phased-haplotype holdout. No real
   v0.3 memberships or split evidence are published by this contract change.
 - Added fixture-backed scoring tutorial notebooks for a single

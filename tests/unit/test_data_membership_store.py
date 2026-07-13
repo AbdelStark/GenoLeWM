@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import importlib
 import json
+import multiprocessing
+import os
+import pickle
 import random
 import shutil
 import sqlite3
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +75,36 @@ CLINVAR_REMOTE_CHECKS = (
     "parquet_schema_derived_from_source_commit",
     "parquet_full_scan_recomputed",
 )
+BUILDER_GIT_COMMIT = "a" * 40
+BUILDER_CONTAINER_IMAGE = "ghcr.io/abdelstark/geno-lewm@sha256:" + "b" * 64
+_FORKED_POLICIES: list[MembershipStoreHoldoutPolicy] = []
+
+
+def _spawned_membership_policy_query(
+    policy: MembershipStoreHoldoutPolicy,
+) -> tuple[int, bool, bool]:
+    window = WindowContext(
+        record_id="spawned-window",
+        source="fixture",
+        sequence="A" * 32,
+        chrom="1",
+        start_bp=990,
+    )
+    return (
+        os.getpid(),
+        policy.excludes_window(window),
+        policy.store.contains_variant(
+            "GRCh38:1:1001:C:T",
+            roles=("train",),
+            sources=("clinvar-2026-04-15",),
+        ),
+    )
+
+
+def _forked_membership_policy_query(queue: Any) -> None:
+    if not _FORKED_POLICIES:
+        raise AssertionError("forked policy was not initialized")
+    queue.put(_spawned_membership_policy_query(_FORKED_POLICIES[0]))
 
 
 @pytest.fixture(scope="module")
@@ -91,6 +125,9 @@ def built_store(
     build_membership_store(
         artifact_id="geno-lewm-v0.3-membership-fixture",
         snapshot_lineage_path=lineage_path,
+        expected_snapshot_lineage_sha256=sha256_file(lineage_path),
+        builder_git_commit=BUILDER_GIT_COMMIT,
+        container_image=BUILDER_CONTAINER_IMAGE,
         sources=sources,
         output_dir=output,
     )
@@ -114,7 +151,29 @@ def test_builder_streams_sources_into_closed_manifest_parquet_and_lookup(
     assert clinvar_binding.filtered_row_count == 3
     assert manifest.content_identity.startswith("sha256:")
     assert manifest.rowset_sha256.startswith("sha256:")
-    assert [binding.path for binding in manifest.files] == ["lookup.sqlite", "memberships.parquet"]
+    assert [binding.path for binding in manifest.files] == [
+        "build-receipt.json",
+        "lookup.sqlite",
+        "memberships.parquet",
+        "snapshot-lineage.json",
+    ]
+    assert {path.name for path in built_store.iterdir()} == {
+        "build-receipt.json",
+        "lookup.sqlite",
+        "manifest.json",
+        "memberships.parquet",
+        "snapshot-lineage.json",
+    }
+    assert manifest.physical_identity.startswith("sha256:")
+    assert manifest.physical_identity != manifest.content_identity
+    receipt = json.loads((built_store / "build-receipt.json").read_text(encoding="utf-8"))
+    assert receipt["builder"] == {
+        "container_image": BUILDER_CONTAINER_IMAGE,
+        "geno_lewm_version": "0.2.1",
+        "git_commit": BUILDER_GIT_COMMIT,
+    }
+    assert receipt["content_identity"] == manifest.content_identity
+    assert sha256_file(built_store / "snapshot-lineage.json") == manifest.snapshot_lineage.sha256
 
     table = pq.read_table(built_store / "memberships.parquet")
     chromosomes = table.column("chrom").to_pylist()
@@ -262,6 +321,99 @@ def test_store_streams_eval_rows_and_adapts_to_existing_builder_holdouts(
         assert provider_called is False
 
 
+@pytest.mark.parametrize("chrom", [None, "X", "Y", "MT"])
+def test_holdout_policy_rejects_unplaced_or_unassigned_windows(
+    built_store: Path,
+    chrom: str | None,
+) -> None:
+    window = WindowContext(
+        record_id="unsupported-window",
+        source="fixture",
+        sequence="A" * 32,
+        chrom=chrom,
+    )
+    edit = RelEdit(
+        rel_pos=1,
+        edit_type=EditType.SNV,
+        ref_bases="A",
+        alt_bases="G",
+    )
+
+    with MembershipStore.open(built_store) as store:
+        policy = MembershipStoreHoldoutPolicy(store)
+        with pytest.raises(InputError, match="placed and assigned"):
+            policy.excludes_window(window)
+        with pytest.raises(InputError, match="placed and assigned"):
+            policy.excludes_edit(window, edit)
+
+
+def test_store_and_policy_pickle_by_content_and_reopen_in_spawned_process(
+    built_store: Path,
+) -> None:
+    store = MembershipStore.open(built_store, verify=False)
+    assert store.contains_variant("GRCh38:1:101:A:G", roles=("train",))
+    restored = pickle.loads(pickle.dumps(store))
+    policy = MembershipStoreHoldoutPolicy(store)
+    restored_policy = pickle.loads(pickle.dumps(policy))
+
+    assert restored == store
+    assert hash(restored) == hash(store)
+    assert restored_policy == policy
+    assert hash(restored_policy) == hash(policy)
+
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=1, mp_context=context) as executor:
+        child_pid, excluded, found = executor.submit(
+            _spawned_membership_policy_query,
+            restored_policy,
+        ).result(timeout=30)
+
+    assert child_pid != os.getpid()
+    assert excluded is True
+    assert found is True
+    restored_policy.store.close()
+    restored.close()
+    store.close()
+
+
+def test_store_uses_distinct_lazy_connections_across_threads_and_fork(
+    built_store: Path,
+) -> None:
+    store = MembershipStore.open(built_store, verify=False)
+    assert store.contains_variant("GRCh38:1:101:A:G", roles=("train",))
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = tuple(
+            executor.map(
+                lambda _index: store.overlaps_interval(
+                    "1",
+                    start_bp=90,
+                    end_bp=110,
+                    roles=("train",),
+                    sources=("gnomad-v4.1-chr1",),
+                ),
+                range(8),
+            )
+        )
+    assert results == (True,) * 8
+
+    if "fork" in multiprocessing.get_all_start_methods():
+        _FORKED_POLICIES.append(MembershipStoreHoldoutPolicy(store))
+        context = multiprocessing.get_context("fork")
+        queue = context.Queue()
+        process = context.Process(target=_forked_membership_policy_query, args=(queue,))
+        process.start()
+        child_pid, excluded, found = queue.get(timeout=30)
+        process.join(timeout=30)
+        assert process.exitcode == 0
+        assert child_pid != os.getpid()
+        assert excluded is True
+        assert found is True
+        queue.close()
+        _FORKED_POLICIES.clear()
+    store.close()
+
+
 def test_runtime_queries_use_indexes_without_role_stream_resort(built_store: Path) -> None:
     connection = sqlite3.connect(built_store / "lookup.sqlite")
     try:
@@ -279,10 +431,21 @@ def test_runtime_queries_use_indexes_without_role_stream_resort(built_store: Pat
         interval_plan = " ".join(
             str(row[-1])
             for row in connection.execute(
-                "EXPLAIN QUERY PLAN SELECT 1 FROM memberships "
-                "WHERE chrom_rank = ? AND start_bp < ? AND end_bp > ? "
-                "AND role IN (?, ?) LIMIT 1",
-                (20, 200, 100, "validation", "evaluation"),
+                "EXPLAIN QUERY PLAN SELECT 1 FROM membership_intervals AS intervals "
+                "CROSS JOIN memberships AS memberships "
+                "ON memberships.membership_id = intervals.membership_id "
+                "WHERE intervals.chrom_min <= ? AND intervals.chrom_max >= ? "
+                "AND intervals.start_min < ? AND intervals.end_max > ? "
+                "AND memberships.role IN (?, ?) AND memberships.source IN (?) LIMIT 1",
+                (
+                    20,
+                    20,
+                    200,
+                    100,
+                    "validation",
+                    "evaluation",
+                    "clinvar-2026-04-15",
+                ),
             )
         )
     finally:
@@ -290,7 +453,8 @@ def test_runtime_queries_use_indexes_without_role_stream_resort(built_store: Pat
 
     assert "memberships_role_order" in role_plan
     assert "TEMP B-TREE" not in role_plan
-    assert "memberships_interval" in interval_plan
+    assert "intervals VIRTUAL TABLE INDEX" in interval_plan
+    assert "INTEGER PRIMARY KEY" in interval_plan
 
 
 def test_verifier_rejects_manifest_shape_and_bound_file_tampering(
@@ -316,6 +480,51 @@ def test_verifier_rejects_manifest_shape_and_bound_file_tampering(
         verify_membership_store(tampered)
 
 
+def test_verifier_rejects_extra_files_symlinks_and_duplicate_bindings(
+    tmp_path: Path,
+    built_store: Path,
+) -> None:
+    extra = tmp_path / "extra"
+    shutil.copytree(built_store, extra)
+    (extra / "unexpected.txt").write_text("unexpected", encoding="utf-8")
+    with pytest.raises(InputError, match="exact layout"):
+        verify_membership_store(extra)
+
+    linked = tmp_path / "linked"
+    shutil.copytree(built_store, linked)
+    (linked / "build-receipt.json").unlink()
+    try:
+        (linked / "build-receipt.json").symlink_to("manifest.json")
+    except OSError:
+        # Unprivileged Windows runners may not permit symlink creation.
+        shutil.rmtree(linked)
+    else:
+        with pytest.raises(InputError, match="must not contain symlinks"):
+            verify_membership_store(linked)
+
+    duplicated = tmp_path / "duplicated-binding"
+    shutil.copytree(built_store, duplicated)
+    manifest_path = duplicated / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["files"].append(dict(payload["files"][0]))
+    payload["physical_identity"] = canonical_json_sha256(
+        {"content_identity": payload["content_identity"], "files": payload["files"]}
+    )
+    _write_json(manifest_path, payload)
+    with pytest.raises(InputError, match="file bindings do not match"):
+        verify_membership_store(duplicated)
+
+    receipt_drift = tmp_path / "receipt-drift"
+    shutil.copytree(built_store, receipt_drift)
+    receipt_path = receipt_drift / "build-receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["unexpected"] = True
+    _write_json(receipt_path, receipt)
+    _rebind_manifest_file(receipt_drift, "build-receipt.json")
+    with pytest.raises(InputError, match="build receipt keys do not match"):
+        verify_membership_store(receipt_drift)
+
+
 def test_verifier_rejects_tampered_lookup_columns_even_when_file_is_rebound(
     tmp_path: Path,
     built_store: Path,
@@ -333,14 +542,7 @@ def test_verifier_rejects_tampered_lookup_columns_even_when_file_is_rebound(
     finally:
         connection.close()
 
-    manifest_path = tampered / "manifest.json"
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    lookup_binding = next(
-        binding for binding in payload["files"] if binding["path"] == "lookup.sqlite"
-    )
-    lookup_binding["sha256"] = sha256_file(index_path)
-    lookup_binding["size_bytes"] = index_path.stat().st_size
-    _write_json(manifest_path, payload)
+    _rebind_manifest_file(tampered, "lookup.sqlite")
 
     with pytest.raises(InputError, match="derived columns are inconsistent"):
         verify_membership_store(tampered)
@@ -362,10 +564,89 @@ def test_builder_rejects_source_identity_drift_before_atomic_publication(
         build_membership_store(
             artifact_id="drifted",
             snapshot_lineage_path=lineage_path,
+            expected_snapshot_lineage_sha256=sha256_file(lineage_path),
+            builder_git_commit=BUILDER_GIT_COMMIT,
+            container_image=BUILDER_CONTAINER_IMAGE,
             sources=drifted_sources,
             output_dir=output,
         )
     assert not output.exists()
+
+
+def test_builder_rejects_unexpected_lineage_identity_before_publication(
+    tmp_path: Path,
+    source_bundle: tuple[Path, tuple[MembershipSourceInput, ...]],
+) -> None:
+    lineage_path, sources = source_bundle
+    output = tmp_path / "store"
+
+    with pytest.raises(InputError, match="expected byte identity"):
+        build_membership_store(
+            artifact_id="wrong-lineage",
+            snapshot_lineage_path=lineage_path,
+            expected_snapshot_lineage_sha256="sha256:" + "0" * 64,
+            builder_git_commit=BUILDER_GIT_COMMIT,
+            container_image=BUILDER_CONTAINER_IMAGE,
+            sources=sources,
+            output_dir=output,
+        )
+    assert not output.exists()
+
+
+def test_builder_derives_rows_from_captured_bytes_when_source_path_is_replaced(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_bundle: tuple[Path, tuple[MembershipSourceInput, ...]],
+) -> None:
+    lineage_path, sources = source_bundle
+    original_clinvar = next(source for source in sources if source.kind == "clinvar")
+    captured_target = tmp_path / "clinvar.parquet"
+    shutil.copyfile(original_clinvar.path, captured_target)
+    clinvar = MembershipSourceInput("clinvar", captured_target)
+    sources = tuple(clinvar if source.kind == "clinvar" else source for source in sources)
+    replacement = tmp_path / "replacement.parquet"
+    replacement_rows = [
+        _clinvar_row("21", 2021, 21),
+        _clinvar_row("1", 2001, 1),
+        _clinvar_row("X", 2023, 23),
+        _clinvar_row("20", 2020, 20),
+        _clinvar_row("GL000220.1", 2024, 24),
+        _clinvar_row("2", 2002, 25, significance="VUS"),
+    ]
+    pq.write_table(pa.Table.from_pylist(replacement_rows, schema=_clinvar_schema()), replacement)
+    real_parquet_file = pq.ParquetFile
+    replaced = False
+
+    def _replace_before_scan(path: object, *args: object, **kwargs: object) -> Any:
+        nonlocal replaced
+        if not replaced:
+            replacement.replace(clinvar.path)
+            replaced = True
+        return real_parquet_file(path, *args, **kwargs)
+
+    monkeypatch.setattr(pq, "ParquetFile", _replace_before_scan)
+    output = tmp_path / "store"
+    build_membership_store(
+        artifact_id="captured-source",
+        snapshot_lineage_path=lineage_path,
+        expected_snapshot_lineage_sha256=sha256_file(lineage_path),
+        builder_git_commit=BUILDER_GIT_COMMIT,
+        container_image=BUILDER_CONTAINER_IMAGE,
+        sources=sources,
+        output_dir=output,
+    )
+
+    with MembershipStore.open(output, verify=False) as store:
+        assert store.contains_variant(
+            "GRCh38:1:1001:C:T",
+            roles=("train",),
+            sources=("clinvar-2026-04-15",),
+        )
+        assert not store.contains_variant(
+            "GRCh38:1:2001:C:T",
+            roles=("train",),
+            sources=("clinvar-2026-04-15",),
+        )
 
 
 def test_builder_rejects_audit_only_clinvar_lineage(
@@ -385,6 +666,9 @@ def test_builder_rejects_audit_only_clinvar_lineage(
         build_membership_store(
             artifact_id="audit-only",
             snapshot_lineage_path=audit_only,
+            expected_snapshot_lineage_sha256=sha256_file(audit_only),
+            builder_git_commit=BUILDER_GIT_COMMIT,
+            container_image=BUILDER_CONTAINER_IMAGE,
             sources=sources,
             output_dir=tmp_path / "store",
         )
@@ -405,10 +689,94 @@ def test_builder_rejects_duplicate_source_membership_and_leaves_no_partial_store
         build_membership_store(
             artifact_id="duplicate",
             snapshot_lineage_path=lineage_path,
+            expected_snapshot_lineage_sha256=sha256_file(lineage_path),
+            builder_git_commit=BUILDER_GIT_COMMIT,
+            container_image=BUILDER_CONTAINER_IMAGE,
             sources=sources,
             output_dir=output,
         )
     assert not output.exists()
+
+
+def test_builder_independently_verifies_before_atomic_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lineage_path, sources = _write_source_bundle(tmp_path / "corrupt-build-sources")
+    writer = importlib.import_module("geno_lewm.data._membership_store_writer")
+    real_write = writer._write_membership_parquet
+
+    def _write_corrupt_parquet(connection: sqlite3.Connection, path: Path) -> str:
+        rowset_sha256 = real_write(connection, path)
+        path.write_bytes(b"corrupt parquet")
+        return rowset_sha256
+
+    monkeypatch.setattr(writer, "_write_membership_parquet", _write_corrupt_parquet)
+    output = tmp_path / "store"
+    with pytest.raises(InputError, match="Parquet scan failed"):
+        build_membership_store(
+            artifact_id="corrupt-before-publication",
+            snapshot_lineage_path=lineage_path,
+            expected_snapshot_lineage_sha256=sha256_file(lineage_path),
+            builder_git_commit=BUILDER_GIT_COMMIT,
+            container_image=BUILDER_CONTAINER_IMAGE,
+            sources=sources,
+            output_dir=output,
+        )
+    assert not output.exists()
+    assert not tuple(tmp_path.glob(".store.tmp-*"))
+    assert not tuple(tmp_path.glob(".store.sources-*"))
+
+
+def test_builder_does_not_publish_when_durability_barrier_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_bundle: tuple[Path, tuple[MembershipSourceInput, ...]],
+) -> None:
+    lineage_path, sources = source_bundle
+    writer = importlib.import_module("geno_lewm.data._membership_store_writer")
+
+    def _fail_fsync(_root: Path) -> None:
+        raise OSError("injected fsync failure")
+
+    monkeypatch.setattr(writer, "_fsync_artifact", _fail_fsync)
+    output = tmp_path / "store"
+    with pytest.raises(InputError, match="failed before publication"):
+        build_membership_store(
+            artifact_id="fsync-failure",
+            snapshot_lineage_path=lineage_path,
+            expected_snapshot_lineage_sha256=sha256_file(lineage_path),
+            builder_git_commit=BUILDER_GIT_COMMIT,
+            container_image=BUILDER_CONTAINER_IMAGE,
+            sources=sources,
+            output_dir=output,
+        )
+    assert not output.exists()
+    assert not tuple(tmp_path.glob(".store.tmp-*"))
+    assert not tuple(tmp_path.glob(".store.sources-*"))
+
+
+@pytest.mark.parametrize(
+    ("filename", "message"),
+    [
+        ("memberships.parquet", "membership Parquet scan failed"),
+        ("lookup.sqlite", "membership SQLite scan failed"),
+    ],
+)
+def test_verify_cli_reports_typed_storage_corruption(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    built_store: Path,
+    filename: str,
+    message: str,
+) -> None:
+    corrupted = tmp_path / filename.replace(".", "-")
+    shutil.copytree(built_store, corrupted)
+    (corrupted / filename).write_bytes(b"corrupt storage")
+    _rebind_manifest_file(corrupted, filename)
+
+    assert main(["verify", "--store-dir", str(corrupted)]) == 2
+    assert message in capsys.readouterr().err
 
 
 def test_lookup_has_no_pyarrow_runtime_dependency_but_file_adapter_fails_typed(
@@ -439,7 +807,11 @@ def test_verify_cli_and_checked_schemas_are_closed(
     assert payload["row_count"] == 25
 
     root = Path(__file__).resolve().parents[2]
-    for name in ("membership-build-spec.schema.json", "membership-store.schema.json"):
+    for name in (
+        "membership-build-receipt.schema.json",
+        "membership-build-spec.schema.json",
+        "membership-store.schema.json",
+    ):
         schema = json.loads((root / "configs" / "data_v03" / name).read_text(encoding="utf-8"))
         assert schema["additionalProperties"] is False
         assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
@@ -465,6 +837,11 @@ def test_build_cli_consumes_closed_relative_spec(
         "schema_version": "geno-lewm.membership-build-spec.v1",
         "artifact_id": "geno-lewm-v0.3-membership-fixture",
         "snapshot_lineage": "snapshot-lineage.json",
+        "snapshot_lineage_sha256": sha256_file(bundle / "snapshot-lineage.json"),
+        "builder": {
+            "git_commit": BUILDER_GIT_COMMIT,
+            "container_image": BUILDER_CONTAINER_IMAGE,
+        },
         "sources": source_entries,
     }
     spec_path = bundle / "membership-build.json"
@@ -479,6 +856,7 @@ def test_build_cli_consumes_closed_relative_spec(
     original = verify_membership_store(built_store)
     assert rebuilt.ok is True
     assert rebuilt.manifest.content_identity == original.manifest.content_identity
+    assert rebuilt.manifest.physical_identity != original.manifest.physical_identity
     assert rebuilt.manifest.rowset_sha256 == original.manifest.rowset_sha256
 
 
@@ -730,3 +1108,16 @@ def _clinvar_class_balance(rows: list[dict[str, object]]) -> dict[str, int]:
 
 def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _rebind_manifest_file(root: Path, filename: str) -> None:
+    manifest_path = root / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    binding = next(binding for binding in payload["files"] if binding["path"] == filename)
+    path = root / filename
+    binding["sha256"] = sha256_file(path)
+    binding["size_bytes"] = path.stat().st_size
+    payload["physical_identity"] = canonical_json_sha256(
+        {"content_identity": payload["content_identity"], "files": payload["files"]}
+    )
+    _write_json(manifest_path, payload)

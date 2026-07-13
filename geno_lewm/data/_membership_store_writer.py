@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -20,20 +21,29 @@ from geno_lewm.data._membership_store_contract import (
     _CLINVAR_REASON_MASK,
     _GNOMAD_REASON_MASK,
     _INDEX_NAME,
+    _LINEAGE_NAME,
     _MANIFEST_NAME,
     _PARQUET_BATCH_ROWS,
     _PARQUET_NAME,
+    _RECEIPT_NAME,
     MEMBERSHIP_STORE_SCHEMA_VERSION,
     MembershipSourceBinding,
     MembershipSourceInput,
     MembershipStoreFile,
     MembershipStoreManifest,
+    _require_commit,
+    _require_sha256,
     _write_json,
 )
 from geno_lewm.data._membership_store_lineage import (
+    _capture_source_artifact,
+    _delete_captured_artifact,
     _ExpectedSource,
     _load_snapshot_lineage,
-    _verify_source_identity,
+)
+from geno_lewm.data._membership_store_receipt import (
+    _create_build_receipt,
+    _require_container_image,
 )
 from geno_lewm.data._membership_store_storage import (
     _clinvar_schema,
@@ -46,6 +56,7 @@ from geno_lewm.data._membership_store_storage import (
     _write_index_metadata,
     _write_membership_parquet,
 )
+from geno_lewm.data._membership_store_verifier import verify_membership_store
 from geno_lewm.data.clinvar import CLINVAR_SCHEMA_VERSION
 from geno_lewm.data.gnomad import GNOMAD_SCHEMA_VERSION
 from geno_lewm.data.membership import (
@@ -62,6 +73,9 @@ def build_membership_store(
     *,
     artifact_id: str,
     snapshot_lineage_path: Path,
+    expected_snapshot_lineage_sha256: str,
+    builder_git_commit: str,
+    container_image: str,
     sources: Sequence[MembershipSourceInput],
     output_dir: Path,
 ) -> MembershipStoreManifest:
@@ -73,7 +87,24 @@ def build_membership_store(
     """
     if _ARTIFACT_ID.fullmatch(artifact_id) is None:
         raise InputError("membership store artifact_id is not canonical")
-    lineage_binding, expected_sources = _load_snapshot_lineage(Path(snapshot_lineage_path))
+    _require_commit(builder_git_commit, "membership builder git_commit")
+    _require_container_image(container_image)
+    pa, _pq = _require_pyarrow()
+    expected_lineage_sha256 = _require_sha256(
+        expected_snapshot_lineage_sha256,
+        "expected snapshot lineage sha256",
+    )
+    lineage_binding, expected_sources, lineage_bytes = _load_snapshot_lineage(
+        Path(snapshot_lineage_path)
+    )
+    if lineage_binding.sha256 != expected_lineage_sha256:
+        raise InputError(
+            "snapshot lineage does not match the expected byte identity",
+            details={
+                "expected": expected_lineage_sha256,
+                "observed": lineage_binding.sha256,
+            },
+        )
     normalized_sources = tuple(sources)
     if not normalized_sources or not all(
         isinstance(source, MembershipSourceInput) for source in normalized_sources
@@ -97,8 +128,14 @@ def build_membership_store(
             details={"path": str(output)},
             remediation="choose a new immutable artifact directory",
         )
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=f".{output.name}.tmp-", dir=output.parent))
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = Path(tempfile.mkdtemp(prefix=f".{output.name}.tmp-", dir=output.parent))
+        capture_root = Path(tempfile.mkdtemp(prefix=f".{output.name}.sources-", dir=output.parent))
+    except OSError as exc:
+        if "temporary" in locals():
+            shutil.rmtree(temporary, ignore_errors=True)
+        raise InputError("membership store temporary directories cannot be created") from exc
     index_path = temporary / _INDEX_NAME
     parquet_path = temporary / _PARQUET_NAME
     connection: sqlite3.Connection | None = None
@@ -108,12 +145,17 @@ def build_membership_store(
         for source_id in sorted(by_id):
             source_input = by_id[source_id]
             expected = expected_sources[source_id]
-            _verify_source_identity(source_input.path, expected.binding)
+            captured_input = _capture_source_artifact(
+                source_input,
+                expected.binding,
+                capture_root,
+            )
             membership_rows, filtered_rows = _ingest_source(
                 connection,
-                source_input=source_input,
+                source_input=captured_input,
                 expected=expected,
             )
+            _delete_captured_artifact(captured_input.path)
             derived_bindings.append(
                 replace(
                     expected.binding,
@@ -153,11 +195,30 @@ def build_membership_store(
         connection.close()
         connection = None
 
+        (temporary / _LINEAGE_NAME).write_bytes(lineage_bytes)
+        receipt = _create_build_receipt(
+            artifact_id=artifact_id,
+            content_identity=content_identity,
+            snapshot_lineage=lineage_binding,
+            builder_git_commit=builder_git_commit,
+            container_image=container_image,
+            pyarrow_version=str(pa.__version__),
+        )
+        _write_json(temporary / _RECEIPT_NAME, receipt)
+
         files = tuple(
             MembershipStoreFile(
                 path=path.name, sha256=sha256_file(path), size_bytes=path.stat().st_size
             )
-            for path in sorted((index_path, parquet_path), key=lambda item: item.name)
+            for path in sorted(
+                (
+                    index_path,
+                    parquet_path,
+                    temporary / _LINEAGE_NAME,
+                    temporary / _RECEIPT_NAME,
+                ),
+                key=lambda item: item.name,
+            )
         )
         manifest = MembershipStoreManifest(
             artifact_id=artifact_id,
@@ -174,14 +235,62 @@ def build_membership_store(
             content_identity=content_identity,
         )
         _write_json(temporary / _MANIFEST_NAME, manifest.to_dict())
-        temporary.replace(output)
-        return manifest
+        verified = verify_membership_store(temporary)
+        _fsync_artifact(temporary)
+        if output.exists():
+            raise InputError(
+                "membership store output appeared before publication",
+                details={"path": str(output)},
+            )
+        temporary.rename(output)
+        _fsync_directory(output.parent)
+        return verified.manifest
+    except InputError:
+        if connection is not None:
+            with suppress(Exception):
+                connection.close()
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+    except (OSError, sqlite3.DatabaseError, pa.ArrowException) as exc:
+        if connection is not None:
+            with suppress(Exception):
+                connection.close()
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise InputError("membership store build failed before publication") from exc
     except Exception:
         if connection is not None:
             with suppress(Exception):
                 connection.close()
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+    finally:
+        with suppress(OSError):
+            for captured in capture_root.iterdir():
+                captured.chmod(0o600)
+        shutil.rmtree(capture_root, ignore_errors=True)
+
+
+def _fsync_artifact(root: Path) -> None:
+    for path in sorted(root.iterdir(), key=lambda item: item.name):
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    _fsync_directory(root)
+
+
+def _fsync_directory(path: Path) -> None:
+    directory_flag = getattr(os, "O_DIRECTORY", None)
+    if directory_flag is None:
+        # Windows has no directory descriptor that ``os.fsync`` accepts. The
+        # artifact files are still flushed before the same-volume atomic move.
+        return
+    descriptor = os.open(path, os.O_RDONLY | directory_flag)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _ingest_source(
@@ -195,7 +304,10 @@ def _ingest_source(
     for row in rows:
         try:
             connection.execute(
-                "INSERT INTO memberships VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO memberships ("
+                "schema_version, variant_key, variant_digest, chrom, chrom_rank, pos, "
+                "start_bp, end_bp, ref, alt, role, role_rank, reason_mask, source, source_row_id"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 _sqlite_row(row),
             )
         except sqlite3.IntegrityError as exc:

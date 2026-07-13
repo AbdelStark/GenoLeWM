@@ -258,18 +258,22 @@ separate versioned store:
 ```text
 snapshot-lineage.json + exact local staged Parquet shards
                   │
-                  ├── verify revision/path/hash/size/count/schema
+                  ├── private single-descriptor capture + exact verification
                   ├── derive canonical MembershipRow values
-                  ├── SQLite-backed external sort, dedup, leakage checks
-                  └── memberships.parquet + lookup.sqlite + manifest.json
+                  ├── SQLite-backed ordering, R-tree, dedup, leakage checks
+                  ├── independent temp-store verification + fsync
+                  └── atomic five-file store publication
 ```
 
-The Parquet file is the portable row artifact. The SQLite file is a derived,
-manifest-bound point/range index used by the tuple builder and validation
+The five files are `manifest.json`, `memberships.parquet`, `lookup.sqlite`,
+the exact bundled `snapshot-lineage.json`, and `build-receipt.json`. The
+Parquet file is the portable row artifact. The SQLite file is a derived,
+manifest-bound point/R-tree range index used by the tuple builder and validation
 stream without loading all variant keys into Python. A format-independent
 digest over length-framed canonical rows defines semantic identity; the
-manifest separately commits the exact Parquet and SQLite bytes. Full
-verification scans both files independently with bounded memory.
+manifest's separate physical identity commits the exact Parquet, SQLite,
+lineage, and receipt bytes. Full verification rejects layout drift and scans
+both row encodings independently with bounded memory.
 
 PyArrow is loaded only by build and verification adapters. Manifest parsing
 and read-only SQLite lookups stay on core dependencies. The current repository
@@ -280,9 +284,9 @@ variant membership path is not presented as the RFC's phased-haplotype set.
 
 The stable `geno_lewm.data.membership_store` module is a small public facade.
 Its private implementation has one-way dependencies: the closed contract is
-the base; lineage and storage depend on that contract; writer and verifier
-depend on lineage/storage; the read-only runtime depends on the verifier and
-storage. This keeps source ingestion, physical encoding, independent
+the base; lineage, receipt, and storage depend on that contract; the verifier
+depends on those three; the writer depends on the verifier; and the read-only
+runtime depends on the verifier and storage. This keeps source ingestion, physical encoding, independent
 verification, and online lookup separately testable without import cycles.
 
 ## Inference Data Flow

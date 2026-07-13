@@ -10,11 +10,33 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
       "type": "string"
     },
+    "builder": {
+      "additionalProperties": false,
+      "properties": {
+        "container_image": {
+          "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "git_commit": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "git_commit",
+        "container_image"
+      ],
+      "type": "object"
+    },
     "schema_version": {
       "const": "geno-lewm.membership-build-spec.v1"
     },
     "snapshot_lineage": {
       "minLength": 1,
+      "type": "string"
+    },
+    "snapshot_lineage_sha256": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
       "type": "string"
     },
     "sources": {
@@ -71,6 +93,8 @@
     "schema_version",
     "artifact_id",
     "snapshot_lineage",
+    "snapshot_lineage_sha256",
+    "builder",
     "sources"
   ],
   "title": "GenoLeWM v0.3 membership build specification",

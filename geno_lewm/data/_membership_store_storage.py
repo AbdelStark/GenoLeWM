@@ -34,7 +34,8 @@ _SELECT_ROWS: Final = (
 )
 _SELECT_INDEX_ROWS: Final = (
     "SELECT schema_version, variant_key, variant_digest, chrom, chrom_rank, pos, start_bp, "
-    "end_bp, ref, alt, role, role_rank, reason_mask, source, source_row_id FROM memberships"
+    "end_bp, ref, alt, role, role_rank, reason_mask, source, source_row_id, membership_id "
+    "FROM memberships"
 )
 _ORDER_BY: Final = (
     "ORDER BY chrom_rank, pos, ref, alt, role_rank, source, source_row_id, reason_mask"
@@ -52,40 +53,53 @@ class _ScanSummary:
 
 def _create_index(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
-    connection.execute("PRAGMA page_size=4096")
-    connection.execute("PRAGMA journal_mode=DELETE")
-    connection.execute("PRAGMA synchronous=FULL")
-    connection.execute("PRAGMA temp_store=FILE")
-    connection.executescript(
-        """
-        CREATE TABLE memberships (
-            schema_version TEXT NOT NULL,
-            variant_key TEXT NOT NULL,
-            variant_digest TEXT NOT NULL,
-            chrom TEXT NOT NULL,
-            chrom_rank INTEGER NOT NULL,
-            pos INTEGER NOT NULL,
-            start_bp INTEGER NOT NULL,
-            end_bp INTEGER NOT NULL,
-            ref TEXT NOT NULL,
-            alt TEXT NOT NULL,
-            role TEXT NOT NULL,
-            role_rank INTEGER NOT NULL,
-            reason_mask INTEGER NOT NULL,
-            source TEXT NOT NULL,
-            source_row_id TEXT NOT NULL,
-            PRIMARY KEY (variant_key, source, source_row_id)
-        ) WITHOUT ROWID;
-        """
-    )
+    try:
+        connection.execute("PRAGMA page_size=4096")
+        connection.execute("PRAGMA journal_mode=DELETE")
+        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute("PRAGMA temp_store=FILE")
+        connection.executescript(
+            """
+            CREATE TABLE memberships (
+                membership_id INTEGER PRIMARY KEY,
+                schema_version TEXT NOT NULL,
+                variant_key TEXT NOT NULL,
+                variant_digest TEXT NOT NULL,
+                chrom TEXT NOT NULL,
+                chrom_rank INTEGER NOT NULL,
+                pos INTEGER NOT NULL,
+                start_bp INTEGER NOT NULL,
+                end_bp INTEGER NOT NULL,
+                ref TEXT NOT NULL,
+                alt TEXT NOT NULL,
+                role TEXT NOT NULL,
+                role_rank INTEGER NOT NULL,
+                reason_mask INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                source_row_id TEXT NOT NULL,
+                UNIQUE (variant_key, source, source_row_id)
+            );
+            """
+        )
+    except Exception:
+        connection.close()
+        raise
     return connection
 
 
 def _create_lookup_indexes(connection: sqlite3.Connection) -> None:
     connection.executescript(
         """
-        CREATE INDEX memberships_interval
-            ON memberships (chrom_rank, start_bp, end_bp, role);
+        CREATE VIRTUAL TABLE membership_intervals USING rtree_i32(
+            membership_id,
+            chrom_min,
+            chrom_max,
+            start_min,
+            end_max
+        );
+        INSERT INTO membership_intervals
+            SELECT membership_id, chrom_rank, chrom_rank, start_bp, end_bp
+            FROM memberships;
         CREATE INDEX memberships_role_order
             ON memberships (
                 role, chrom_rank, pos, ref, alt, role_rank, source, source_row_id, reason_mask
@@ -217,8 +231,9 @@ def _verify_index_metadata(
 def _verify_index_schema(connection: sqlite3.Connection) -> None:
     expected_tables = {
         "memberships": (
+            ("membership_id", "INTEGER", 0, 1),
             ("schema_version", "TEXT", 1, 0),
-            ("variant_key", "TEXT", 1, 1),
+            ("variant_key", "TEXT", 1, 0),
             ("variant_digest", "TEXT", 1, 0),
             ("chrom", "TEXT", 1, 0),
             ("chrom_rank", "INTEGER", 1, 0),
@@ -230,10 +245,29 @@ def _verify_index_schema(connection: sqlite3.Connection) -> None:
             ("role", "TEXT", 1, 0),
             ("role_rank", "INTEGER", 1, 0),
             ("reason_mask", "INTEGER", 1, 0),
-            ("source", "TEXT", 1, 2),
-            ("source_row_id", "TEXT", 1, 3),
+            ("source", "TEXT", 1, 0),
+            ("source_row_id", "TEXT", 1, 0),
         ),
         "metadata": (("key", "TEXT", 1, 1), ("value", "TEXT", 1, 0)),
+        "membership_intervals": (
+            ("membership_id", "INT", 0, 0),
+            ("chrom_min", "INT", 0, 0),
+            ("chrom_max", "INT", 0, 0),
+            ("start_min", "INT", 0, 0),
+            ("end_max", "INT", 0, 0),
+        ),
+        "membership_intervals_node": (
+            ("nodeno", "INTEGER", 0, 1),
+            ("data", "", 0, 0),
+        ),
+        "membership_intervals_parent": (
+            ("nodeno", "INTEGER", 0, 1),
+            ("parentnode", "", 0, 0),
+        ),
+        "membership_intervals_rowid": (
+            ("rowid", "INTEGER", 0, 1),
+            ("nodeno", "", 0, 0),
+        ),
     }
     observed_tables = {
         str(row[0])
@@ -254,7 +288,6 @@ def _verify_index_schema(connection: sqlite3.Connection) -> None:
                 details={"table": table},
             )
     expected_indexes = {
-        "memberships_interval": ("chrom_rank", "start_bp", "end_bp", "role"),
         "memberships_role_order": (
             "role",
             "chrom_rank",
@@ -280,6 +313,27 @@ def _verify_index_schema(connection: sqlite3.Connection) -> None:
                 "membership lookup index columns do not match the closed contract",
                 details={"index": name},
             )
+
+
+def _verify_interval_index(connection: sqlite3.Connection) -> None:
+    missing_or_drifted = connection.execute(
+        "SELECT memberships.membership_id FROM memberships "
+        "LEFT JOIN membership_intervals "
+        "ON membership_intervals.membership_id = memberships.membership_id "
+        "WHERE membership_intervals.membership_id IS NULL "
+        "OR membership_intervals.chrom_min != memberships.chrom_rank "
+        "OR membership_intervals.chrom_max != memberships.chrom_rank "
+        "OR membership_intervals.start_min != memberships.start_bp "
+        "OR membership_intervals.end_max != memberships.end_bp LIMIT 1"
+    ).fetchone()
+    orphaned = connection.execute(
+        "SELECT membership_intervals.membership_id FROM membership_intervals "
+        "LEFT JOIN memberships "
+        "ON memberships.membership_id = membership_intervals.membership_id "
+        "WHERE memberships.membership_id IS NULL LIMIT 1"
+    ).fetchone()
+    if missing_or_drifted is not None or orphaned is not None:
+        raise InputError("membership interval index does not match membership rows")
 
 
 def _validate_semantic_row(

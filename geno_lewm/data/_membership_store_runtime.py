@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import threading
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from types import TracebackType
@@ -14,6 +16,7 @@ from geno_lewm.data._membership_store_contract import (
     _INDEX_NAME,
     _MANIFEST_NAME,
     MEMBERSHIP_STORE_SCHEMA_VERSION,
+    MembershipStoreManifest,
     _read_manifest,
     _require_nonnegative_int,
     _require_positive_int,
@@ -25,7 +28,10 @@ from geno_lewm.data._membership_store_storage import (
     _verify_index_metadata,
     _verify_index_schema,
 )
-from geno_lewm.data._membership_store_verifier import verify_membership_store
+from geno_lewm.data._membership_store_verifier import (
+    _verify_exact_layout,
+    verify_membership_store,
+)
 from geno_lewm.data.builder import HoldoutPolicy, WindowContext
 from geno_lewm.data.membership import REQUIRED_MEMBERSHIP_ROLES, MembershipRow
 from geno_lewm.data.variant_identity import CanonicalVariant, canonicalize_chromosome
@@ -36,28 +42,24 @@ from geno_lewm.provenance.hashing import canonical_json_sha256
 class MembershipStore:
     """Read-only, indexed membership lookup without a PyArrow dependency."""
 
+    __slots__ = ("_closed", "_connections", "_lock", "_owner_pid", "manifest", "root")
+
     def __init__(self, store_dir: Path, *, verify: bool = True) -> None:
-        root = Path(store_dir)
-        manifest = (
-            verify_membership_store(root).manifest
-            if verify
-            else _read_manifest(root / _MANIFEST_NAME)
-        )
-        path = (root / _INDEX_NAME).resolve()
+        root = Path(store_dir).absolute()
+        if verify:
+            manifest = verify_membership_store(root).manifest
+        else:
+            _verify_exact_layout(root)
+            manifest = _read_manifest(root / _MANIFEST_NAME)
+        path = root / _INDEX_NAME
         if not path.is_file():
             raise InputError("membership lookup index is missing", details={"path": str(path)})
-        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro&immutable=1", uri=True)
-        connection.row_factory = sqlite3.Row
-        try:
-            _verify_index_schema(connection)
-            _verify_index_metadata(connection, manifest)
-        except Exception:
-            connection.close()
-            raise
         self.root = root
         self.manifest = manifest
-        self._connection = connection
         self._closed = False
+        self._connections: dict[tuple[int, threading.Thread], sqlite3.Connection] = {}
+        self._lock = threading.Lock()
+        self._owner_pid = os.getpid()
 
     @classmethod
     def open(cls, store_dir: Path, *, verify: bool = True) -> MembershipStore:
@@ -65,10 +67,43 @@ class MembershipStore:
         return cls(store_dir, verify=verify)
 
     def close(self) -> None:
-        """Close the read-only SQLite connection."""
+        """Close this handle and every per-thread read-only connection it owns."""
         if not self._closed:
-            self._connection.close()
+            with self._lock:
+                for connection in self._connections.values():
+                    connection.close()
+                self._connections.clear()
             self._closed = True
+
+    def __getstate__(self) -> dict[str, object]:
+        """Serialize stable bindings only; live SQLite handles never cross processes."""
+        return {
+            "root": str(self.root),
+            "manifest": self.manifest,
+            "closed": self._closed,
+        }
+
+    def __setstate__(self, state: Mapping[str, object]) -> None:
+        root = state["root"]
+        if not isinstance(root, str):
+            raise InputError("pickled membership store root is invalid")
+        self.root = Path(root)
+        manifest = state["manifest"]
+        if not isinstance(manifest, MembershipStoreManifest):
+            raise InputError("pickled membership store manifest is invalid")
+        self.manifest = manifest
+        self._closed = bool(state["closed"])
+        self._connections = {}
+        self._lock = threading.Lock()
+        self._owner_pid = os.getpid()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MembershipStore):
+            return NotImplemented
+        return self.manifest.content_identity == other.manifest.content_identity
+
+    def __hash__(self) -> int:
+        return hash((MembershipStore, self.manifest.content_identity))
 
     def __enter__(self) -> MembershipStore:
         self._require_open()
@@ -102,11 +137,15 @@ class MembershipStore:
             source_placeholders = ",".join("?" for _ in selected_sources)
             source_clause = f" AND source IN ({source_placeholders})"
             parameters = (*parameters, *selected_sources)
-        row = self._connection.execute(
-            f"SELECT 1 FROM memberships WHERE variant_key = ? "
-            f"AND role IN ({role_placeholders}){source_clause} LIMIT 1",
-            parameters,
-        ).fetchone()
+        row = (
+            self._connection()
+            .execute(
+                f"SELECT 1 FROM memberships WHERE variant_key = ? "
+                f"AND role IN ({role_placeholders}){source_clause} LIMIT 1",
+                parameters,
+            )
+            .fetchone()
+        )
         return row is not None
 
     def overlaps_interval(
@@ -131,20 +170,28 @@ class MembershipStore:
         source_clause = ""
         parameters: tuple[object, ...] = (
             _CHROMOSOME_RANK[chromosome],
+            _CHROMOSOME_RANK[chromosome],
             end_bp,
             start_bp,
             *selected_roles,
         )
         if selected_sources is not None:
             source_placeholders = ",".join("?" for _ in selected_sources)
-            source_clause = f" AND source IN ({source_placeholders})"
+            source_clause = f" AND memberships.source IN ({source_placeholders})"
             parameters = (*parameters, *selected_sources)
-        row = self._connection.execute(
-            f"SELECT 1 FROM memberships "
-            f"WHERE chrom_rank = ? AND start_bp < ? AND end_bp > ? "
-            f"AND role IN ({role_placeholders}){source_clause} LIMIT 1",
-            parameters,
-        ).fetchone()
+        row = (
+            self._connection()
+            .execute(
+                "SELECT 1 FROM membership_intervals AS intervals "
+                "CROSS JOIN memberships AS memberships "
+                "ON memberships.membership_id = intervals.membership_id "
+                "WHERE intervals.chrom_min <= ? AND intervals.chrom_max >= ? "
+                "AND intervals.start_min < ? AND intervals.end_max > ? "
+                f"AND memberships.role IN ({role_placeholders}){source_clause} LIMIT 1",
+                parameters,
+            )
+            .fetchone()
+        )
         return row is not None
 
     def iter_role(self, role: str, *, batch_size: int = 65_536) -> Iterator[MembershipRow]:
@@ -152,7 +199,7 @@ class MembershipStore:
         self._require_open()
         selected_role = _normalize_roles((role,))[0]
         _require_positive_int(batch_size, "membership iteration batch_size")
-        cursor = self._connection.execute(
+        cursor = self._connection().execute(
             _SELECT_ROWS + " WHERE role = ? " + _ORDER_BY,
             (selected_role,),
         )
@@ -163,6 +210,45 @@ class MembershipStore:
     def _require_open(self) -> None:
         if self._closed:
             raise InputError("membership store is closed")
+
+    def _connection(self) -> sqlite3.Connection:
+        self._require_open()
+        current_pid = os.getpid()
+        if self._owner_pid != current_pid:
+            for inherited in self._connections.values():
+                inherited.close()
+            self._connections = {}
+            self._lock = threading.Lock()
+            self._owner_pid = current_pid
+        key = (current_pid, threading.current_thread())
+        with self._lock:
+            connection = self._connections.get(key)
+        if connection is not None:
+            return connection
+        with self._lock:
+            connection = self._connections.get(key)
+            if connection is not None:
+                return connection
+            path = self.root / _INDEX_NAME
+            try:
+                connection = sqlite3.connect(
+                    f"{path.as_uri()}?mode=ro&immutable=1",
+                    uri=True,
+                    check_same_thread=False,
+                )
+                connection.row_factory = sqlite3.Row
+                _verify_index_schema(connection)
+                _verify_index_metadata(connection, self.manifest)
+            except (OSError, sqlite3.DatabaseError) as exc:
+                if connection is not None:
+                    connection.close()
+                raise InputError("membership lookup index cannot be opened") from exc
+            except Exception:
+                if connection is not None:
+                    connection.close()
+                raise
+            self._connections[key] = connection
+            return connection
 
 
 class MembershipStoreHoldoutPolicy(HoldoutPolicy):
@@ -190,14 +276,23 @@ class MembershipStoreHoldoutPolicy(HoldoutPolicy):
             ),
         )
 
+    def __reduce__(self) -> tuple[object, tuple[MembershipStore]]:
+        return type(self), (self.store,)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MembershipStoreHoldoutPolicy):
+            return NotImplemented
+        return self.identity() == other.identity()
+
+    def __hash__(self) -> int:
+        return hash((MembershipStoreHoldoutPolicy, self.identity()))
+
     def excludes_window(self, window: WindowContext) -> bool:
         """Exclude every validation/evaluation chromosome before tuple emission."""
         if not isinstance(window, WindowContext):
             raise InputError("window must be a WindowContext")
-        if window.chrom is None:
-            return False
-        chromosome = canonicalize_chromosome(window.chrom)
-        if chromosome in self.holdout_chroms:
+        chromosome, role = self._placed_role(window)
+        if role != "train":
             return True
         return self.store.overlaps_interval(
             chromosome,
@@ -213,10 +308,8 @@ class MembershipStoreHoldoutPolicy(HoldoutPolicy):
             raise InputError("window must be a WindowContext")
         if not isinstance(edit, RelEdit):
             raise InputError("edit must be a RelEdit")
-        if window.chrom is None:
-            return False
-        chromosome = canonicalize_chromosome(window.chrom)
-        if chromosome in self.holdout_chroms:
+        chromosome, role = self._placed_role(window)
+        if role != "train":
             return True
         variant = CanonicalVariant(
             assembly=self.store.manifest.assembly,
@@ -230,6 +323,21 @@ class MembershipStoreHoldoutPolicy(HoldoutPolicy):
             roles=REQUIRED_MEMBERSHIP_ROLES,
             sources=self._clinvar_sources,
         )
+
+    def _placed_role(self, window: WindowContext) -> tuple[str, str]:
+        if window.chrom is None:
+            raise InputError(
+                "membership holdout windows must be placed and assigned to the v0.3 split"
+            )
+        chromosome = canonicalize_chromosome(window.chrom)
+        try:
+            role = self.store.manifest.chromosome_roles.role_for(chromosome)
+        except InputError as exc:
+            raise InputError(
+                "membership holdout windows must be placed and assigned to the v0.3 split",
+                details={"chrom": chromosome},
+            ) from exc
+        return chromosome, role
 
     def to_dict(self) -> dict[str, object]:
         """Return a compact policy binding, never the complete key set."""

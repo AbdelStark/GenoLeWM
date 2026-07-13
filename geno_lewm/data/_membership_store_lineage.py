@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +19,7 @@ from geno_lewm.data._membership_store_contract import (
     _GNOMAD_REMOTE_POSTFLIGHT_FILES,
     _SNAPSHOT_LINEAGE_SCHEMA_VERSION,
     MembershipSourceBinding,
+    MembershipSourceInput,
     SnapshotLineageBinding,
     _parse_count_mapping,
     _read_json_mapping,
@@ -32,7 +35,7 @@ from geno_lewm.data.gnomad import GNOMAD_SCHEMA_VERSION
 from geno_lewm.data.membership import V03_CHROMOSOME_ROLES
 from geno_lewm.data.variant_identity import canonicalize_chromosome
 from geno_lewm.errors import InputError, SchemaCompatError
-from geno_lewm.provenance.hashing import canonical_json_sha256, sha256_file
+from geno_lewm.provenance.hashing import canonical_json_sha256
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +46,7 @@ class _ExpectedSource:
 
 def _load_snapshot_lineage(
     path: Path,
-) -> tuple[SnapshotLineageBinding, dict[str, _ExpectedSource]]:
+) -> tuple[SnapshotLineageBinding, dict[str, _ExpectedSource], bytes]:
     raw_bytes, payload = _read_json_mapping(path, "snapshot lineage")
     _require_exact_keys(
         payload,
@@ -191,26 +194,83 @@ def _load_snapshot_lineage(
         ),
         chromosome=None,
     )
-    return binding, expected
+    return binding, expected, raw_bytes
 
 
-def _verify_source_identity(path: Path, binding: MembershipSourceBinding) -> None:
+def _capture_source_artifact(
+    source_input: MembershipSourceInput,
+    binding: MembershipSourceBinding,
+    capture_root: Path,
+) -> MembershipSourceInput:
+    """Copy one source through a single checked descriptor into private storage."""
+    path = source_input.path
+    source_fd: int | None = None
+    destination_fd: int | None = None
+    destination = capture_root / f"{binding.source_id}-{binding.artifact_sha256[7:]}.parquet"
     try:
-        stat = path.stat()
+        source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        source_fd = os.open(path, source_flags)
+        source_stat = os.fstat(source_fd)
+        if not stat.S_ISREG(source_stat.st_mode):
+            raise InputError("membership source artifact must be a regular file")
+        destination_fd = os.open(
+            destination,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o400,
+        )
+        digest = hashlib.sha256()
+        size_bytes = 0
+        while chunk := os.read(source_fd, 1024 * 1024):
+            digest.update(chunk)
+            size_bytes += len(chunk)
+            view = memoryview(chunk)
+            while view:
+                written = os.write(destination_fd, view)
+                if written < 1:
+                    raise InputError("membership source capture produced a short write")
+                view = view[written:]
+        os.fsync(destination_fd)
+    except InputError:
+        _delete_captured_artifact(destination)
+        raise
     except OSError as exc:
+        _delete_captured_artifact(destination)
         raise InputError(
             "membership source artifact cannot be read",
             details={"source_id": binding.source_id, "path": str(path)},
         ) from exc
-    if not path.is_file():
-        raise InputError("membership source artifact must be a regular file")
-    observed = {"sha256": sha256_file(path), "size_bytes": stat.st_size}
+    finally:
+        if destination_fd is not None:
+            os.close(destination_fd)
+        if source_fd is not None:
+            os.close(source_fd)
+
+    observed = {"sha256": "sha256:" + digest.hexdigest(), "size_bytes": size_bytes}
     expected = {"sha256": binding.artifact_sha256, "size_bytes": binding.artifact_size_bytes}
     if observed != expected:
+        _delete_captured_artifact(destination)
         raise InputError(
             "membership source artifact identity mismatch",
             details={"source_id": binding.source_id, "declared": expected, "observed": observed},
         )
+    return MembershipSourceInput(
+        kind=source_input.kind,
+        path=destination,
+        chromosome=source_input.chromosome,
+    )
+
+
+def _delete_captured_artifact(path: Path) -> None:
+    try:
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise InputError("private membership source capture cannot be removed") from exc
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise InputError("private membership source capture cannot be removed") from exc
 
 
 def _validate_reduced_remote_postflight(

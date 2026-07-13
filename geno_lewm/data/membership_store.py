@@ -50,13 +50,19 @@ def build_membership_store(
     *,
     artifact_id: str,
     snapshot_lineage_path: Path,
+    expected_snapshot_lineage_sha256: str,
+    builder_git_commit: str,
+    container_image: str,
     sources: Sequence[MembershipSourceInput],
     output_dir: Path,
 ) -> MembershipStoreManifest:
-    """Build one immutable store from exact local staged-source bytes."""
+    """Build one immutable store from expected lineage bytes and pinned builder provenance."""
     return _build_membership_store(
         artifact_id=artifact_id,
         snapshot_lineage_path=snapshot_lineage_path,
+        expected_snapshot_lineage_sha256=expected_snapshot_lineage_sha256,
+        builder_git_commit=builder_git_commit,
+        container_image=container_image,
         sources=sources,
         output_dir=output_dir,
     )

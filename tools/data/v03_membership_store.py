@@ -15,6 +15,7 @@ from geno_lewm.data.membership_store import (
     verify_membership_store,
 )
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
+from geno_lewm.provenance.hashing import looks_like_sha256
 
 BUILD_SPEC_SCHEMA_VERSION = "geno-lewm.membership-build-spec.v1"
 
@@ -31,10 +32,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "build":
-            artifact_id, lineage_path, sources = _load_build_spec(args.spec_json)
+            (
+                artifact_id,
+                lineage_path,
+                expected_lineage_sha256,
+                builder_git_commit,
+                container_image,
+                sources,
+            ) = _load_build_spec(args.spec_json)
             manifest = build_membership_store(
                 artifact_id=artifact_id,
                 snapshot_lineage_path=lineage_path,
+                expected_snapshot_lineage_sha256=expected_lineage_sha256,
+                builder_git_commit=builder_git_commit,
+                container_image=container_image,
                 sources=sources,
                 output_dir=args.output_dir,
             )
@@ -42,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
                 "ok": True,
                 "artifact_id": manifest.artifact_id,
                 "content_identity": manifest.content_identity,
+                "physical_identity": manifest.physical_identity,
                 "row_count": manifest.row_count,
                 "output_dir": str(args.output_dir),
             }
@@ -56,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _load_build_spec(
     path: Path,
-) -> tuple[str, Path, tuple[MembershipSourceInput, ...]]:
+) -> tuple[str, Path, str, str, str, tuple[MembershipSourceInput, ...]]:
     try:
         raw: object = json.loads(
             path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_pairs
@@ -73,7 +85,15 @@ def _load_build_spec(
     payload = _require_mapping(raw, "membership build spec")
     _require_exact_keys(
         payload,
-        {"$schema", "schema_version", "artifact_id", "snapshot_lineage", "sources"},
+        {
+            "$schema",
+            "schema_version",
+            "artifact_id",
+            "snapshot_lineage",
+            "snapshot_lineage_sha256",
+            "builder",
+            "sources",
+        },
         "membership build spec",
     )
     if payload.get("$schema") != "./membership-build-spec.schema.json":
@@ -83,6 +103,18 @@ def _load_build_spec(
     artifact_id = _require_text(payload.get("artifact_id"), "membership artifact_id")
     lineage_path = _resolve_relative(
         path.parent, payload.get("snapshot_lineage"), "snapshot_lineage"
+    )
+    expected_lineage_sha256 = _require_text(
+        payload.get("snapshot_lineage_sha256"),
+        "membership snapshot_lineage_sha256",
+    )
+    if not looks_like_sha256(expected_lineage_sha256):
+        raise InputError("membership snapshot_lineage_sha256 must be a sha256 digest")
+    builder = _require_mapping(payload.get("builder"), "membership builder")
+    _require_exact_keys(builder, {"git_commit", "container_image"}, "membership builder")
+    builder_git_commit = _require_text(builder.get("git_commit"), "membership builder git_commit")
+    container_image = _require_text(
+        builder.get("container_image"), "membership builder container_image"
     )
     raw_sources = payload.get("sources")
     if not isinstance(raw_sources, list) or not raw_sources:
@@ -112,7 +144,14 @@ def _load_build_spec(
                 chromosome=chromosome,
             )
         )
-    return artifact_id, lineage_path, tuple(sources)
+    return (
+        artifact_id,
+        lineage_path,
+        expected_lineage_sha256,
+        builder_git_commit,
+        container_image,
+        tuple(sources),
+    )
 
 
 def _resolve_relative(root: Path, value: object, field: str) -> Path:

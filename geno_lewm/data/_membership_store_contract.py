@@ -29,6 +29,10 @@ _SNAPSHOT_LINEAGE_SCHEMA_VERSION: Final = "geno-lewm.v03-snapshot-lineage.v1"
 _MANIFEST_NAME: Final = "manifest.json"
 _PARQUET_NAME: Final = "memberships.parquet"
 _INDEX_NAME: Final = "lookup.sqlite"
+_LINEAGE_NAME: Final = "snapshot-lineage.json"
+_RECEIPT_NAME: Final = "build-receipt.json"
+_BOUND_FILE_NAMES: Final = frozenset({_INDEX_NAME, _PARQUET_NAME, _LINEAGE_NAME, _RECEIPT_NAME})
+_ARTIFACT_FILE_NAMES: Final = frozenset({_MANIFEST_NAME, *_BOUND_FILE_NAMES})
 _PARQUET_BATCH_ROWS: Final = 65_536
 _GNOMAD_REASON_MASK: Final = 1
 _CLINVAR_REASON_MASK: Final = 2
@@ -301,7 +305,7 @@ class MembershipStoreFile:
     size_bytes: int
 
     def __post_init__(self) -> None:
-        if self.path not in {_PARQUET_NAME, _INDEX_NAME}:
+        if self.path not in _BOUND_FILE_NAMES:
             raise InputError("membership store file path is not recognized")
         _require_sha256(self.sha256, "membership store file sha256")
         _require_positive_int(self.size_bytes, "membership store file size_bytes")
@@ -380,8 +384,11 @@ class MembershipStoreManifest:
                 raise InputError("membership store source count drifted from source binding")
         _require_sha256(self.rowset_sha256, "membership store rowset_sha256")
         files = tuple(sorted(self.files, key=lambda item: item.path))
-        if {binding.path for binding in files} != {_PARQUET_NAME, _INDEX_NAME}:
-            raise InputError("membership store must bind exactly Parquet and SQLite files")
+        if (
+            len(files) != len(_BOUND_FILE_NAMES)
+            or {binding.path for binding in files} != _BOUND_FILE_NAMES
+        ):
+            raise InputError("membership store file bindings do not match the exact layout")
         object.__setattr__(self, "files", files)
         _require_sha256(self.content_identity, "membership store content_identity")
         expected_identity = canonical_json_sha256(self._identity_payload())
@@ -411,7 +418,19 @@ class MembershipStoreManifest:
             **self._identity_payload(),
             "files": [binding.to_dict() for binding in self.files],
             "content_identity": self.content_identity,
+            "physical_identity": self.physical_identity,
         }
+
+    def _physical_identity_payload(self) -> dict[str, object]:
+        return {
+            "content_identity": self.content_identity,
+            "files": [binding.to_dict() for binding in self.files],
+        }
+
+    @property
+    def physical_identity(self) -> str:
+        """Return the exact identity of semantic and bound physical bytes."""
+        return canonical_json_sha256(self._physical_identity_payload())
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> MembershipStoreManifest:
@@ -429,6 +448,7 @@ class MembershipStoreManifest:
             "rowset_sha256",
             "files",
             "content_identity",
+            "physical_identity",
         }
         _require_exact_keys(payload, required, "membership store manifest")
         roles = _require_mapping(payload.get("chromosome_roles"), "membership chromosome_roles")
@@ -439,7 +459,10 @@ class MembershipStoreManifest:
         source_counts = _parse_count_mapping(
             payload.get("source_counts"), "membership source_counts"
         )
-        return cls(
+        declared_physical_identity = _require_sha256(
+            payload.get("physical_identity"), "membership physical_identity"
+        )
+        manifest = cls(
             schema_version=_require_text(
                 payload.get("schema_version"), "membership schema_version"
             ),
@@ -468,6 +491,15 @@ class MembershipStoreManifest:
                 payload.get("content_identity"), "membership content_identity"
             ),
         )
+        if manifest.physical_identity != declared_physical_identity:
+            raise InputError(
+                "membership store physical identity mismatch",
+                details={
+                    "declared": declared_physical_identity,
+                    "computed": manifest.physical_identity,
+                },
+            )
+        return manifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -483,6 +515,7 @@ class MembershipStoreVerification:
             "schema_version": self.manifest.schema_version,
             "artifact_id": self.manifest.artifact_id,
             "content_identity": self.manifest.content_identity,
+            "physical_identity": self.manifest.physical_identity,
             "rowset_sha256": self.manifest.rowset_sha256,
             "row_count": self.manifest.row_count,
             "variant_count": self.manifest.variant_count,
