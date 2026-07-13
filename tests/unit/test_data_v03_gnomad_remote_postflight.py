@@ -193,6 +193,28 @@ def test_remote_postflight_rejects_tampered_parquet_bytes(
     assert "prepare report.output_parquet.sha256 drifted" in capsys.readouterr().err
 
 
+def test_remote_postflight_rejects_an_unprefixed_prepare_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixture = _write_remote_fixture(tmp_path / "hub")
+    prepare_path = fixture.root / fixture.namespace / "evidence/prepare-report.json"
+    prepare = json.loads(prepare_path.read_text(encoding="utf-8"))
+    prepare["output_parquet"]["sha256"] = prepare["output_parquet"]["sha256"].removeprefix(
+        "sha256:"
+    )
+    _write_json(prepare_path, prepare)
+    hub = _FakeHub(root=fixture.root, repo_files=fixture.repo_files, revision=HUB_REVISION)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub.module())
+
+    result = main(_postflight_args(fixture, output=tmp_path / "postflight.json"))
+
+    assert result == 2
+    assert (
+        "prepare report.output_parquet.sha256 must be a lowercase sha256:<hex> digest"
+        in capsys.readouterr().err
+    )
+
+
 def test_remote_postflight_rejects_expected_source_commit_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -510,19 +532,19 @@ def _write_remote_fixture(
         "input_path": source_path,
         "command": shlex.join(report_argv),
         "release": selection["release"],
-        "input_sha256": source_identity["sha256"],
-        "output_sha256": _sha256(parquet),
+        "input_sha256": f"sha256:{source_identity['sha256']}",
+        "output_sha256": f"sha256:{_sha256(parquet)}",
         "input_size_bytes": source["size_bytes"],
         "size_bytes": parquet.stat().st_size,
         "elapsed_seconds": 3.0,
         "input_vcf": {
             "path": source_path,
-            "sha256": source_identity["sha256"],
+            "sha256": f"sha256:{source_identity['sha256']}",
             "size_bytes": source["size_bytes"],
         },
         "output_parquet": {
             "path": output_path,
-            "sha256": _sha256(parquet),
+            "sha256": f"sha256:{_sha256(parquet)}",
             "size_bytes": parquet.stat().st_size,
         },
         "records_read": 4,
@@ -705,9 +727,9 @@ def _rebind_parquet_and_prepare_report(fixture: _RemoteFixture) -> None:
     prepare_path = namespace_root / "evidence/prepare-report.json"
     receipt_path = namespace_root / "evidence/receipt.json"
     prepare = json.loads(prepare_path.read_text(encoding="utf-8"))
-    prepare["output_parquet"]["sha256"] = _sha256(parquet)
+    prepare["output_parquet"]["sha256"] = f"sha256:{_sha256(parquet)}"
     prepare["output_parquet"]["size_bytes"] = parquet.stat().st_size
-    prepare["output_sha256"] = _sha256(parquet)
+    prepare["output_sha256"] = f"sha256:{_sha256(parquet)}"
     prepare["size_bytes"] = parquet.stat().st_size
     _write_json(prepare_path, prepare)
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))

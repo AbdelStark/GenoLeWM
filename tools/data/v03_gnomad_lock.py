@@ -738,15 +738,24 @@ def _validate_remote_prepare_report(
     if not output_path.endswith(expected_output_suffix):
         raise SourceLockError("prepare report.output_parquet.path drifted from the staging layout")
     output_identity = _file_identity(parquet_path)
-    for field in ("sha256", "size_bytes"):
-        _require_equal(
-            output_report[field], output_identity[field], f"prepare report.output_parquet.{field}"
-        )
+    _require_equal(
+        _require_prefixed_sha256(output_report["sha256"], "prepare report.output_parquet.sha256"),
+        output_identity["sha256"],
+        "prepare report.output_parquet.sha256",
+    )
+    _require_equal(
+        output_report["size_bytes"],
+        output_identity["size_bytes"],
+        "prepare report.output_parquet.size_bytes",
+    )
     input_report = _require_mapping(prepare_report["input_vcf"], "prepare report.input_vcf")
     _require_exact_keys(input_report, {"path", "sha256", "size_bytes"}, "prepare report.input_vcf")
     _require_equal(input_report["path"], source_path, "prepare report.input_vcf.path")
+    source_sha256 = _require_sha256(source_identity["sha256"], "source identity.sha256")
     _require_equal(
-        input_report["sha256"], source_identity["sha256"], "prepare report.input_vcf.sha256"
+        _require_prefixed_sha256(input_report["sha256"], "prepare report.input_vcf.sha256"),
+        source_sha256,
+        "prepare report.input_vcf.sha256",
     )
     _require_equal(
         input_report["size_bytes"],
@@ -757,8 +766,6 @@ def _validate_remote_prepare_report(
     identity_fields = {
         "output_path": output_path,
         "input_path": source_path,
-        "input_sha256": source_identity["sha256"],
-        "output_sha256": output_identity["sha256"],
         "input_size_bytes": source_identity["size_bytes"],
         "size_bytes": output_identity["size_bytes"],
         "release": selection["release"],
@@ -766,6 +773,16 @@ def _validate_remote_prepare_report(
     }
     for field, expected in identity_fields.items():
         _require_equal(prepare_report[field], expected, f"prepare report.{field}")
+    _require_equal(
+        _require_prefixed_sha256(prepare_report["input_sha256"], "prepare report.input_sha256"),
+        source_sha256,
+        "prepare report.input_sha256",
+    )
+    _require_equal(
+        _require_prefixed_sha256(prepare_report["output_sha256"], "prepare report.output_sha256"),
+        output_identity["sha256"],
+        "prepare report.output_sha256",
+    )
     elapsed_seconds = _require_number(
         prepare_report["elapsed_seconds"], "prepare report.elapsed_seconds"
     )
