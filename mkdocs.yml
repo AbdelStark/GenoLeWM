@@ -139,6 +139,7 @@ nav:
   - Guides:
       - Glossary: glossary.md
       - FAQ: faq.md
+      - ClinVar v0.3 staging verification: data-v03-staging-verification.md
       - Maintainers: maintainers.md
   - Research:
       - GenoLeWM-FX contract: research/fx-experiment-contract.md

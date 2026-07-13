@@ -1,0 +1,361 @@
+{
+  "$id": "https://raw.githubusercontent.com/AbdelStark/GenoLeWM/main/configs/data_v03/clinvar-remote-postflight.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "items": false,
+      "prefixItems": [
+        { "const": "exact_hub_revision_resolved" },
+        { "const": "complete_namespace_file_set" },
+        { "const": "source_contract_loaded_from_exact_git_commit" },
+        { "const": "source_contract_derived_from_ast" },
+        { "const": "audit_prepare_runtime_reconciled" },
+        { "const": "source_release_sha256_and_size_reconciled" },
+        { "const": "parquet_sha256_and_size_recomputed" },
+        { "const": "parquet_schema_derived_from_source_commit" },
+        { "const": "parquet_full_scan_recomputed" }
+      ],
+      "type": "array"
+    },
+    "claim_boundary": {
+      "minLength": 80,
+      "type": "string"
+    },
+    "file_identities": {
+      "additionalProperties": false,
+      "maxProperties": 4,
+      "minProperties": 4,
+      "patternProperties": {
+        "^clinvar/[0-9]{4}-[0-9]{2}-[0-9]{2}/variants\\.parquet$": {
+          "$ref": "#/$defs/fileIdentity"
+        }
+      },
+      "properties": {
+        "evidence/audit.json": { "$ref": "#/$defs/fileIdentity" },
+        "evidence/prepare_report.json": { "$ref": "#/$defs/fileIdentity" },
+        "evidence/runtime_report.json": { "$ref": "#/$defs/fileIdentity" }
+      },
+      "required": [
+        "evidence/audit.json",
+        "evidence/prepare_report.json",
+        "evidence/runtime_report.json"
+      ],
+      "type": "object"
+    },
+    "namespace": {
+      "pattern": "^staging/clinvar-[0-9]{4}-[0-9]{2}-[0-9]{2}-archive-[0-9a-f]{12}-r1$",
+      "type": "string"
+    },
+    "ok": { "const": true },
+    "output_identity": {
+      "additionalProperties": false,
+      "properties": {
+        "class_balance": { "$ref": "#/$defs/classBalance" },
+        "path": {
+          "pattern": "^clinvar/[0-9]{4}-[0-9]{2}-[0-9]{2}/variants\\.parquet$",
+          "type": "string"
+        },
+        "records": { "minimum": 1, "type": "integer" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "minimum": 1, "type": "integer" }
+      },
+      "required": ["class_balance", "path", "records", "sha256", "size_bytes"],
+      "type": "object"
+    },
+    "parquet_audit": {
+      "additionalProperties": false,
+      "properties": {
+        "chromosome_balance": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "patternProperties": {
+            "^.+$": { "minimum": 0, "type": "integer" }
+          },
+          "type": "object"
+        },
+        "class_balance": { "$ref": "#/$defs/classBalance" },
+        "clinvar_id_range": { "$ref": "#/$defs/positiveRange" },
+        "metadata_row_count": { "minimum": 1, "type": "integer" },
+        "null_counts": {
+          "additionalProperties": false,
+          "properties": {
+            "alt": { "minimum": 0, "type": "integer" },
+            "chrom": { "minimum": 0, "type": "integer" },
+            "clinical_significance": { "minimum": 0, "type": "integer" },
+            "clinvar_id": { "minimum": 0, "type": "integer" },
+            "gene_symbol": { "minimum": 0, "type": "integer" },
+            "pos": { "minimum": 0, "type": "integer" },
+            "ref": { "minimum": 0, "type": "integer" },
+            "review_status": { "minimum": 0, "type": "integer" },
+            "schema_version": { "minimum": 0, "type": "integer" }
+          },
+          "required": [
+            "alt",
+            "chrom",
+            "clinical_significance",
+            "clinvar_id",
+            "gene_symbol",
+            "pos",
+            "ref",
+            "review_status",
+            "schema_version"
+          ],
+          "type": "object"
+        },
+        "position_range": { "$ref": "#/$defs/positiveRange" },
+        "scanned_row_count": { "minimum": 1, "type": "integer" },
+        "schema": { "$ref": "#/$defs/parquetSchema" },
+        "schema_version_balance": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "patternProperties": {
+            "^[0-9]+\\.[0-9]+\\.[0-9]+$": { "minimum": 1, "type": "integer" }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "chromosome_balance",
+        "class_balance",
+        "clinvar_id_range",
+        "metadata_row_count",
+        "null_counts",
+        "position_range",
+        "scanned_row_count",
+        "schema",
+        "schema_version_balance"
+      ],
+      "type": "object"
+    },
+    "release": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "type": "string"
+    },
+    "repo_id": {
+      "pattern": "^[^/]+/[^/]+$",
+      "type": "string"
+    },
+    "repo_type": { "const": "dataset" },
+    "revision": { "$ref": "#/$defs/commitSha" },
+    "schema_version": { "const": "geno-lewm.clinvar-remote-postflight.v1" },
+    "source_commit": { "$ref": "#/$defs/commitSha" },
+    "source_identity": {
+      "additionalProperties": false,
+      "properties": {
+        "md5": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "release": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "minimum": 1, "type": "integer" },
+        "url": {
+          "pattern": "^https://ftp\\.ncbi\\.nlm\\.nih\\.gov/pub/clinvar/vcf_GRCh38/archive_2\\.0/[0-9]{4}/clinvar_[0-9]{8}\\.vcf\\.gz$",
+          "type": "string"
+        },
+        "verification_limitation": {
+          "minLength": 80,
+          "type": "string"
+        },
+        "verification_scope": {
+          "items": false,
+          "prefixItems": [
+            { "const": "release_reconciled" },
+            { "const": "sha256_reconciled" },
+            { "const": "size_bytes_reconciled" }
+          ],
+          "type": "array"
+        }
+      },
+      "required": [
+        "md5",
+        "release",
+        "sha256",
+        "size_bytes",
+        "url",
+        "verification_limitation",
+        "verification_scope"
+      ],
+      "type": "object"
+    },
+    "trusted_source_contract": {
+      "additionalProperties": false,
+      "properties": {
+        "allele_alphabet": {
+          "items": { "enum": ["A", "C", "G", "T"] },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "cli_command": { "const": "geno-lewm-prepare-clinvar" },
+        "file_identity_fields": {
+          "items": false,
+          "prefixItems": [
+            { "const": "path" },
+            { "const": "sha256" },
+            { "const": "size_bytes" }
+          ],
+          "type": "array"
+        },
+        "files": {
+          "additionalProperties": false,
+          "properties": {
+            "geno_lewm/cli/_prepare_report.py": { "$ref": "#/$defs/fileIdentity" },
+            "geno_lewm/cli/prepare_clinvar.py": { "$ref": "#/$defs/fileIdentity" },
+            "geno_lewm/data/_vcf.py": { "$ref": "#/$defs/fileIdentity" },
+            "geno_lewm/data/clinvar.py": { "$ref": "#/$defs/fileIdentity" }
+          },
+          "required": [
+            "geno_lewm/cli/_prepare_report.py",
+            "geno_lewm/cli/prepare_clinvar.py",
+            "geno_lewm/data/_vcf.py",
+            "geno_lewm/data/clinvar.py"
+          ],
+          "type": "object"
+        },
+        "labelled_classes": {
+          "items": { "enum": ["B", "LB", "LP", "P"] },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "max_allele_len": { "const": 16 },
+        "normalized_classes": {
+          "items": { "enum": ["B", "LB", "LP", "OTHER", "P", "VUS"] },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "nullable_fields": {
+          "items": false,
+          "prefixItems": [{ "const": "gene_symbol" }],
+          "type": "array"
+        },
+        "output_path_template": { "const": "clinvar/{release}/variants.parquet" },
+        "parquet_schema": { "$ref": "#/$defs/parquetSchema" },
+        "prepare_report_enrichments": {
+          "items": false,
+          "prefixItems": [
+            { "const": "command" },
+            { "const": "input_vcf" },
+            { "const": "output_parquet" },
+            { "const": "runtime" }
+          ],
+          "type": "array"
+        },
+        "schema_version": { "const": "1.0.0" }
+      },
+      "required": [
+        "allele_alphabet",
+        "cli_command",
+        "file_identity_fields",
+        "files",
+        "labelled_classes",
+        "max_allele_len",
+        "normalized_classes",
+        "nullable_fields",
+        "output_path_template",
+        "parquet_schema",
+        "prepare_report_enrichments",
+        "schema_version"
+      ],
+      "type": "object"
+    },
+    "verified_files": {
+      "items": false,
+      "prefixItems": [
+        {
+          "pattern": "^clinvar/[0-9]{4}-[0-9]{2}-[0-9]{2}/variants\\.parquet$",
+          "type": "string"
+        },
+        { "const": "evidence/audit.json" },
+        { "const": "evidence/prepare_report.json" },
+        { "const": "evidence/runtime_report.json" }
+      ],
+      "type": "array"
+    }
+  },
+  "required": [
+    "checks",
+    "claim_boundary",
+    "file_identities",
+    "namespace",
+    "ok",
+    "output_identity",
+    "parquet_audit",
+    "release",
+    "repo_id",
+    "repo_type",
+    "revision",
+    "schema_version",
+    "source_commit",
+    "source_identity",
+    "trusted_source_contract",
+    "verified_files"
+  ],
+  "title": "GenoLeWM corrected ClinVar remote postflight report",
+  "type": "object",
+  "$defs": {
+    "classBalance": {
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "B": { "minimum": 0, "type": "integer" },
+        "LB": { "minimum": 0, "type": "integer" },
+        "LP": { "minimum": 0, "type": "integer" },
+        "OTHER": { "minimum": 0, "type": "integer" },
+        "P": { "minimum": 0, "type": "integer" },
+        "VUS": { "minimum": 0, "type": "integer" }
+      },
+      "type": "object"
+    },
+    "commitSha": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "fileIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "minimum": 1, "type": "integer" }
+      },
+      "required": ["sha256", "size_bytes"],
+      "type": "object"
+    },
+    "parquetField": {
+      "additionalProperties": false,
+      "properties": {
+        "name": { "minLength": 1, "type": "string" },
+        "type": { "enum": ["int64", "string"] }
+      },
+      "required": ["name", "type"],
+      "type": "object"
+    },
+    "parquetSchema": {
+      "items": { "$ref": "#/$defs/parquetField" },
+      "maxItems": 9,
+      "minItems": 9,
+      "type": "array"
+    },
+    "positiveRange": {
+      "additionalProperties": false,
+      "properties": {
+        "max": { "minimum": 1, "type": "integer" },
+        "min": { "minimum": 1, "type": "integer" }
+      },
+      "required": ["max", "min"],
+      "type": "object"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  }
+}

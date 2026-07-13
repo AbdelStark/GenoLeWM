@@ -55,6 +55,9 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Added
 
+- Added an exact-revision ClinVar staging postflight that binds immutable
+  source-code contracts, reconciles audit/prepare/runtime/source identities,
+  and full-scans the corrected Parquet shard with a closed JSON report schema.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as
