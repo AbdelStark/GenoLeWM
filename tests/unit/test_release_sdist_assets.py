@@ -70,11 +70,13 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/release/rollout_state_examples.py",
         "tools/release/rollout_state_rows.py",
         "tools/release/rollout_speed_scope.py",
+        "tools/release/training_reproducibility.py",
         "tools/release/training_run.py",
         "tools/release/v02_benchmark_readiness.py",
         "tools/release/v02_benchmark_suite.py",
         "tools/research/correction_control_postflight.py",
         "tools/research/correction_control_preflight.py",
+        "tools/research/correction_control_replay.py",
         "tools/research/state_contract_audit.py",
     }
 
