@@ -25,6 +25,18 @@ from tools.release.training_run import (
 )
 
 
+def test_training_run_tool_delegates_to_installed_package() -> None:
+    from geno_lewm import _training_run_package
+    from tools.release import training_run
+
+    assert training_run.TrainingArtifact is _training_run_package.TrainingArtifact
+    assert training_run.TrainingRunManifest is _training_run_package.TrainingRunManifest
+    assert training_run.TrainingRunPackageReport is _training_run_package.TrainingRunPackageReport
+    assert training_run.build_training_run_package is build_training_run_package
+    assert training_run.parse_training_run_metadata is parse_training_run_metadata
+    assert training_run.verify_training_run_manifest is verify_training_run_manifest
+
+
 def test_build_training_run_package_writes_release_evidence(tmp_path: Path) -> None:
     metadata_path = _write_training_run_inputs(tmp_path)
 

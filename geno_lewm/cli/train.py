@@ -405,7 +405,7 @@ def _write_preflight_copy_in_run_dir(
 
 
 def _build_release_training_run_package(run_dir: Path, metadata_path: Path) -> Any:
-    from tools.release.training_run import build_training_run_package
+    from geno_lewm._training_run_package import build_training_run_package
 
     return build_training_run_package(run_dir, metadata_path)
 

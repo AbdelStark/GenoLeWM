@@ -192,6 +192,23 @@ Evaluation entry points live in `geno_lewm/evaluation.py` for metric
 orchestration and `geno_lewm/carbon_zero_shot.py` for Carbon baseline
 scoring.
 
+### Command Packaging Boundary
+
+Installed console-script targets must resolve without the repository's
+source-only top-level `tools` package. Calibration lives in
+`geno_lewm.cli.calibrate`; evaluation-report parsing/rendering and the v0.2
+metric-requirement checks live in dependency-closed private package modules.
+Training-run manifest/card/checksum assembly used after Carbon training is
+likewise package-owned.
+The corresponding `tools.release` modules are compatibility wrappers that
+delegate to and re-export the installed implementations, so operator workflows
+and existing imports do not fork from wheel behavior.
+
+The build gate installs the wheel, changes to directories outside the checkout,
+loads every stable console-script entry point, runs each `--help`, and executes
+functional calibration-error, evaluation-aggregation, and training-release
+packaging smokes.
+
 ## Training Data Flow
 
 ```text

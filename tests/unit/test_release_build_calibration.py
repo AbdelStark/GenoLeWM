@@ -82,7 +82,7 @@ def test_build_calibration_tool_writes_parquet(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip("pyarrow")
-    from tools.release import build_calibration as tool
+    from geno_lewm.cli import calibrate as tool
 
     monkeypatch.setattr(
         tool,
@@ -128,7 +128,7 @@ def test_build_calibration_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     pytest.importorskip("pyarrow")
-    from tools.release import build_calibration as tool
+    from geno_lewm.cli import calibrate as tool
 
     monkeypatch.setattr(
         tool,
@@ -170,13 +170,22 @@ def test_build_calibration_cli(
 
 
 def test_build_calibration_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
-    from tools.release import build_calibration as tool
+    from geno_lewm.cli import calibrate as tool
 
     with pytest.raises(SystemExit) as excinfo:
         tool.main(["--help"])
 
     assert excinfo.value.code == 0
     assert "--summary-json" in capsys.readouterr().out
+
+
+def test_release_tool_wrapper_delegates_to_installable_calibration_cli() -> None:
+    from geno_lewm.cli import calibrate
+    from tools.release import build_calibration
+
+    assert build_calibration.main is calibrate.main
+    assert build_calibration.build_calibration is calibrate.build_calibration
+    assert build_calibration.GENERATED_BY == "tools.release.build_calibration"
 
 
 def _write_model_dir(root: Path) -> Path:

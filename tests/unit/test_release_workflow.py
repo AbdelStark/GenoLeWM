@@ -43,6 +43,18 @@ def test_ci_build_workflow_checks_sdist_release_assets() -> None:
     assert 'python -I "$GITHUB_WORKSPACE/tests/wheel_membership_smoke.py"' in text
 
 
+def test_ci_build_workflow_smokes_console_scripts_outside_the_checkout() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    smoke_step = text.split("      - name: Smoke install", maxsplit=1)[1].split(
+        "      - name: Upload dist artifacts", maxsplit=1
+    )[0]
+
+    assert 'repo_root="$PWD"' in smoke_step
+    assert 'smoke_dir="$(mktemp -d)"' in smoke_step
+    assert 'cd "$smoke_dir"' in smoke_step
+    assert 'python "$repo_root/tests/wheel_console_scripts_smoke.py"' in smoke_step
+
+
 def test_ci_type_dependencies_are_bounded_to_validated_versions() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
     dev_dependencies = text.split("dev = [", maxsplit=1)[1].split("]", maxsplit=1)[0]

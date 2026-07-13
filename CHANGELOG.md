@@ -84,6 +84,13 @@ or incompatible command changes require an explicit compatibility note.
   `1.3.0` and bind cache schema, exact physical encoding, raw-storage
   semantics, materialized state contract, encoder identity, pooling locus, and
   state width. Older ambiguous rows must be regenerated.
+- The `geno-lewm-calibrate` implementation and the evaluation-report/v0.2
+  metric validation used by `geno-lewm-eval-all` now live inside the installed
+  package. Existing `python -m tools.release.*` paths remain compatibility
+  wrappers and re-export their previous public names. Stable console-command
+  names and error contracts are unchanged. Training-run release packaging used
+  by `geno-lewm-train --package-release-run` is dependency-closed in the wheel
+  as well.
 
 ### Added
 

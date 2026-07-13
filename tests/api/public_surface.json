@@ -113,6 +113,7 @@
     "geno_lewm.carbon_zero_shot.write_carbon_zero_shot_scores": "callable(*, vcf_path: 'str | Path', fasta_path: 'str | Path', output_scores: 'str | Path', scorer: 'Callable[[str], float]', carbon_model: 'str', carbon_revision: 'str', window_bp: 'int' = 12288, logp_cache_jsonl: 'str | Path | None' = None, metadata_output: 'str | Path | None' = None, generated_at: 'str | None' = None, local_files_only: 'bool' = True) -> 'CarbonZeroShotSummary'",
     "geno_lewm.cli.cache_windows.app": "callable(*args: Any, **kwargs: Any) -> Any",
     "geno_lewm.cli.cache_windows.cli_main": "callable() -> 'int'",
+    "geno_lewm.cli.calibrate.main": "callable(argv: 'list[str] | None' = None) -> 'int'",
     "geno_lewm.cli.carbon_baseline.app": "callable(*args: Any, **kwargs: Any) -> Any",
     "geno_lewm.cli.carbon_baseline.cli_main": "callable() -> 'int'",
     "geno_lewm.cli.eval.app": "callable(*args: Any, **kwargs: Any) -> Any",

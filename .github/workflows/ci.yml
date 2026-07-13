@@ -259,15 +259,21 @@ jobs:
         run: python -m tools.release.check_sdist_assets dist/*.tar.gz
       - name: Smoke install
         run: |
-          python -m pip install dist/*.whl
+          repo_root="$PWD"
+          python -m pip install "$repo_root"/dist/*.whl
           python -m pip install "pyarrow>=15,<25" pytest hypothesis jsonschema
           python -c "import geno_lewm; print(geno_lewm.__version__)"
           python -c "from geno_lewm import EditSpec, apply_edit; print(EditSpec(chrom='1', pos=1, ref='A', alt='T'))"
           python -m tests.wheel_membership_smoke prepare "$RUNNER_TEMP/membership-wheel-smoke"
-          isolated_root="$(mktemp -d)"
-          cd "$isolated_root"
+          membership_smoke_dir="$(mktemp -d)"
+          cd "$membership_smoke_dir"
           python -I "$GITHUB_WORKSPACE/tests/wheel_membership_smoke.py" \
             verify "$RUNNER_TEMP/membership-wheel-smoke"
+          smoke_dir="$(mktemp -d)"
+          cd "$smoke_dir"
+          python -c "import geno_lewm; print(geno_lewm.__version__)"
+          python -c "from geno_lewm import EditSpec, apply_edit; print(EditSpec(chrom='1', pos=1, ref='A', alt='T'))"
+          python "$repo_root/tests/wheel_console_scripts_smoke.py"
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v7
         with:
