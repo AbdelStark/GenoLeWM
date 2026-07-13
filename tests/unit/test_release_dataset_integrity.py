@@ -156,6 +156,26 @@ def test_schema_1_1_integrity_identity_checks_evidence_files(tmp_path: Path) -> 
         build_dataset_integrity_report(tmp_path)
 
 
+def test_schema_1_1_integrity_rejects_symlinked_artifacts(tmp_path: Path) -> None:
+    metadata_path = _write_dataset_inputs(tmp_path)
+    build_dataset_package(tmp_path, metadata_path)
+    alias = tmp_path / "carbon" / "windows-alias.jsonl"
+    try:
+        alias.symlink_to("windows.jsonl")
+    except OSError:
+        pytest.skip("symbolic links are unavailable on this platform")
+    manifest_path = tmp_path / "dataset_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = "1.1.0"
+    for file in manifest["files"]:
+        file["artifact_role"] = "split_data"
+    manifest["files"][0]["path"] = "carbon/windows-alias.jsonl"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(InputError, match="must not traverse symbolic links"):
+        build_dataset_integrity_report(tmp_path)
+
+
 @pytest.mark.parametrize("field", ["artifact_role", "companion_of"])
 def test_schema_1_0_integrity_rejects_role_fields_even_when_null(
     tmp_path: Path,

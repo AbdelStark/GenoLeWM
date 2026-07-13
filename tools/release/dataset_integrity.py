@@ -1014,12 +1014,20 @@ def _require_pyarrow_parquet() -> Any:
 
 def _safe_relative(root: Path, relative: str) -> Path:
     candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts:
+    if candidate.is_absolute() or ".." in candidate.parts or "\\" in relative:
         raise InputError(
             "dataset paths must be relative and stay inside dataset_dir",
             details={"path": relative},
         )
-    return root / candidate
+    resolved = root
+    for part in candidate.parts:
+        resolved /= part
+        if resolved.is_symlink():
+            raise InputError(
+                "dataset paths must not traverse symbolic links",
+                details={"path": relative},
+            )
+    return resolved
 
 
 def _required_text(payload: dict[str, Any], key: str, *, prefix: str = "") -> str:
