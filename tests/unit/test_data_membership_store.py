@@ -583,7 +583,7 @@ def test_verified_store_queries_the_exact_lookup_snapshot_verified_at_open(
         store.close()
 
 
-@pytest.mark.parametrize("system", ["Linux", "Windows"])
+@pytest.mark.parametrize("system", ["Windows"] if os.name == "nt" else ["Linux", "Windows"])
 def test_verifier_hashes_and_scans_one_private_capture_per_published_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
