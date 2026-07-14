@@ -45,6 +45,25 @@ def test_current_commit_sha_uses_full_head(monkeypatch: pytest.MonkeyPatch, tmp_
     assert train_cli._current_commit_sha(tmp_path) == full_sha
 
 
+def test_current_tree_sha_uses_full_head_tree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    full_sha = "5a55ace7434b8f7c1cb163bb3479d1b0907c641d"
+
+    def fake_run(args, *, cwd, check, capture_output, text):
+        assert args == ["git", "rev-parse", "HEAD^{tree}"]
+        assert cwd == tmp_path
+        assert check is False
+        assert capture_output is True
+        assert text is True
+        return SimpleNamespace(returncode=0, stdout=f"{full_sha}\n")
+
+    monkeypatch.setattr(train_cli.subprocess, "run", fake_run)
+
+    assert train_cli._current_tree_sha(tmp_path) == full_sha
+
+
 def test_train_requires_explicit_fixture_smoke(capsys) -> None:
     rc = _dispatch.run_app(app, argv=["--quiet", "--no-banner"])
     captured = capsys.readouterr()
@@ -266,6 +285,76 @@ def test_train_carbon_train_passes_resume_checkpoint_to_launcher(
     assert metadata["resume_checkpoint"] == resume_path.name
 
 
+def test_train_carbon_train_passes_stop_step_without_changing_target_horizon(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = _write_release_dataset(tmp_path)
+    carbon_dir = _write_carbon_model_dir(tmp_path)
+    config = _write_training_config(tmp_path)
+    run_dir = tmp_path / "run"
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(training_preflight, "_probe_dependency", _available_dependency)
+    monkeypatch.setattr(training_preflight, "_probe_accelerator", _available_accelerator)
+
+    def capture_training(**kwargs: object) -> CarbonTrainingReport:
+        observed.update(kwargs)
+        return _fake_carbon_training(**kwargs)
+
+    monkeypatch.setattr(train_cli, "run_carbon_training", capture_training)
+
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--carbon-train",
+            "--run-dir",
+            str(run_dir),
+            "--dataset-dir",
+            str(dataset_dir),
+            "--carbon-model-dir",
+            str(carbon_dir),
+            "--training-config",
+            str(config),
+            "--steps",
+            "10",
+            "--stop-after-step",
+            "3",
+        ],
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    assert observed["steps"] == 10
+    assert observed["stop_after_step"] == 3
+    metadata = json.loads((run_dir / CARBON_TRAINING_METADATA_NAME).read_text(encoding="utf-8"))
+    assert "--steps 10" in metadata["command"]
+    assert "--stop-after-step 3" in metadata["command"]
+
+
+def test_train_rejects_packaging_an_early_stopped_carbon_run(capsys) -> None:
+    rc = _dispatch.run_app(
+        app,
+        argv=[
+            "--quiet",
+            "--no-banner",
+            "--carbon-train",
+            "--package-release-run",
+            "--steps",
+            "10",
+            "--stop-after-step",
+            "3",
+        ],
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert "cannot be combined" in captured.err
+
+
 def test_train_carbon_train_records_accelerator_preflight_overrides(
     tmp_path: Path,
     capsys,
@@ -316,11 +405,13 @@ def _fake_carbon_training(
     steps: int,
     command: str,
     commit_sha: str,
+    source_tree: str,
     package_version: str,
     preflight_report,
     resume_from: Path | None,
+    stop_after_step: int | None = None,
 ) -> CarbonTrainingReport:
-    del carbon_model_dir, commit_sha
+    del carbon_model_dir, commit_sha, source_tree, stop_after_step
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "training_config.effective.yaml"
     metrics_path = run_dir / CARBON_METRICS_NAME

@@ -31,6 +31,16 @@ or incompatible command changes require an explicit compatibility note.
 - Corrected training to pool source and target states at the same edit locus,
   persist the complete encoder representation in resume checkpoints, and
   reject cross-identity resumes.
+- Added production Carbon continuation checkpoints with atomic replacement and
+  closed model, action-encoder, AdamW, trainer-monitor, Python/NumPy/Torch RNG,
+  cursor, metric-history, and learning-rate state. `geno-lewm-train` now
+  supports `--steps N --stop-after-step K` followed by strict `--resume-from`
+  continuation at `K+1`.
+- Added a three-process production resume-equivalence harness and external
+  verifier. It requires an exact clean Git COMMIT/TREE plus explicit N/K,
+  rehashes the raw checkpoints and public metrics, and limits its passing claim
+  to single-process software equivalence; it makes no accelerator, model-quality,
+  biological, or clinical claim.
 - Corrected encoder provenance. `l2_normalized_v2` manifests and cache keys
   commit Carbon weights plus runtime-critical config and tokenizer files;
   manifest-backed loading verifies that local runtime before inference.
@@ -65,6 +75,10 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Compatibility
 
+- `run_carbon_training` retains its existing keyword contract and adds optional
+  `source_tree` and `stop_after_step` keywords. The public CLI supplies the
+  exact tree automatically; older direct callers resolve it from `commit_sha`
+  in the live Git checkout.
 - `WindowCacheKey` and `WindowCacheRecord` now require `center_token`, and
   cache schema `1.0.0` is intentionally not reusable.
 - New cache writes use schema `3.0.0`. Schema-2 Parquet remains read-only

@@ -460,6 +460,104 @@ def test_torch_trainer_records_live_collapse_alerts() -> None:
     assert any(alert["criterion"] == "pred_var_per_dim" for alert in trainer.last_collapse_alerts)
 
 
+def test_torch_trainer_state_round_trips_collapse_monitor_across_processes() -> None:
+    torch = pytest.importorskip("torch")
+    cfg = load_config(
+        {"training": {"collapse_log_every_steps": 1}, "optimizer": {"warmup_steps": 0}}
+    )
+
+    def build() -> TorchTrainer:
+        predictor = CollapsedPredictor(torch)
+        action_encoder = DummyActionEncoder(torch)
+        optimizer = torch.optim.SGD(
+            list(predictor.parameters()) + list(action_encoder.parameters()),
+            lr=0.01,
+        )
+        return TorchTrainer(
+            predictor=predictor,
+            action_encoder=action_encoder,
+            optimizer=optimizer,
+            config=cfg,
+            total_steps=4,
+        )
+
+    source = build()
+    batch = TorchTrainerBatch(
+        state=torch.tensor([[0.0, 0.0], [1.0, 1.0]]),
+        target=torch.tensor([[[0.0, 0.0]], [[2.0, 2.0]]]),
+        rel_edits=((_edit(),), (_edit(),)),
+        action_mask=torch.tensor([[True], [True]]),
+        window_ids=("a", "b"),
+    )
+    source.train_step(batch, step=1)
+
+    restored = build()
+    restored.load_state_dict(source.state_dict())
+
+    assert restored.state_dict() == source.state_dict()
+
+
+@pytest.mark.parametrize("baseline", [-1.0, float("nan"), float("inf")])
+def test_torch_trainer_rejects_invalid_restored_collapse_baseline(baseline: float) -> None:
+    torch = pytest.importorskip("torch")
+    trainer = _resume_state_trainer(torch)
+    state = trainer.state_dict()
+    monitor = state["collapse_monitor"]
+    assert isinstance(monitor, dict)
+    monitor["initial_pairwise_pred_dist_mean"] = baseline
+
+    with pytest.raises(InputError, match="baseline"):
+        trainer.load_state_dict(state)
+
+
+@pytest.mark.parametrize(
+    "alert",
+    [
+        {"criterion": "pred_var_per_dim", "value": 0.1},
+        {
+            "criterion": "pred_var_per_dim",
+            "value": 0.1,
+            "threshold": 0.2,
+            "unexpected": True,
+        },
+        {
+            "criterion": "pred_var_per_dim",
+            "value": float("nan"),
+            "threshold": 0.2,
+        },
+    ],
+)
+def test_torch_trainer_rejects_open_or_nonfinite_restored_alerts(
+    alert: dict[str, object],
+) -> None:
+    torch = pytest.importorskip("torch")
+    trainer = _resume_state_trainer(torch)
+    state = trainer.state_dict()
+    state["last_collapse_alerts"] = [alert]
+
+    with pytest.raises(InputError, match="collapse alerts"):
+        trainer.load_state_dict(state)
+
+
+def _resume_state_trainer(torch) -> TorchTrainer:
+    cfg = load_config(
+        {"training": {"collapse_log_every_steps": 1}, "optimizer": {"warmup_steps": 0}}
+    )
+    predictor = CollapsedPredictor(torch)
+    action_encoder = DummyActionEncoder(torch)
+    optimizer = torch.optim.SGD(
+        list(predictor.parameters()) + list(action_encoder.parameters()),
+        lr=0.01,
+    )
+    return TorchTrainer(
+        predictor=predictor,
+        action_encoder=action_encoder,
+        optimizer=optimizer,
+        config=cfg,
+        total_steps=4,
+    )
+
+
 def test_normalized_phase1_trainer_does_not_treat_kl_as_collapse_alert() -> None:
     torch = pytest.importorskip("torch")
     cfg = load_config(

@@ -71,6 +71,16 @@ def main(
             ),
         ),
     ] = None,
+    stop_after_step: Annotated[
+        int | None,
+        typer.Option(
+            "--stop-after-step",
+            help=(
+                "Stop a Carbon run after this completed step while retaining the "
+                "full --steps training horizon in its checkpoint."
+            ),
+        ),
+    ] = None,
     resume_from: Annotated[
         Path | None,
         typer.Option(
@@ -183,6 +193,10 @@ def main(
         raise InputError("choose exactly one training mode")
     if package_release_run and not carbon_train:
         raise InputError("--package-release-run requires --carbon-train")
+    if package_release_run and stop_after_step is not None:
+        raise InputError("--package-release-run cannot be combined with --stop-after-step")
+    if stop_after_step is not None and not carbon_train:
+        raise InputError("--stop-after-step requires --carbon-train")
     if resume_from is not None and carbon_preflight and not carbon_train:
         raise InputError("--resume-from requires --fixture-smoke or --carbon-train")
     if carbon_preflight or carbon_train:
@@ -206,6 +220,11 @@ def main(
             run_id=opts.run_id,
         )
         carbon_steps = _resolve_carbon_steps(resolved, steps)
+        if stop_after_step is not None and not 0 < stop_after_step < carbon_steps:
+            raise InputError(
+                "--stop-after-step must be greater than zero and less than the target --steps",
+                details={"stop_after_step": stop_after_step, "target_steps": carbon_steps},
+            )
         effective_training_config = write_resolved_config(
             resolved,
             run_dir / _EFFECTIVE_TRAINING_CONFIG_NAME,
@@ -252,6 +271,7 @@ def main(
                 deterministic=opts.deterministic,
                 run_id=opts.run_id,
                 resume_from=resume_from,
+                stop_after_step=stop_after_step,
                 allow_fixture_dataset=allow_fixture_dataset,
                 require_native_runtime=require_native_runtime,
                 require_accelerator=require_accelerator,
@@ -259,9 +279,11 @@ def main(
                 package_release_run=package_release_run,
             ),
             commit_sha=_current_commit_sha(Path.cwd()),
+            source_tree=_current_tree_sha(Path.cwd()),
             package_version=__version__,
             preflight_report=preflight_report,
             resume_from=resume_from,
+            stop_after_step=stop_after_step,
         )
         payload = carbon_report.to_dict()
         if package_release_run:
@@ -450,6 +472,7 @@ def _carbon_train_command_string(
     deterministic: bool,
     run_id: str | None,
     resume_from: Path | None,
+    stop_after_step: int | None,
     allow_fixture_dataset: bool,
     require_native_runtime: bool,
     require_accelerator: bool,
@@ -480,6 +503,8 @@ def _carbon_train_command_string(
         parts.extend(["--run-id", run_id])
     if resume_from is not None:
         parts.extend(["--resume-from", str(resume_from)])
+    if stop_after_step is not None:
+        parts.extend(["--stop-after-step", str(stop_after_step)])
     if allow_fixture_dataset:
         parts.append("--allow-fixture-dataset")
     if not require_native_runtime:
@@ -496,6 +521,21 @@ def _carbon_train_command_string(
 def _current_commit_sha(cwd: Path) -> str:
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
+        cwd=cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        candidate = result.stdout.strip().lower()
+        if candidate:
+            return candidate
+    return "0000000"
+
+
+def _current_tree_sha(cwd: Path) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
         cwd=cwd,
         check=False,
         capture_output=True,

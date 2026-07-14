@@ -10,6 +10,7 @@ or train steps requires a ``geno-lewm[train]`` environment.
 from __future__ import annotations
 
 import importlib
+import math
 import os
 import random
 from collections.abc import Mapping, Sequence
@@ -155,6 +156,95 @@ class TorchTrainer:
         # KL-to-N(0,I) is not a valid collapse threshold for unit-sphere states.
         self.collapse_monitor._kl_alert_enabled = not encoder_uses_normalized_states(config.encoder)
         self.last_collapse_alerts: tuple[dict[str, object], ...] = ()
+
+    def state_dict(self) -> dict[str, object]:
+        """Return the mutable trainer state required for exact continuation."""
+        monitor = self.collapse_monitor
+        return {
+            "schema_version": "geno-lewm.torch-trainer-state.v1",
+            "total_steps": self.total_steps,
+            "collapse_monitor": {
+                "log_every_steps": monitor.log_every_steps,
+                "initial_pairwise_pred_dist_mean": monitor.initial_pairwise_pred_dist_mean,
+                "kl_alert_enabled": bool(monitor._kl_alert_enabled),
+                "thresholds": {
+                    "pred_var_to_target_var": monitor.thresholds.pred_var_to_target_var,
+                    "pairwise_to_initial": monitor.thresholds.pairwise_to_initial,
+                    "kl_reg_max": monitor.thresholds.kl_reg_max,
+                },
+            },
+            "last_collapse_alerts": [dict(alert) for alert in self.last_collapse_alerts],
+        }
+
+    def load_state_dict(self, state: Mapping[str, object]) -> None:
+        """Restore a closed trainer-state payload after validating its horizon."""
+        expected_keys = {
+            "schema_version",
+            "total_steps",
+            "collapse_monitor",
+            "last_collapse_alerts",
+        }
+        if set(state) != expected_keys:
+            raise InputError("trainer state fields do not match the closed resume contract")
+        if state.get("schema_version") != "geno-lewm.torch-trainer-state.v1":
+            raise InputError("trainer state schema version is unsupported")
+        if state.get("total_steps") != self.total_steps:
+            raise InputError(
+                "trainer state horizon does not match",
+                details={"checkpoint": state.get("total_steps"), "trainer": self.total_steps},
+            )
+        monitor_state = state.get("collapse_monitor")
+        if not isinstance(monitor_state, Mapping) or set(monitor_state) != {
+            "log_every_steps",
+            "initial_pairwise_pred_dist_mean",
+            "kl_alert_enabled",
+            "thresholds",
+        }:
+            raise InputError("collapse monitor state fields do not match the closed contract")
+        expected_monitor = self.state_dict()["collapse_monitor"]
+        assert isinstance(expected_monitor, Mapping)
+        for field in ("log_every_steps", "kl_alert_enabled", "thresholds"):
+            if monitor_state.get(field) != expected_monitor.get(field):
+                raise InputError(
+                    "collapse monitor contract does not match",
+                    details={"field": field},
+                )
+        baseline = monitor_state.get("initial_pairwise_pred_dist_mean")
+        if baseline is not None and (
+            isinstance(baseline, bool)
+            or not isinstance(baseline, int | float)
+            or not math.isfinite(float(baseline))
+            or float(baseline) < 0
+        ):
+            raise InputError("collapse monitor baseline must be finite, non-negative, or null")
+        raw_alerts = state.get("last_collapse_alerts")
+        if not isinstance(raw_alerts, list) or any(
+            not isinstance(alert, Mapping) for alert in raw_alerts
+        ):
+            raise InputError("trainer collapse alerts must be a list of mappings")
+        for alert in raw_alerts:
+            assert isinstance(alert, Mapping)
+            if set(alert) != {"criterion", "value", "threshold"}:
+                raise InputError("trainer collapse alerts do not match the closed contract")
+            criterion = alert.get("criterion")
+            if not isinstance(criterion, str) or not criterion:
+                raise InputError("trainer collapse alerts require a non-empty criterion")
+            for field in ("value", "threshold"):
+                value = alert.get(field)
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, int | float)
+                    or not math.isfinite(float(value))
+                ):
+                    raise InputError("trainer collapse alerts must contain finite values")
+            threshold = alert.get("threshold")
+            assert isinstance(threshold, int | float)
+            if float(threshold) < 0:
+                raise InputError("trainer collapse alerts require non-negative thresholds")
+        self.collapse_monitor.initial_pairwise_pred_dist_mean = (
+            None if baseline is None else float(baseline)
+        )
+        self.last_collapse_alerts = tuple(dict(alert) for alert in raw_alerts)
 
     def train_step(self, batch: TorchTrainerBatch, *, step: int) -> TorchTrainerStepResult:
         """Run one optimizer step over an encoded Carbon-state batch."""
