@@ -890,12 +890,16 @@ def _validate_plan(path: Path, *, expectations: ProofExpectations) -> _PlanFacts
     request_ids: set[str] = set()
     observed_row_counts: list[int] = []
     observed_paths: list[str] = []
-    for shard_index, raw_shard in enumerate(raw_shards):
+    observed_stride_blocks: list[int] = []
+    for raw_shard in raw_shards:
         shard = _mapping(raw_shard, label="cache plan shard")
         if set(shard) != {"shard_id", "path", "contig", "stride_block", "rows"}:
             raise InputError("cache build plan shard has an invalid schema")
         shard_id = _text(shard.get("shard_id"), label="cache plan shard_id")
         relative = _safe_relative(shard.get("path"), label="cache plan shard path")
+        stride_block = shard.get("stride_block")
+        if isinstance(stride_block, bool) or not isinstance(stride_block, int) or stride_block < 0:
+            raise InputError("cache build plan stride_block must be a non-negative integer")
         expected_path = shard_path_for(
             Path(),
             encoder_id=expected_namespace,
@@ -903,24 +907,20 @@ def _validate_plan(path: Path, *, expectations: ProofExpectations) -> _PlanFacts
             pool_type="centered_mean",
             pool_radius=8,
             contig="22",
-            stride_block=shard_index,
+            stride_block=stride_block,
             encoder_hash=bytes.fromhex(cast(str, _RUNTIME_IDENTITY["runtime_hash"])[7:]),
             dtype="bf16",
         ).as_posix()
         if not relative.startswith("embeddings/") or not relative.endswith(".parquet"):
             raise InputError("cache build plan shard path is outside the cache namespace")
-        if (
-            shard_id in shards_by_id
-            or shard.get("contig") != "22"
-            or shard.get("stride_block") != shard_index
-            or relative != expected_path
-        ):
+        if shard_id in shards_by_id or shard.get("contig") != "22" or relative != expected_path:
             raise InputError("cache build plan shard identity or contig drifted")
         rows = shard.get("rows")
         if not isinstance(rows, list) or not rows:
             raise InputError("cache build plan shard rows must be non-empty")
         observed_row_counts.append(len(rows))
         observed_paths.append(relative)
+        observed_stride_blocks.append(stride_block)
         for raw_row in rows:
             row = _mapping(raw_row, label="cache plan row")
             if set(row) != {"representative_request_id", "request_ids", "key", "record"}:
@@ -962,9 +962,15 @@ def _validate_plan(path: Path, *, expectations: ProofExpectations) -> _PlanFacts
         ):
             raise InputError("cache build plan shard identity is not deterministic")
         shards_by_id[shard_id] = shard
-    if tuple(observed_row_counts) != expectations.shard_row_counts:
+    if sorted(observed_stride_blocks) != list(range(len(expectations.shard_row_counts))):
+        raise InputError("cache build plan stride blocks are not exact and contiguous")
+    row_counts_by_stride = dict(zip(observed_stride_blocks, observed_row_counts, strict=True))
+    if (
+        tuple(row_counts_by_stride[index] for index in range(len(expectations.shard_row_counts)))
+        != expectations.shard_row_counts
+    ):
         raise InputError("cache build plan shard row distribution drifted")
-    if observed_paths != sorted(observed_paths):
+    if len(set(observed_paths)) != len(observed_paths) or observed_paths != sorted(observed_paths):
         raise InputError("cache build plan shards are not in canonical path order")
     if len(keys) != expectations.unique_cache_keys or len(set(keys)) != len(keys):
         raise InputError("cache build plan logical keys are not exact and unique")
@@ -1505,8 +1511,26 @@ def _validate_plan_against_trace(
     ]
     if len(raw_shards) != len(expected_chunks):
         raise InputError("trace-derived cache plan shard count drifted")
-    for stride_block, (shard, rows) in enumerate(zip(raw_shards, expected_chunks, strict=True)):
-        if shard.get("rows") != rows or shard.get("stride_block") != stride_block:
+    raw_paths = [
+        _safe_relative(shard.get("path"), label="trace-derived cache plan shard path")
+        for shard in raw_shards
+    ]
+    if len(set(raw_paths)) != len(raw_paths) or raw_paths != sorted(raw_paths):
+        raise InputError("cache build plan shard order differs from the exact trace")
+    shards_by_stride: dict[int, Mapping[str, object]] = {}
+    for shard in raw_shards:
+        stride_block = shard.get("stride_block")
+        if (
+            isinstance(stride_block, bool)
+            or not isinstance(stride_block, int)
+            or stride_block in shards_by_stride
+        ):
+            raise InputError("cache build plan stride blocks differ from the exact trace")
+        shards_by_stride[stride_block] = shard
+    if set(shards_by_stride) != set(range(len(expected_chunks))):
+        raise InputError("cache build plan stride blocks differ from the exact trace")
+    for stride_block, rows in enumerate(expected_chunks):
+        if shards_by_stride[stride_block].get("rows") != rows:
             raise InputError("cache build plan rows or aliases differ from the exact trace")
 
 

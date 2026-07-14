@@ -231,6 +231,11 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Fixed
 
+- Corrected the H200 cache-proof validator to accept the cache builder's
+  canonical lexicographic path order once shard stride blocks reach two digits.
+  The verifier now derives each path from its declared stride, requires the
+  complete contiguous stride set, and compares row counts in numeric stride
+  order without weakening duplicate-path or checksum checks.
 - Replaced bounded retry sampling for synthetic SNVs with exact uniform
   sampling over valid A/C/G/T interior anchors. Sparse Carbon windows can no
   longer fail nondeterministically after eleven draws land on ambiguous bases;
