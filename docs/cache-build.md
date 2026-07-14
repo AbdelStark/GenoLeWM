@@ -367,6 +367,77 @@ flavor, image, command, and exact proof Hub revision/namespace. The in-bundle
 claim explicitly sets `hf_job_terminal_status_attested: false`; its image
 digest is a launcher declaration, not in-container image self-attestation.
 
+Only after the Job is `COMPLETED` and a successful proof's exact Hub revision is
+known can the terminal receipt be authored from the same explicit source commit
+and run attempt. Until that successful H200 proof exists, there is no terminal
+receipt to generate. The host command pins `huggingface-hub==1.8.0` because
+older clients do not expose
+the labels and revision-bearing Volume fields required by this receipt. It
+force-downloads and fully replays the exact proof revision before writing the
+three-file canonical bundle; it does not upload anything.
+
+```bash
+SOURCE_SHA="<exact merged proof source commit>"
+RUN_ATTEMPT="1"
+JOB_ID="<completed H200 Job id>"
+PROOF_REVISION="<exact proof Hub revision>"
+PROOF_NAMESPACE="candidates/v0.3/geno-lewm-data-v0.3.0-r1/cache-h200-proofs/geno-lewm-v03-cache-h200-proof-${SOURCE_SHA:0:12}-r${RUN_ATTEMPT}/success"
+RECEIPT_NAMESPACE="${PROOF_NAMESPACE%/success}/terminal-job-receipt"
+
+uv run --extra train --extra evidence --with huggingface-hub==1.8.0 \
+  python -m tools.research.v03_cache_h200_job_receipt author \
+  --output-dir /private/tmp/geno-lewm-v03-cache-h200-job-receipt \
+  --proof-download-dir /private/tmp/geno-lewm-v03-cache-h200-proof-replay \
+  --job-id "$JOB_ID" \
+  --source-commit "$SOURCE_SHA" \
+  --run-attempt "$RUN_ATTEMPT" \
+  --proof-revision "$PROOF_REVISION" \
+  --proof-namespace "$PROOF_NAMESPACE"
+```
+
+The receipt binds the exact Job ID and canonical URL, `COMPLETED` stage, H200
+flavor, digest-pinned image, command and empty argument vector, complete public
+environment, pinned purpose label, secret **names only**, and the exact
+read-only Carbon model Volume including its null subpath. It also binds the
+trace and proof revisions/namespaces plus the proof report and outer checksum
+identities. The receipt's `proof.runtime_hash` is derived from that successfully
+replayed proof report and validated as a SHA-256 digest; the receipt tool does
+not bake in a Carbon runtime hash. `requested_submission_timeout: 8h` records
+the launcher request;
+`timeout_server_echo_attested: false` is mandatory because JobInfo has no
+timeout field.
+
+Publish only the deterministic sibling namespace through the existing
+parent-conditional, namespace-absence-checked uploader, then exact-download and
+replay both the receipt and its bound proof from their immutable revisions:
+
+```bash
+uv run --extra evidence python -m tools.data.v03_gnomad_lock probe-namespace \
+  --repo-id abdelstark/geno-lewm-data \
+  --repo-type dataset \
+  --namespace "$RECEIPT_NAMESPACE"
+
+PUBLISH_REPORT="$(
+  uv run --extra evidence python -m tools.data.v03_gnomad_lock publish \
+    --repo-id abdelstark/geno-lewm-data \
+    --repo-type dataset \
+    --namespace "$RECEIPT_NAMESPACE" \
+    --publish-dir /private/tmp/geno-lewm-v03-cache-h200-job-receipt \
+    --commit-message "publish terminal JobInfo receipt for $JOB_ID"
+)"
+RECEIPT_REVISION="${PUBLISH_REPORT#uploaded commit: }"
+
+uv run --extra train --extra evidence --with huggingface-hub==1.8.0 \
+  python -m tools.research.v03_cache_h200_job_receipt verify-remote \
+  --receipt-revision "$RECEIPT_REVISION" \
+  --receipt-namespace "$RECEIPT_NAMESPACE" \
+  --download-root /private/tmp/geno-lewm-v03-cache-h200-receipt-remote-replay
+```
+
+Both authoring and remote replay fail closed on any non-`COMPLETED` stage,
+JobInfo drift, extra or missing receipt files, noncanonical JSON, checksum or
+schema drift, proof-link mismatch, or exact Hub-revision resolution failure.
+
 This proof is deliberately bounded to the exact production trace above. It
 does not prove 10% Carbon-corpus coverage, completion within 24 hours, the
 5,000-tuples/s training gate, model quality, biological validity, or clinical
