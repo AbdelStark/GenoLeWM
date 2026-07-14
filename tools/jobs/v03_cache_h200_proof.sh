@@ -25,6 +25,8 @@ set -euo pipefail
 WORK_ROOT="/work/geno-lewm-v03-cache-h200-proof"
 CARBON_DIR="/carbon"
 RUNTIME_IDENTITY="configs/data_v03/carbon-500m-l2-runtime-identity.json"
+RUNTIME_CONTENT_LOCK="configs/data_v03/carbon-500m-runtime-content-lock.json"
+RUNTIME_CONTENT_LOCK_SCHEMA="configs/data_v03/carbon-500m-runtime-content-lock.schema.json"
 PROOF_SCHEMA="configs/data_v03/cache-h200-proof.schema.json"
 TRAINING_CONFIG="configs/data_v03/train-carbon-500m-snv-l2-epoch-r1.yaml"
 CREATED_AT_NS="1783987200000000000"
@@ -181,8 +183,11 @@ for tracked_path in \
   tools/jobs/v03_cache_h200_proof.sh \
   tools/research/v03_cache_h200_launch.py \
   tools/research/v03_cache_h200_proof.py \
+  tools/research/verify_carbon_runtime_lock.py \
   tools/data/v03_gnomad_lock.py \
   "$RUNTIME_IDENTITY" \
+  "$RUNTIME_CONTENT_LOCK" \
+  "$RUNTIME_CONTENT_LOCK_SCHEMA" \
   "$PROOF_SCHEMA" \
   "$TRAINING_CONFIG" \
   configs/data_v03/training-trace.schema.json
@@ -215,6 +220,11 @@ print(sha)
 )"
 test "$PUBLIC_SOURCE_COMMIT" = "$COMMIT_SHA" \
   || fatal "COMMIT_SHA is not publicly resolvable at the canonical GitHub repository"
+
+log "verify the offline Carbon runtime content lock"
+uv run --no-sync python -m tools.research.verify_carbon_runtime_lock \
+  "$RUNTIME_CONTENT_LOCK" \
+  >/dev/null
 
 command -v hf >/dev/null 2>&1 || fatal "the job environment lacks the HF CLI"
 command -v nvidia-smi >/dev/null 2>&1 || fatal "the job environment lacks nvidia-smi"

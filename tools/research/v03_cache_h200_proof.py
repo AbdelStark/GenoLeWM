@@ -97,7 +97,7 @@ _SAFE_TRACE_PATH: Final = re.compile(
 _RUNTIME_IDENTITY: Final[dict[str, object]] = {
     "model_id": "/carbon",
     "revision": "5d31d59b3c845b288a13aedb1358934196852eec",
-    "runtime_hash": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e",
+    "runtime_hash": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311",
     "schema_version": "1.0.0",
     "state_contract_version": "l2_normalized_v2",
 }
@@ -2565,9 +2565,12 @@ def _verify_producer_invocation(*, source_commit: str, container_image: str) -> 
     for relative in (
         "tools/research/v03_cache_h200_launch.py",
         "tools/research/v03_cache_h200_proof.py",
+        "tools/research/verify_carbon_runtime_lock.py",
         "tools/jobs/v03_cache_h200_proof.sh",
         "configs/data_v03/cache-h200-proof.schema.json",
         "configs/data_v03/carbon-500m-l2-runtime-identity.json",
+        "configs/data_v03/carbon-500m-runtime-content-lock.json",
+        "configs/data_v03/carbon-500m-runtime-content-lock.schema.json",
         "geno_lewm/encoder/cache_build.py",
         "geno_lewm/cli/cache_windows.py",
     ):

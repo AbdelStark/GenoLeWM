@@ -103,6 +103,11 @@ def test_job_pins_runtime_schema_carbon_and_cache_plan_arguments() -> None:
     assert 'WORK_ROOT="/work/geno-lewm-v03-cache-h200-proof"' in script
     assert 'CARBON_DIR="/carbon"' in script
     assert 'RUNTIME_IDENTITY="configs/data_v03/carbon-500m-l2-runtime-identity.json"' in script
+    assert 'RUNTIME_CONTENT_LOCK="configs/data_v03/carbon-500m-runtime-content-lock.json"' in script
+    assert (
+        'RUNTIME_CONTENT_LOCK_SCHEMA="configs/data_v03/'
+        'carbon-500m-runtime-content-lock.schema.json"' in script
+    )
     assert 'PROOF_SCHEMA="configs/data_v03/cache-h200-proof.schema.json"' in script
     assert 'TRAINING_CONFIG="configs/data_v03/train-carbon-500m-snv-l2-epoch-r1.yaml"' in script
     assert 'CREATED_AT_NS="1783987200000000000"' in script
@@ -140,6 +145,7 @@ def test_job_pins_runtime_schema_carbon_and_cache_plan_arguments() -> None:
 def test_namespace_absence_and_trace_preflight_precede_cache_work() -> None:
     script = _script()
 
+    runtime_lock_preflight = script.index("python -m tools.research.verify_carbon_runtime_lock")
     first_absence_probe = script.index("python -m tools.data.v03_gnomad_lock probe-namespace")
     fixed_workspace_check = script.index('test ! -e "$WORK_ROOT"')
     first_workspace_write = script.index("mkdir -p")
@@ -149,7 +155,8 @@ def test_namespace_absence_and_trace_preflight_precede_cache_work() -> None:
     cache_launch = script.index('GENO_LEWM_RUN_ID="$ATTEMPT1_RUN_ID"')
 
     assert (
-        first_absence_probe
+        runtime_lock_preflight
+        < first_absence_probe
         < fixed_workspace_check
         < first_workspace_write
         < exact_trace_download

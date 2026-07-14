@@ -58,7 +58,7 @@ def test_reproducibility_job_runs_fresh_h200_nddn_arms_and_fail_closed() -> None
     assert "geno-lewm-l2-p1-smoke-304128e4d4f3-50-r2/dataset" in script
     assert '"H200"' in script
     assert 'MIN_CUDA_VRAM_GB="120"' in script
-    assert "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e" in script
+    assert "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311" in script
     assert "encoder_runtime_hash" in script
     assert '--upload-repo "$UPLOAD_REPO"' in script
     assert '"$WORK/evidence/runtime_preflight.json"' in script

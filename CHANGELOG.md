@@ -34,6 +34,12 @@ or incompatible command changes require an explicit compatibility note.
 - Corrected encoder provenance. `l2_normalized_v2` manifests and cache keys
   commit Carbon weights plus runtime-critical config and tokenizer files;
   manifest-backed loading verifies that local runtime before inference.
+- Corrected the v0.3 Carbon runtime identity from the stale `add3...` digest to
+  the recomputed `a1fd...` digest after PR #286 removed a no-op type cast in a
+  runtime-hashed file. Added a closed offline content lock for the exact weight,
+  ten upstream runtime files, and eight local implementation files. The two H200
+  attempts that exposed the mismatch failed closed and are not successful cache
+  evidence.
 - Removed the unpinned transitive tokenizer load from the Carbon runtime path.
   The pinned upstream `tokenizer.py` delegated to a network-capable
   `Qwen/Qwen3-4B-Base` lookup without a revision, so hashing the local file did
@@ -98,6 +104,10 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Added
 
+- Added a nonpublishing `cpu-basic` Hugging Face Job probe that mounts the
+  exact Carbon revision, clones an exact public GenoLeWM commit, computes the
+  complete encoder runtime hash including weights, and fails closed on both
+  JobInfo drift and hash mismatch before a subsequent H200 cache attempt.
 - Added an exact-revision ClinVar staging postflight that binds immutable
   source-code contracts, reconciles audit/prepare/runtime/source identities,
   and full-scans the corrected Parquet shard with a closed JSON report schema.
