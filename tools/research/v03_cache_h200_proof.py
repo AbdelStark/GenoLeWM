@@ -1511,8 +1511,20 @@ def _validate_plan_against_trace(
     ]
     if len(raw_shards) != len(expected_chunks):
         raise InputError("trace-derived cache plan shard count drifted")
-    for stride_block, (shard, rows) in enumerate(zip(raw_shards, expected_chunks, strict=True)):
-        if shard.get("rows") != rows or shard.get("stride_block") != stride_block:
+    shards_by_stride: dict[int, Mapping[str, object]] = {}
+    for shard in raw_shards:
+        stride_block = shard.get("stride_block")
+        if (
+            isinstance(stride_block, bool)
+            or not isinstance(stride_block, int)
+            or stride_block in shards_by_stride
+        ):
+            raise InputError("cache build plan stride blocks differ from the exact trace")
+        shards_by_stride[stride_block] = shard
+    if set(shards_by_stride) != set(range(len(expected_chunks))):
+        raise InputError("cache build plan stride blocks differ from the exact trace")
+    for stride_block, rows in enumerate(expected_chunks):
+        if shards_by_stride[stride_block].get("rows") != rows:
             raise InputError("cache build plan rows or aliases differ from the exact trace")
 
 

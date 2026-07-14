@@ -134,7 +134,9 @@ class _FakeRawEncoder:
         )
 
 
-def test_plan_validator_accepts_producer_order_for_double_digit_shards(tmp_path: Path) -> None:
+def _make_double_digit_shard_plan(
+    tmp_path: Path,
+) -> tuple[Path, ProofExpectations, bytes]:
     rows = [
         {
             "request_id": f"request-{index:02d}",
@@ -183,9 +185,19 @@ def test_plan_validator_accepts_producer_order_for_double_digit_shards(tmp_path:
         training_config_sha256=sha256_bytes(config),
         created_at_ns=1_783_965_600_000_000_000,
     )
+    return evidence, expectations, requests
+
+
+def test_plan_validator_accepts_producer_order_for_double_digit_shards(tmp_path: Path) -> None:
+    evidence, expectations, requests = _make_double_digit_shard_plan(tmp_path)
 
     plan = proof_module._validate_plan(
         evidence / "cache_build_plan.json",
+        expectations=expectations,
+    )
+    proof_module._validate_plan_against_trace(
+        plan,
+        request_body=requests,
         expectations=expectations,
     )
 
@@ -219,6 +231,77 @@ def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(_json_bytes(payload))
     path.chmod(0o400)
+
+
+def _rebind_shard_stride(shard: dict[str, Any], stride_block: int) -> None:
+    path = shard["path"]
+    rows = shard["rows"]
+    assert isinstance(path, str)
+    assert isinstance(rows, list)
+    prefix, suffix = path.rsplit("_", 1)
+    assert suffix.endswith(".parquet")
+    rebound_path = f"{prefix}_{stride_block}.parquet"
+    keys = []
+    for row in rows:
+        assert isinstance(row, dict)
+        keys.append(row["key"])
+    shard["stride_block"] = stride_block
+    shard["path"] = rebound_path
+    shard["shard_id"] = proof_module.canonical_json_sha256({"path": rebound_path, "keys": keys})
+
+
+@pytest.mark.parametrize(
+    "drift",
+    [
+        "duplicate_stride",
+        "out_of_range_stride",
+        "short_shard_swap",
+        "duplicate_path",
+        "duplicate_id",
+        "noncanonical_order",
+    ],
+)
+def test_plan_validator_rejects_coordinated_double_digit_shard_drift(
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    evidence, expectations, _requests = _make_double_digit_shard_plan(tmp_path)
+    plan_path = evidence / "cache_build_plan.json"
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    shards = payload["shards"]
+    assert isinstance(shards, list)
+    assert all(isinstance(shard, dict) for shard in shards)
+    typed_shards = [shard for shard in shards if isinstance(shard, dict)]
+    by_stride = {shard["stride_block"]: shard for shard in typed_shards}
+
+    if drift == "duplicate_stride":
+        _rebind_shard_stride(by_stride[10], 1)
+        typed_shards.sort(key=lambda shard: str(shard["path"]))
+    elif drift == "out_of_range_stride":
+        _rebind_shard_stride(by_stride[10], 12)
+        typed_shards.sort(key=lambda shard: str(shard["path"]))
+    elif drift == "short_shard_swap":
+        _rebind_shard_stride(by_stride[11], 2)
+        _rebind_shard_stride(by_stride[2], 11)
+        typed_shards.sort(key=lambda shard: str(shard["path"]))
+    elif drift == "duplicate_path":
+        by_stride[10]["path"] = by_stride[1]["path"]
+        by_stride[10]["shard_id"] = proof_module.canonical_json_sha256(
+            {
+                "path": by_stride[10]["path"],
+                "keys": [row["key"] for row in by_stride[10]["rows"]],
+            }
+        )
+        typed_shards.sort(key=lambda shard: str(shard["path"]))
+    elif drift == "duplicate_id":
+        by_stride[10]["shard_id"] = by_stride[1]["shard_id"]
+    else:
+        typed_shards[0], typed_shards[1] = typed_shards[1], typed_shards[0]
+    payload["shards"] = typed_shards
+    _write_json(plan_path, payload)
+
+    with pytest.raises(InputError):
+        proof_module._validate_plan(plan_path, expectations=expectations)
 
 
 def _close_directory(root: Path) -> None:
