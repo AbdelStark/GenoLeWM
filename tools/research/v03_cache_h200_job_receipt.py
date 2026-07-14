@@ -794,7 +794,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (InputError, ResourceError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return exit_code_for(exc)
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    if payload.get("ok") is not True:
+        raise AssertionError("terminal receipt command returned without a verified payload")
+    print("GENO_LEWM_V03_CACHE_H200_JOB_RECEIPT_OK")
     return 0
 
 

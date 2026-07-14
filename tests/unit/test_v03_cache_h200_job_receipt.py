@@ -39,6 +39,48 @@ def test_job_receipt_schema_is_versioned_and_closed() -> None:
     assert runtime_hash == {"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"}
 
 
+def test_author_cli_never_logs_token_or_job_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    secret = "hf_secret_value_that_must_never_be_logged"
+    monkeypatch.setenv("HF_TOKEN", secret)
+    monkeypatch.setattr(receipt, "HuggingFaceReadClient", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        receipt,
+        "capture_terminal_receipt",
+        lambda **_kwargs: {"ok": True, "server_payload": secret},
+    )
+
+    exit_code = receipt.main(
+        [
+            "author",
+            "--output-dir",
+            str(tmp_path / "receipt"),
+            "--proof-download-dir",
+            str(tmp_path / "proof"),
+            "--job-id",
+            "job-secret-regression",
+            "--source-commit",
+            "a" * 40,
+            "--run-attempt",
+            "1",
+            "--proof-revision",
+            "b" * 40,
+            "--proof-namespace",
+            receipt.expected_proof_namespace("a" * 40, 1),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == "GENO_LEWM_V03_CACHE_H200_JOB_RECEIPT_OK\n"
+    assert captured.err == ""
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
 @dataclass
 class _Volume:
     type: str
