@@ -224,8 +224,10 @@ the unrelated `candidates/v0.3` artifact family. Its request contract is:
 
 The job uses the committed
 `configs/data_v03/carbon-500m-l2-runtime-identity.json`, the exact corrected
-Carbon revision and runtime hash, a read-only `/carbon` model mount, one H200,
-and the canonical training config carried by the trace. It launches
+Carbon revision `5d31d59b3c845b288a13aedb1358934196852eec` from
+`HuggingFaceBio/Carbon-500M`, its expected runtime hash, a read-only `/carbon`
+model mount, one H200, and the canonical training config carried by the trace.
+It launches
 `geno-lewm-cache-windows` directly from the frozen environment. This detail is
 part of the process-control contract: the PID receiving `SIGSTOP` and
 `SIGTERM` is the Python cache builder, not an intermediate `uv` process.
@@ -268,9 +270,23 @@ the proof report. Unknown files, symlinks, checksum drift, count drift,
 recomputed-checksum runtime tampering, reused rows, or semantically changed partial entries
 fail closed.
 
-Use host `hf` v1.8.0 or newer to submit the documented `h200` job with the
-read-only model volume; the repository-pinned CLI is older and does not expose
-those launcher flags. Inside the job, use the frozen repository environment.
+Submit with `uv run --script tools/research/v03_cache_h200_launch.py` as shown
+in the job script. The helper runs against exactly `huggingface-hub==1.8.0` and
+uses the Python `Volume` contract because that release's raw
+`hf jobs run --volume` grammar does not accept a repository revision and would
+therefore mount moving model `main`. The helper sends the exact Carbon commit
+in the volume request, requires a read-only `/carbon` mount, and accepts the
+launch only when the returned JobInfo exposes the same repository, revision,
+mount path, absent volume subpath, read-only flag, image digest, command, empty
+argument vector, absent Space image, public environment, H200 flavor, the
+pinned `purpose=geno-lewm-v03-cache-h200-proof` label, namespace, and secret
+names. A mismatched response is canceled and rejected. Its secret-free
+`--dry-run` output is available for launch review.
+Hugging Face JobInfo does not echo the requested timeout, so the dry run binds
+the submitted eight-hour value without claiming a server round-trip check. This
+revision-bearing volume transport has also been exercised independently on a
+CPU Job; that transport probe is not part of the H200 proof receipt. Inside the
+job, use the frozen repository environment.
 Publication uses the conflict-safe parent-commit CAS path, then downloads the
 exact resulting Hub revision and runs `verify-existing` again. The completed
 Hugging Face Job receipt is necessarily authored after the container exits and

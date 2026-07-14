@@ -2563,6 +2563,7 @@ def _verify_producer_invocation(*, source_commit: str, container_image: str) -> 
     if _git_output("remote", "get-url", "origin") != _CANONICAL_ORIGIN:
         raise InputError("cache proof source origin is not canonical")
     for relative in (
+        "tools/research/v03_cache_h200_launch.py",
         "tools/research/v03_cache_h200_proof.py",
         "tools/jobs/v03_cache_h200_proof.sh",
         "configs/data_v03/cache-h200-proof.schema.json",

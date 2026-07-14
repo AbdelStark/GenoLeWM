@@ -11,30 +11,14 @@
 # clinical validity.
 #
 # Exact HF Jobs submission recipe (run only from the exact merged commit).
-# Launch with host `hf` v1.8.0 or newer; the repository-pinned CLI is older
-# and does not expose the H200 flavor/volume launch flags. Inside the Job, use
-# the repository's frozen environment exactly as shown.
+# The raw `hf jobs run --volume` grammar in huggingface-hub 1.8.0 cannot carry
+# a repository revision. Use the PEP 723 launcher below: it requests the model
+# through HfApi with an exact revision-bearing, read-only Volume and rejects a
+# returned JobInfo unless the full public launch contract is preserved.
 #   SHA="$(git rev-parse HEAD)"
-#   TRACE_REPOSITORY="abdelstark/geno-lewm-data"
-#   TRACE_REVISION="da0d86cde7bf88de2015ab7c516f356e9ae89469"
-#   TRACE_ARTIFACT_PATH="training-traces/v0.3/geno-lewm-v03-training-trace-48b5bf71397f-712d612d85ea-job-6a55f38e85d9643ce16d29e7-r1/success"
-#   RUN_ATTEMPT=1
-#   IMAGE="ghcr.io/astral-sh/uv@sha256:35b0aa516fbcf6f18624919cfc38fa02ab3458e0ffcd3c03e932051b37f315db"
-#   hf jobs run \
-#     --namespace abdelstark \
-#     --flavor h200 \
-#     --volume hf://models/HuggingFaceBio/Carbon-500M:/carbon:ro \
-#     --secrets HF_TOKEN \
-#     --env COMMIT_SHA="$SHA" \
-#     --env CONTAINER_IMAGE="$IMAGE" \
-#     --env TRACE_REPOSITORY="$TRACE_REPOSITORY" \
-#     --env TRACE_REVISION="$TRACE_REVISION" \
-#     --env TRACE_ARTIFACT_PATH="$TRACE_ARTIFACT_PATH" \
-#     --env RUN_ATTEMPT="$RUN_ATTEMPT" \
-#     --timeout 8h \
-#     --detach \
-#     -- "$IMAGE" \
-#     bash -lc 'set -euo pipefail; test ! -L /workspace; if [ ! -e /workspace ]; then mkdir /workspace; fi; test -d /workspace; test "$(cd /workspace && pwd -P)" = /workspace; test -w /workspace; git clone https://github.com/AbdelStark/GenoLeWM.git /workspace/GenoLeWM; cd /workspace/GenoLeWM; git checkout --detach "$COMMIT_SHA"; test "$(git rev-parse HEAD)" = "$COMMIT_SHA"; test -z "$(git status --porcelain=v1 --untracked-files=all)"; uv sync --frozen --extra train --extra evidence; exec uv run --no-sync bash tools/jobs/v03_cache_h200_proof.sh'
+#   uv run --script tools/research/v03_cache_h200_launch.py \
+#     --source-commit "$SHA" \
+#     --run-attempt 1
 
 set -euo pipefail
 
@@ -50,9 +34,13 @@ MIN_DURABLE_SHARDS="2"
 SHARD_WAIT_TIMEOUT_SECONDS="14400"
 EXPECTED_TRACE_REVISION="da0d86cde7bf88de2015ab7c516f356e9ae89469"
 EXPECTED_TRACE_ARTIFACT_PATH="training-traces/v0.3/geno-lewm-v03-training-trace-48b5bf71397f-712d612d85ea-job-6a55f38e85d9643ce16d29e7-r1/success"
+EXPECTED_CARBON_REPOSITORY="HuggingFaceBio/Carbon-500M"
+EXPECTED_CARBON_REVISION="5d31d59b3c845b288a13aedb1358934196852eec"
 
 COMMIT_SHA="${COMMIT_SHA:?COMMIT_SHA is required}"
 CONTAINER_IMAGE="${CONTAINER_IMAGE:?CONTAINER_IMAGE is required}"
+CARBON_REPOSITORY="${CARBON_REPOSITORY:?CARBON_REPOSITORY is required}"
+CARBON_REVISION="${CARBON_REVISION:?CARBON_REVISION is required}"
 TRACE_REPOSITORY="${TRACE_REPOSITORY:?TRACE_REPOSITORY is required}"
 TRACE_REVISION="${TRACE_REVISION:?TRACE_REVISION is required}"
 TRACE_ARTIFACT_PATH="${TRACE_ARTIFACT_PATH:?TRACE_ARTIFACT_PATH is required}"
@@ -157,6 +145,10 @@ log "validate exact public source, immutable inputs, and clean canonical checkou
   || fatal "TRACE_REVISION must be a full lowercase 40-character Hub revision"
 test "$TRACE_REVISION" = "$EXPECTED_TRACE_REVISION" \
   || fatal "TRACE_REVISION differs from the exact corrected public training trace"
+[[ "$CARBON_REVISION" =~ ^[0-9a-f]{40}$ ]] \
+  || fatal "CARBON_REVISION must be a full lowercase 40-character Hub revision"
+test "$CARBON_REVISION" = "$EXPECTED_CARBON_REVISION" \
+  || fatal "CARBON_REVISION differs from the corrected Carbon runtime"
 [[ "$CONTAINER_IMAGE" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]] \
   || fatal "CONTAINER_IMAGE must be digest-pinned"
 [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] \
@@ -165,6 +157,10 @@ test "$TRACE_REVISION" = "$EXPECTED_TRACE_REVISION" \
   || fatal "TRACE_REPOSITORY must be a safe owner/name repository id"
 test "$TRACE_REPOSITORY" = "abdelstark/geno-lewm-data" \
   || fatal "TRACE_REPOSITORY must be the canonical public training-trace dataset"
+[[ "$CARBON_REPOSITORY" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] \
+  || fatal "CARBON_REPOSITORY must be a safe owner/name repository id"
+test "$CARBON_REPOSITORY" = "$EXPECTED_CARBON_REPOSITORY" \
+  || fatal "CARBON_REPOSITORY must be the canonical Carbon model repository"
 validate_trace_artifact_path "$TRACE_ARTIFACT_PATH"
 test "$TRACE_ARTIFACT_PATH" = "$EXPECTED_TRACE_ARTIFACT_PATH" \
   || fatal "TRACE_ARTIFACT_PATH differs from the exact corrected public training trace"
@@ -183,6 +179,7 @@ test "$(git remote get-url origin)" = "https://github.com/AbdelStark/GenoLeWM.gi
 
 for tracked_path in \
   tools/jobs/v03_cache_h200_proof.sh \
+  tools/research/v03_cache_h200_launch.py \
   tools/research/v03_cache_h200_proof.py \
   tools/data/v03_gnomad_lock.py \
   "$RUNTIME_IDENTITY" \
@@ -222,6 +219,9 @@ test "$PUBLIC_SOURCE_COMMIT" = "$COMMIT_SHA" \
 command -v hf >/dev/null 2>&1 || fatal "the job environment lacks the HF CLI"
 command -v nvidia-smi >/dev/null 2>&1 || fatal "the job environment lacks nvidia-smi"
 test -d "$CARBON_DIR" || fatal "Carbon-500M is not mounted read-only at $CARBON_DIR"
+test ! -L "$CARBON_DIR" || fatal "Carbon-500M mount must not be a symbolic link"
+test "$(cd "$CARBON_DIR" && pwd -P)" = "$CARBON_DIR" \
+  || fatal "Carbon-500M mount is not the expected physical path"
 export HF_TOKEN
 
 log "prove immutable proof namespace absence before any /work write"
