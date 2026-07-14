@@ -71,6 +71,8 @@ def test_rng_restore_rejects_open_or_runtime_drifted_domains(
     invalid_domain: str,
     message: str,
 ) -> None:
+    pytest.importorskip("numpy")
+    pytest.importorskip("torch")
     state = capture_rng_state()
     numpy_state = state["numpy"]
     cuda_state = state["torch_cuda"]
