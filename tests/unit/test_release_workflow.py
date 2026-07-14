@@ -96,7 +96,7 @@ def test_ci_coverage_scopes_optional_modules_to_supported_matrix_legs() -> None:
     assert "coverage report --show-missing --fail-under=84" in windows_branch
     assert (
         '--omit="*/encoder/cache.py,*/encoder/cache_build.py,*/cli/cache_windows.py,'
-        '*/training/resume.py"' in windows_branch
+        '*/training/resume.py,*/geno_lewm/_atomic.py"' in windows_branch
     )
     assert 'matrix.os }}" = "ubuntu-latest"' in canonical_branch
     assert 'matrix.python }}" = "3.12"' in canonical_branch
@@ -106,6 +106,11 @@ def test_ci_coverage_scopes_optional_modules_to_supported_matrix_legs() -> None:
     assert "--cov-fail-under=0" in lean_branch
     assert "coverage report --show-missing --fail-under=84" in lean_branch
     assert '--omit="*/training/resume.py"' in lean_branch
+    # The POSIX-only atomic-publication module is Windows-dead, so it is dropped
+    # from the Windows aggregate only. The lean/canonical legs run its POSIX core,
+    # so it stays measured there and enforced by the changed-files coverage gate.
+    assert "_atomic.py" not in lean_branch
+    assert "_atomic.py" not in canonical_branch
     assert pytest_step.count('tee "$RUNNER_TEMP/pytest.out"') == 3
     assert "tee pytest.out" not in pytest_step
 
