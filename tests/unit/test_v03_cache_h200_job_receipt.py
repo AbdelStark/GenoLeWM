@@ -283,7 +283,7 @@ def test_capture_authors_canonical_receipt_after_exact_proof_replay(tmp_path: Pa
         f"{hashlib.sha256((output_dir / name).read_bytes()).hexdigest()}  {name}\n"
         for name in sorted((receipt.RECEIPT_NAME, receipt.SCHEMA_NAME))
     )
-    (output_dir / receipt.CHECKSUMS_NAME).write_text(checksums, encoding="ascii")
+    (output_dir / receipt.CHECKSUMS_NAME).write_bytes(checksums.encode("ascii"))
     with pytest.raises(InputError, match="JobInfo fields"):
         receipt.verify_existing_receipt(output_dir)
 
