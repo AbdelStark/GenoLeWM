@@ -1,0 +1,356 @@
+{
+    "$id": "https://genolewm.org/schemas/v03-training-trace.v1.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+        "$schema": {"const": "./training_trace.schema.json"},
+        "artifacts": {
+            "additionalProperties": false,
+            "properties": {"schema": {"$ref": "#/$defs/traceSchemaIdentity"}},
+            "required": ["schema"],
+            "type": "object"
+        },
+        "claim_boundary": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_built": {"const": false},
+                "runtime_container_attested": {"const": false},
+                "scope": {"const": "one deterministic epoch of source-state cache requests"},
+                "throughput_measured": {"const": false}
+            },
+            "required": [
+                "scope",
+                "cache_built",
+                "throughput_measured",
+                "runtime_container_attested"
+            ],
+            "type": "object"
+        },
+        "dataset": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_path": {
+                    "pattern": "^candidates/v0\\.3/[A-Za-z0-9._/-]+/success$",
+                    "type": "string"
+                },
+                "manifest": {"$ref": "#/$defs/datasetManifestIdentity"},
+                "membership_and_split_evidence": {"$ref": "#/$defs/membershipBinding"},
+                "publication_binding": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "checksums": {"$ref": "#/$defs/datasetChecksumsIdentity"},
+                        "endpoint": {"const": "https://huggingface.co"},
+                        "method": {
+                            "const": "exact_revision_namespace_content_address_identity"
+                        }
+                    },
+                    "required": ["endpoint", "method", "checksums"],
+                    "type": "object"
+                },
+                "schema_version": {"const": "1.1.0"},
+                "repository": {"const": "abdelstark/geno-lewm-data"},
+                "revision": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+                "snapshot_id": {"minLength": 1, "type": "string"}
+            },
+            "required": [
+                "repository",
+                "revision",
+                "artifact_path",
+                "publication_binding",
+                "snapshot_id",
+                "schema_version",
+                "manifest",
+                "membership_and_split_evidence"
+            ],
+            "type": "object"
+        },
+        "generated_by": {"const": "tools.data.v03_training_trace"},
+        "producer": {
+            "additionalProperties": false,
+            "properties": {
+                "container_binding": {"const": "launcher_environment_declaration"},
+                "declared_container_image": {
+                    "pattern": "^.+@sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                },
+                "git_commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+                "origin": {"const": "https://github.com/AbdelStark/GenoLeWM.git"},
+                "source_publication": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "endpoint": {"const": "https://api.github.com"},
+                        "method": {"const": "unauthenticated_exact_commit_lookup"}
+                    },
+                    "required": ["endpoint", "method"],
+                    "type": "object"
+                }
+            },
+            "required": [
+                "git_commit",
+                "origin",
+                "source_publication",
+                "declared_container_image",
+                "container_binding"
+            ],
+            "type": "object"
+        },
+        "schema_version": {"const": "geno-lewm.v03-training-trace.v1"},
+        "trace": {
+            "additionalProperties": false,
+            "properties": {
+                "fallback_counts": {"$ref": "#/$defs/countMap"},
+                "ordering": {"const": "trainer_epoch_order_then_source_mix_order"},
+                "request_rows": {"minimum": 1, "type": "integer"},
+                "requests": {"$ref": "#/$defs/requestsIdentity"},
+                "rows_per_window": {"minimum": 1, "type": "integer"},
+                "source_counts": {"$ref": "#/$defs/countMap"}
+            },
+            "required": [
+                "request_rows",
+                "rows_per_window",
+                "source_counts",
+                "fallback_counts",
+                "ordering",
+                "requests"
+            ],
+            "type": "object"
+        },
+        "training": {
+            "additionalProperties": false,
+            "properties": {
+                "batch_size": {"minimum": 1, "type": "integer"},
+                "batches_per_epoch": {"minimum": 1, "type": "integer"},
+                "config": {"$ref": "#/$defs/trainingConfigIdentity"},
+                "data_seed": {"minimum": 0, "type": "integer"},
+                "encoder_revision": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+                "epoch": {"const": 0},
+                "fallback_sources": {
+                    "additionalProperties": {"minLength": 1, "type": "string"},
+                    "type": "object"
+                },
+                "mix": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "count": {"minimum": 0, "type": "integer"},
+                            "source": {"minLength": 1, "type": "string"}
+                        },
+                        "required": ["source", "count"],
+                        "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "max_steps": {"minimum": 1, "type": "integer"},
+                "normalize": {"const": true},
+                "pool_radius": {"minimum": 0, "type": "integer"},
+                "pool_type": {"const": "centered_mean"},
+                "seed": {"minimum": 0, "type": "integer"},
+                "state_contract_version": {"const": "l2_normalized_v2"}
+            },
+            "required": [
+                "config",
+                "seed",
+                "data_seed",
+                "epoch",
+                "batch_size",
+                "batches_per_epoch",
+                "max_steps",
+                "state_contract_version",
+                "encoder_revision",
+                "pool_type",
+                "pool_radius",
+                "normalize",
+                "mix",
+                "fallback_sources"
+            ],
+            "type": "object"
+        },
+        "window_eligibility": {
+            "additionalProperties": false,
+            "properties": {
+                "excluded_windows": {"minimum": 0, "type": "integer"},
+                "exclusions": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "available_count": {"minimum": 0, "type": "integer"},
+                            "chrom": {"type": ["string", "null"]},
+                            "end_bp": {"minimum": 1, "type": "integer"},
+                            "reason": {"enum": ["holdout_policy", "required_source_insufficient"]},
+                            "record_id": {"minLength": 1, "type": "string"},
+                            "required_count": {"minimum": 0, "type": "integer"},
+                            "source": {"type": ["string", "null"]},
+                            "start_bp": {"minimum": 0, "type": "integer"},
+                            "window_id": {"pattern": "^[0-9a-f]{64}$", "type": "string"}
+                        },
+                        "required": [
+                            "record_id",
+                            "window_id",
+                            "chrom",
+                            "start_bp",
+                            "end_bp",
+                            "reason",
+                            "source",
+                            "required_count",
+                            "available_count"
+                        ],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "filter_order": {"const": "before_epoch_rng_initialization"},
+                "input_windows": {"minimum": 1, "type": "integer"},
+                "usable_windows": {"minimum": 1, "type": "integer"}
+            },
+            "required": [
+                "filter_order",
+                "input_windows",
+                "usable_windows",
+                "excluded_windows",
+                "exclusions"
+            ],
+            "type": "object"
+        }
+    },
+    "required": [
+        "$schema",
+        "schema_version",
+        "generated_by",
+        "producer",
+        "dataset",
+        "training",
+        "window_eligibility",
+        "trace",
+        "artifacts",
+        "claim_boundary"
+    ],
+    "type": "object",
+    "$defs": {
+        "countMap": {"additionalProperties": {"minimum": 0, "type": "integer"}, "type": "object"},
+        "datasetChecksumsIdentity": {
+            "allOf": [
+                {"$ref": "#/$defs/fileIdentity"},
+                {"properties": {"path": {"const": "SHA256SUMS"}}}
+            ]
+        },
+        "datasetManifestIdentity": {
+            "allOf": [
+                {"$ref": "#/$defs/fileIdentity"},
+                {"properties": {"path": {"const": "dataset_manifest.json"}}}
+            ]
+        },
+        "fileIdentity": {
+            "additionalProperties": false,
+            "properties": {
+                "path": {"minLength": 1, "type": "string"},
+                "sha256": {"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"},
+                "size_bytes": {"minimum": 0, "type": "integer"}
+            },
+            "required": ["path", "sha256", "size_bytes"],
+            "type": "object"
+        },
+        "membershipBinding": {
+            "additionalProperties": false,
+            "properties": {
+                "holdout_policy": {"$ref": "#/$defs/membershipHoldoutPolicy"},
+                "holdout_policy_identity": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                },
+                "membership_store": {"$ref": "#/$defs/membershipStoreBinding"},
+                "report": {"$ref": "#/$defs/membershipReportBinding"}
+            },
+            "required": [
+                "membership_store",
+                "report",
+                "holdout_policy",
+                "holdout_policy_identity"
+            ],
+            "type": "object"
+        },
+        "membershipHoldoutPolicy": {
+            "additionalProperties": false,
+            "properties": {
+                "excluded_chromosomes": {
+                    "items": false,
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "prefixItems": [{"const": "20"}, {"const": "21"}],
+                    "type": "array"
+                },
+                "lookup": {"const": "lookup.sqlite"},
+                "membership_content_identity": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                },
+                "schema_version": {"const": "geno-lewm.membership-store.v1"},
+                "selection": {"const": "chromosome_roles"}
+            },
+            "required": [
+                "schema_version",
+                "membership_content_identity",
+                "excluded_chromosomes",
+                "selection",
+                "lookup"
+            ],
+            "type": "object"
+        },
+        "membershipReportBinding": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {"minLength": 1, "type": "string"},
+                "path": {"const": "evidence/membership-split-evidence.json"},
+                "schema_path": {"const": "contract/membership-split-evidence.schema.json"},
+                "schema_version": {"const": "geno-lewm.membership-split-evidence.v1"}
+            },
+            "required": ["path", "schema_path", "artifact_id", "schema_version"],
+            "type": "object"
+        },
+        "membershipStoreBinding": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {"minLength": 1, "type": "string"},
+                "content_identity": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                },
+                "path": {"const": "membership/store"},
+                "physical_identity": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                },
+                "rowset_sha256": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "path",
+                "artifact_id",
+                "content_identity",
+                "physical_identity",
+                "rowset_sha256"
+            ],
+            "type": "object"
+        },
+        "requestsIdentity": {
+            "allOf": [
+                {"$ref": "#/$defs/fileIdentity"},
+                {"properties": {"path": {"const": "cache_build_requests.jsonl"}}}
+            ]
+        },
+        "traceSchemaIdentity": {
+            "allOf": [
+                {"$ref": "#/$defs/fileIdentity"},
+                {"properties": {"path": {"const": "training_trace.schema.json"}}}
+            ]
+        },
+        "trainingConfigIdentity": {
+            "allOf": [
+                {"$ref": "#/$defs/fileIdentity"},
+                {"properties": {"path": {"const": "training_config.yaml"}}}
+            ]
+        }
+    }
+}

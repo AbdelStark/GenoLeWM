@@ -16,7 +16,15 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from geno_lewm.action import EditSpec, RelEdit, apply_edit, indel, uniform_snv
+from geno_lewm.action import (
+    DEFAULT_EDGE_MARGIN,
+    EditSpec,
+    EditType,
+    RelEdit,
+    apply_edit,
+    indel,
+    uniform_snv,
+)
 from geno_lewm.encoder.windowing import canonicalize_dna, window_sha256
 from geno_lewm.errors import InputError
 from geno_lewm.provenance import canonical_json_sha256
@@ -433,6 +441,61 @@ def synthetic_indel_provider(
     return tuple(indel(window.sequence, count, rng=rng))
 
 
+@dataclass(frozen=True, slots=True)
+class _VariantProvider:
+    by_chrom: Mapping[str, tuple[tuple[int, ...], tuple[EditSpec, ...]]]
+
+    def __call__(
+        self,
+        window: WindowContext,
+        count: int,
+        rng: random.Random,
+    ) -> tuple[RelEdit, ...]:
+        return self.sample(window, count, rng=rng, holdouts=None)
+
+    def sample(
+        self,
+        window: WindowContext,
+        count: int,
+        *,
+        rng: random.Random,
+        holdouts: HoldoutPolicy | None,
+    ) -> tuple[RelEdit, ...]:
+        _require_nonnegative_int("count", count)
+        if count == 0:
+            return ()
+        candidates = list(self._candidates(window))
+        if holdouts is not None:
+            candidates = [edit for edit in candidates if not holdouts.excludes_edit(window, edit)]
+        rng.shuffle(candidates)
+        return tuple(candidates[:count])
+
+    def available_count(self, window: WindowContext, *, holdouts: HoldoutPolicy) -> int:
+        return sum(
+            1 for edit in self._candidates(window) if not holdouts.excludes_edit(window, edit)
+        )
+
+    def _candidates(self, window: WindowContext) -> tuple[RelEdit, ...]:
+        if window.chrom is None:
+            # Unplaced windows (e.g. the synthetic Carbon pretraining corpus)
+            # carry no genome coordinates, so absolute VCF variants cannot be
+            # mapped onto them. Yield nothing and let the source fallback supply
+            # synthetic edits (see DEFAULT_SOURCE_FALLBACKS). Placed windows with
+            # a chrom still receive their real gnomAD/ClinVar variants.
+            return ()
+        indexed = self.by_chrom.get(window.chrom)
+        if indexed is None:
+            return ()
+        positions, chrom_variants = indexed
+        start = bisect_right(positions, window.start_bp)
+        stop = bisect_right(positions, window.end_bp)
+        return tuple(
+            variant.relative_to(window.start_bp, window.end_bp - 1)
+            for variant in chrom_variants[start:stop]
+            if variant.pos - 1 + len(variant.ref) <= window.end_bp
+        )
+
+
 def variant_provider(variants: Sequence[EditSpec]) -> _EditProvider:
     """Return a provider backed by absolute VCF-style variants."""
     normalized = tuple(_require_edit_spec(value) for value in variants)
@@ -441,33 +504,71 @@ def variant_provider(variants: Sequence[EditSpec]) -> _EditProvider:
     for chrom in chroms:
         ordered = tuple(sorted((item for item in normalized if item.chrom == chrom), key=_edit_pos))
         by_chrom[chrom] = (tuple(item.pos for item in ordered), ordered)
+    return _VariantProvider(by_chrom)
 
-    def _provider(window: WindowContext, count: int, rng: random.Random) -> tuple[RelEdit, ...]:
-        _require_nonnegative_int("count", count)
-        if count == 0:
-            return ()
-        if window.chrom is None:
-            # Unplaced windows (e.g. the synthetic Carbon pretraining corpus)
-            # carry no genome coordinates, so absolute VCF variants cannot be
-            # mapped onto them. Yield nothing and let the source fallback supply
-            # synthetic edits (see DEFAULT_SOURCE_FALLBACKS). Placed windows with
-            # a chrom still receive their real gnomAD/ClinVar variants.
-            return ()
-        indexed = by_chrom.get(window.chrom)
-        if indexed is None:
-            return ()
-        positions, chrom_variants = indexed
-        start = bisect_right(positions, window.start_bp)
-        stop = bisect_right(positions, window.end_bp)
-        candidates = [
-            variant.relative_to(window.start_bp, window.end_bp - 1)
-            for variant in chrom_variants[start:stop]
-            if variant.pos - 1 + len(variant.ref) <= window.end_bp
-        ]
-        rng.shuffle(candidates)
-        return tuple(candidates[:count])
 
-    return _provider
+def _provider_available_edit_count(
+    provider: _EditProvider,
+    window: WindowContext,
+    count: int,
+    *,
+    holdouts: HoldoutPolicy,
+) -> int:
+    """Return seed-independent availability for supported release providers."""
+    if isinstance(provider, _VariantProvider):
+        return provider.available_count(window, holdouts=holdouts)
+    if provider is synthetic_snv_provider or provider is synthetic_indel_provider:
+        candidates = _eligible_synthetic_candidates(provider, window, holdouts=holdouts)
+        return count if candidates else 0
+    raise InputError(
+        "schema-1.1 training requires deterministic provider availability",
+        details={"provider": type(provider).__name__},
+    )
+
+
+def _eligible_synthetic_candidates(
+    provider: _EditProvider,
+    window: WindowContext,
+    *,
+    holdouts: HoldoutPolicy,
+) -> tuple[RelEdit, ...]:
+    candidates: list[RelEdit] = []
+    content_end = len(window.sequence) - DEFAULT_EDGE_MARGIN
+    for position in range(DEFAULT_EDGE_MARGIN, content_end):
+        anchor = window.sequence[position]
+        if anchor not in "ACGT":
+            continue
+        if provider is synthetic_snv_provider:
+            candidates.extend(
+                RelEdit(
+                    rel_pos=position,
+                    edit_type=EditType.SNV,
+                    ref_bases=anchor,
+                    alt_bases=alternate,
+                )
+                for alternate in "ACGT"
+                if alternate != anchor
+            )
+            continue
+        candidates.extend(
+            RelEdit(
+                rel_pos=position,
+                edit_type=EditType.INS,
+                ref_bases=anchor,
+                alt_bases=anchor + inserted,
+            )
+            for inserted in "ACGT"
+        )
+        if position + 1 < content_end and window.sequence[position + 1] in "ACGT":
+            candidates.append(
+                RelEdit(
+                    rel_pos=position,
+                    edit_type=EditType.DEL,
+                    ref_bases=window.sequence[position : position + 2],
+                    alt_bases=anchor,
+                )
+            )
+    return tuple(edit for edit in candidates if not holdouts.excludes_edit(window, edit))
 
 
 def _edit_pos(value: EditSpec) -> int:
@@ -546,7 +647,10 @@ def _provider_edits(
             "missing edit provider",
             details={"source": source, "known_sources": sorted(providers)},
         )
-    observed = list(provider(window, count, rng))
+    if isinstance(provider, _VariantProvider):
+        observed = list(provider.sample(window, count, rng=rng, holdouts=holdouts))
+    else:
+        observed = list(provider(window, count, rng))
     edits: list[RelEdit] = []
     for edit in observed:
         if not isinstance(edit, RelEdit):
@@ -556,6 +660,12 @@ def _provider_edits(
             )
         if not holdouts.excludes_edit(window, edit):
             edits.append(edit)
+    if len(edits) < count and (
+        provider is synthetic_snv_provider or provider is synthetic_indel_provider
+    ):
+        candidates = _eligible_synthetic_candidates(provider, window, holdouts=holdouts)
+        while len(edits) < count and candidates:
+            edits.append(rng.choice(candidates))
     return edits
 
 
