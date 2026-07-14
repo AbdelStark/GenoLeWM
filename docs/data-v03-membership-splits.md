@@ -308,11 +308,37 @@ companions, and membership binding. Legacy training-run schema `1.0.0` remains
 unbound and omits the new manifest and card surface; bound training runs use
 schema `1.1.0`.
 
-The canonical schema-`1.1.0` dataset assembler is implemented and locally
-contract-verified, but no assembled snapshot candidate or released v0.3
-snapshot is published yet. The split evidence remains variant-level and
-unphased; it must not be described as phased-haplotype membership, corrected
-model-quality evidence, or clinical evidence.
+## Published schema-1.1 snapshot candidate
+
+Hugging Face Job
+[`6a555eb7effc02a91cbdbfe1`](https://huggingface.co/jobs/abdelstark/6a555eb7effc02a91cbdbfe1)
+assembled the real package from GenoLeWM commit
+`959079248000ab7a641ecc6d3b806700a71837f2` in the digest-pinned `uv` image and
+published it at exact Hub commit
+[`712d612d85ea6341b8ce17bd3460ff5c2207b802`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/712d612d85ea6341b8ce17bd3460ff5c2207b802/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/snapshots/geno-lewm-v03-dataset-snapshot-959079248000-r3/success).
+
+| Binding | Exact value |
+| --- | --- |
+| Hub path | `candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/snapshots/geno-lewm-v03-dataset-snapshot-959079248000-r3/success` |
+| Generated at | `2026-07-13T21:55:02Z` |
+| Dataset snapshot ID | `geno-lewm-data-v0.3.0-r1` |
+| Package inventory | 45 manifest files; 52 regular files total; 51 `SHA256SUMS` entries |
+| Snapshot report SHA-256 | `3984eef6272856c006d0051168038765935aa84418d715a865e1734c1ef89d2f` |
+| Train data | gnomAD `705,827`; ClinVar `1,545,260`; placed windows `976` |
+| Validation | `34,657`; B `4,720`, LB `24,886`, LP `2,297`, P `2,754` |
+| Evaluation | `20,653`; B `2,851`, LB `14,395`, LP `1,549`, P `1,858` |
+
+An independent exact-revision download verified every checksum, reproduced the
+published report byte-for-byte under both the default and strict upstream
+replay paths, observed zero overlap in all six train/held-role leakage checks,
+and passed the paper-package and training-preflight consumers with zero issues.
+
+The published report sets `publication_eligible=true` and
+`variant_membership=true`, while keeping `phased_haplotype_membership=false`
+and `released_v03_snapshot=false`. Accordingly, this is a verified
+schema-`1.1.0` **snapshot candidate**. It is not a released v0.3 snapshot,
+phased-haplotype membership, corrected model-quality or benchmark evidence,
+evidence of dataset representativeness, or clinical evidence.
 
 ## Local contract checks
 

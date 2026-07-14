@@ -193,10 +193,16 @@ membership binding and preserves its unbound manifest, card, and CLI report.
 The canonical producer for a complete schema-`1.1.0` v0.3 dataset package is
 implemented in `tools.release.v03_dataset_snapshot`. It filters the pinned
 prepared sources through the verified membership store, binds the published
-held-role streams and placed windows, and re-verifies the closed package. The
-producer is locally contract-verified, but no schema-`1.1.0` snapshot candidate
-has been published yet; none of these artifacts establishes a released v0.3
-snapshot or corrected model result.
+held-role streams and placed windows, and re-verifies the closed package. A
+real candidate produced from exact source commit
+`959079248000ab7a641ecc6d3b806700a71837f2` is published and independently
+verified at [exact Hub commit `712d612d...`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/712d612d85ea6341b8ce17bd3460ff5c2207b802/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/snapshots/geno-lewm-v03-dataset-snapshot-959079248000-r3/success).
+Its 45-file manifest, 51-entry checksum closure, six zero-overlap checks,
+strict upstream replay, paper-package verification, and training preflight all
+pass. This is a schema-`1.1.0` **snapshot candidate**, not a released v0.3
+snapshot, phased-haplotype membership, corrected model result, or evidence of
+dataset representativeness, model quality, benchmark performance, or clinical
+validity.
 
 Legacy schema-`1.0.0` rebuilds remain available through
 `python -m tools.release.dataset_snapshot`.
