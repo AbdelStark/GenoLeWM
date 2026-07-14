@@ -20,7 +20,7 @@ from geno_lewm.encoder.cache import (
     shard_path_for,
     write_shard,
 )
-from geno_lewm.encoder.carbon import CarbonStateEncoder
+from geno_lewm.encoder.carbon import CarbonStateEncoder, EncodedTokenStates
 from geno_lewm.encoder.pooling import (
     DEFAULT_POOL_RADIUS_TOKENS,
     POOL_CENTERED_MEAN,
@@ -62,6 +62,7 @@ __all__ = [
     "CacheReindexReport",
     "CacheRepairReport",
     "CarbonStateEncoder",
+    "EncodedTokenStates",
     "ExtractedWindow",
     "PoolingResult",
     "WindowCacheKey",

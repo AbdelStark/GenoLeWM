@@ -13,9 +13,10 @@ from typing import Any, cast
 import pytest
 
 import geno_lewm.encoder.carbon as carbon_mod
-from geno_lewm.encoder import CarbonStateEncoder
+from geno_lewm.encoder import CarbonStateEncoder, EncodedTokenStates
 from geno_lewm.encoder._dna_tokenizer import CarbonDNATokenizer
 from geno_lewm.encoder._identity import encoder_weights_hash
+from geno_lewm.encoder.pooling import pool_hidden_states
 from geno_lewm.errors import InputError, RuntimeSetupError
 
 
@@ -85,6 +86,107 @@ def test_carbon_state_encoder_can_return_raw_pooled_states() -> None:
     states = encoder.encode_batch(["ACGTAC", "CCCCCC"], [0, None])
 
     assert states == ((3.0, 0.0), (0.0, 4.0))
+
+
+def test_encode_token_states_returns_active_rows_and_anchors() -> None:
+    encoder = CarbonStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        model=FakeModel(),
+        tokenizer=FakeTokenizer(),
+        pool_radius=0,
+        normalize=False,
+    )
+
+    states = encoder.encode_token_states(["ACGTAC", "CCCCCC"], [0, None])
+
+    assert len(states) == 2
+    assert all(isinstance(item, EncodedTokenStates) for item in states)
+    assert states[0].rows == ((1.0, 0.0), (3.0, 0.0), (5.0, 0.0))
+    assert states[0].center_token == 1
+    assert states[0].content_token_bounds == (1, 2)
+    assert states[1].rows == ((0.0, 2.0), (0.0, 4.0), (0.0, 6.0))
+    assert states[1].center_token is None
+    assert states[1].content_token_bounds == (1, 2)
+    assert encoder.d_state == 2
+
+
+def test_encode_token_states_supports_many_radii_from_one_forward() -> None:
+    class CountingModel(FakeModel):
+        def __init__(self) -> None:
+            super().__init__()
+            self.forward_calls = 0
+
+        def __call__(
+            self,
+            *,
+            input_ids: list[list[int]],
+            attention_mask: list[list[int]],
+            output_hidden_states: bool,
+        ) -> object:
+            self.forward_calls += 1
+            return super().__call__(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=output_hidden_states,
+            )
+
+    model = CountingModel()
+    encoder = CarbonStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        model=model,
+        tokenizer=FakeTokenizer(),
+        pool_radius=0,
+        normalize=False,
+    )
+
+    (item,) = encoder.encode_token_states(["ACGTAC"], [0])
+
+    # Pool the same states at several radii without any further forward pass.
+    global_pooled = pool_hidden_states(item.rows, pool_type="global_mean", pool_radius=0).vector
+    centered_pooled = pool_hidden_states(
+        item.rows,
+        edit_locus=0,
+        center_token=item.center_token,
+        content_token_bounds=item.content_token_bounds,
+        pool_type="centered_mean",
+        pool_radius=64,
+    ).vector
+
+    assert model.forward_calls == 1
+    assert global_pooled == (3.0, 0.0)  # mean of (1, 3, 5)
+    assert centered_pooled == (3.0, 0.0)  # sole content token at index 1
+
+
+def test_encode_batch_equals_manual_pool_over_encode_token_states() -> None:
+    encoder = CarbonStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        model=FakeModel(),
+        tokenizer=FakeTokenizer(),
+        pool_type="centered_mean",
+        pool_radius=64,
+        normalize=False,
+    )
+
+    edit_loci: list[int | None] = [0, None]
+    batched = encoder.encode_batch(["ACGTAC", "CCCCCC"], edit_loci)
+    states = encoder.encode_token_states(["ACGTAC", "CCCCCC"], edit_loci)
+    manual = tuple(
+        pool_hidden_states(
+            item.rows,
+            edit_locus=edit_locus,
+            center_token=item.center_token,
+            content_token_bounds=item.content_token_bounds,
+            pool_type="centered_mean",
+            pool_radius=64,
+        ).vector
+        for item, edit_locus in zip(states, edit_loci, strict=True)
+    )
+
+    assert batched == manual
+    assert batched == ((3.0, 0.0), (0.0, 4.0))
 
 
 def test_carbon_state_encoder_rejects_zero_norm_state() -> None:

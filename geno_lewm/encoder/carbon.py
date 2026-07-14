@@ -29,10 +29,28 @@ from geno_lewm.encoder.pooling import (
 from geno_lewm.encoder.windowing import CARBON_TOKEN_BP, canonicalize_dna, wrap_dna_for_tokenizer
 from geno_lewm.errors import InputError, RuntimeSetupError
 
-__all__ = ["CarbonStateEncoder"]
+__all__ = ["CarbonStateEncoder", "EncodedTokenStates"]
 
 _SUPPORTED_DTYPES = frozenset({"bf16", "fp16", "fp32"})
 _PoolType = Literal["centered_mean", "global_mean"]
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedTokenStates:
+    """Per-item Carbon token states plus the anchors needed to pool them.
+
+    Produced by :meth:`CarbonStateEncoder.encode_token_states` from a
+    single Carbon forward pass. Holding the token-level ``rows`` (already
+    truncated to the active, non-padding tokens) together with the
+    tokenizer-resolved ``center_token`` and ``content_token_bounds`` lets
+    a caller pool the same states at many radii via
+    :func:`geno_lewm.encoder.pooling.pool_hidden_states` without paying for
+    a second forward pass per radius.
+    """
+
+    rows: tuple[tuple[float, ...], ...]
+    center_token: int | None
+    content_token_bounds: tuple[int, int]
 
 
 class CarbonStateEncoder:
@@ -143,12 +161,20 @@ class CarbonStateEncoder:
         """Encode and pool one DNA window."""
         return self.encode_batch([window], [edit_locus])[0]
 
-    def encode_batch(
+    def encode_token_states(
         self,
         windows: Sequence[str],
         edit_loci: Sequence[int | None],
-    ) -> tuple[tuple[float, ...], ...]:
-        """Encode and pool a batch of DNA windows."""
+    ) -> tuple[EncodedTokenStates, ...]:
+        """Encode a batch of DNA windows to per-token states (no pooling).
+
+        Runs exactly one Carbon forward pass and returns, per window, the
+        active token rows plus the tokenizer-resolved pooling anchors
+        (``center_token`` and ``content_token_bounds``). Callers pool these
+        at any radius with :func:`geno_lewm.encoder.pooling.pool_hidden_states`
+        without re-running the model — the primitive that lets edit-response
+        spectroscopy sweep a radius grid for a single forward per window.
+        """
         if not isinstance(windows, Sequence) or isinstance(windows, str | bytes):
             raise InputError(
                 "windows must be a sequence of DNA strings",
@@ -185,7 +211,7 @@ class CarbonStateEncoder:
                 details={"expected": len(windows), "observed": len(rows_by_item)},
             )
 
-        pooled_rows: list[tuple[float, ...]] = []
+        encoded: list[EncodedTokenStates] = []
         for rows, edit_locus, layout, sequence in zip(
             rows_by_item,
             edit_loci,
@@ -202,15 +228,35 @@ class CarbonStateEncoder:
                     },
                 )
             center_token = layout.center_token(edit_locus, sequence_bp=len(sequence))
-            pooled_rows.append(
-                pool_hidden_states(
-                    rows[: layout.active_token_count],
-                    edit_locus=edit_locus,
+            encoded.append(
+                EncodedTokenStates(
+                    rows=rows[: layout.active_token_count],
                     center_token=center_token,
                     content_token_bounds=(
                         layout.dna_content_start,
                         layout.dna_content_start + layout.dna_content_count,
                     ),
+                )
+            )
+        if encoded:
+            self._d_state = len(encoded[0].rows[0])
+        return tuple(encoded)
+
+    def encode_batch(
+        self,
+        windows: Sequence[str],
+        edit_loci: Sequence[int | None],
+    ) -> tuple[tuple[float, ...], ...]:
+        """Encode and pool a batch of DNA windows."""
+        states = self.encode_token_states(windows, edit_loci)
+        pooled_rows: list[tuple[float, ...]] = []
+        for item, edit_locus in zip(states, edit_loci, strict=True):
+            pooled_rows.append(
+                pool_hidden_states(
+                    item.rows,
+                    edit_locus=edit_locus,
+                    center_token=item.center_token,
+                    content_token_bounds=item.content_token_bounds,
                     pool_type=self.pool_type,
                     pool_radius=self.pool_radius,
                 ).vector
