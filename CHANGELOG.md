@@ -104,6 +104,10 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Added
 
+- Added a nonpublishing `cpu-basic` Hugging Face Job probe that mounts the
+  exact Carbon revision, clones an exact public GenoLeWM commit, computes the
+  complete encoder runtime hash including weights, and fails closed on both
+  JobInfo drift and hash mismatch before a subsequent H200 cache attempt.
 - Added an exact-revision ClinVar staging postflight that binds immutable
   source-code contracts, reconciles audit/prepare/runtime/source identities,
   and full-scans the corrected Parquet shard with a closed JSON report schema.
