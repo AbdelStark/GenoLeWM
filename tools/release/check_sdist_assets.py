@@ -76,6 +76,7 @@ REQUIRED_SDIST_ASSETS: Final[tuple[str, ...]] = (
     "tools/research/correction_control_preflight.py",
     "tools/research/correction_control_replay.py",
     "tools/research/state_contract_audit.py",
+    "tools/research/v03_cache_h200_launch.py",
     "tools/research/v03_cache_h200_proof.py",
     "tools/jobs/demo_run.sh",
     "tools/jobs/eval_run.sh",

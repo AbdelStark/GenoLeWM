@@ -88,6 +88,7 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/research/correction_control_preflight.py",
         "tools/research/correction_control_replay.py",
         "tools/research/state_contract_audit.py",
+        "tools/research/v03_cache_h200_launch.py",
         "tools/research/v03_cache_h200_proof.py",
         "tools/data/v03_gnomad_lock.py",
         "tools/data/v03_training_trace.py",

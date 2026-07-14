@@ -35,6 +35,8 @@ def test_job_requires_exact_public_inputs_and_a_clean_canonical_checkout() -> No
     for required_environment in (
         'COMMIT_SHA="${COMMIT_SHA:?COMMIT_SHA is required}"',
         'CONTAINER_IMAGE="${CONTAINER_IMAGE:?CONTAINER_IMAGE is required}"',
+        'CARBON_REPOSITORY="${CARBON_REPOSITORY:?CARBON_REPOSITORY is required}"',
+        'CARBON_REVISION="${CARBON_REVISION:?CARBON_REVISION is required}"',
         'TRACE_REPOSITORY="${TRACE_REPOSITORY:?TRACE_REPOSITORY is required}"',
         'TRACE_REVISION="${TRACE_REVISION:?TRACE_REVISION is required}"',
         'TRACE_ARTIFACT_PATH="${TRACE_ARTIFACT_PATH:?TRACE_ARTIFACT_PATH is required}"',
@@ -52,6 +54,10 @@ def test_job_requires_exact_public_inputs_and_a_clean_canonical_checkout() -> No
     assert f'EXPECTED_TRACE_ARTIFACT_PATH="{PUBLIC_TRACE_PATH}"' in script
     assert 'test "$TRACE_ARTIFACT_PATH" = "$EXPECTED_TRACE_ARTIFACT_PATH"' in script
     assert 'test "$TRACE_REPOSITORY" = "abdelstark/geno-lewm-data"' in script
+    assert 'EXPECTED_CARBON_REPOSITORY="HuggingFaceBio/Carbon-500M"' in script
+    assert 'EXPECTED_CARBON_REVISION="5d31d59b3c845b288a13aedb1358934196852eec"' in script
+    assert 'test "$CARBON_REPOSITORY" = "$EXPECTED_CARBON_REPOSITORY"' in script
+    assert 'test "$CARBON_REVISION" = "$EXPECTED_CARBON_REVISION"' in script
     assert '[[ "$CONTAINER_IMAGE" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]' in script
     assert 'test "$(git rev-parse HEAD)" = "$COMMIT_SHA"' in script
     assert 'test -z "$(git status --porcelain=v1 --untracked-files=all)"' in script
@@ -324,23 +330,14 @@ def test_author_verify_publish_and_exact_revision_replay_are_ordered() -> None:
     assert 'cmp "$BUNDLE_DIR/SHA256SUMS" "$REMOTE_BUNDLE/SHA256SUMS"' in script
 
 
-def test_job_header_documents_digest_pinned_h200_launch() -> None:
+def test_job_header_uses_revision_capable_h200_launch_helper() -> None:
     script = _script()
 
-    assert "hf jobs run" in script
-    assert "host `hf` v1.8.0 or newer" in script
-    assert "--namespace abdelstark" in script
-    assert "--flavor h200" in script
-    assert "--volume hf://models/HuggingFaceBio/Carbon-500M:/carbon:ro" in script
-    assert "--secrets HF_TOKEN" in script
-    assert 'test "$(git rev-parse HEAD)" = "$COMMIT_SHA"' in script
-    assert "uv sync --frozen --extra train --extra evidence" in script
-    assert "exec uv run --no-sync bash tools/jobs/v03_cache_h200_proof.sh" in script
-    workspace_guard = script.index("test ! -L /workspace")
-    workspace_create = script.index("mkdir /workspace", workspace_guard)
-    workspace_physical = script.index('test "$(cd /workspace && pwd -P)" = /workspace')
-    clone = script.index("git clone https://github.com/AbdelStark/GenoLeWM.git /workspace/GenoLeWM")
-    assert workspace_guard < workspace_create < workspace_physical < clone
+    assert "uv run --script tools/research/v03_cache_h200_launch.py" in script
+    assert '--source-commit "$SHA"' in script
+    assert "--run-attempt 1" in script
+    assert "raw `hf jobs run --volume` grammar" in script
+    assert "--volume hf://models/HuggingFaceBio/Carbon-500M:/carbon:ro" not in script
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX job-control proof requires signals")
