@@ -31,6 +31,14 @@ from tests.unit.test_training_preflight import (
 )
 from tools.release.training_run import GENERATED_BY as TRAINING_RUN_GENERATED_BY
 
+requires_secure_atomic_publication = pytest.mark.skipif(
+    not atomic_module.supports_secure_atomic_publication(),
+    reason=(
+        "secure production checkpoint/report publication requires POSIX "
+        "anchored directory operations"
+    ),
+)
+
 
 @pytest.fixture(autouse=True)
 def _stable_production_source(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -181,6 +189,7 @@ def test_train_carbon_preflight_remains_available_without_atomic_dirfd_support(
     assert (run_dir / "training_preflight_report.json").is_file()
 
 
+@requires_secure_atomic_publication
 def test_train_carbon_train_runs_preflight_before_launch(
     tmp_path: Path,
     capsys,
@@ -221,6 +230,7 @@ def test_train_carbon_train_runs_preflight_before_launch(
     assert not (run_dir / "metrics.json").exists()
 
 
+@requires_secure_atomic_publication
 @pytest.mark.parametrize("mode", ["--carbon-preflight", "--carbon-train"])
 def test_train_carbon_mode_rejects_concurrent_writer_before_run_publication(
     tmp_path: Path,
@@ -267,6 +277,7 @@ def test_train_carbon_mode_rejects_concurrent_writer_before_run_publication(
     assert not (run_dir / "training_preflight_report.json").exists()
 
 
+@requires_secure_atomic_publication
 def test_train_carbon_train_can_package_release_run_after_success(
     tmp_path: Path,
     capsys,
@@ -320,6 +331,7 @@ def test_train_carbon_train_can_package_release_run_after_success(
     assert metadata["training_preflight_report"] == "training_preflight_report.json"
 
 
+@requires_secure_atomic_publication
 def test_train_carbon_train_passes_resume_checkpoint_to_launcher(
     tmp_path: Path,
     capsys,
@@ -369,6 +381,7 @@ def test_train_carbon_train_passes_resume_checkpoint_to_launcher(
     assert metadata["resume_checkpoint"] == resume_path.name
 
 
+@requires_secure_atomic_publication
 def test_train_carbon_train_passes_stop_step_without_changing_target_horizon(
     tmp_path: Path,
     capsys,
@@ -429,6 +442,7 @@ def test_train_carbon_train_passes_stop_step_without_changing_target_horizon(
     assert "--stop-after-step 3" in metadata["command"]
 
 
+@requires_secure_atomic_publication
 @pytest.mark.parametrize("caller_is_git", [False, True])
 def test_public_carbon_cli_binds_package_source_outside_its_source_checkout(
     tmp_path: Path,
@@ -514,6 +528,7 @@ def test_train_rejects_packaging_an_early_stopped_carbon_run(capsys) -> None:
     assert "cannot be combined" in captured.err
 
 
+@requires_secure_atomic_publication
 def test_train_carbon_train_records_accelerator_preflight_overrides(
     tmp_path: Path,
     capsys,

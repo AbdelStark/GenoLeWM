@@ -77,6 +77,14 @@ _REPORT_BINDING = {
     "schema_version": "geno-lewm.membership-split-evidence.v1",
 }
 
+requires_secure_atomic_publication = pytest.mark.skipif(
+    not atomic_module.supports_secure_atomic_publication(),
+    reason=(
+        "secure production checkpoint/report publication requires POSIX "
+        "anchored directory operations"
+    ),
+)
+
 
 @pytest.fixture(autouse=True)
 def _stable_package_source(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -247,6 +255,7 @@ def test_run_carbon_training_rejects_unsupported_atomic_boundary_before_writes(
     assert not run_dir.exists()
 
 
+@requires_secure_atomic_publication
 def test_run_carbon_training_rejects_concurrent_same_run_writer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1189,6 +1198,7 @@ def test_move_trainable_to_device_leaves_cpu_module_in_place() -> None:
     assert module.devices == []
 
 
+@requires_secure_atomic_publication
 def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime_setup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

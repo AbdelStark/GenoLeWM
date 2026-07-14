@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from geno_lewm._atomic import supports_secure_atomic_publication
 from geno_lewm.errors import InputError
 from geno_lewm.training.resume import capture_rng_state, write_resume_checkpoint
 from tools.research import production_resume_equivalence as resume_equivalence
@@ -17,6 +18,14 @@ _TREE = "b" * 40
 _N = 4
 _K = 2
 _BATCH_SIZE = 2
+
+requires_secure_atomic_publication = pytest.mark.skipif(
+    not supports_secure_atomic_publication(),
+    reason=(
+        "secure production checkpoint/report publication requires POSIX "
+        "anchored directory operations"
+    ),
+)
 
 
 def test_collect_and_verify_binds_expected_contract_to_raw_production_artifacts(
@@ -170,6 +179,7 @@ def test_git_identity_rejects_unrelated_clean_repository(tmp_path: Path) -> None
         resume_equivalence._git_identity(repo)
 
 
+@requires_secure_atomic_publication
 def test_interrupted_evidence_write_preserves_previous_report(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
