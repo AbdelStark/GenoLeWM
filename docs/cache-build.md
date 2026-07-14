@@ -345,6 +345,20 @@ the submitted eight-hour value without claiming a server round-trip check. This
 revision-bearing volume transport has also been exercised independently on a
 CPU Job; that transport probe is not part of the H200 proof receipt. Inside the
 job, use the frozen repository environment.
+
+The hardware receipt v2 keeps CUDA and NVML memory observations distinct.
+`cuda_total_memory_bytes` records `torch.cuda`'s `totalGlobalMem` value, while
+`nvidia_smi_total_memory_mib` records the integer `memory.total` field from the
+exact retained `nvidia-smi` CSV row. On the measured H200 these were
+`150109880320` bytes and `143771` MiB respectively, a `615.0625` MiB difference;
+they are not treated as two encodings of one value. Both must be positive, the
+structured NVML value must exactly match the raw row, and the receipt still
+requires one CUDA device at index zero with matching H200 name, compute
+capability, and driver. The only cross-API memory invariant is that CUDA's
+usable total cannot exceed NVML's whole-device total; no minimum closeness or
+ratio is claimed. The job re-reads the closed receipt through the same validator
+before constructing the cache command or encoding any row.
+
 Publication uses the conflict-safe parent-commit CAS path, then downloads the
 exact resulting Hub revision and runs `verify-existing` again. The completed
 Hugging Face Job receipt is necessarily authored after the container exits and

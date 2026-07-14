@@ -297,6 +297,7 @@ from pathlib import Path
 import torch
 
 from geno_lewm.encoder._identity import encoder_runtime_hash
+from tools.research.v03_cache_h200_proof import author_hardware_receipt
 
 output_path = Path(sys.argv[1])
 source_commit = sys.argv[2]
@@ -339,28 +340,30 @@ if query_capability != compute_capability:
 if not driver_version or not torch.version.cuda:
     raise SystemExit("FATAL: CUDA or NVIDIA driver version is unavailable")
 
-payload = {
-    "schema_version": "geno-lewm.v03-h200-hardware.v1",
-    "generated_by": "tools.jobs.v03_cache_h200_proof",
-    "source_commit_sha": source_commit,
-    "container_image": container_image,
-    "nvidia_smi_query_raw": raw_query,
-    "device": {
-        "type": "cuda",
-        "index": 0,
-        "name": properties.name,
-        "total_memory_bytes": properties.total_memory,
-        "compute_capability": compute_capability,
-    },
-    "runtime": {
-        "python_version": platform.python_version(),
-        "torch_version": torch.__version__,
-        "cuda_version": torch.version.cuda,
-        "driver_version": driver_version,
-    },
-}
-output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+author_hardware_receipt(
+    output_path=output_path,
+    source_commit=source_commit,
+    container_image=container_image,
+    nvidia_smi_query_raw=raw_query,
+    cuda_device_count=torch.cuda.device_count(),
+    cuda_device_index=int(index),
+    cuda_device_name=properties.name,
+    cuda_total_memory_bytes=properties.total_memory,
+    cuda_compute_capability=compute_capability,
+    python_version=platform.python_version(),
+    torch_version=torch.__version__,
+    cuda_version=torch.version.cuda,
+    driver_version=driver_version,
+)
 PY
+
+log "revalidate the closed H200 receipt before any cache encoding"
+uv run --no-sync python -m tools.research.v03_cache_h200_proof validate-hardware \
+  "--hardware-json" "$HARDWARE_JSON" \
+  "--source-commit" "$COMMIT_SHA" \
+  "--container-image" "$CONTAINER_IMAGE" \
+  >/dev/null
+
 HARDWARE="$(
   python - "$HARDWARE_JSON" <<'PY'
 import json
@@ -369,9 +372,10 @@ from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 device = payload["device"]
+memory = payload["memory"]
 runtime = payload["runtime"]
 print(
-    f"{device['name']}; {device['total_memory_bytes']} bytes; "
+    f"{device['name']}; {memory['cuda_total_memory_bytes']} bytes; "
     f"CUDA {runtime['cuda_version']}; driver {runtime['driver_version']}; single GPU"
 )
 PY

@@ -40,6 +40,12 @@ or incompatible command changes require an explicit compatibility note.
   ten upstream runtime files, and eight local implementation files. The two H200
   attempts that exposed the mismatch failed closed and are not successful cache
   evidence.
+- Corrected the v0.3 H200 hardware receipt contract. CUDA `totalGlobalMem` bytes
+  and NVML `memory.total` MiB are now retained as distinct measurements instead
+  of being forced through an invalid one-MiB equality tolerance. The closed v2
+  receipt still binds a single H200 at index zero, capability, and driver, and
+  is revalidated before cache encoding begins. The attempt that exposed the
+  mismatch failed closed after computation and published no proof artifact.
 - Removed the unpinned transitive tokenizer load from the Carbon runtime path.
   The pinned upstream `tokenizer.py` delegated to a network-capable
   `Qwen/Qwen3-4B-Base` lookup without a revision, so hashing the local file did

@@ -1,5 +1,5 @@
 {
-  "$id": "https://abdelstark.github.io/GenoLeWM/schemas/cache-h200-proof.v1.json",
+  "$id": "https://abdelstark.github.io/GenoLeWM/schemas/cache-h200-proof.v2.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -103,6 +103,9 @@
             "compute_capability": {
               "const": "9.0"
             },
+            "count": {
+              "const": 1
+            },
             "index": {
               "const": 0
             },
@@ -110,20 +113,34 @@
               "pattern": "H200",
               "type": "string"
             },
-            "total_memory_bytes": {
-              "minimum": 1,
-              "type": "integer"
-            },
             "type": {
               "const": "cuda"
             }
           },
           "required": [
             "type",
+            "count",
             "index",
             "name",
-            "total_memory_bytes",
             "compute_capability"
+          ],
+          "type": "object"
+        },
+        "memory": {
+          "additionalProperties": false,
+          "properties": {
+            "cuda_total_memory_bytes": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "nvidia_smi_total_memory_mib": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cuda_total_memory_bytes",
+            "nvidia_smi_total_memory_mib"
           ],
           "type": "object"
         },
@@ -162,6 +179,7 @@
       "required": [
         "receipt",
         "device",
+        "memory",
         "runtime"
       ],
       "type": "object"
@@ -330,7 +348,7 @@
       "type": "object"
     },
     "schema_version": {
-      "const": "geno-lewm.v03-cache-h200-proof.v1"
+      "const": "geno-lewm.v03-cache-h200-proof.v2"
     },
     "trace": {
       "additionalProperties": false,
