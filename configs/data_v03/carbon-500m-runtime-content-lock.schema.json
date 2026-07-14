@@ -1,0 +1,340 @@
+{
+  "$id": "https://abdelstark.github.io/GenoLeWM/schemas/carbon-500m-runtime-content-lock.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "./carbon-500m-runtime-content-lock.schema.json"
+    },
+    "claim_boundary": {
+      "minLength": 160,
+      "type": "string"
+    },
+    "correction_receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "cause": {
+          "additionalProperties": false,
+          "properties": {
+            "change": {
+              "const": "self.pool_type = cast(_PoolType, pool_type) became self.pool_type = pool_type"
+            },
+            "file": {
+              "const": "geno_lewm/encoder/carbon.py"
+            },
+            "merge_commit": {
+              "const": "e12273f538370c23235743cf559f19fcb344cfc0"
+            },
+            "pull_request": {
+              "const": 286
+            },
+            "semantic_effect": {
+              "minLength": 80,
+              "type": "string"
+            }
+          },
+          "required": [
+            "pull_request",
+            "merge_commit",
+            "file",
+            "change",
+            "semantic_effect"
+          ],
+          "type": "object"
+        },
+        "fail_closed_h200_jobs": {
+          "items": false,
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/job_6a56055"
+            },
+            {
+              "$ref": "#/$defs/job_6a561079"
+            }
+          ],
+          "type": "array"
+        },
+        "runtime_hash_provenance": {
+          "additionalProperties": false,
+          "properties": {
+            "first_affected_merge_commit": {
+              "const": "8a278c5e8ec57d1e4839336f9cd65823d3a216e2"
+            },
+            "post_rebase_runtime_hash": {
+              "const": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311"
+            },
+            "pre_rebase_runtime_hash": {
+              "const": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e"
+            },
+            "pre_rebase_source_commit": {
+              "const": "e9845cffb4ff1dcdb00cce0215564d83d6ce8317"
+            },
+            "typing_change_commit": {
+              "const": "e12273f538370c23235743cf559f19fcb344cfc0"
+            }
+          },
+          "required": [
+            "pre_rebase_source_commit",
+            "pre_rebase_runtime_hash",
+            "typing_change_commit",
+            "first_affected_merge_commit",
+            "post_rebase_runtime_hash"
+          ],
+          "type": "object"
+        },
+        "stale_lock_source_range": {
+          "additionalProperties": false,
+          "properties": {
+            "first_commit": {
+              "const": "8a278c5e8ec57d1e4839336f9cd65823d3a216e2"
+            },
+            "inclusive": {
+              "const": true
+            },
+            "last_commit": {
+              "const": "c90d366c761a35a1746bf27418777473a6acf29f"
+            }
+          },
+          "required": [
+            "first_commit",
+            "last_commit",
+            "inclusive"
+          ],
+          "type": "object"
+        },
+        "superseded_runtime_hash": {
+          "const": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e"
+        },
+        "training_trace": {
+          "additionalProperties": false,
+          "properties": {
+            "hub_revision": {
+              "const": "da0d86cde7bf88de2015ab7c516f356e9ae89469"
+            },
+            "reason": {
+              "minLength": 80,
+              "type": "string"
+            },
+            "reusable": {
+              "const": true
+            }
+          },
+          "required": [
+            "hub_revision",
+            "reusable",
+            "reason"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "superseded_runtime_hash",
+        "cause",
+        "runtime_hash_provenance",
+        "stale_lock_source_range",
+        "fail_closed_h200_jobs",
+        "training_trace"
+      ],
+      "type": "object"
+    },
+    "implementation_files": {
+      "items": false,
+      "maxItems": 8,
+      "minItems": 8,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        }
+      ],
+      "type": "array"
+    },
+    "model": {
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "const": "HuggingFaceBio/Carbon-500M"
+        },
+        "revision": {
+          "const": "5d31d59b3c845b288a13aedb1358934196852eec"
+        }
+      },
+      "required": [
+        "repository",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "runtime_files": {
+      "items": false,
+      "maxItems": 10,
+      "minItems": 10,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        },
+        {
+          "$ref": "#/$defs/identity"
+        }
+      ],
+      "type": "array"
+    },
+    "runtime_hash": {
+      "const": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311"
+    },
+    "runtime_hash_contract": {
+      "const": "geno_lewm.encoder_runtime.v1"
+    },
+    "schema_version": {
+      "const": "geno-lewm.carbon-runtime-content-lock.v1"
+    },
+    "weights": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "const": "model.safetensors"
+        },
+        "sha256": {
+          "const": "sha256:e257506988203fdb8bb46976ee81c97e24f29073754bbff70137c7704dbadaa8"
+        }
+      },
+      "required": [
+        "artifact",
+        "sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "model",
+    "weights",
+    "runtime_hash_contract",
+    "runtime_files",
+    "implementation_files",
+    "runtime_hash",
+    "correction_receipt",
+    "claim_boundary"
+  ],
+  "title": "GenoLeWM Carbon-500M runtime content lock",
+  "type": "object",
+  "$defs": {
+    "identity": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "job_6a56055": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "const": "6a56055fb1669a49bf071e81"
+        },
+        "observed_runtime_hash": {
+          "const": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311"
+        },
+        "stale_expected_runtime_hash": {
+          "const": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e"
+        },
+        "status": {
+          "const": "ERROR"
+        }
+      },
+      "required": [
+        "job_id",
+        "status",
+        "stale_expected_runtime_hash",
+        "observed_runtime_hash"
+      ],
+      "type": "object"
+    },
+    "job_6a561079": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "const": "6a56107985d9643ce16d2b3e"
+        },
+        "observed_runtime_hash": {
+          "const": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311"
+        },
+        "stale_expected_runtime_hash": {
+          "const": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e"
+        },
+        "status": {
+          "const": "ERROR"
+        }
+      },
+      "required": [
+        "job_id",
+        "status",
+        "stale_expected_runtime_hash",
+        "observed_runtime_hash"
+      ],
+      "type": "object"
+    },
+    "sha256": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  }
+}

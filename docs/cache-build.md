@@ -87,7 +87,7 @@ For the corrected Carbon runtime, the identity file is independent of any
 predictor, action encoder, training run, calibration, or evaluation release:
 
 ```json
-{"model_id":"/carbon","revision":"5d31d59b3c845b288a13aedb1358934196852eec","runtime_hash":"sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e","schema_version":"1.0.0","state_contract_version":"l2_normalized_v2"}
+{"model_id":"/carbon","revision":"5d31d59b3c845b288a13aedb1358934196852eec","runtime_hash":"sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311","schema_version":"1.0.0","state_contract_version":"l2_normalized_v2"}
 ```
 
 The object is closed: unknown fields are rejected. `runtime_hash` is always
@@ -200,6 +200,64 @@ Training cache requests must mirror the consumer's pooling identity. The
 corrected trainer supplies each edit's `rel_pos`, so its source-state lookups are
 `centered_mean` with an edit-conditioned `center_token`; an `edit_locus: null`
 global-mean artifact will not satisfy those lookups.
+
+## Carbon runtime identity correction
+
+The v0.3 Carbon content identity is
+`sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311`,
+not the superseded `sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e`.
+The model revision remains
+`5d31d59b3c845b288a13aedb1358934196852eec`. The exact-revision snapshot and
+the separately observed upstream `main` snapshot were byte-identical across the
+selected weight plus all ten runtime-scoped files. The correction remains pinned
+to `5d31...` and does not rely on mutable `main`; the identity change comes solely
+from the local runtime-hashed source bytes described below.
+
+PR [#286](https://github.com/AbdelStark/GenoLeWM/pull/286), merged as
+`e12273f538370c23235743cf559f19fcb344cfc0`, removed a type-only cast in
+`geno_lewm/encoder/carbon.py`:
+
+```diff
+- self.pool_type = cast(_PoolType, pool_type)
++ self.pool_type = pool_type
+```
+
+Both assignments produce the same runtime value. The change has no encoded-state
+semantic effect, but the runtime identity intentionally commits the bytes of that
+file. The pre-rebase source tree at
+`e9845cffb4ff1dcdb00cce0215564d83d6ce8317` independently recomputes the old
+`add3...` hash. After the #286 change was present, the #301 squash
+`8a278c5e8ec57d1e4839336f9cd65823d3a216e2` recomputes `a1fd...`. Active stale
+references therefore affected the inclusive source range `8a278c5...` through
+`c90d366c761a35a1746bf27418777473a6acf29f`.
+
+Two H200 attempts failed closed before cache encoding:
+
+- [job `6a56055fb1669a49bf071e81`](https://huggingface.co/jobs/abdelstark/6a56055fb1669a49bf071e81);
+- [job `6a56107985d9643ce16d2b3e`](https://huggingface.co/jobs/abdelstark/6a56107985d9643ce16d2b3e).
+
+Each observed `a1fd...`, rejected the stale `add3...` expectation, and exited with
+status `ERROR`. This is evidence that the launch gate worked; neither job is a
+successful cache proof.
+
+The training trace at Hub revision
+`da0d86cde7bf88de2015ab7c516f356e9ae89469` remains reusable. Its rows attest
+ordered request construction from window and edit-locus inputs. They contain
+neither an encoder runtime hash nor a cache key, and the trace claim boundary does
+not attest a runtime container. Reuse of the trace does not transfer any claim
+from the failed H200 jobs.
+
+The closed content lock and schema are
+[`carbon-500m-runtime-content-lock.json`](https://github.com/AbdelStark/GenoLeWM/blob/main/configs/data_v03/carbon-500m-runtime-content-lock.json)
+and
+[`carbon-500m-runtime-content-lock.schema.json`](https://github.com/AbdelStark/GenoLeWM/blob/main/configs/data_v03/carbon-500m-runtime-content-lock.schema.json).
+They record the weight digest, all ten upstream runtime-file digests, and all eight
+local implementation-file digests. CI recomputes the local file digests and the
+canonical runtime hash without downloading Carbon:
+
+```bash
+uv run python -m tools.research.verify_carbon_runtime_lock
+```
 
 ## Exact-trace H200 interruption proof
 

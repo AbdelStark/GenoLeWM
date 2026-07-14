@@ -38,6 +38,8 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml",
         "configs/data_v03/cache-h200-proof.schema.json",
         "configs/data_v03/carbon-500m-l2-runtime-identity.json",
+        "configs/data_v03/carbon-500m-runtime-content-lock.json",
+        "configs/data_v03/carbon-500m-runtime-content-lock.schema.json",
         "configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.json",
         "configs/data_v03/gnomad-v4.1-exomes-autosomes.source-lock.schema.json",
         "configs/data_v03/train-carbon-500m-snv-l2-epoch-r1.yaml",
@@ -90,6 +92,7 @@ def test_required_sdist_assets_cover_first_publication_release_path() -> None:
         "tools/research/state_contract_audit.py",
         "tools/research/v03_cache_h200_launch.py",
         "tools/research/v03_cache_h200_proof.py",
+        "tools/research/verify_carbon_runtime_lock.py",
         "tools/data/v03_gnomad_lock.py",
         "tools/data/v03_training_trace.py",
     }

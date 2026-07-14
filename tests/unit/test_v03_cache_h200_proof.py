@@ -52,7 +52,7 @@ def test_committed_runtime_identity_is_the_exact_corrected_carbon_contract() -> 
     assert payload == {
         "model_id": "/carbon",
         "revision": "5d31d59b3c845b288a13aedb1358934196852eec",
-        "runtime_hash": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e",
+        "runtime_hash": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311",
         "schema_version": "1.0.0",
         "state_contract_version": "l2_normalized_v2",
     }
@@ -110,7 +110,7 @@ def test_trace_namespace_accepts_the_exact_public_path_and_rejects_candidates() 
 
 
 class _FakeRawEncoder:
-    encoder_hash = bytes.fromhex("add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e")
+    encoder_hash = bytes.fromhex("a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311")
     state_layer = 20
     pool_type = "centered_mean"
     pool_radius = 8
