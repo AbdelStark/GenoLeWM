@@ -244,6 +244,53 @@ The v0.2.1 Phase 2 KL term was computed only from frozen target states, so it
 had no gradient with respect to the predictor or action encoder; it must not
 be described as active regularization.
 
+### Production Carbon continuation boundary
+
+`geno-lewm-train --carbon-train` resolves code identity from the imported
+`geno_lewm` package root, not the operator's current directory. Production
+launches require that package to be the canonical tracked package with only
+regular tracked files, a clean `geno_lewm/` source tree, and no ignored package
+artifacts (including bytecode). The checkpoint source contract closes the full
+lowercase 40-character commit and tree SHAs together with the package version;
+unresolved values, sentinels, dirty/unbound source, unrelated caller
+repositories, and cross-version resume are rejected before run artifacts are
+written. Wheels do not yet embed build-time commit/tree provenance, so Carbon
+training from a wheel-only installation intentionally fails closed. Carbon
+preflight and the fixture trainer remain available from wheels.
+
+The public CLI acquires one run-directory writer lock before publishing its
+effective config or preflight; the same re-entrant lock spans dataset binding,
+training, metrics, checkpoint, log, metadata, and optional release-package
+writes. The direct runner acquires that lock independently. Checkpoints and
+resume-equivalence reports additionally use a per-target lock and a unique
+same-directory temporary opened with exclusive creation and no-follow flags.
+All lock, temporary, replacement, cleanup, and directory-`fsync` operations are
+anchored to one opened non-symlink parent directory; a parent-path swap fails
+closed. Successful publication flushes and `fsync`s the file, atomically
+replaces the destination, and `fsync`s the directory. Failure cleanup compares
+inode identity through the held directory descriptor and removes only files
+owned by that writer; concurrent writers and precreated locks fail closed.
+Production checkpoint/report publication therefore requires anchored `dir_fd`,
+no-follow, hard-link, and rename support; unsupported platforms/filesystems
+fail before creating the publication parent or artifacts.
+
+The production checkpoint schema closes predictor and action-encoder weights,
+AdamW moments/parameter groups, trainer horizon and finite collapse-monitor
+state, Python/NumPy/Torch RNG state, data and encoder identities, exact consumed
+window order, cumulative metric rows/counters, and the learning-rate schedule
+against the original `N`-step horizon. On resume, cursor replay and all state
+and cumulative-history restoration complete before the `K+1` batch is fetched
+or encoded. CUDA RNG continuation binds availability and device count only; it
+does not bind GPU model, UUID, driver, or hardware-independent floating-point
+behavior.
+
+`tools/research/production_resume_equivalence.py` runs uninterrupted, prefix,
+and fresh-process resumed public CLI arms. Its external verifier requires
+COMMIT/TREE/N/K again, rejects a dirty source checkout, rehashes raw artifacts,
+and compares the closed final payload, state, RNG, metric, and cursor contracts.
+This is single-process software-equivalence evidence, not accelerator,
+distributed, model-quality, biological, or clinical evidence.
+
 ### v0.3 staging lineage boundary
 
 The v0.3 data path separates remote staging verification, offline lineage

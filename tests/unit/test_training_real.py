@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 import random
+import threading
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import geno_lewm._atomic as atomic_module
 import geno_lewm.training.real as real_module
+from geno_lewm._source_provenance import SourceProvenance
 from geno_lewm.action import EditSpec, EditType, RelEdit
 from geno_lewm.config import config_to_dict, load_config
 from geno_lewm.data import (
@@ -75,6 +78,19 @@ _REPORT_BINDING = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _stable_package_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        real_module,
+        "resolve_package_source",
+        lambda **_kwargs: SourceProvenance(
+            commit_sha="a" * 40,
+            tree_sha="b" * 40,
+            package_version="0.2.1",
+        ),
+    )
+
+
 def _membership_dataset_binding() -> dict[str, object]:
     return {
         "membership_store": dict(_MEMBERSHIP_BINDING),
@@ -135,6 +151,159 @@ def test_run_carbon_training_rejects_phase2_before_runtime_setup(tmp_path: Path)
             source_tree="b" * 40,
             package_version="0.2.1",
         )
+
+
+def test_run_carbon_training_rejects_unresolved_source_sentinel_before_writes(
+    tmp_path: Path,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    run_dir = tmp_path / "run"
+
+    with pytest.raises(InputError, match="full lowercase 40-character Git SHA"):
+        real_module.run_carbon_training(
+            config=config,
+            dataset_dir=tmp_path / "missing-dataset",
+            carbon_model_dir=tmp_path / "missing-carbon",
+            run_dir=run_dir,
+            steps=1,
+            command="geno-lewm-train --carbon-train",
+            commit_sha="0000000",
+            source_tree="0000000",
+            package_version="0.2.1",
+        )
+
+    assert not run_dir.exists()
+
+
+def test_run_carbon_training_rejects_forged_full_source_pair_before_writes(
+    tmp_path: Path,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    run_dir = tmp_path / "run"
+
+    with pytest.raises(InputError, match="does not match the imported package"):
+        real_module.run_carbon_training(
+            config=config,
+            dataset_dir=tmp_path / "missing-dataset",
+            carbon_model_dir=tmp_path / "missing-carbon",
+            run_dir=run_dir,
+            steps=1,
+            command="geno-lewm-train --carbon-train",
+            commit_sha="c" * 40,
+            source_tree="d" * 40,
+            package_version="0.2.1",
+        )
+
+    assert not run_dir.exists()
+
+
+def test_run_carbon_training_rejects_wrong_imported_package_version_before_writes(
+    tmp_path: Path,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    run_dir = tmp_path / "run"
+
+    with pytest.raises(InputError, match="does not match the imported package"):
+        real_module.run_carbon_training(
+            config=config,
+            dataset_dir=tmp_path / "missing-dataset",
+            carbon_model_dir=tmp_path / "missing-carbon",
+            run_dir=run_dir,
+            steps=1,
+            command="geno-lewm-train --carbon-train",
+            commit_sha="a" * 40,
+            source_tree="b" * 40,
+            package_version="0.3.0",
+        )
+
+    assert not run_dir.exists()
+
+
+def test_run_carbon_training_rejects_unsupported_atomic_boundary_before_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    run_dir = tmp_path / "run"
+    monkeypatch.setattr(
+        atomic_module,
+        "_supports_anchored_directory_operations",
+        lambda: False,
+    )
+
+    with pytest.raises(InputError, match="requires anchored directory operations"):
+        real_module.run_carbon_training(
+            config=config,
+            dataset_dir=tmp_path / "missing-dataset",
+            carbon_model_dir=tmp_path / "missing-carbon",
+            run_dir=run_dir,
+            steps=1,
+            command="geno-lewm-train --carbon-train",
+            commit_sha="a" * 40,
+            source_tree="b" * 40,
+            package_version="0.2.1",
+        )
+
+    assert not run_dir.exists()
+
+
+def test_run_carbon_training_rejects_concurrent_same_run_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    run_dir = tmp_path / "run"
+    entered = threading.Event()
+    release = threading.Event()
+    owner_errors: list[BaseException] = []
+
+    def blocking_manifest(_dataset_dir: Path) -> dict[str, object]:
+        if threading.current_thread().name == "training-run-owner":
+            entered.set()
+            assert release.wait(timeout=5)
+            raise InputError("owner stopped after concurrency check")
+        raise InputError("concurrent writer reached dataset loading")
+
+    def owner() -> None:
+        try:
+            real_module.run_carbon_training(
+                config=config,
+                dataset_dir=tmp_path / "dataset",
+                carbon_model_dir=tmp_path / "carbon",
+                run_dir=run_dir,
+                steps=1,
+                command="geno-lewm-train --carbon-train",
+                commit_sha="a" * 40,
+                source_tree="b" * 40,
+                package_version="0.2.1",
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below.
+            owner_errors.append(exc)
+
+    monkeypatch.setattr(real_module, "_load_dataset_manifest", blocking_manifest)
+    thread = threading.Thread(target=owner, name="training-run-owner")
+    thread.start()
+    assert entered.wait(timeout=5)
+    try:
+        with pytest.raises(InputError, match="already active"):
+            real_module.run_carbon_training(
+                config=config,
+                dataset_dir=tmp_path / "dataset",
+                carbon_model_dir=tmp_path / "carbon",
+                run_dir=run_dir,
+                steps=1,
+                command="geno-lewm-train --carbon-train",
+                commit_sha="a" * 40,
+                source_tree="b" * 40,
+                package_version="0.2.1",
+            )
+    finally:
+        release.set()
+        thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert len(owner_errors) == 1
+    assert "owner stopped" in str(owner_errors[0])
 
 
 def test_run_carbon_training_stops_at_k_under_the_n_step_horizon(
@@ -241,7 +410,7 @@ def test_run_carbon_training_stops_at_k_under_the_n_step_horizon(
         command="geno-lewm-train --carbon-train --steps 5 --stop-after-step 2",
         commit_sha="a" * 40,
         source_tree="b" * 40,
-        package_version="0.3.0",
+        package_version="0.2.1",
     )
 
     assert report.steps_requested == 5
@@ -254,7 +423,7 @@ def test_run_carbon_training_stops_at_k_under_the_n_step_horizon(
     assert set(checkpoint["rng_state"]) == {"python", "numpy", "torch_cpu", "torch_cuda"}
 
 
-def test_real_training_loop_is_bit_equal_after_fresh_stack_resume(
+def test_real_training_restores_cumulative_state_before_k_plus_one_and_is_bit_equal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -379,7 +548,7 @@ def test_real_training_loop_is_bit_equal_after_fresh_stack_resume(
         "command": "geno-lewm-train --carbon-train --steps 4",
         "commit_sha": "a" * 40,
         "source_tree": "b" * 40,
-        "package_version": "0.3.0",
+        "package_version": "0.2.1",
     }
     full = real_module.run_carbon_training(run_dir=tmp_path / "full", **common)
     prefix = real_module.run_carbon_training(
@@ -387,10 +556,38 @@ def test_real_training_loop_is_bit_equal_after_fresh_stack_resume(
         stop_after_step=2,
         **common,
     )
+    resume_events: list[str] = []
+    original_checkpoint_loader = real_module._load_torch_checkpoint
+    original_next_batch = real_module._next_batch
+
+    class TrackedWindowId(str):
+        def __str__(self) -> str:
+            resume_events.append("restore-cumulative-progress")
+            return super().__str__()
+
+    def tracked_checkpoint_loader(path: Path) -> dict[str, object]:
+        payload = original_checkpoint_loader(path)
+        progress = payload["progress"]
+        assert isinstance(progress, dict)
+        consumed = progress["consumed_window_ids"]
+        assert isinstance(consumed, list)
+        progress["consumed_window_ids"] = [TrackedWindowId(item) for item in consumed]
+        return payload
+
+    def tracked_next_batch(iterator, batch_size: int):
+        resume_events.append("fetch-k-plus-one")
+        return original_next_batch(iterator, batch_size)
+
+    monkeypatch.setattr(real_module, "_load_torch_checkpoint", tracked_checkpoint_loader)
+    monkeypatch.setattr(real_module, "_next_batch", tracked_next_batch)
     resumed = real_module.run_carbon_training(
         run_dir=tmp_path / "resumed",
         resume_from=prefix.checkpoint_path,
         **common,
+    )
+
+    assert resume_events.index("restore-cumulative-progress") < resume_events.index(
+        "fetch-k-plus-one"
     )
 
     full_checkpoint = load_resume_checkpoint(full.checkpoint_path)
@@ -1070,9 +1267,9 @@ def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime
             run_dir=tmp_path / "run",
             steps=1,
             command="geno-lewm-train --carbon-train",
-            commit_sha="abcdef123456",
+            commit_sha="a" * 40,
             source_tree="b" * 40,
-            package_version="0.1.0.dev0",
+            package_version="0.2.1",
         )
 
     assert observed == [(carbon_dir, config.encoder.state_contract_version)]
@@ -1120,6 +1317,33 @@ def test_validate_resume_checkpoint_rejects_source_identity_drift(
             payload,
             path=tmp_path / "predictor_checkpoint.pt",
             **_resume_validation_args(config, seeds),
+        )
+
+
+def test_validate_resume_checkpoint_rejects_cross_package_version(
+    tmp_path: Path,
+) -> None:
+    config = load_config(_write_training_config(tmp_path))
+    seeds = TrainerSeeds.from_base_seed(config.seed)
+    payload = _resume_payload(
+        tmp_path,
+        config,
+        seeds,
+        steps_completed=3,
+        source={
+            "commit_sha": _RESUME_COMMIT,
+            "tree_sha": _RESUME_TREE,
+            "package_version": "0.2.0",
+        },
+    )
+    validation = _resume_validation_args(config, seeds)
+    validation["package_version"] = "0.3.0"
+
+    with pytest.raises(InputError, match="source identity"):
+        _validate_resume_checkpoint_payload(
+            payload,
+            path=tmp_path / "predictor_checkpoint.pt",
+            **validation,
         )
 
 
@@ -1263,6 +1487,7 @@ def test_write_checkpoint_emits_resume_compatible_closed_payload(tmp_path: Path)
         encoder_identity_hash=_ENCODER_WEIGHTS_HASH,
         commit_sha=_RESUME_COMMIT,
         source_tree=_RESUME_TREE,
+        package_version="0.2.1",
         consumed_window_ids=consumed,
         metric_history=history,
         collapse_alert_count=1,
@@ -1309,7 +1534,12 @@ def _resume_payload(
     path = tmp_path / "fixture-resume-checkpoint.pt"
     write_resume_checkpoint(
         path,
-        source=source or {"commit_sha": _RESUME_COMMIT, "tree_sha": _RESUME_TREE},
+        source=source
+        or {
+            "commit_sha": _RESUME_COMMIT,
+            "tree_sha": _RESUME_TREE,
+            "package_version": "0.2.1",
+        },
         training_contract=training_contract or _resume_training_contract(config, seeds),
         identities=identities or _resume_identities(),
         progress={
@@ -1384,6 +1614,7 @@ def _resume_validation_args(
         "dataset_manifest": _RESUME_DATASET_MANIFEST,
         "commit_sha": _RESUME_COMMIT,
         "source_tree": _RESUME_TREE,
+        "package_version": "0.2.1",
         "membership_identity": membership_identity,
     }
 

@@ -77,6 +77,9 @@ def main() -> None:
     executables = {entry.name: _find_executable(entry.name) for entry in scripts}
     _exercise_calibration_error_contract(_required_executable(executables, "geno-lewm-calibrate"))
     _exercise_eval_all(_required_executable(executables, "geno-lewm-eval-all"))
+    _exercise_carbon_training_fails_closed_without_source_provenance(
+        _required_executable(executables, "geno-lewm-train")
+    )
     _exercise_training_package()
 
 
@@ -201,6 +204,45 @@ def _exercise_eval_all(executable: str) -> None:
         report = report_output.read_text(encoding="utf-8")
         if "# Evaluation Report" not in report or "accuracy" not in report:
             raise AssertionError("eval-all did not render the expected report")
+
+
+def _exercise_carbon_training_fails_closed_without_source_provenance(executable: str) -> None:
+    """Require the installed Carbon command to reject unbound wheel-only source."""
+    with tempfile.TemporaryDirectory(prefix="geno-lewm-carbon-wheel-") as raw_dir:
+        root = Path(raw_dir)
+        run_dir = root / "run"
+        completed = subprocess.run(
+            [
+                executable,
+                "--quiet",
+                "--no-banner",
+                "--carbon-train",
+                "--run-dir",
+                str(run_dir),
+                "--dataset-dir",
+                str(root / "dataset"),
+                "--carbon-model-dir",
+                str(root / "carbon"),
+                "--training-config",
+                str(root / "training.yaml"),
+                "--steps",
+                "1",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        rendered = completed.stdout + completed.stderr
+        if (
+            completed.returncode != 2
+            or "production package source provenance could not be resolved" not in rendered
+        ):
+            raise AssertionError(
+                "wheel-only Carbon training did not fail closed at source provenance: "
+                f"exit={completed.returncode}\n{rendered}"
+            )
+        if run_dir.exists():
+            raise AssertionError("wheel-only Carbon rejection wrote the production run directory")
 
 
 def _exercise_training_package() -> None:

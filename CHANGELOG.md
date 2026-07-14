@@ -36,6 +36,15 @@ or incompatible command changes require an explicit compatibility note.
   cursor, metric-history, and learning-rate state. `geno-lewm-train` now
   supports `--steps N --stop-after-step K` followed by strict `--resume-from`
   continuation at `K+1`.
+- Production Carbon source provenance now resolves from the clean imported
+  package checkout rather than the caller working directory, rejects
+  non-regular or ignored package artifacts, requires exact COMMIT/TREE and
+  package-version identity, and fails closed for wheel-only installs that lack
+  embedded build provenance. The public CLI locks before preflight publication.
+  Checkpoint/report publication uses directory-anchored unique exclusive
+  no-follow temporaries, writer ownership, file and directory durability, and
+  concurrent-run rejection, and fails closed where secure anchored directory
+  operations are unavailable.
 - Added a three-process production resume-equivalence harness and external
   verifier. It requires an exact clean Git COMMIT/TREE plus explicit N/K,
   rehashes the raw checkpoints and public metrics, and limits its passing claim
@@ -75,10 +84,10 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Compatibility
 
-- `run_carbon_training` retains its existing keyword contract and adds optional
-  `source_tree` and `stop_after_step` keywords. The public CLI supplies the
-  exact tree automatically; older direct callers resolve it from `commit_sha`
-  in the live Git checkout.
+- `run_carbon_training` retains its keyword contract and validates optional
+  `source_tree` plus `commit_sha` as full lowercase 40-character SHAs. When
+  `source_tree` is omitted it resolves the clean imported package checkout and
+  requires `commit_sha` to match; it never resolves provenance from caller CWD.
 - `WindowCacheKey` and `WindowCacheRecord` now require `center_token`, and
   cache schema `1.0.0` is intentionally not reusable.
 - New cache writes use schema `3.0.0`. Schema-2 Parquet remains read-only

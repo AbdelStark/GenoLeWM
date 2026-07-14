@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import importlib
-import os
 import random
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from geno_lewm._atomic import atomic_binary_writer
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.provenance import canonical_json_sha256, sha256_bytes
 
@@ -169,18 +169,9 @@ def write_resume_checkpoint(
         "metric_history": [dict(row) for row in metric_history],
     }
     payload["payload_digest"] = _payload_digest(payload)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
     _, torch = _runtime_modules()
-    try:
-        with temporary.open("wb") as stream:
-            torch.save(payload, stream)
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.replace(path)
-        _fsync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
+    with atomic_binary_writer(path) as stream:
+        torch.save(payload, stream)
     return payload
 
 
@@ -310,16 +301,6 @@ def _digest_key(value: object) -> str:
     if isinstance(value, bool) or not isinstance(value, str | int):
         raise InputError("resume checkpoint mapping keys must be strings or integers")
     return f"{type(value).__name__}:{value}"
-
-
-def _fsync_directory(path: Path) -> None:
-    if os.name == "nt":  # pragma: no cover - Windows does not open directories this way.
-        return
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _runtime_modules() -> tuple[Any, Any]:

@@ -19,6 +19,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
+from geno_lewm._atomic import atomic_text_writer
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from geno_lewm.training.resume import load_resume_checkpoint
@@ -157,6 +158,7 @@ def run_production_resume_equivalence(
     )
     if environment is not None:
         process_environment.update(environment)
+    process_environment["PYTHONDONTWRITEBYTECODE"] = "1"
     inherited_pythonpath = process_environment.get("PYTHONPATH")
     process_environment["PYTHONPATH"] = os.pathsep.join(
         item for item in (str(repo_root), inherited_pythonpath) if item
@@ -380,13 +382,26 @@ def _compare_raw_runs(
     checkpoints = {
         arm: load_resume_checkpoint(run_dirs[arm] / _RAW_FILES["checkpoint"]) for arm in _ARMS
     }
-    source = {"commit_sha": expected_source_commit, "tree_sha": expected_source_tree}
+    source_version: str | None = None
     for arm, checkpoint in checkpoints.items():
-        if checkpoint.get("source") != source:
+        source = _mapping(checkpoint.get("source"), f"{arm}.source")
+        if set(source) != {"commit_sha", "tree_sha", "package_version"}:
+            raise InputError("production checkpoint source identity is not closed")
+        if (
+            source.get("commit_sha") != expected_source_commit
+            or source.get("tree_sha") != expected_source_tree
+        ):
             raise InputError(
                 "production checkpoint source identity does not match expectations",
                 details={"arm": arm},
             )
+        package_version = source.get("package_version")
+        if not isinstance(package_version, str) or not package_version:
+            raise InputError("production checkpoint package version is missing")
+        if source_version is None:
+            source_version = package_version
+        elif package_version != source_version:
+            raise InputError("production checkpoint package versions diverge")
     uninterrupted = checkpoints["uninterrupted"]
     prefix = checkpoints["prefix"]
     resumed = checkpoints["resumed"]
@@ -479,6 +494,7 @@ def _compare_raw_runs(
         "final_payload_digest_equal": True,
         "metric_history_equal": True,
         "cursor_order_equal": True,
+        "package_version": source_version,
         "uninterrupted_payload_digest": uninterrupted["payload_digest"],
         "prefix_payload_digest": prefix["payload_digest"],
         "resumed_payload_digest": resumed["payload_digest"],
@@ -710,17 +726,9 @@ def _report_digest(report: Mapping[str, object]) -> str:
 
 
 def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as stream:
-            json.dump(payload, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    with atomic_text_writer(path) as stream:
+        json.dump(payload, stream, indent=2, sort_keys=True)
+        stream.write("\n")
 
 
 def _load_json_object(path: Path) -> dict[str, Any]:

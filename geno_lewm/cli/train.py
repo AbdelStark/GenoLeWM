@@ -6,6 +6,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -13,6 +14,8 @@ import typer
 import yaml
 
 from geno_lewm import __version__
+from geno_lewm._atomic import exclusive_writer_lock, supports_secure_atomic_publication
+from geno_lewm._source_provenance import resolve_package_source
 from geno_lewm.cli._dispatch import SharedOptions, finalize_shared, run_app, shared_option_decls
 from geno_lewm.config import (
     GenoLeWMConfig,
@@ -212,6 +215,9 @@ def main(
         if training_config is None:
             mode = "--carbon-train" if carbon_train else "--carbon-preflight"
             raise InputError(f"geno-lewm-train {mode} requires --training-config")
+        carbon_source = (
+            resolve_package_source(package_version=__version__) if carbon_train else None
+        )
         resolved = _resolve_training_config(
             config_path=str(training_config),
             set_overrides=opts.set_overrides,
@@ -225,75 +231,84 @@ def main(
                 "--stop-after-step must be greater than zero and less than the target --steps",
                 details={"stop_after_step": stop_after_step, "target_steps": carbon_steps},
             )
-        effective_training_config = write_resolved_config(
-            resolved,
-            run_dir / _EFFECTIVE_TRAINING_CONFIG_NAME,
+        publication_lock = (
+            exclusive_writer_lock(run_dir / "production-carbon-run")
+            if carbon_train or supports_secure_atomic_publication()
+            else nullcontext()
         )
-        preflight_report = write_training_preflight_report(
-            TrainingPreflightRequest(
-                dataset_dir=dataset_dir,
-                carbon_model_dir=carbon_model_dir,
-                training_config=effective_training_config,
-                run_dir=run_dir,
-                allow_fixture_dataset=allow_fixture_dataset,
-                require_native_runtime=require_native_runtime,
-                require_accelerator=require_accelerator,
-                min_cuda_vram_gb=min_cuda_vram_gb,
-            ),
-            preflight_output,
-        )
-        if not preflight_report.ok:
-            typer.echo(json.dumps(preflight_report.to_dict(), sort_keys=True))
-            raise InputError(
-                "Carbon training preflight failed",
-                details={"issues": len(preflight_report.issues)},
-                remediation="fix training_preflight_report.json before launching --carbon-train",
+        with publication_lock:
+            effective_training_config = write_resolved_config(
+                resolved,
+                run_dir / _EFFECTIVE_TRAINING_CONFIG_NAME,
             )
-        if not carbon_train:
-            typer.echo(json.dumps(preflight_report.to_dict(), sort_keys=True))
-            return
-        _write_preflight_copy_in_run_dir(preflight_report, run_dir)
-        carbon_report = run_carbon_training(
-            config=resolved,
-            dataset_dir=dataset_dir,
-            carbon_model_dir=carbon_model_dir,
-            run_dir=run_dir,
-            steps=carbon_steps,
-            command=_carbon_train_command_string(
-                run_dir=run_dir,
+            preflight_report = write_training_preflight_report(
+                TrainingPreflightRequest(
+                    dataset_dir=dataset_dir,
+                    carbon_model_dir=carbon_model_dir,
+                    training_config=effective_training_config,
+                    run_dir=run_dir,
+                    allow_fixture_dataset=allow_fixture_dataset,
+                    require_native_runtime=require_native_runtime,
+                    require_accelerator=require_accelerator,
+                    min_cuda_vram_gb=min_cuda_vram_gb,
+                ),
+                preflight_output,
+            )
+            if not preflight_report.ok:
+                typer.echo(json.dumps(preflight_report.to_dict(), sort_keys=True))
+                raise InputError(
+                    "Carbon training preflight failed",
+                    details={"issues": len(preflight_report.issues)},
+                    remediation=(
+                        "fix training_preflight_report.json before launching --carbon-train"
+                    ),
+                )
+            if not carbon_train:
+                typer.echo(json.dumps(preflight_report.to_dict(), sort_keys=True))
+                return
+            assert carbon_source is not None
+            _write_preflight_copy_in_run_dir(preflight_report, run_dir)
+            carbon_report = run_carbon_training(
+                config=resolved,
                 dataset_dir=dataset_dir,
                 carbon_model_dir=carbon_model_dir,
-                training_config=training_config,
+                run_dir=run_dir,
                 steps=carbon_steps,
-                steps_override=steps is not None,
-                set_overrides=opts.set_overrides,
-                seed=opts.seed,
-                deterministic=opts.deterministic,
-                run_id=opts.run_id,
+                command=_carbon_train_command_string(
+                    run_dir=run_dir,
+                    dataset_dir=dataset_dir,
+                    carbon_model_dir=carbon_model_dir,
+                    training_config=training_config,
+                    steps=carbon_steps,
+                    steps_override=steps is not None,
+                    set_overrides=opts.set_overrides,
+                    seed=opts.seed,
+                    deterministic=opts.deterministic,
+                    run_id=opts.run_id,
+                    resume_from=resume_from,
+                    stop_after_step=stop_after_step,
+                    allow_fixture_dataset=allow_fixture_dataset,
+                    require_native_runtime=require_native_runtime,
+                    require_accelerator=require_accelerator,
+                    min_cuda_vram_gb=min_cuda_vram_gb,
+                    package_release_run=package_release_run,
+                ),
+                commit_sha=carbon_source.commit_sha,
+                source_tree=carbon_source.tree_sha,
+                package_version=__version__,
+                preflight_report=preflight_report,
                 resume_from=resume_from,
                 stop_after_step=stop_after_step,
-                allow_fixture_dataset=allow_fixture_dataset,
-                require_native_runtime=require_native_runtime,
-                require_accelerator=require_accelerator,
-                min_cuda_vram_gb=min_cuda_vram_gb,
-                package_release_run=package_release_run,
-            ),
-            commit_sha=_current_commit_sha(Path.cwd()),
-            source_tree=_current_tree_sha(Path.cwd()),
-            package_version=__version__,
-            preflight_report=preflight_report,
-            resume_from=resume_from,
-            stop_after_step=stop_after_step,
-        )
-        payload = carbon_report.to_dict()
-        if package_release_run:
-            package_report = _build_release_training_run_package(
-                run_dir,
-                carbon_report.training_metadata_path,
             )
-            payload["training_run_package"] = package_report.to_dict()
-        typer.echo(json.dumps(payload, sort_keys=True))
-        return
+            payload = carbon_report.to_dict()
+            if package_release_run:
+                package_report = _build_release_training_run_package(
+                    run_dir,
+                    carbon_report.training_metadata_path,
+                )
+                payload["training_run_package"] = package_report.to_dict()
+            typer.echo(json.dumps(payload, sort_keys=True))
+            return
     if not fixture_smoke:
         raise InputError(
             "geno-lewm-train currently requires --fixture-smoke, --carbon-preflight, or --carbon-train",
@@ -328,7 +343,7 @@ def main(
             deterministic=opts.deterministic,
             run_id=opts.run_id,
         ),
-        commit_sha=_current_commit_sha(Path.cwd()),
+        commit_sha=_fixture_source_commit(Path.cwd()),
         package_version=__version__,
     )
     typer.echo(json.dumps(fixture_report.to_dict(), sort_keys=True))
@@ -518,24 +533,10 @@ def _carbon_train_command_string(
     return " ".join(parts)
 
 
-def _current_commit_sha(cwd: Path) -> str:
+def _fixture_source_commit(cwd: Path) -> str:
+    """Best-effort provenance for fixture smoke artifacts only."""
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        candidate = result.stdout.strip().lower()
-        if candidate:
-            return candidate
-    return "0000000"
-
-
-def _current_tree_sha(cwd: Path) -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD^{tree}"],
         cwd=cwd,
         check=False,
         capture_output=True,

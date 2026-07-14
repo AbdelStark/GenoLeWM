@@ -170,6 +170,28 @@ def test_git_identity_rejects_unrelated_clean_repository(tmp_path: Path) -> None
         resume_equivalence._git_identity(repo)
 
 
+def test_interrupted_evidence_write_preserves_previous_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report_path = tmp_path / "production_resume_equivalence.json"
+    report_path.write_text('{"previous": true}\n', encoding="utf-8")
+
+    def fail_after_partial_write(_payload, stream, **_kwargs) -> None:
+        stream.write('{"partial":')
+        stream.flush()
+        raise RuntimeError("injected evidence write failure")
+
+    monkeypatch.setattr(resume_equivalence.json, "dump", fail_after_partial_write)
+
+    with pytest.raises(RuntimeError, match="injected evidence write failure"):
+        resume_equivalence._write_json_atomic(report_path, {"replacement": True})
+
+    assert report_path.read_text(encoding="utf-8") == '{"previous": true}\n'
+    assert list(tmp_path.glob(f".{report_path.name}.*.tmp")) == []
+    assert not report_path.with_name(f".{report_path.name}.lock").exists()
+
+
 def _collect_fixture_report(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -244,7 +266,11 @@ def _write_run_artifacts(
         resumed_from = _K if arm == "resumed" else 0
         write_resume_checkpoint(
             run_dir / "predictor_checkpoint.pt",
-            source={"commit_sha": _COMMIT, "tree_sha": _TREE},
+            source={
+                "commit_sha": _COMMIT,
+                "tree_sha": _TREE,
+                "package_version": "0.2.1",
+            },
             training_contract=contract,
             identities=identities,
             progress={

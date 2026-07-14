@@ -12,8 +12,8 @@ from __future__ import annotations
 import json
 import math
 import platform
+import re
 import shutil
-import subprocess
 import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from geno_lewm._atomic import exclusive_writer_lock
+from geno_lewm._source_provenance import resolve_package_source
 from geno_lewm.action import ActionEncoder, EditSpec, EditType
 from geno_lewm.config import GenoLeWMConfig, config_to_dict, write_resolved_config
 from geno_lewm.config._state_contract import encoder_uses_normalized_states
@@ -97,6 +99,7 @@ _STEP_METRIC_KEYS = frozenset(
         "pred_var_per_dim",
     }
 )
+_FULL_GIT_SHA = re.compile(r"[0-9a-f]{40}")
 _DATASET_ARTIFACT_ROLES = frozenset({"split_data", "split_companion", "evidence"})
 _MEMBERSHIP_STORE_BINDING_KEYS = frozenset(
     {"path", "artifact_id", "content_identity", "physical_identity", "rowset_sha256"}
@@ -179,7 +182,11 @@ def run_carbon_training(
 ) -> CarbonTrainingReport:
     """Run a single-process Carbon-backed training job."""
     require_executable_training_phase(config, boundary="run_carbon_training")
-    source_tree = source_tree or _source_tree_for_commit(Path.cwd(), commit_sha)
+    commit_sha, source_tree = _validated_training_source(
+        commit_sha=commit_sha,
+        source_tree=source_tree,
+        package_version=package_version,
+    )
     _require_positive_int("steps", steps)
     _require_positive_int("data.batch_size", config.data.batch_size)
     if stop_after_step is not None:
@@ -189,31 +196,31 @@ def run_carbon_training(
                 "stop_after_step must be less than the target steps",
                 details={"stop_after_step": stop_after_step, "target_steps": steps},
             )
-    run_dir.mkdir(parents=True, exist_ok=True)
-    write_resolved_config(config, run_dir / _RESOLVED_CONFIG_NAME)
-    run_dataset_manifest_path = run_dir / "dataset_manifest.json"
+    with exclusive_writer_lock(run_dir / "production-carbon-run"):
+        write_resolved_config(config, run_dir / _RESOLVED_CONFIG_NAME)
+        run_dataset_manifest_path = run_dir / "dataset_manifest.json"
 
-    dataset_manifest = _load_dataset_manifest(dataset_dir)
-    shutil.copy2(dataset_dir / "dataset_manifest.json", run_dataset_manifest_path)
-    with _membership_holdout_policy(dataset_dir, dataset_manifest) as holdouts:
-        membership_identity = _membership_runtime_identity(dataset_manifest, holdouts)
-        return _run_carbon_training_with_dataset(
-            config=config,
-            dataset_dir=dataset_dir,
-            carbon_model_dir=carbon_model_dir,
-            run_dir=run_dir,
-            steps=steps,
-            command=command,
-            commit_sha=commit_sha,
-            source_tree=source_tree,
-            package_version=package_version,
-            preflight_report=preflight_report,
-            resume_from=resume_from,
-            stop_after_step=stop_after_step,
-            dataset_manifest=dataset_manifest,
-            holdouts=holdouts,
-            membership_identity=membership_identity,
-        )
+        dataset_manifest = _load_dataset_manifest(dataset_dir)
+        shutil.copy2(dataset_dir / "dataset_manifest.json", run_dataset_manifest_path)
+        with _membership_holdout_policy(dataset_dir, dataset_manifest) as holdouts:
+            membership_identity = _membership_runtime_identity(dataset_manifest, holdouts)
+            return _run_carbon_training_with_dataset(
+                config=config,
+                dataset_dir=dataset_dir,
+                carbon_model_dir=carbon_model_dir,
+                run_dir=run_dir,
+                steps=steps,
+                command=command,
+                commit_sha=commit_sha,
+                source_tree=source_tree,
+                package_version=package_version,
+                preflight_report=preflight_report,
+                resume_from=resume_from,
+                stop_after_step=stop_after_step,
+                dataset_manifest=dataset_manifest,
+                holdouts=holdouts,
+                membership_identity=membership_identity,
+            )
 
 
 def _run_carbon_training_with_dataset(
@@ -296,6 +303,7 @@ def _run_carbon_training_with_dataset(
             dataset_manifest=dataset_manifest,
             commit_sha=commit_sha,
             source_tree=source_tree,
+            package_version=package_version,
             membership_identity=membership_identity,
         )
         resumed_from_step = resume_checkpoint.steps_completed
@@ -356,17 +364,6 @@ def _run_carbon_training_with_dataset(
             optimizer=optimizer,
             trainer=trainer,
         )
-    first_items = _next_batch(iterator, config.data.batch_size)
-    first_batch = _encode_items(encoder, first_items, device=device)
-    observed_d_state = int(first_batch.state.shape[1])
-    if observed_d_state != config.predictor.d_state:
-        raise InputError(
-            "predictor.d_state must match the Carbon encoder state width",
-            details={"predictor.d_state": config.predictor.d_state, "observed": observed_d_state},
-            remediation="set predictor.d_state to the encoder output width in the training config",
-        )
-    progress_every = max(1, int(config.training.collapse_log_every_steps))
-
     step_results = []
     checkpoint_metrics: list[dict[str, object]] = []
     consumed_window_ids: list[str] = []
@@ -383,6 +380,16 @@ def _run_carbon_training_with_dataset(
         checkpoint_metrics = [dict(item) for item in history if isinstance(item, dict)]
         collapse_alert_count = int(progress["collapse_alert_count"])
         sample_count = int(progress["samples_consumed"])
+    first_items = _next_batch(iterator, config.data.batch_size)
+    first_batch = _encode_items(encoder, first_items, device=device)
+    observed_d_state = int(first_batch.state.shape[1])
+    if observed_d_state != config.predictor.d_state:
+        raise InputError(
+            "predictor.d_state must match the Carbon encoder state width",
+            details={"predictor.d_state": config.predictor.d_state, "observed": observed_d_state},
+            remediation="set predictor.d_state to the encoder output width in the training config",
+        )
+    progress_every = max(1, int(config.training.collapse_log_every_steps))
     log_mode = "a" if resumed_from_step else "w"
     progress_logger = get_logger("training", run_id=config.run_id, log_dir=run_dir)
     with log_path.open(log_mode, encoding="utf-8") as log:
@@ -461,6 +468,7 @@ def _run_carbon_training_with_dataset(
                     encoder_identity_hash=carbon_identity_hash,
                     commit_sha=commit_sha,
                     source_tree=source_tree,
+                    package_version=package_version,
                     consumed_window_ids=consumed_window_ids,
                     metric_history=checkpoint_metrics,
                     collapse_alert_count=collapse_alert_count,
@@ -518,6 +526,7 @@ def _run_carbon_training_with_dataset(
         encoder_identity_hash=carbon_identity_hash,
         commit_sha=commit_sha,
         source_tree=source_tree,
+        package_version=package_version,
         consumed_window_ids=consumed_window_ids,
         metric_history=checkpoint_metrics,
         collapse_alert_count=collapse_alert_count,
@@ -1008,23 +1017,32 @@ def _carbon_identity_hash(carbon_model_dir: Path, *, state_contract_version: str
     )
 
 
-def _source_tree_for_commit(repo_root: Path, commit_sha: str) -> str:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo_root), "rev-parse", f"{commit_sha}^{{tree}}"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise InputError(
-            "source_tree is required when commit_sha cannot be resolved in the live checkout",
-            remediation="pass the exact Git tree SHA or launch through geno-lewm-train",
-        ) from exc
-    source_tree = result.stdout.strip()
-    if len(source_tree) != 40:
-        raise InputError("resolved source tree must be a full Git SHA")
-    return source_tree
+def _validated_training_source(
+    *,
+    commit_sha: str,
+    source_tree: str | None,
+    package_version: str,
+) -> tuple[str, str]:
+    values = [("commit", commit_sha)]
+    if source_tree is not None:
+        values.append(("tree", source_tree))
+    for label, value in values:
+        if not isinstance(value, str) or _FULL_GIT_SHA.fullmatch(value) is None:
+            raise InputError(
+                f"production source {label} must be a full lowercase 40-character Git SHA"
+            )
+    if not isinstance(package_version, str) or not package_version.strip():
+        raise InputError("production checkpoint package version must be non-empty")
+    from geno_lewm import __version__ as imported_package_version
+
+    resolved = resolve_package_source(package_version=imported_package_version)
+    if (
+        commit_sha != resolved.commit_sha
+        or (source_tree is not None and source_tree != resolved.tree_sha)
+        or package_version != resolved.package_version
+    ):
+        raise InputError("production source identity does not match the imported package")
+    return resolved.commit_sha, resolved.tree_sha
 
 
 def _json_object_line(line: str, *, path: Path, line_no: int) -> dict[str, Any]:
@@ -1159,6 +1177,7 @@ def _write_checkpoint(
     encoder_identity_hash: str,
     commit_sha: str,
     source_tree: str,
+    package_version: str,
     consumed_window_ids: Sequence[str],
     metric_history: Sequence[Mapping[str, object]],
     collapse_alert_count: int,
@@ -1169,7 +1188,11 @@ def _write_checkpoint(
         raise InputError("trainer state_dict must return a mapping")
     write_resume_checkpoint(
         path,
-        source={"commit_sha": commit_sha, "tree_sha": source_tree},
+        source={
+            "commit_sha": commit_sha,
+            "tree_sha": source_tree,
+            "package_version": package_version,
+        },
         training_contract={
             "target_steps": target_steps,
             "batch_size": config.data.batch_size,
@@ -1217,10 +1240,15 @@ def _validate_resume_checkpoint_payload(
     dataset_manifest: Mapping[str, object],
     commit_sha: str,
     source_tree: str,
+    package_version: str,
     membership_identity: Mapping[str, object] | None = None,
 ) -> _ResumeCheckpoint:
     source = payload.get("source")
-    if source != {"commit_sha": commit_sha, "tree_sha": source_tree}:
+    if source != {
+        "commit_sha": commit_sha,
+        "tree_sha": source_tree,
+        "package_version": package_version,
+    }:
         raise InputError(
             "resume checkpoint source identity does not match the live training source",
             details={"path": str(path)},

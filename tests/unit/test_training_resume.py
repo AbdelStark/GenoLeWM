@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import random
+import threading
 from pathlib import Path
 
 import pytest
 
+import geno_lewm._atomic as atomic_module
+from geno_lewm._atomic import atomic_text_writer, exclusive_writer_lock
 from geno_lewm.errors import InputError
 from geno_lewm.training import resume as resume_module
 from geno_lewm.training.resume import (
@@ -127,13 +130,278 @@ def test_interrupted_atomic_checkpoint_write_preserves_previous_payload(
     assert path.read_bytes() == original_bytes
     assert load_resume_checkpoint(path)["payload_digest"] == original["payload_digest"]
     assert not path.with_name(f".{path.name}.tmp").exists()
+    assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
+    assert not path.with_name(f".{path.name}.lock").exists()
+
+
+@pytest.mark.skipif(
+    not atomic_module._supports_anchored_directory_operations(),
+    reason="directory durability commit-point test requires anchored operations",
+)
+def test_atomic_writer_keeps_durable_replacement_if_backup_cleanup_fsync_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "report.json"
+    path.write_text("old\n", encoding="utf-8")
+    original_fsync = atomic_module.os.fsync
+    directory_fsyncs = 0
+
+    def fail_second_directory_fsync(descriptor: int) -> None:
+        nonlocal directory_fsyncs
+        if atomic_module.stat.S_ISDIR(atomic_module.os.fstat(descriptor).st_mode):
+            directory_fsyncs += 1
+            if directory_fsyncs == 2:
+                raise OSError("injected backup-cleanup fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(atomic_module.os, "fsync", fail_second_directory_fsync)
+
+    with pytest.raises(OSError, match="backup-cleanup fsync failure"):
+        with atomic_text_writer(path) as stream:
+            stream.write("new\n")
+
+    assert path.read_text(encoding="utf-8") == "new\n"
+    assert list(tmp_path.glob(".geno-lewm-backup-*")) == []
+    assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
+    assert not path.with_name(f".{path.name}.lock").exists()
+
+
+@pytest.mark.skipif(
+    not atomic_module._supports_anchored_directory_operations(),
+    reason="ownership-race rejection requires anchored directory operations",
+)
+def test_checkpoint_cleanup_never_unlinks_a_replacement_temp_inode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch = pytest.importorskip("torch")
+    path = tmp_path / "predictor_checkpoint.pt"
+    replacement = tmp_path / "replacement-owned-elsewhere"
+    replacement.write_bytes(b"replacement bytes")
+    original_rename = atomic_module.os.rename
+    swapped = False
+
+    def fail_after_partial_write(_payload, stream) -> None:
+        stream.write(b"partial checkpoint")
+        stream.flush()
+        raise RuntimeError("injected checkpoint write failure")
+
+    def replace_temp_during_cleanup(source, destination, *args, **kwargs):
+        nonlocal swapped
+        source_name = str(source)
+        destination_name = str(destination)
+        if (
+            not swapped
+            and source_name.endswith(".tmp")
+            and destination_name.startswith(".geno-lewm-cleanup-")
+        ):
+            directory = kwargs["src_dir_fd"]
+            atomic_module.os.unlink(source, dir_fd=directory)
+            original_rename(
+                replacement.name,
+                source,
+                src_dir_fd=directory,
+                dst_dir_fd=directory,
+            )
+            swapped = True
+        return original_rename(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(torch, "save", fail_after_partial_write)
+    monkeypatch.setattr(atomic_module.os, "rename", replace_temp_during_cleanup)
+
+    with pytest.raises(RuntimeError, match="injected checkpoint write failure"):
+        _write_fixture_checkpoint(path)
+
+    preserved = list(tmp_path.glob(f".{path.name}.*.tmp"))
+    assert swapped
+    assert len(preserved) == 1
+    assert preserved[0].read_bytes() == b"replacement bytes"
+    assert not replacement.exists()
+    assert not path.exists()
+
+
+def test_checkpoint_rejects_concurrent_writer_for_same_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch = pytest.importorskip("torch")
+    path = tmp_path / "predictor_checkpoint.pt"
+    entered = threading.Event()
+    release = threading.Event()
+    errors: list[BaseException] = []
+    original_save = torch.save
+
+    def blocking_save(payload, stream) -> None:
+        if threading.current_thread().name == "checkpoint-owner":
+            entered.set()
+            assert release.wait(timeout=5)
+        original_save(payload, stream)
+
+    def first_writer() -> None:
+        try:
+            _write_fixture_checkpoint(path)
+        except BaseException as exc:  # pragma: no cover - asserted below.
+            errors.append(exc)
+
+    monkeypatch.setattr(torch, "save", blocking_save)
+    owner = threading.Thread(target=first_writer, name="checkpoint-owner")
+    owner.start()
+    assert entered.wait(timeout=5)
+    try:
+        with pytest.raises(InputError, match="already active"):
+            _write_fixture_checkpoint(path)
+    finally:
+        release.set()
+        owner.join(timeout=5)
+
+    assert not owner.is_alive()
+    assert errors == []
+    assert load_resume_checkpoint(path)["progress"]["steps_completed"] == 3
+
+
+def test_writer_lock_is_reentrant_in_the_same_thread_context(tmp_path: Path) -> None:
+    target = tmp_path / "production-carbon-run"
+
+    with exclusive_writer_lock(target):
+        with exclusive_writer_lock(target):
+            assert target.with_name(f".{target.name}.lock").is_file()
+
+    assert not target.with_name(f".{target.name}.lock").exists()
+
+
+def test_checkpoint_writer_never_follows_or_removes_precreated_candidate_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "predictor_checkpoint.pt"
+    victim = tmp_path / "victim.txt"
+    victim.write_text("owned elsewhere\n", encoding="utf-8")
+    tokens = iter(("precreated", "writer-owned", "cleanup"))
+    monkeypatch.setattr(atomic_module.secrets, "token_hex", lambda _size: next(tokens))
+    precreated_temporary = path.with_name(
+        f".{path.name}.{atomic_module.os.getpid()}.precreated.tmp"
+    )
+    try:
+        precreated_temporary.symlink_to(victim)
+    except OSError as exc:  # pragma: no cover - platform capability boundary.
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    _write_fixture_checkpoint(path)
+
+    assert victim.read_text(encoding="utf-8") == "owned elsewhere\n"
+    assert precreated_temporary.is_symlink()
+    assert load_resume_checkpoint(path)["progress"]["steps_completed"] == 3
+
+
+def test_checkpoint_writer_rejects_precreated_lock_symlink_without_removing_it(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "predictor_checkpoint.pt"
+    victim = tmp_path / "victim.txt"
+    victim.write_text("owned elsewhere\n", encoding="utf-8")
+    lock_path = path.with_name(f".{path.name}.lock")
+    try:
+        lock_path.symlink_to(victim)
+    except OSError as exc:  # pragma: no cover - platform capability boundary.
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    with pytest.raises(InputError, match="already active"):
+        _write_fixture_checkpoint(path)
+
+    assert victim.read_text(encoding="utf-8") == "owned elsewhere\n"
+    assert lock_path.is_symlink()
+    assert not path.exists()
+
+
+def test_checkpoint_writer_rejects_symlinked_parent_without_writing_target(
+    tmp_path: Path,
+) -> None:
+    attacker = tmp_path / "attacker"
+    attacker.mkdir()
+    linked_parent = tmp_path / "run"
+    try:
+        linked_parent.symlink_to(attacker, target_is_directory=True)
+    except OSError as exc:  # pragma: no cover - platform capability boundary.
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(InputError, match=r"parent.*symlink"):
+        _write_fixture_checkpoint(linked_parent / "predictor_checkpoint.pt")
+
+    assert not (attacker / "predictor_checkpoint.pt").exists()
+    assert list(attacker.iterdir()) == []
+
+
+def test_checkpoint_writer_fails_closed_when_anchored_operations_are_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "missing-parent" / "predictor_checkpoint.pt"
+    monkeypatch.setattr(
+        atomic_module,
+        "_supports_anchored_directory_operations",
+        lambda: False,
+    )
+
+    with pytest.raises(InputError, match="requires anchored directory operations"):
+        _write_fixture_checkpoint(path)
+
+    assert not path.parent.exists()
+    assert not path.exists()
+
+
+@pytest.mark.skipif(
+    not atomic_module._supports_anchored_directory_operations(),
+    reason="parent-swap rejection requires anchored directory operations",
+)
+def test_checkpoint_writer_rejects_parent_swap_and_cleans_owned_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "run"
+    moved_parent = tmp_path / "run-moved"
+    attacker = tmp_path / "attacker"
+    parent.mkdir()
+    attacker.mkdir()
+    path = parent / "predictor_checkpoint.pt"
+    original = _write_fixture_checkpoint(path)
+    original_bytes = path.read_bytes()
+    original_rename = atomic_module.os.rename
+    swapped = False
+
+    def swap_parent_during_install(source, destination, *args, **kwargs):
+        nonlocal swapped
+        if not swapped and str(source).endswith(".tmp") and destination == path.name:
+            original_rename(parent, moved_parent)
+            try:
+                parent.symlink_to(attacker, target_is_directory=True)
+            except OSError as exc:  # pragma: no cover - platform capability boundary.
+                pytest.skip(f"directory symlinks unavailable: {exc}")
+            swapped = True
+        return original_rename(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(atomic_module.os, "rename", swap_parent_during_install)
+
+    with pytest.raises(InputError, match="parent directory changed"):
+        _write_fixture_checkpoint(path)
+
+    restored = moved_parent / path.name
+    assert swapped
+    assert not (attacker / path.name).exists()
+    assert restored.read_bytes() == original_bytes
+    assert load_resume_checkpoint(restored)["payload_digest"] == original["payload_digest"]
+    assert list(moved_parent.iterdir()) == [restored]
 
 
 def _write_fixture_checkpoint(path: Path) -> dict[str, object]:
     torch = pytest.importorskip("torch")
     return write_resume_checkpoint(
         path,
-        source={"commit_sha": "a" * 40, "tree_sha": "b" * 40},
+        source={
+            "commit_sha": "a" * 40,
+            "tree_sha": "b" * 40,
+            "package_version": "0.2.1",
+        },
         training_contract={"target_steps": 8, "batch_size": 2, "config": {"seed": 7}},
         identities={"dataset": "sha256:" + ("c" * 64), "encoder": "sha256:" + ("d" * 64)},
         progress={
