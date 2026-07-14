@@ -158,20 +158,20 @@ jobs:
         # corrected cache implementation is deliberately POSIX-only and its
         # Windows contract is fail-closed, so retain the 84% aggregate gate
         # over Windows-supported modules while omitting the cache storage,
-        # finite-builder, and cache CLI modules whose tests require POSIX
-        # dirfd/no-follow primitives. Portable runtime-identity tests remain
-        # included in the Windows coverage gate.
+        # finite-builder, cache CLI, and secure atomic-publication modules
+        # whose tests require POSIX dirfd/no-follow primitives. Portable
+        # runtime-identity tests remain included in the Windows coverage gate.
         # The canonical Ubuntu leg still measures the complete package and
-        # enforces changed-file coverage over every cache and production-resume
-        # line. Lean matrix legs omit the train-extra-only checkpoint module
-        # from their aggregate calculation because NumPy/PyTorch are
-        # intentionally absent there; its behavior and changed lines remain
-        # covered by the canonical leg.
+        # enforces changed-file coverage over every cache, atomic-publication,
+        # and production-resume line. Lean matrix legs omit the
+        # train-extra-only checkpoint module from their aggregate calculation
+        # because NumPy/PyTorch are intentionally absent there; its behavior
+        # and changed lines remain covered by the canonical leg.
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
             pytest --cov=geno_lewm --cov-branch --cov-report=term-missing --cov-fail-under=0 -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
             coverage report --show-missing --fail-under=84 \
-              --omit="*/encoder/cache.py,*/encoder/cache_build.py,*/cli/cache_windows.py,*/training/resume.py"
+              --omit="*/encoder/cache.py,*/encoder/cache_build.py,*/cli/cache_windows.py,*/training/resume.py,*/geno_lewm/_atomic.py"
           elif [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python }}" = "3.12" ]; then
             pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
           else
