@@ -1,0 +1,7 @@
+{
+  "model_id": "/carbon",
+  "revision": "5d31d59b3c845b288a13aedb1358934196852eec",
+  "runtime_hash": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e",
+  "schema_version": "1.0.0",
+  "state_contract_version": "l2_normalized_v2"
+}

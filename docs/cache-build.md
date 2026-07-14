@@ -200,3 +200,86 @@ Training cache requests must mirror the consumer's pooling identity. The
 corrected trainer supplies each edit's `rel_pos`, so its source-state lookups are
 `centered_mean` with an edit-conditioned `center_token`; an `edit_locus: null`
 global-mean artifact will not satisfy those lookups.
+
+## Exact-trace H200 interruption proof
+
+`tools/jobs/v03_cache_h200_proof.sh` is the production launcher for the first
+v0.3 cache proof. It accepts the public training-trace repository, exact
+40-character Hub revision, and immutable `success` namespace explicitly. The
+corrected trace is published at Hub revision
+`da0d86cde7bf88de2015ab7c516f356e9ae89469` under
+`training-traces/v0.3/geno-lewm-v03-training-trace-48b5bf71397f-712d612d85ea-job-6a55f38e85d9643ce16d29e7-r1/success`.
+The launcher accepts only this safe training-trace namespace family and rejects
+the unrelated `candidates/v0.3` artifact family. Its request contract is:
+
+- 7,504 request rows, 31,680,405 bytes, and
+  `sha256:38757425a1aa7a0df89e303c339ace68c430848e4eceb1137d5a6448572bea7c`;
+- 7,421 unique corrected cache keys and 83 duplicate requests;
+- chromosome 22, `centered_mean`, radius 8, batch size 8;
+- 29 deterministic shards at 256 rows per shard: 28 full shards and one
+  253-row shard; and
+- 928 `encode_batch` calls represented by durable completed-shard state. This
+  count deliberately excludes interrupted in-flight work that never became a
+  durable shard.
+
+The job uses the committed
+`configs/data_v03/carbon-500m-l2-runtime-identity.json`, the exact corrected
+Carbon revision and runtime hash, a read-only `/carbon` model mount, one H200,
+and the canonical training config carried by the trace. It launches
+`geno-lewm-cache-windows` directly from the frozen environment. This detail is
+part of the process-control contract: the PID receiving `SIGSTOP` and
+`SIGTERM` is the Python cache builder, not an intermediate `uv` process.
+
+After at least two durable shard entries exist, the supervisor stops the
+builder and verifies through `/proc` that the direct, child-free process is in
+a stopped state. `capture-partial` then requires null completion, no report or
+inner `SHA256SUMS`, no `build.end` event, no pending-publication marker, and no
+plan-owned Parquet shard or index mapping outside durable state. It snapshots
+the plan, state, log, the full completed Parquet snapshot, and a replayable
+SQLite index. The runtime-only publication lock is captured as an empty-file
+identity but excluded from the immutable partial-cache archive.
+The supervisor sends `SIGTERM` while the process is stopped, sends `SIGCONT`,
+and requires conventional shell status 143. Before any resume,
+`finalize-interruption` re-hashes the live plan, state, log, shards, and index
+and requires byte identity with the stopped snapshot. Status 143 is labeled as
+the conventional shell interpretation consistent with `SIGTERM`; it is not
+represented as a raw `waitpid(2)` signal attestation.
+
+The second invocation uses the byte-identical cache argv with only a distinct
+external log identity. Final authoring rejects shared-cache reuse, requires the
+partial entries to remain semantically identical, keeps literal full-plan byte
+identity and immutable shard hashes as separate checks, rederives
+`resumed_rows` from the partial state, and requires:
+
+- `encoded_rows = 7,421 - resumed_rows`;
+- `encoded_shards = 29 - partial_completed_shards`;
+- `reused_rows = 0`, 29 completed shards, and 7,421 resolved keys;
+- 928 `encode_batch` calls represented by durable completed shards, excluding
+  any interrupted in-flight work, with zero re-encoding of already completed
+  shards; and
+- exactly one `data.cache.build.end` event, in the resume log only.
+
+The published outer bundle has exactly `cache/`, `evidence/`, `trace/`,
+`proof/`, and `SHA256SUMS`. The read-only `verify-existing` path validates both
+inner checksum closures, the complete outer inventory, every Parquet shard,
+the request-scoped SQLite mappings, the stopped and post-termination receipts,
+the exact trace/runtime/config identities, and deterministic reconstruction of
+the proof report. Unknown files, symlinks, checksum drift, count drift,
+recomputed-checksum runtime tampering, reused rows, or semantically changed partial entries
+fail closed.
+
+Use host `hf` v1.8.0 or newer to submit the documented `h200` job with the
+read-only model volume; the repository-pinned CLI is older and does not expose
+those launcher flags. Inside the job, use the frozen repository environment.
+Publication uses the conflict-safe parent-commit CAS path, then downloads the
+exact resulting Hub revision and runs `verify-existing` again. The completed
+Hugging Face Job receipt is necessarily authored after the container exits and
+must remain a separate immutable sibling artifact binding the terminal status,
+flavor, image, command, and exact proof Hub revision/namespace. The in-bundle
+claim explicitly sets `hf_job_terminal_status_attested: false`; its image
+digest is a launcher declaration, not in-container image self-attestation.
+
+This proof is deliberately bounded to the exact production trace above. It
+does not prove 10% Carbon-corpus coverage, completion within 24 hours, the
+5,000-tuples/s training gate, model quality, biological validity, or clinical
+validity.

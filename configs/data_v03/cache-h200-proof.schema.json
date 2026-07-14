@@ -1,0 +1,428 @@
+{
+  "$id": "https://abdelstark.github.io/GenoLeWM/schemas/cache-h200-proof.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "./cache-h200-proof.schema.json"
+    },
+    "cache": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_checksums": {
+          "$ref": "#/$defs/identity"
+        },
+        "planned_shards": {
+          "const": 29
+        },
+        "report": {
+          "$ref": "#/$defs/identity"
+        },
+        "rows_per_shard": {
+          "const": 256
+        },
+        "schema_version": {
+          "const": "3.0.0"
+        },
+        "unique_rows": {
+          "const": 7421
+        }
+      },
+      "required": [
+        "schema_version",
+        "rows_per_shard",
+        "planned_shards",
+        "unique_rows",
+        "evidence_checksums",
+        "report"
+      ],
+      "type": "object"
+    },
+    "claim_boundary": {
+      "additionalProperties": false,
+      "properties": {
+        "finite_request_cache_completed": {
+          "const": true
+        },
+        "interruption_resume_verified": {
+          "const": true
+        },
+        "model_quality_evaluated": {
+          "const": false
+        },
+        "runtime_container_attested": {
+          "const": false
+        },
+        "hf_job_terminal_status_attested": {
+          "const": false
+        },
+        "interrupted_in_flight_encode_batch_work_counted": {
+          "const": false
+        },
+        "scope": {
+          "const": "the exact 7,504-request production v0.3 training trace only"
+        },
+        "statement": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "ten_percent_corpus_completed": {
+          "const": false
+        },
+        "throughput_gate_evaluated": {
+          "const": false
+        },
+        "twenty_four_hour_target_evaluated": {
+          "const": false
+        }
+      },
+      "required": [
+        "scope",
+        "finite_request_cache_completed",
+        "interruption_resume_verified",
+        "ten_percent_corpus_completed",
+        "twenty_four_hour_target_evaluated",
+        "throughput_gate_evaluated",
+        "model_quality_evaluated",
+        "runtime_container_attested",
+        "hf_job_terminal_status_attested",
+        "interrupted_in_flight_encode_batch_work_counted",
+        "statement"
+      ],
+      "type": "object"
+    },
+    "generated_by": {
+      "const": "tools.research.v03_cache_h200_proof"
+    },
+    "hardware": {
+      "additionalProperties": false,
+      "properties": {
+        "device": {
+          "additionalProperties": false,
+          "properties": {
+            "compute_capability": {
+              "const": "9.0"
+            },
+            "index": {
+              "const": 0
+            },
+            "name": {
+              "pattern": "H200",
+              "type": "string"
+            },
+            "total_memory_bytes": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "cuda"
+            }
+          },
+          "required": [
+            "type",
+            "index",
+            "name",
+            "total_memory_bytes",
+            "compute_capability"
+          ],
+          "type": "object"
+        },
+        "receipt": {
+          "$ref": "#/$defs/identity"
+        },
+        "runtime": {
+          "additionalProperties": false,
+          "properties": {
+            "cuda_version": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "driver_version": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "python_version": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "torch_version": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "python_version",
+            "torch_version",
+            "cuda_version",
+            "driver_version"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "receipt",
+        "device",
+        "runtime"
+      ],
+      "type": "object"
+    },
+    "interruption": {
+      "additionalProperties": false,
+      "properties": {
+        "capture": {
+          "$ref": "#/$defs/identity"
+        },
+        "log": {
+          "$ref": "#/$defs/identity"
+        },
+        "partial_completed_rows": {
+          "maximum": 7420,
+          "minimum": 512,
+          "type": "integer"
+        },
+        "partial_completed_shards": {
+          "maximum": 28,
+          "minimum": 2,
+          "type": "integer"
+        },
+        "partial_durable_completed_shard_encode_batch_calls": {
+          "minimum": 64,
+          "type": "integer"
+        },
+        "plan": {
+          "$ref": "#/$defs/identity"
+        },
+        "shell_exit_code": {
+          "const": 143
+        },
+        "signal_sequence": {
+          "const": "SIGSTOP_barrier_then_SIGTERM_then_SIGCONT"
+        },
+        "state": {
+          "$ref": "#/$defs/identity"
+        },
+        "termination": {
+          "$ref": "#/$defs/identity"
+        }
+      },
+      "required": [
+        "signal_sequence",
+        "shell_exit_code",
+        "partial_completed_shards",
+        "partial_completed_rows",
+        "partial_durable_completed_shard_encode_batch_calls",
+        "plan",
+        "state",
+        "capture",
+        "termination",
+        "log"
+      ],
+      "type": "object"
+    },
+    "ok": {
+      "const": true
+    },
+    "producer": {
+      "additionalProperties": false,
+      "properties": {
+        "container_binding": {
+          "const": "launcher_environment_declaration"
+        },
+        "declared_container_image": {
+          "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "git_commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "origin": {
+          "const": "https://github.com/AbdelStark/GenoLeWM.git"
+        }
+      },
+      "required": [
+        "git_commit",
+        "origin",
+        "declared_container_image",
+        "container_binding"
+      ],
+      "type": "object"
+    },
+    "resume": {
+      "additionalProperties": false,
+      "properties": {
+        "build_end_events": {
+          "const": 1
+        },
+        "completed_shards": {
+          "const": 29
+        },
+        "encoded_rows": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "identical_plan_bytes": {
+          "const": true
+        },
+        "log": {
+          "$ref": "#/$defs/identity"
+        },
+        "partial_entries_semantically_identical": {
+          "const": true
+        },
+        "resumed_rows": {
+          "minimum": 512,
+          "type": "integer"
+        },
+        "reused_rows": {
+          "const": 0
+        },
+        "durable_completed_shard_encode_batch_calls": {
+          "const": 928
+        },
+        "completed_shards_reencoded": {
+          "const": 0
+        }
+      },
+      "required": [
+        "identical_plan_bytes",
+        "partial_entries_semantically_identical",
+        "resumed_rows",
+        "encoded_rows",
+        "reused_rows",
+        "completed_shards",
+        "durable_completed_shard_encode_batch_calls",
+        "completed_shards_reencoded",
+        "build_end_events",
+        "log"
+      ],
+      "type": "object"
+    },
+    "runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "model_id": {
+          "const": "/carbon"
+        },
+        "revision": {
+          "const": "5d31d59b3c845b288a13aedb1358934196852eec"
+        },
+        "runtime_hash": {
+          "const": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e"
+        },
+        "schema_version": {
+          "const": "1.0.0"
+        },
+        "state_contract_version": {
+          "const": "l2_normalized_v2"
+        }
+      },
+      "required": [
+        "identity",
+        "model_id",
+        "revision",
+        "runtime_hash",
+        "schema_version",
+        "state_contract_version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "geno-lewm.v03-cache-h200-proof.v1"
+    },
+    "trace": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_path": {
+          "const": "training-traces/v0.3/geno-lewm-v03-training-trace-48b5bf71397f-712d612d85ea-job-6a55f38e85d9643ce16d29e7-r1/success"
+        },
+        "checksums": {
+          "$ref": "#/$defs/identity"
+        },
+        "config": {
+          "$ref": "#/$defs/identity"
+        },
+        "duplicate_rows": {
+          "const": 83
+        },
+        "report": {
+          "$ref": "#/$defs/identity"
+        },
+        "repository": {
+          "const": "abdelstark/geno-lewm-data"
+        },
+        "request_rows": {
+          "const": 7504
+        },
+        "requests": {
+          "$ref": "#/$defs/identity"
+        },
+        "revision": {
+          "const": "da0d86cde7bf88de2015ab7c516f356e9ae89469"
+        },
+        "unique_cache_keys": {
+          "const": 7421
+        }
+      },
+      "required": [
+        "repository",
+        "revision",
+        "artifact_path",
+        "requests",
+        "config",
+        "report",
+        "checksums",
+        "request_rows",
+        "unique_cache_keys",
+        "duplicate_rows"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "generated_by",
+    "ok",
+    "producer",
+    "trace",
+    "runtime",
+    "interruption",
+    "resume",
+    "cache",
+    "hardware",
+    "claim_boundary"
+  ],
+  "type": "object",
+  "$defs": {
+    "commit": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "identity": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
+    }
+  }
+}
