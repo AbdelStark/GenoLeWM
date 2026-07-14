@@ -1511,6 +1511,12 @@ def _validate_plan_against_trace(
     ]
     if len(raw_shards) != len(expected_chunks):
         raise InputError("trace-derived cache plan shard count drifted")
+    raw_paths = [
+        _safe_relative(shard.get("path"), label="trace-derived cache plan shard path")
+        for shard in raw_shards
+    ]
+    if len(set(raw_paths)) != len(raw_paths) or raw_paths != sorted(raw_paths):
+        raise InputError("cache build plan shard order differs from the exact trace")
     shards_by_stride: dict[int, Mapping[str, object]] = {}
     for shard in raw_shards:
         stride_block = shard.get("stride_block")
