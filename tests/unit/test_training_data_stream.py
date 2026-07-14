@@ -133,7 +133,7 @@ def _minimal_trace_inputs(
     )
     manifest_path = tmp_path / "dataset_manifest.json"
     _write_trace_manifest(manifest_path)
-    (tmp_path / "SHA256SUMS").write_text("fixture checksum closure\n", encoding="utf-8")
+    (tmp_path / "SHA256SUMS").write_bytes(b"fixture checksum closure\n")
     return stream, manifest_path, config_path
 
 
@@ -252,7 +252,7 @@ def test_training_trace_authors_closed_immutable_cache_request_evidence(
     )
     manifest_path = tmp_path / "dataset_manifest.json"
     _write_trace_manifest(manifest_path)
-    (tmp_path / "SHA256SUMS").write_text("fixture checksum closure\n", encoding="utf-8")
+    (tmp_path / "SHA256SUMS").write_bytes(b"fixture checksum closure\n")
     first_output = tmp_path / "first"
     second_output = tmp_path / "second"
 
