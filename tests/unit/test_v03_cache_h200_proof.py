@@ -134,6 +134,77 @@ class _FakeRawEncoder:
         )
 
 
+def test_plan_validator_accepts_producer_order_for_double_digit_shards(tmp_path: Path) -> None:
+    rows = [
+        {
+            "request_id": f"request-{index:02d}",
+            "chrom": "22",
+            "start_bp": index * 100,
+            "end_bp": index * 100 + 12,
+            "window": "".join("C" if index & (1 << bit) else "A" for bit in range(12)),
+            "edit_locus": 0,
+        }
+        for index in range(23)
+    ]
+    requests = b"".join(
+        json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n" for row in rows
+    )
+    config = Path("configs/data_v03/train-carbon-500m-snv-l2-epoch-r1.yaml").read_bytes()
+    runtime = RUNTIME_IDENTITY.read_bytes()
+    cache = tmp_path / "cache"
+    evidence = tmp_path / "evidence"
+    build_window_cache(
+        requests_jsonl=requests,
+        cache_dir=cache,
+        evidence_dir=evidence,
+        encoder=_FakeRawEncoder(),
+        encoder_id="/carbon",
+        batch_size=2,
+        rows_per_shard=2,
+        created_at_ns=1_783_965_600_000_000_000,
+        hardware="NVIDIA H200; 147849216000 bytes; CUDA 12.8; driver 570.0; single GPU",
+        resolved_config=proof_module._resolved_config_from_yaml(config),
+        encoder_runtime_identity=json.loads(runtime),
+        input_artifacts={
+            "encoder_config.yaml": config,
+            "encoder_runtime_identity_source.json": runtime,
+        },
+    )
+    expectations = ProofExpectations(
+        request_rows=23,
+        request_sha256=sha256_bytes(requests),
+        request_size_bytes=len(requests),
+        unique_cache_keys=23,
+        duplicate_rows=0,
+        batch_size=2,
+        rows_per_shard=2,
+        shard_row_counts=(2,) * 11 + (1,),
+        durable_completed_shard_encode_batch_calls=12,
+        training_config_sha256=sha256_bytes(config),
+        created_at_ns=1_783_965_600_000_000_000,
+    )
+
+    plan = proof_module._validate_plan(
+        evidence / "cache_build_plan.json",
+        expectations=expectations,
+    )
+
+    assert tuple(shard["stride_block"] for shard in plan.shards_by_id.values()) == (
+        0,
+        1,
+        10,
+        11,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+    )
+
+
 def _json_bytes(payload: object) -> bytes:
     return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
 
