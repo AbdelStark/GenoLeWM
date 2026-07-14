@@ -21,6 +21,7 @@ from geno_lewm.data import (
     HoldoutPolicy,
     TrainingDatasetItem,
     WindowContext,
+    synthetic_indel_provider,
     synthetic_snv_provider,
     variant_provider,
 )
@@ -689,6 +690,52 @@ def test_prepared_stream_synthetic_sampling_refills_after_edit_holdouts() -> Non
         assert all(
             not holdouts.excludes_edit(window, item.training_tuple.rel_edits[0])
             for item in observed
+        )
+
+
+def test_prepared_stream_rejects_synthetic_indel_edit_key_holdouts_before_rng() -> None:
+    window = WindowContext(
+        record_id="placed",
+        source="fixture",
+        sequence="A" * 256,
+        chrom="1",
+        start_bp=100,
+    )
+
+    with pytest.raises(InputError, match="synthetic-indel edit-key holdouts"):
+        PreparedTrainingStream.from_components(
+            dataset_snapshot_id="fixture-v03",
+            schema_version="1.1.0",
+            windows=(window,),
+            providers={"synthetic_indel": synthetic_indel_provider},
+            mix=(EditSourceCount("synthetic_indel", 1),),
+            fallback_sources={},
+            holdouts=HoldoutPolicy(edit_keys=("1:165:A:AGTT",)),
+            membership_identity=_membership_identity(),
+            seed=0,
+        )
+
+
+def test_prepared_stream_excludes_synthetic_windows_without_editable_bases() -> None:
+    window = WindowContext(
+        record_id="ambiguous-only",
+        source="fixture",
+        sequence="N" * 256,
+        chrom="1",
+        start_bp=100,
+    )
+
+    with pytest.raises(InputError, match="no usable source windows"):
+        PreparedTrainingStream.from_components(
+            dataset_snapshot_id="fixture-v03",
+            schema_version="1.1.0",
+            windows=(window,),
+            providers={"synthetic_snv": synthetic_snv_provider},
+            mix=(EditSourceCount("synthetic_snv", 1),),
+            fallback_sources={},
+            holdouts=HoldoutPolicy(),
+            membership_identity=_membership_identity(),
+            seed=0,
         )
 
 

@@ -518,7 +518,27 @@ def _provider_available_edit_count(
     if isinstance(provider, _VariantProvider):
         return provider.available_count(window, holdouts=holdouts)
     if provider is synthetic_snv_provider or provider is synthetic_indel_provider:
-        candidates = _eligible_synthetic_candidates(provider, window, holdouts=holdouts)
+        if provider is synthetic_indel_provider and holdouts.edit_keys:
+            raise InputError(
+                "schema-1.1 training does not support synthetic-indel edit-key holdouts",
+                remediation=(
+                    "remove edit-key holdouts from the synthetic-indel source or provide "
+                    "a deterministic provider with complete availability semantics"
+                ),
+            )
+        content_end = len(window.sequence) - DEFAULT_EDGE_MARGIN
+        has_editable_anchor = any(
+            window.sequence[position] in "ACGT"
+            for position in range(DEFAULT_EDGE_MARGIN, content_end)
+        )
+        if not has_editable_anchor:
+            return 0
+        # Supported release holdouts exclude whole windows unless explicit edit
+        # keys are present. Avoid materializing the synthetic action space for
+        # the common whole-window-only policy.
+        if not holdouts.edit_keys:
+            return count
+        candidates = _eligible_synthetic_snv_candidates(window, holdouts=holdouts)
         return count if candidates else 0
     raise InputError(
         "schema-1.1 training requires deterministic provider availability",
@@ -526,8 +546,7 @@ def _provider_available_edit_count(
     )
 
 
-def _eligible_synthetic_candidates(
-    provider: _EditProvider,
+def _eligible_synthetic_snv_candidates(
     window: WindowContext,
     *,
     holdouts: HoldoutPolicy,
@@ -538,36 +557,16 @@ def _eligible_synthetic_candidates(
         anchor = window.sequence[position]
         if anchor not in "ACGT":
             continue
-        if provider is synthetic_snv_provider:
-            candidates.extend(
-                RelEdit(
-                    rel_pos=position,
-                    edit_type=EditType.SNV,
-                    ref_bases=anchor,
-                    alt_bases=alternate,
-                )
-                for alternate in "ACGT"
-                if alternate != anchor
-            )
-            continue
         candidates.extend(
             RelEdit(
                 rel_pos=position,
-                edit_type=EditType.INS,
+                edit_type=EditType.SNV,
                 ref_bases=anchor,
-                alt_bases=anchor + inserted,
+                alt_bases=alternate,
             )
-            for inserted in "ACGT"
+            for alternate in "ACGT"
+            if alternate != anchor
         )
-        if position + 1 < content_end and window.sequence[position + 1] in "ACGT":
-            candidates.append(
-                RelEdit(
-                    rel_pos=position,
-                    edit_type=EditType.DEL,
-                    ref_bases=window.sequence[position : position + 2],
-                    alt_bases=anchor,
-                )
-            )
     return tuple(edit for edit in candidates if not holdouts.excludes_edit(window, edit))
 
 
@@ -660,10 +659,8 @@ def _provider_edits(
             )
         if not holdouts.excludes_edit(window, edit):
             edits.append(edit)
-    if len(edits) < count and (
-        provider is synthetic_snv_provider or provider is synthetic_indel_provider
-    ):
-        candidates = _eligible_synthetic_candidates(provider, window, holdouts=holdouts)
+    if len(edits) < count and provider is synthetic_snv_provider:
+        candidates = _eligible_synthetic_snv_candidates(window, holdouts=holdouts)
         while len(edits) < count and candidates:
             edits.append(rng.choice(candidates))
     return edits
