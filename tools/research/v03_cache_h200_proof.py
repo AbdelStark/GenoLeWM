@@ -45,9 +45,9 @@ from geno_lewm.encoder.windowing import canonicalize_dna, window_sha256
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.provenance import canonical_json_sha256, sha256_bytes
 
-SCHEMA_VERSION: Final = "geno-lewm.v03-cache-h200-proof.v1"
+SCHEMA_VERSION: Final = "geno-lewm.v03-cache-h200-proof.v2"
 GENERATED_BY: Final = "tools.research.v03_cache_h200_proof"
-HARDWARE_SCHEMA_VERSION: Final = "geno-lewm.v03-h200-hardware.v1"
+HARDWARE_SCHEMA_VERSION: Final = "geno-lewm.v03-h200-hardware.v2"
 HARDWARE_GENERATED_BY: Final = "tools.jobs.v03_cache_h200_proof"
 
 TRACE_REQUESTS_NAME: Final = "cache_build_requests.jsonl"
@@ -182,6 +182,76 @@ def validate_runtime_identity(path: Path) -> dict[str, object]:
     if payload != _RUNTIME_IDENTITY:
         raise InputError("cache proof runtime identity does not match the exact contract")
     return payload
+
+
+def author_hardware_receipt(
+    *,
+    output_path: Path,
+    source_commit: str,
+    container_image: str,
+    nvidia_smi_query_raw: str,
+    cuda_device_count: int,
+    cuda_device_index: int,
+    cuda_device_name: str,
+    cuda_total_memory_bytes: int,
+    cuda_compute_capability: str,
+    python_version: str,
+    torch_version: str,
+    cuda_version: str,
+    driver_version: str,
+) -> dict[str, object]:
+    """Write one closed receipt without conflating CUDA and NVML memory reports."""
+    _raw_index, _raw_name, nvidia_smi_total_memory_mib, _raw_capability, _raw_driver = (
+        _parse_nvidia_smi_row(nvidia_smi_query_raw)
+    )
+    payload: dict[str, object] = {
+        "schema_version": HARDWARE_SCHEMA_VERSION,
+        "generated_by": HARDWARE_GENERATED_BY,
+        "source_commit_sha": _commit(source_commit, label="source commit"),
+        "container_image": _container(container_image, label="container image"),
+        "nvidia_smi_query_raw": nvidia_smi_query_raw,
+        "device": {
+            "type": "cuda",
+            "count": cuda_device_count,
+            "index": cuda_device_index,
+            "name": cuda_device_name,
+            "compute_capability": cuda_compute_capability,
+        },
+        "memory": {
+            "cuda_total_memory_bytes": cuda_total_memory_bytes,
+            "nvidia_smi_total_memory_mib": nvidia_smi_total_memory_mib,
+        },
+        "runtime": {
+            "python_version": python_version,
+            "torch_version": torch_version,
+            "cuda_version": cuda_version,
+            "driver_version": driver_version,
+        },
+    }
+    receipt = _validate_hardware_receipt(
+        payload,
+        source_commit=source_commit,
+        container_image=container_image,
+    )
+    _write_once(output_path, _json_bytes(receipt))
+    return receipt
+
+
+def validate_hardware_receipt(
+    path: Path,
+    *,
+    source_commit: str,
+    container_image: str,
+) -> dict[str, object]:
+    """Read back and validate one closed H200 hardware receipt."""
+    return _validate_hardware_receipt(
+        _json_object(
+            _read_regular_bytes(path, label="H200 hardware receipt"),
+            label="H200 hardware receipt",
+        ),
+        source_commit=source_commit,
+        container_image=container_image,
+    )
 
 
 def preflight_bundle(
@@ -2040,6 +2110,7 @@ def _derive_report(
         "hardware": {
             "receipt": _file_identity(bundle / HARDWARE_COPY_NAME, "hardware.json"),
             "device": dict(_mapping(hardware.get("device"), label="hardware device")),
+            "memory": dict(_mapping(hardware.get("memory"), label="hardware memory")),
             "runtime": dict(_mapping(hardware.get("runtime"), label="hardware runtime")),
         },
         "claim_boundary": {
@@ -2071,6 +2142,8 @@ def _validate_hardware_receipt(
     source_commit: str,
     container_image: str,
 ) -> dict[str, object]:
+    source_commit = _commit(source_commit, label="source commit")
+    container_image = _container(container_image, label="container image")
     if set(payload) != {
         "schema_version",
         "generated_by",
@@ -2078,29 +2151,79 @@ def _validate_hardware_receipt(
         "container_image",
         "nvidia_smi_query_raw",
         "device",
+        "memory",
         "runtime",
     }:
         raise InputError("H200 hardware receipt has an invalid closed schema")
     device = _mapping(payload.get("device"), label="hardware device")
+    memory = _mapping(payload.get("memory"), label="hardware memory")
     runtime = _mapping(payload.get("runtime"), label="hardware runtime")
-    if set(device) != {
-        "type",
-        "index",
-        "name",
-        "total_memory_bytes",
-        "compute_capability",
-    } or set(runtime) != {
-        "python_version",
-        "torch_version",
-        "cuda_version",
-        "driver_version",
-    }:
+    if (
+        set(device)
+        != {
+            "type",
+            "count",
+            "index",
+            "name",
+            "compute_capability",
+        }
+        or set(memory)
+        != {
+            "cuda_total_memory_bytes",
+            "nvidia_smi_total_memory_mib",
+        }
+        or set(runtime)
+        != {
+            "python_version",
+            "torch_version",
+            "cuda_version",
+            "driver_version",
+        }
+    ):
         raise InputError("H200 hardware receipt nested schema is not closed")
     name = device.get("name")
-    memory = device.get("total_memory_bytes")
+    cuda_total_memory_bytes = memory.get("cuda_total_memory_bytes")
+    nvidia_smi_total_memory_mib = memory.get("nvidia_smi_total_memory_mib")
     compute_capability = device.get("compute_capability")
     raw_query = payload.get("nvidia_smi_query_raw")
-    if not isinstance(raw_query, str) or not raw_query.strip():
+    if not isinstance(raw_query, str):
+        raise InputError("H200 hardware receipt has an empty nvidia-smi query")
+    raw_index, raw_name, raw_memory_mib, raw_capability, raw_driver = _parse_nvidia_smi_row(
+        raw_query
+    )
+    if (
+        payload.get("schema_version") != HARDWARE_SCHEMA_VERSION
+        or payload.get("generated_by") != HARDWARE_GENERATED_BY
+        or payload.get("source_commit_sha") != source_commit
+        or payload.get("container_image") != container_image
+        or device.get("type") != "cuda"
+        or type(device.get("count")) is not int
+        or device.get("count") != 1
+        or type(device.get("index")) is not int
+        or device.get("index") != 0
+        or not isinstance(name, str)
+        or "H200" not in name.upper()
+        or type(cuda_total_memory_bytes) is not int
+        or cuda_total_memory_bytes <= 0
+        or type(nvidia_smi_total_memory_mib) is not int
+        or nvidia_smi_total_memory_mib <= 0
+        or cuda_total_memory_bytes > nvidia_smi_total_memory_mib * 1024**2
+        or compute_capability != "9.0"
+        or raw_index != "0"
+        or raw_name != name
+        or raw_memory_mib != nvidia_smi_total_memory_mib
+        or raw_capability != compute_capability
+        or raw_driver != runtime.get("driver_version")
+        or any(
+            not isinstance(runtime.get(field), str) or not runtime.get(field) for field in runtime
+        )
+    ):
+        raise InputError("hardware receipt does not attest one NVIDIA H200 CUDA runtime")
+    return dict(payload)
+
+
+def _parse_nvidia_smi_row(raw_query: str) -> tuple[str, str, int, str, str]:
+    if not raw_query.strip():
         raise InputError("H200 hardware receipt has an empty nvidia-smi query")
     try:
         rows = list(csv.reader(StringIO(raw_query)))
@@ -2112,37 +2235,10 @@ def _validate_hardware_receipt(
         field.strip() for field in rows[0]
     )
     try:
-        memory_mib = int(raw_memory_mib)
+        parsed_memory_mib = int(raw_memory_mib)
     except ValueError as exc:
         raise InputError("H200 hardware receipt nvidia-smi memory is not an integer") from exc
-    # NVML reports whole MiB while CUDA reports bytes.  Permit at most one MiB
-    # of device/runtime rounding, but reject a different physical memory size.
-    memory_tolerance_bytes = 1024**2
-    if (
-        payload.get("schema_version") != HARDWARE_SCHEMA_VERSION
-        or payload.get("generated_by") != HARDWARE_GENERATED_BY
-        or payload.get("source_commit_sha") != source_commit
-        or payload.get("container_image") != container_image
-        or device.get("type") != "cuda"
-        or type(device.get("index")) is not int
-        or device.get("index") != 0
-        or not isinstance(name, str)
-        or "H200" not in name.upper()
-        or type(memory) is not int
-        or memory <= 0
-        or compute_capability != "9.0"
-        or raw_index != "0"
-        or raw_name != name
-        or memory_mib <= 0
-        or abs(memory - memory_mib * 1024**2) > memory_tolerance_bytes
-        or raw_capability != compute_capability
-        or raw_driver != runtime.get("driver_version")
-        or any(
-            not isinstance(runtime.get(field), str) or not runtime.get(field) for field in runtime
-        )
-    ):
-        raise InputError("hardware receipt does not attest one NVIDIA H200 CUDA runtime")
-    return dict(payload)
+    return raw_index, raw_name, parsed_memory_mib, raw_capability, raw_driver
 
 
 def _validate_plan_hardware_binding(
@@ -2151,9 +2247,10 @@ def _validate_plan_hardware_binding(
     hardware: Mapping[str, object],
 ) -> None:
     device = _mapping(hardware.get("device"), label="hardware device")
+    memory = _mapping(hardware.get("memory"), label="hardware memory")
     runtime = _mapping(hardware.get("runtime"), label="hardware runtime")
     expected_description = (
-        f"{device['name']}; {device['total_memory_bytes']} bytes; "
+        f"{device['name']}; {memory['cuda_total_memory_bytes']} bytes; "
         f"CUDA {runtime['cuda_version']}; driver {runtime['driver_version']}; single GPU"
     )
     execution = _mapping(plan.payload.get("execution"), label="cache plan execution")
@@ -2777,6 +2874,11 @@ def _parser() -> argparse.ArgumentParser:
     author.add_argument("--hardware-json", type=Path, required=True)
     author.add_argument("--resume-log", type=Path, required=True)
 
+    validate_hardware = subparsers.add_parser("validate-hardware")
+    validate_hardware.add_argument("--hardware-json", type=Path, required=True)
+    validate_hardware.add_argument("--source-commit", required=True)
+    validate_hardware.add_argument("--container-image", required=True)
+
     retire = subparsers.add_parser("retire-runtime-lock")
     retire.add_argument("--bundle-dir", type=Path, required=True)
 
@@ -2818,6 +2920,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     elif args.command == "retire-runtime-lock":
         result = retire_cache_runtime_lock(bundle_dir=args.bundle_dir)
+    elif args.command == "validate-hardware":
+        result = validate_hardware_receipt(
+            args.hardware_json,
+            source_commit=args.source_commit,
+            container_image=args.container_image,
+        )
     elif args.command == "author":
         result = author_proof_bundle(
             bundle_dir=args.bundle_dir,

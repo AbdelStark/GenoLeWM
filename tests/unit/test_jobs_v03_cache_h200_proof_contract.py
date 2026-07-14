@@ -271,19 +271,39 @@ def test_hardware_receipt_is_closed_measured_h200_evidence() -> None:
         "nvidia-smi --query-gpu=index,name,memory.total,compute_cap,driver_version "
         "--format=csv,noheader,nounits" in script
     )
-    assert '"schema_version": "geno-lewm.v03-h200-hardware.v1"' in script
-    assert '"generated_by": "tools.jobs.v03_cache_h200_proof"' in script
-    assert '"source_commit_sha": source_commit' in script
-    assert '"container_image": container_image' in script
-    assert '"nvidia_smi_query_raw": raw_query' in script
-    assert '"name": properties.name' in script
-    assert '"total_memory_bytes": properties.total_memory' in script
-    assert '"compute_capability": compute_capability' in script
-    assert '"python_version": platform.python_version()' in script
-    assert '"torch_version": torch.__version__' in script
-    assert '"cuda_version": torch.version.cuda' in script
-    assert '"driver_version": driver_version' in script
+    assert "from tools.research.v03_cache_h200_proof import author_hardware_receipt" in script
+    assert "author_hardware_receipt(" in script
+    assert "nvidia_smi_query_raw=raw_query" in script
+    assert "cuda_device_count=torch.cuda.device_count()" in script
+    assert "cuda_device_index=int(index)" in script
+    assert "cuda_device_name=properties.name" in script
+    assert "cuda_total_memory_bytes=properties.total_memory" in script
+    assert "cuda_compute_capability=compute_capability" in script
+    assert "python_version=platform.python_version()" in script
+    assert "torch_version=torch.__version__" in script
+    assert "cuda_version=torch.version.cuda" in script
+    assert "driver_version=driver_version" in script
+    assert '"schema_version": "geno-lewm.v03-h200-hardware.v1"' not in script
     assert 'if "H200" not in properties.name:' in script
+    assert "if torch.cuda.device_count() != 1:" in script
+
+
+def test_hardware_receipt_is_revalidated_before_any_cache_encoding() -> None:
+    script = _script()
+
+    produced = script.index("author_hardware_receipt(")
+    validated = script.index(
+        "python -m tools.research.v03_cache_h200_proof validate-hardware",
+        produced,
+    )
+    cache_argv = script.index("CACHE_ARGV=(", validated)
+    attempt = script.index('GENO_LEWM_RUN_ID="$ATTEMPT1_RUN_ID"', cache_argv)
+
+    assert produced < validated < cache_argv < attempt
+    validation_block = script[validated:cache_argv]
+    assert '"--hardware-json" "$HARDWARE_JSON"' in validation_block
+    assert '"--source-commit" "$COMMIT_SHA"' in validation_block
+    assert '"--container-image" "$CONTAINER_IMAGE"' in validation_block
 
 
 def test_author_verify_publish_and_exact_revision_replay_are_ordered() -> None:

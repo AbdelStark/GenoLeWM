@@ -63,6 +63,8 @@ def test_proof_schema_is_draft_2020_12_and_closed() -> None:
     schema = json.loads(DEFAULT_SCHEMA_PATH.read_text(encoding="utf-8"))
 
     jsonschema.Draft202012Validator.check_schema(schema)
+    assert schema["$id"].endswith("/cache-h200-proof.v2.json")
+    assert schema["properties"]["schema_version"] == {"const": "geno-lewm.v03-cache-h200-proof.v2"}
     assert schema["additionalProperties"] is False
     for field in (
         "producer",
@@ -83,6 +85,133 @@ def test_proof_schema_is_draft_2020_12_and_closed() -> None:
     resume = schema["properties"]["resume"]
     assert resume["properties"]["durable_completed_shard_encode_batch_calls"] == {"const": 928}
     assert resume["properties"]["completed_shards_reencoded"] == {"const": 0}
+    hardware = schema["properties"]["hardware"]
+    assert hardware["required"] == ["receipt", "device", "memory", "runtime"]
+    assert hardware["properties"]["device"]["additionalProperties"] is False
+    assert hardware["properties"]["device"]["properties"]["count"] == {"const": 1}
+    memory = hardware["properties"]["memory"]
+    assert memory["additionalProperties"] is False
+    assert memory["required"] == [
+        "cuda_total_memory_bytes",
+        "nvidia_smi_total_memory_mib",
+    ]
+
+
+def test_hardware_receipt_producer_preserves_divergent_cuda_and_nvml_memory(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "hardware.json"
+    source_commit = "a" * 40
+    container_image = "example.invalid/geno-lewm@sha256:" + "b" * 64
+
+    receipt = proof_module.author_hardware_receipt(
+        output_path=output,
+        source_commit=source_commit,
+        container_image=container_image,
+        nvidia_smi_query_raw="0, NVIDIA H200, 143771, 9.0, 580.159.03",
+        cuda_device_count=1,
+        cuda_device_index=0,
+        cuda_device_name="NVIDIA H200",
+        cuda_total_memory_bytes=150_109_880_320,
+        cuda_compute_capability="9.0",
+        python_version="3.12.11",
+        torch_version="2.8.0+cu128",
+        cuda_version="12.8",
+        driver_version="580.159.03",
+    )
+
+    assert json.loads(output.read_text(encoding="utf-8")) == receipt
+    assert receipt["device"] == {
+        "type": "cuda",
+        "count": 1,
+        "index": 0,
+        "name": "NVIDIA H200",
+        "compute_capability": "9.0",
+    }
+    assert receipt["memory"] == {
+        "cuda_total_memory_bytes": 150_109_880_320,
+        "nvidia_smi_total_memory_mib": 143_771,
+    }
+
+
+@pytest.mark.parametrize(
+    "drift",
+    [
+        "nvml_copy",
+        "cuda_nonpositive",
+        "cuda_exceeds_nvml",
+        "nvml_nonpositive",
+        "device_count",
+        "device_index",
+        "device_name",
+        "capability",
+        "driver_binding",
+        "extra_memory_field",
+    ],
+)
+def test_hardware_receipt_revalidation_rejects_coordinated_identity_drift(
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    output = tmp_path / "hardware.json"
+    source_commit = "a" * 40
+    container_image = "example.invalid/geno-lewm@sha256:" + "b" * 64
+    proof_module.author_hardware_receipt(
+        output_path=output,
+        source_commit=source_commit,
+        container_image=container_image,
+        nvidia_smi_query_raw="0, NVIDIA H200, 143771, 9.0, 580.159.03",
+        cuda_device_count=1,
+        cuda_device_index=0,
+        cuda_device_name="NVIDIA H200",
+        cuda_total_memory_bytes=150_109_880_320,
+        cuda_compute_capability="9.0",
+        python_version="3.12.11",
+        torch_version="2.8.0+cu128",
+        cuda_version="12.8",
+        driver_version="580.159.03",
+    )
+    receipt = json.loads(output.read_text(encoding="utf-8"))
+
+    if drift == "nvml_copy":
+        receipt["memory"]["nvidia_smi_total_memory_mib"] -= 1
+    elif drift == "cuda_nonpositive":
+        receipt["memory"]["cuda_total_memory_bytes"] = 0
+    elif drift == "cuda_exceeds_nvml":
+        receipt["memory"]["cuda_total_memory_bytes"] = 143_771 * 1024**2 + 1
+    elif drift == "nvml_nonpositive":
+        receipt["memory"]["nvidia_smi_total_memory_mib"] = 0
+        receipt["nvidia_smi_query_raw"] = receipt["nvidia_smi_query_raw"].replace("143771", "0")
+    elif drift == "device_count":
+        receipt["device"]["count"] = 2
+    elif drift == "device_index":
+        receipt["device"]["index"] = 1
+        receipt["nvidia_smi_query_raw"] = receipt["nvidia_smi_query_raw"].replace(
+            "0, NVIDIA", "1, NVIDIA"
+        )
+    elif drift == "device_name":
+        receipt["device"]["name"] = "NVIDIA H100"
+        receipt["nvidia_smi_query_raw"] = receipt["nvidia_smi_query_raw"].replace(
+            "NVIDIA H200", "NVIDIA H100"
+        )
+    elif drift == "capability":
+        receipt["device"]["compute_capability"] = "8.0"
+        receipt["nvidia_smi_query_raw"] = receipt["nvidia_smi_query_raw"].replace(
+            ", 9.0,", ", 8.0,"
+        )
+    elif drift == "driver_binding":
+        receipt["runtime"]["driver_version"] = "581.0"
+    else:
+        receipt["memory"]["unexpected"] = 1
+    output.chmod(0o600)
+    _write_json(output, receipt)
+
+    with pytest.raises(InputError, match="hardware receipt"):
+        proof_module.validate_hardware_receipt(
+            output,
+            source_commit=source_commit,
+            container_image=container_image,
+        )
 
 
 def test_trace_namespace_accepts_the_exact_public_path_and_rejects_candidates() -> None:
@@ -554,10 +683,14 @@ def _write_hardware(path: Path, *, source_commit: str, container_image: str) -> 
             "nvidia_smi_query_raw": "0, NVIDIA H200, 141000, 9.0, 570.0",
             "device": {
                 "type": "cuda",
+                "count": 1,
                 "index": 0,
                 "name": "NVIDIA H200",
-                "total_memory_bytes": 147_849_216_000,
                 "compute_capability": "9.0",
+            },
+            "memory": {
+                "cuda_total_memory_bytes": 147_849_216_000,
+                "nvidia_smi_total_memory_mib": 141_000,
             },
             "runtime": {
                 "python_version": "3.11",
