@@ -497,6 +497,52 @@ def test_torch_trainer_state_round_trips_collapse_monitor_across_processes() -> 
     assert restored.state_dict() == source.state_dict()
 
 
+@pytest.mark.parametrize(
+    ("contract_drift", "message"),
+    [
+        ("field-set", "trainer state fields do not match"),
+        ("schema", "schema version is unsupported"),
+        ("horizon", "horizon does not match"),
+        ("monitor-field-set", "monitor state fields do not match"),
+        ("monitor-contract", "monitor contract does not match"),
+        ("alerts-container", "collapse alerts must be a list"),
+        ("empty-criterion", "non-empty criterion"),
+        ("negative-threshold", "non-negative thresholds"),
+    ],
+)
+def test_torch_trainer_rejects_open_or_drifted_resume_contracts(
+    contract_drift: str,
+    message: str,
+) -> None:
+    torch = pytest.importorskip("torch")
+    trainer = _resume_state_trainer(torch)
+    state = trainer.state_dict()
+    monitor = state["collapse_monitor"]
+    assert isinstance(monitor, dict)
+
+    if contract_drift == "field-set":
+        del state["schema_version"]
+    elif contract_drift == "schema":
+        state["schema_version"] = "geno-lewm.torch-trainer-state.v0"
+    elif contract_drift == "horizon":
+        state["total_steps"] = trainer.total_steps + 1
+    elif contract_drift == "monitor-field-set":
+        del monitor["thresholds"]
+    elif contract_drift == "monitor-contract":
+        monitor["log_every_steps"] = 999
+    elif contract_drift == "alerts-container":
+        state["last_collapse_alerts"] = {"not": "a list"}
+    elif contract_drift == "empty-criterion":
+        state["last_collapse_alerts"] = [{"criterion": "", "value": 0.1, "threshold": 0.2}]
+    else:
+        state["last_collapse_alerts"] = [
+            {"criterion": "pred_var_per_dim", "value": 0.1, "threshold": -0.2}
+        ]
+
+    with pytest.raises(InputError, match=message):
+        trainer.load_state_dict(state)
+
+
 @pytest.mark.parametrize("baseline", [-1.0, float("nan"), float("inf")])
 def test_torch_trainer_rejects_invalid_restored_collapse_baseline(baseline: float) -> None:
     torch = pytest.importorskip("torch")

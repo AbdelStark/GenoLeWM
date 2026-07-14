@@ -53,6 +53,55 @@ def test_rng_state_round_trips_every_training_domain() -> None:
     assert set(state) == {"python", "numpy", "torch_cpu", "torch_cuda"}
 
 
+@pytest.mark.parametrize(
+    ("invalid_domain", "message"),
+    [
+        ("top-level", "RNG state set is incomplete"),
+        ("numpy-envelope", "NumPy RNG state is not closed"),
+        ("cuda-envelope", "CUDA RNG state is not closed"),
+        ("array-type", "RNG arrays must be lists"),
+        ("cuda-availability", "CUDA RNG availability changed"),
+        ("cuda-device-count", "CUDA RNG device count changed"),
+        ("python-type", "Python RNG state must resolve to a tuple"),
+        ("cached-gaussian", "NumPy cached Gaussian must be numeric"),
+        ("torch-state", "RNG states could not be restored"),
+    ],
+)
+def test_rng_restore_rejects_open_or_runtime_drifted_domains(
+    invalid_domain: str,
+    message: str,
+) -> None:
+    state = capture_rng_state()
+    numpy_state = state["numpy"]
+    cuda_state = state["torch_cuda"]
+    assert isinstance(numpy_state, dict)
+    assert isinstance(cuda_state, dict)
+
+    if invalid_domain == "top-level":
+        del state["python"]
+    elif invalid_domain == "numpy-envelope":
+        del numpy_state["algorithm"]
+    elif invalid_domain == "cuda-envelope":
+        del cuda_state["states"]
+    elif invalid_domain == "array-type":
+        numpy_state["keys"] = tuple(numpy_state["keys"])
+    elif invalid_domain == "cuda-availability":
+        cuda_state["available"] = not cuda_state["available"]
+    elif invalid_domain == "cuda-device-count":
+        device_count = cuda_state["device_count"]
+        assert isinstance(device_count, int)
+        cuda_state["device_count"] = device_count + 1
+    elif invalid_domain == "python-type":
+        state["python"] = "not-a-python-rng-state"
+    elif invalid_domain == "cached-gaussian":
+        numpy_state["cached_gaussian"] = True
+    else:
+        state["torch_cpu"] = "not-a-torch-rng-state"
+
+    with pytest.raises(InputError, match=message):
+        restore_rng_state(state)
+
+
 def test_production_checkpoint_round_trips_as_one_closed_atomic_payload(tmp_path) -> None:
     path = tmp_path / "predictor_checkpoint.pt"
     payload = _write_fixture_checkpoint(path)
@@ -63,6 +112,30 @@ def test_production_checkpoint_round_trips_as_one_closed_atomic_payload(tmp_path
     assert loaded["payload_digest"] == payload["payload_digest"]
     assert loaded["progress"]["steps_completed"] == 3
     assert not path.with_name(f".{path.name}.tmp").exists()
+
+
+@pytest.mark.parametrize(
+    ("artifact", "message"),
+    [
+        ("missing", "resume checkpoint is missing"),
+        ("unsafe", "could not be loaded safely"),
+        ("sequence", "must contain a mapping"),
+    ],
+)
+def test_checkpoint_loader_rejects_missing_unsafe_or_nonmapping_artifacts(
+    tmp_path: Path,
+    artifact: str,
+    message: str,
+) -> None:
+    torch = pytest.importorskip("torch")
+    path = tmp_path / "predictor_checkpoint.pt"
+    if artifact == "unsafe":
+        path.write_bytes(b"not a torch checkpoint")
+    elif artifact == "sequence":
+        torch.save(["not", "a", "mapping"], path)
+
+    with pytest.raises(InputError, match=message):
+        load_resume_checkpoint(path)
 
 
 def test_checkpoint_loader_rejects_raw_tensor_tampering(tmp_path: Path) -> None:
@@ -260,6 +333,10 @@ def test_checkpoint_rejects_concurrent_writer_for_same_target(
     assert load_resume_checkpoint(path)["progress"]["steps_completed"] == 3
 
 
+@pytest.mark.skipif(
+    not atomic_module._supports_anchored_directory_operations(),
+    reason="writer lock requires anchored directory operations",
+)
 def test_writer_lock_is_reentrant_in_the_same_thread_context(tmp_path: Path) -> None:
     target = tmp_path / "production-carbon-run"
 
