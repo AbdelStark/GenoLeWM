@@ -182,6 +182,31 @@ def test_variant_provider_filters_by_window_coordinates_and_is_deterministic() -
     assert {edit.rel_pos for edit in first} == {0, 4}
 
 
+def test_variant_provider_filters_edit_holdouts_before_seeded_sampling() -> None:
+    window = _window()
+    provider = variant_provider(
+        (
+            EditSpec("1", 101, "A", "C"),
+            EditSpec("1", 105, "A", "G"),
+            EditSpec("1", 109, "A", "T"),
+        )
+    )
+    holdouts = HoldoutPolicy(edit_keys=("1:101:A:C",))
+    mix = (EditSourceCount(SOURCE_GNOMAD_COMMON, 2),)
+
+    for seed in range(10):
+        observed = build_training_tuples(
+            window,
+            {SOURCE_GNOMAD_COMMON: provider},
+            rng=random.Random(seed),
+            mix=mix,
+            holdouts=holdouts,
+            fallback_sources={},
+        )
+        assert len(observed) == 2
+        assert {item.rel_edits[0].rel_pos for item in observed} == {4, 8}
+
+
 def test_synthetic_providers_are_deterministic_and_builder_validates_inputs() -> None:
     window = _window(sequence="ACGT" * 80)
 

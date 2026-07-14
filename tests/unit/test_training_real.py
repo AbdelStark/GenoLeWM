@@ -26,6 +26,7 @@ from geno_lewm.data import (
 )
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from geno_lewm.training._data_stream import PreparedTrainingStream
 from geno_lewm.training.preflight import REPORT_NAME, AcceleratorProbe, TrainingPreflightReport
 from geno_lewm.training.real import (
     _collapse_var_min,
@@ -36,7 +37,6 @@ from geno_lewm.training.real import (
     _move_trainable_to_device,
     _nan_loss_count,
     _next_batch,
-    _repeat_training_items,
     _training_device,
     _training_edit_contract,
     _validate_resume_checkpoint_payload,
@@ -477,7 +477,7 @@ def test_membership_evidence_section_requires_report() -> None:
         )
 
 
-def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
+def test_prepared_training_stream_cycles_finite_release_snapshot() -> None:
     windows = (
         WindowContext(
             record_id="placed-1",
@@ -494,12 +494,18 @@ def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
         SOURCE_CLINVAR: lambda window, count, rng: (),
     }
 
-    iterator = _repeat_training_items(
-        windows,
-        providers,
+    stream = PreparedTrainingStream.from_components(
+        dataset_snapshot_id="fixture",
+        schema_version="1.0.0",
+        windows=windows,
+        providers=providers,
         seed=11,
         fallback_sources=_dataset_fallback_sources(windows),
+        mix=real_module.DEFAULT_EDIT_SOURCE_COUNTS,
+        holdouts=None,
+        membership_identity=None,
     )
+    iterator = stream.iter_repeated()
 
     first_epoch = _next_batch(iterator, 8)
     next_epoch = _next_batch(iterator, 1)
@@ -508,7 +514,7 @@ def test_repeat_training_items_cycles_finite_release_snapshot() -> None:
     assert next_epoch[0].source_window.record_id == "placed-1"
 
 
-def test_repeat_training_items_applies_holdouts_to_every_epoch() -> None:
+def test_prepared_training_stream_applies_holdouts_to_every_epoch() -> None:
     windows = (
         WindowContext(
             record_id="train-window",
@@ -532,13 +538,18 @@ def test_repeat_training_items_applies_holdouts_to_every_epoch() -> None:
         SOURCE_CLINVAR: lambda window, count, rng: (),
     }
 
-    iterator = _repeat_training_items(
-        windows,
-        providers,
+    stream = PreparedTrainingStream.from_components(
+        dataset_snapshot_id="fixture",
+        schema_version="1.0.0",
+        windows=windows,
+        providers=providers,
         seed=11,
         fallback_sources=_dataset_fallback_sources(windows),
+        mix=real_module.DEFAULT_EDIT_SOURCE_COUNTS,
         holdouts=HoldoutPolicy(holdout_chroms=("21",)),
+        membership_identity=None,
     )
+    iterator = stream.iter_repeated()
 
     first_epoch = _next_batch(iterator, 8)
     second_epoch = _next_batch(iterator, 8)
@@ -570,13 +581,18 @@ def test_snv_only_training_contract_filters_indels_and_preserves_eight_actions(
         (SOURCE_SYNTHETIC_SNV, 4),
         (SOURCE_CLINVAR, 1),
     ]
-    iterator = _repeat_training_items(
-        (window,),
-        providers,
+    stream = PreparedTrainingStream.from_components(
+        dataset_snapshot_id="fixture",
+        schema_version="1.0.0",
+        windows=(window,),
+        providers=providers,
         seed=11,
         fallback_sources=_dataset_fallback_sources((window,)),
         mix=mix,
+        holdouts=None,
+        membership_identity=None,
     )
+    iterator = stream.iter_repeated()
     items = _next_batch(iterator, 8)
 
     assert len(items) == 8
@@ -598,13 +614,18 @@ def test_snv_only_training_accepts_a_sparse_acgt_carbon_window(tmp_path: Path) -
         clinvar_edits=(EditSpec(chrom="1", pos=3, ref="G", alt="A"),),
     )
 
-    iterator = _repeat_training_items(
-        (window,),
-        providers,
+    stream = PreparedTrainingStream.from_components(
+        dataset_snapshot_id="fixture",
+        schema_version="1.0.0",
+        windows=(window,),
+        providers=providers,
         seed=11,
         fallback_sources=_dataset_fallback_sources((window,)),
         mix=mix,
+        holdouts=None,
+        membership_identity=None,
     )
+    iterator = stream.iter_repeated()
     items = _next_batch(iterator, 8)
 
     assert len(items) == 8
@@ -623,7 +644,7 @@ def test_training_edit_contract_rejects_unimplemented_action_subset(tmp_path: Pa
         )
 
 
-def test_repeat_training_items_rejects_empty_epoch() -> None:
+def test_prepared_training_stream_rejects_empty_window_set() -> None:
     windows: tuple[WindowContext, ...] = ()
     providers = {
         SOURCE_GNOMAD_COMMON: lambda window, count, rng: (),
@@ -632,15 +653,18 @@ def test_repeat_training_items_rejects_empty_epoch() -> None:
         SOURCE_CLINVAR: lambda window, count, rng: (),
     }
 
-    iterator = _repeat_training_items(
-        windows,
-        providers,
-        seed=11,
-        fallback_sources={},
-    )
-
-    with pytest.raises(InputError, match="epoch produced no usable tuples"):
-        next(iterator)
+    with pytest.raises(InputError, match="contains no usable source windows"):
+        PreparedTrainingStream.from_components(
+            dataset_snapshot_id="fixture",
+            schema_version="1.0.0",
+            windows=windows,
+            providers=providers,
+            seed=11,
+            fallback_sources={},
+            mix=real_module.DEFAULT_EDIT_SOURCE_COUNTS,
+            holdouts=None,
+            membership_identity=None,
+        )
 
 
 def test_move_trainable_to_device_invokes_module_to_for_accelerator() -> None:
@@ -678,6 +702,7 @@ def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime
         chrom="1",
     )
     observed: list[tuple[Path, str]] = []
+    prepared: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         real_module,
@@ -701,7 +726,7 @@ def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime
         observed.append((model_dir, state_contract_version))
         return _ENCODER_WEIGHTS_HASH
 
-    def stop_at_edit_contract(
+    def resolve_edit_contract(
         observed_config: object,
         *,
         gnomad_edits: object,
@@ -710,14 +735,27 @@ def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime
         assert observed_config is config
         assert tuple(gnomad_edits) == (EditSpec(chrom="1", pos=1, ref="A", alt="T"),)
         assert tuple(clinvar_edits) == ()
-        raise RuntimeError("edit contract reached")
+        return {}, ()
+
+    class StopStream:
+        def iter_repeated(self) -> None:
+            raise RuntimeError("prepared iterator reached")
+
+    def capture_prepared_stream(**kwargs: object) -> StopStream:
+        prepared.append(dict(kwargs))
+        return StopStream()
 
     monkeypatch.setattr(real_module, "encoder_identity_hash", fake_encoder_identity_hash)
     monkeypatch.setattr(real_module, "_training_device", lambda _config: "cpu")
     monkeypatch.setattr(real_module, "configure_torch_reproducibility", lambda **_kwargs: object())
-    monkeypatch.setattr(real_module, "_training_edit_contract", stop_at_edit_contract)
+    monkeypatch.setattr(real_module, "_training_edit_contract", resolve_edit_contract)
+    monkeypatch.setattr(
+        real_module.PreparedTrainingStream,
+        "from_components",
+        staticmethod(capture_prepared_stream),
+    )
 
-    with pytest.raises(RuntimeError, match="edit contract reached"):
+    with pytest.raises(RuntimeError, match="prepared iterator reached"):
         real_module.run_carbon_training(
             config=config,
             dataset_dir=dataset_dir,
@@ -730,6 +768,9 @@ def test_carbon_training_resolves_contract_aware_encoder_identity_before_runtime
         )
 
     assert observed == [(carbon_dir, config.encoder.state_contract_version)]
+    assert prepared[0]["dataset_snapshot_id"] == "fixture"
+    assert prepared[0]["schema_version"] == "1.0.0"
+    assert prepared[0]["membership_identity"] is None
 
 
 def test_validate_resume_checkpoint_accepts_matching_identity(tmp_path: Path) -> None:

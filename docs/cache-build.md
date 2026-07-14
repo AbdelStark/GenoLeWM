@@ -29,6 +29,53 @@ Deduplication occurs only after `CarbonStateEncoder.pooling_identity` resolves
 the complete `WindowCacheKey`. Two requests for the same window remain distinct
 when their edit loci map to different `center_token` values.
 
+## Canonical v0.3 training trace
+
+`tools.data.v03_training_trace` derives cache requests from the same
+`PreparedTrainingStream` consumed by the real trainer. The canonical config is
+`configs/data_v03/train-carbon-500m-snv-l2-epoch-r1.yaml`: corrected
+`l2_normalized_v2`, tokenizer-resolved `centered_mean` pooling, the pinned
+Carbon revision, eight samples per batch, and 938 steps. Construction fails if
+the prepared epoch no longer contains exactly 938 complete batches.
+
+The producer checkout must be clean, at the exact supplied commit, use the
+canonical Git origin, and resolve through an unauthenticated exact-commit
+lookup on canonical GitHub. The local dataset passes the complete v0.3
+snapshot verifier before and after authoring. Its 52-file namespace is also
+rebound without credentials to the exact Hub commit through sizes and Git/LFS
+content identities at the hard-coded `https://huggingface.co` endpoint.
+
+```bash
+SOURCE_SHA="$(git rev-parse HEAD)"
+DATASET_REVISION="712d612d85ea6341b8ce17bd3460ff5c2207b802"
+DATASET_PATH="candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/snapshots/geno-lewm-v03-dataset-snapshot-959079248000-r3/success"
+
+GENO_LEWM_TRAINING_TRACE_DECLARED_CONTAINER_IMAGE="$CONTAINER_IMAGE" \
+uv run --extra evidence python -m tools.data.v03_training_trace \
+  --dataset-dir "$SNAPSHOT_DIR" \
+  --training-config configs/data_v03/train-carbon-500m-snv-l2-epoch-r1.yaml \
+  --output-dir "$TRACE_DIR" \
+  --producer-git-commit "$SOURCE_SHA" \
+  --container-image "$CONTAINER_IMAGE" \
+  --dataset-repository abdelstark/geno-lewm-data \
+  --dataset-revision "$DATASET_REVISION" \
+  --dataset-artifact-path "$DATASET_PATH"
+```
+
+The closed output bundles the exact request JSONL, training config, report
+schema, report, and `SHA256SUMS`. Re-run the command with `--verify-existing`
+and the same arguments to reopen the published dataset, re-author the trace in
+a separate temporary directory, and require byte identity. This proves one
+deterministic epoch's request schedule; it does not prove that Carbon states
+were encoded, that a cache was completed, or that throughput was measured. The
+container digest is explicitly a launcher declaration, not self-attestation;
+publication evidence must pair it with the external digest-pinned Hugging Face
+Job receipt.
+
+For no-follow publication, every `TRACE_DIR` parent must be a physical
+directory rather than a symlink. On macOS use `/private/tmp/...`, not the
+symlinked `/var/...`; Hugging Face Jobs should use `/work/...`.
+
 ## Build command
 
 Use a closed encoder-runtime identity, committed config, local pinned Carbon

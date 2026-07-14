@@ -32,7 +32,6 @@ from geno_lewm.data import (
     SOURCE_SYNTHETIC_INDEL,
     SOURCE_SYNTHETIC_SNV,
     EditSourceCount,
-    GenoLeWMDataset,
     HoldoutPolicy,
     MembershipStore,
     MembershipStoreHoldoutPolicy,
@@ -51,6 +50,7 @@ from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
 from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from geno_lewm.provenance.hashing import looks_like_sha256
+from geno_lewm.training._data_stream import PreparedTrainingStream
 from geno_lewm.training._phase_contract import require_executable_training_phase
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
 from geno_lewm.training.trainer import (
@@ -238,14 +238,18 @@ def _run_carbon_training_with_dataset(
         gnomad_edits=gnomad_edits,
         clinvar_edits=clinvar_edits,
     )
-    iterator = _repeat_training_items(
-        windows,
-        providers,
+    prepared_stream = PreparedTrainingStream.from_components(
+        dataset_snapshot_id=dataset_snapshot_id,
+        schema_version=schema_version,
+        windows=windows,
+        providers=providers,
         seed=seeds.data,
         fallback_sources=_dataset_fallback_sources(windows),
         mix=edit_source_counts,
         holdouts=holdouts,
+        membership_identity=membership_identity,
     )
+    iterator = prepared_stream.iter_repeated()
     resumed_from_step = 0
     resume_checkpoint: _ResumeCheckpoint | None = None
     if resume_from is not None:
@@ -484,42 +488,6 @@ def _skip_training_items(
                 details={"items_to_skip": item_count, "items_skipped": index},
                 remediation="resume with the same dataset snapshot and training config",
             ) from exc
-
-
-def _repeat_training_items(
-    windows: Sequence[WindowContext],
-    providers: Mapping[str, Any],
-    *,
-    seed: int,
-    fallback_sources: Mapping[str, str],
-    mix: Sequence[EditSourceCount] = DEFAULT_EDIT_SOURCE_COUNTS,
-    holdouts: HoldoutPolicy | None = None,
-) -> Iterator[TrainingDatasetItem]:
-    """Yield deterministic repeated passes over a finite release dataset."""
-    epoch = 0
-    while True:
-        dataset = GenoLeWMDataset(
-            windows,
-            providers,
-            seed=seed + epoch,
-            fallback_sources=fallback_sources,
-            mix=mix,
-            holdouts=holdouts,
-        )
-        produced = 0
-        for item in dataset.iter_with_source_windows():
-            produced += 1
-            yield item
-        if produced == 0:
-            raise InputError(
-                "training dataset epoch produced no usable tuples",
-                details={"epoch": epoch, "window_count": len(windows)},
-                remediation=(
-                    "provide placed windows with matching edit shards or restore explicit "
-                    "fallback sources for the active release dataset"
-                ),
-            )
-        epoch += 1
 
 
 def _training_edit_contract(
