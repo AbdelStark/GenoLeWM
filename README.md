@@ -221,9 +221,10 @@ geno-lewm-train --carbon-train --package-release-run \
 ```
 
 The run package contains the checkpoint, metrics, logs, resolved config,
-preflight report, manifest/card, and checksum inventory. Resume checks validate
-run id, dataset snapshot, seed split, config identity, and—when present—the
-complete membership and split-evidence identity.
+preflight report, manifest/card, and checksums. Resume checkpoints atomically
+close model, AdamW, trainer, RNG, cursor, metrics, and LR state. See [production
+resume equivalence](docs/production-resume-equivalence.md) for the
+`--steps N --stop-after-step K` workflow and raw-artifact verifier.
 
 ## Evaluation And Benchmarks
 

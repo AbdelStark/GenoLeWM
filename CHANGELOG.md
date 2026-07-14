@@ -31,6 +31,25 @@ or incompatible command changes require an explicit compatibility note.
 - Corrected training to pool source and target states at the same edit locus,
   persist the complete encoder representation in resume checkpoints, and
   reject cross-identity resumes.
+- Added production Carbon continuation checkpoints with atomic replacement and
+  closed model, action-encoder, AdamW, trainer-monitor, Python/NumPy/Torch RNG,
+  cursor, metric-history, and learning-rate state. `geno-lewm-train` now
+  supports `--steps N --stop-after-step K` followed by strict `--resume-from`
+  continuation at `K+1`.
+- Production Carbon source provenance now resolves from the clean imported
+  package checkout rather than the caller working directory, rejects
+  non-regular or ignored package artifacts, requires exact COMMIT/TREE and
+  package-version identity, and fails closed for wheel-only installs that lack
+  embedded build provenance. The public CLI locks before preflight publication.
+  Checkpoint/report publication uses directory-anchored unique exclusive
+  no-follow temporaries, writer ownership, file and directory durability, and
+  concurrent-run rejection, and fails closed where secure anchored directory
+  operations are unavailable.
+- Added a three-process production resume-equivalence harness and external
+  verifier. It requires an exact clean Git COMMIT/TREE plus explicit N/K,
+  rehashes the raw checkpoints and public metrics, and limits its passing claim
+  to single-process software equivalence; it makes no accelerator, model-quality,
+  biological, or clinical claim.
 - Corrected encoder provenance. `l2_normalized_v2` manifests and cache keys
   commit Carbon weights plus runtime-critical config and tokenizer files;
   manifest-backed loading verifies that local runtime before inference.
@@ -65,6 +84,10 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Compatibility
 
+- `run_carbon_training` retains its keyword contract and validates optional
+  `source_tree` plus `commit_sha` as full lowercase 40-character SHAs. When
+  `source_tree` is omitted it resolves the clean imported package checkout and
+  requires `commit_sha` to match; it never resolves provenance from caller CWD.
 - `WindowCacheKey` and `WindowCacheRecord` now require `center_token`, and
   cache schema `1.0.0` is intentionally not reusable.
 - New cache writes use schema `3.0.0`. Schema-2 Parquet remains read-only
