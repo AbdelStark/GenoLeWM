@@ -154,12 +154,33 @@ jobs:
         # xdist on Windows uses spawn-based workers that re-import the
         # package per worker; combined with module-level state in
         # observability/metrics, this surfaces flaky failures on Windows
-        # specifically. Run serially on Windows, parallel elsewhere.
+        # specifically. Run serially on Windows, parallel elsewhere. The
+        # corrected cache implementation is deliberately POSIX-only and its
+        # Windows contract is fail-closed, so retain the 84% aggregate gate
+        # over Windows-supported modules while omitting the cache storage,
+        # finite-builder, cache CLI, and secure atomic-publication modules
+        # whose tests require POSIX dirfd/no-follow primitives. The Windows
+        # leg also omits the torch-gated production-trainer modules
+        # (training/resume.py, training/real.py) because that leg installs the
+        # dev extra only, so NumPy/PyTorch are intentionally absent. Portable
+        # runtime-identity tests remain included in the Windows coverage gate.
+        # The canonical Ubuntu leg still measures the complete package and
+        # enforces changed-file coverage over every cache, atomic-publication,
+        # and production-resume/train line. Lean matrix legs omit the
+        # train-extra-only checkpoint module from their aggregate calculation
+        # because NumPy/PyTorch are intentionally absent there; its behavior
+        # and changed lines remain covered by the canonical leg.
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -v --tb=long 2>&1 | tee pytest.out
+            pytest --cov=geno_lewm --cov-branch --cov-report=term-missing --cov-fail-under=0 -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
+            coverage report --show-missing --fail-under=84 \
+              --omit="*/encoder/cache.py,*/encoder/cache_build.py,*/cli/cache_windows.py,*/training/resume.py,*/geno_lewm/_atomic.py,*/training/real.py"
+          elif [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python }}" = "3.12" ]; then
+            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
           else
-            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing -n auto -v --tb=long 2>&1 | tee pytest.out
+            pytest --cov=geno_lewm --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=0 -n auto -v --tb=long 2>&1 | tee "$RUNNER_TEMP/pytest.out"
+            coverage report --show-missing --fail-under=84 \
+              --omit="*/training/resume.py"
           fi
         shell: bash
       - name: Upload pytest output (on failure)
@@ -167,7 +188,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: pytest-${{ matrix.os }}-${{ matrix.python }}
-          path: pytest.out
+          path: ${{ runner.temp }}/pytest.out
           retention-days: 7
           if-no-files-found: ignore
       - name: Upload coverage to Codecov
@@ -253,9 +274,21 @@ jobs:
         run: python -m tools.release.check_sdist_assets dist/*.tar.gz
       - name: Smoke install
         run: |
-          python -m pip install dist/*.whl
+          repo_root="$PWD"
+          python -m pip install "$repo_root"/dist/*.whl
+          python -m pip install "pyarrow>=15,<25" pytest hypothesis jsonschema
           python -c "import geno_lewm; print(geno_lewm.__version__)"
           python -c "from geno_lewm import EditSpec, apply_edit; print(EditSpec(chrom='1', pos=1, ref='A', alt='T'))"
+          python -m tests.wheel_membership_smoke prepare "$RUNNER_TEMP/membership-wheel-smoke"
+          membership_smoke_dir="$(mktemp -d)"
+          cd "$membership_smoke_dir"
+          python -I "$GITHUB_WORKSPACE/tests/wheel_membership_smoke.py" \
+            verify "$RUNNER_TEMP/membership-wheel-smoke"
+          smoke_dir="$(mktemp -d)"
+          cd "$smoke_dir"
+          python -c "import geno_lewm; print(geno_lewm.__version__)"
+          python -c "from geno_lewm import EditSpec, apply_edit; print(EditSpec(chrom='1', pos=1, ref='A', alt='T'))"
+          python "$repo_root/tests/wheel_console_scripts_smoke.py"
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v7
         with:

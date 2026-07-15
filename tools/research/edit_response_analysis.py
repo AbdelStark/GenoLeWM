@@ -521,9 +521,7 @@ def _confound_controls(
     }
 
     # Baseline 1: substitution-class pathogenic rate, carrying zero geometry.
-    rates = {
-        str(name): float(labels[subs == name].mean()) for name in np.unique(subs)  # noqa: PD011
-    }
+    rates = {str(name): float(labels[subs == name].mean()) for name in np.unique(subs)}
     lookup = [rates[str(name)] for name in subs.tolist()]
     result["substitution_only_auroc"] = _auroc_with_ci(lookup, label_list, config)
 
@@ -548,16 +546,12 @@ def _confound_controls(
         weighted_sum += auroc * size
         weight_total += size
     result["within_substitution_per_class"] = per_class
-    result["within_substitution_auroc"] = (
-        weighted_sum / weight_total if weight_total > 0 else None
-    )
+    result["within_substitution_auroc"] = weighted_sum / weight_total if weight_total > 0 else None
     result["within_substitution_n"] = weight_total
 
     # Baseline 3: the unedited reference state, which knows nothing of the edit.
     s_ref = _stack_vectors(kept_rows, "s_ref")
-    result["reference_only_norm_auroc"] = _auroc_with_ci(
-        _row_magnitudes(s_ref), label_list, config
-    )
+    result["reference_only_norm_auroc"] = _auroc_with_ci(_row_magnitudes(s_ref), label_list, config)
     result["reference_only_probe_auroc"], _ = _directional_cv_auroc(s_ref, labels, config)
     chroms = [row.chrom for row in kept_rows]
     if all(value is not None for value in chroms) and len(set(chroms)) >= config.kfold_splits:

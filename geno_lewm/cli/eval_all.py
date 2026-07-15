@@ -10,6 +10,17 @@ from typing import Annotated, Any
 
 import typer
 
+from geno_lewm._evaluation_report import (
+    REQUIRED_ARTIFACTS,
+    EvalReportInput,
+    load_report_input,
+    parse_report_input,
+    render_report,
+)
+from geno_lewm._v02_benchmark_metrics import (
+    require_v02_rollout_benchmark_metrics,
+    require_v02_vep_benchmark_metrics,
+)
 from geno_lewm.cli._artifact_paths import (
     package_relative_artifact_path,
     require_package_relative_artifacts,
@@ -17,17 +28,6 @@ from geno_lewm.cli._artifact_paths import (
 from geno_lewm.cli._dispatch import SharedOptions, finalize_shared, run_app, shared_option_decls
 from geno_lewm.cli._eval_config import write_effective_eval_config
 from geno_lewm.errors import InputError
-from tools.release.eval_report import (
-    REQUIRED_ARTIFACTS,
-    EvalReportInput,
-    load_report_input,
-    parse_report_input,
-    render_report,
-)
-from tools.release.v02_benchmark_readiness import (
-    require_v02_rollout_benchmark_metrics,
-    require_v02_vep_benchmark_metrics,
-)
 
 __all__ = ["app", "cli_main"]
 

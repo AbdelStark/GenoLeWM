@@ -28,6 +28,7 @@ LEAF_CLASSES: tuple[tuple[type[err.GenoLeWMError], str], ...] = (
     (err.VcfParseError, "INPUT.VCF_PARSE"),
     # Resource
     (err.CacheCorruptError, "RESOURCE.CACHE_CORRUPT"),
+    (err.CacheKeyAlreadyIndexedError, "RESOURCE.CACHE_KEY_ALREADY_INDEXED"),
     (err.DiskFullError, "RESOURCE.DISK_FULL"),
     (err.OutOfMemoryError, "RESOURCE.OOM"),
     (err.ModelNotFoundError, "RESOURCE.MODEL_NOT_FOUND"),
@@ -50,6 +51,7 @@ LEAF_CLASSES: tuple[tuple[type[err.GenoLeWMError], str], ...] = (
     (err.OutputCommitmentMismatchError, "PROVENANCE.OUTPUT_COMMITMENT_MISMATCH"),
     (err.ProvenanceKindUnsupportedError, "PROVENANCE.KIND_UNSUPPORTED"),
     (err.ReceiptSchemaError, "PROVENANCE.RECEIPT_SCHEMA"),
+    (err.SnapshotLineageError, "PROVENANCE.SNAPSHOT_LINEAGE"),
     # Internal
     (err.InvariantViolation, "INTERNAL.INVARIANT_VIOLATION"),
     (err.UnreachableError, "INTERNAL.UNREACHABLE"),
@@ -172,3 +174,7 @@ def test_each_leaf_is_raisable_and_catchable() -> None:
             raise cls("boom", details={"why": "test"})
         assert ei.value.message == "boom"
         assert ei.value.details == {"why": "test"}
+
+
+def test_snapshot_lineage_error_preserves_legacy_value_error_compatibility() -> None:
+    assert issubclass(err.SnapshotLineageError, ValueError)

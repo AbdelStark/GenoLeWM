@@ -24,9 +24,11 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import BinaryIO
 
+from geno_lewm.data._v03_evidence_contract import (
+    CLINVAR_REMOTE_POSTFLIGHT_SCHEMA_VERSION as REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+)
 from tools.data._immutable_json import ImmutableJsonError, write_immutable_json
 
-REMOTE_POSTFLIGHT_SCHEMA_VERSION = "geno-lewm.clinvar-remote-postflight.v1"
 _HASH_CHUNK_SIZE = 1 << 20
 _PARQUET_AUDIT_BATCH_ROWS = 131_072
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}")

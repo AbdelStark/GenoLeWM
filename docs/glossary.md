@@ -46,9 +46,31 @@ leading `<dna>` control token. Correct centered pooling uses
 `dna_content_start`, shifting every intended center one hidden token left and
 sometimes centering on the control token.
 
-**Cache schema 2.** Raw post-pooling, pre-normalization Carbon states keyed by
-encoder runtime identity, layer, pooling mode/radius, `center_token`, and dtype.
-Cache v1 omitted `center_token` and is intentionally invalidated.
+**Cache schema 3.** Raw post-pooling, pre-normalization Carbon states keyed by
+encoder runtime identity, layer, pooling mode/radius, `center_token`, and
+logical compute dtype. Pooling emits canonical FP32 before consumption/storage;
+normalization also rounds its final view to canonical FP32. New Parquet shards
+separately declare fixed-size FP32 physical storage and use SHA-256-derived ASCII
+components for encoder ID and contig. Strict shard/index validation, serialized
+no-clobber publication, and schema/encoding provenance prevent silent collisions
+or ambiguous resume. Cache v2 remains readable only under an explicit labeled
+replay policy; corrected training and rollout evidence require v3. Cache v1
+omitted `center_token` and is intentionally invalidated. No full cache build or
+corrected model run is claimed by this schema foundation.
+Race-resistant cache I/O is supported on Linux and macOS and fails closed on Windows
+or when secure directory-descriptor/no-follow primitives are unavailable; no
+path-only mutation fallback is used.
+
+**Finite cache build.** A request-scoped `geno-lewm-cache-windows` operation
+driven by immutable JSONL rows containing a DNA window and its `edit_locus`.
+The committed plan preserves distinct `center_token` keys for the same window,
+binds batch, hardware/device, and resolved-config identity, and is rederived
+exactly from immutable inputs on recovery. The resumable state SHA-256-binds
+each evidence-owned shard before any new encoder batch runs. Existing global
+logical keys are inspected and reused; only misses are encoded. Its report
+binds request-scoped immutable shard mappings, not mutable shared-index bytes,
+and proves only the exact supplied request artifact; it is not evidence of 10%
+corpus coverage or the 24-hour hardware target.
 
 **Surprise.** A candidate residual between predicted and encoded post-edit
 states under the same validated state contract. Published `legacy_raw_v1`

@@ -27,6 +27,7 @@ __all__ = [
     "ERROR_CODES",
     "BackendUnsupportedError",
     "CacheCorruptError",
+    "CacheKeyAlreadyIndexedError",
     "CollapseDetectedError",
     "ConfigError",
     "DataLoaderError",
@@ -59,6 +60,7 @@ __all__ = [
     "ResourceError",
     "RuntimeSetupError",
     "SchemaCompatError",
+    "SnapshotLineageError",
     "TrainingError",
     "UnknownTopLevelKeyError",
     "UnreachableError",
@@ -211,6 +213,12 @@ class CacheCorruptError(ResourceError):
     """A cache shard failed an integrity check."""
 
     code = "RESOURCE.CACHE_CORRUPT"
+
+
+class CacheKeyAlreadyIndexedError(CacheCorruptError):
+    """A serialized cache publication lost the logical-key reservation race."""
+
+    code = "RESOURCE.CACHE_KEY_ALREADY_INDEXED"
 
 
 class DiskFullError(ResourceError):
@@ -369,6 +377,12 @@ class ReceiptSchemaError(ProvenanceError):
     code = "PROVENANCE.RECEIPT_SCHEMA"
 
 
+class SnapshotLineageError(ProvenanceError, ValueError):
+    """Snapshot-lineage evidence violates its closed semantic contract."""
+
+    code = "PROVENANCE.SNAPSHOT_LINEAGE"
+
+
 # ---------------------------------------------------------------------------
 # Internal
 
@@ -449,6 +463,11 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
     ErrorCodeEntry(
         "RESOURCE.CACHE_CORRUPT", CacheCorruptError, "Cache shard failed integrity check"
     ),
+    ErrorCodeEntry(
+        "RESOURCE.CACHE_KEY_ALREADY_INDEXED",
+        CacheKeyAlreadyIndexedError,
+        "Cache logical key was published by another writer",
+    ),
     ErrorCodeEntry("RESOURCE.DISK_FULL", DiskFullError, "Storage exhausted during write"),
     ErrorCodeEntry("RESOURCE.OOM", OutOfMemoryError, "CUDA or host OOM with context"),
     ErrorCodeEntry(
@@ -501,6 +520,11 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
         "Verifier does not understand receipt provenance kind",
     ),
     ErrorCodeEntry("PROVENANCE.RECEIPT_SCHEMA", ReceiptSchemaError, "Receipt JSON invalid"),
+    ErrorCodeEntry(
+        "PROVENANCE.SNAPSHOT_LINEAGE",
+        SnapshotLineageError,
+        "Snapshot-lineage evidence violates its closed semantic contract",
+    ),
     # Internal
     ErrorCodeEntry("INTERNAL.GENERIC", InternalError, "Internal error"),
     ErrorCodeEntry(

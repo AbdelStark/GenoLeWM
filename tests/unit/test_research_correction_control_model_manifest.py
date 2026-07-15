@@ -16,7 +16,7 @@ CONFIG = Path("configs/correction_control/train-carbon-500m-snv-l2-smoke-v1.yaml
 COMMIT_SHA = "a" * 40
 RUN_ID = "correction-control-l2-p1-smoke-v1"
 SNAPSHOT_ID = "geno-lewm-data-correction-control-l2-p1-proof-v1"
-RUNTIME_HASH = "sha256:71d27acc26bc809d850e9cd8cf558762c5bd4c1d611e2778c1614c0a8be77b38"
+RUNTIME_HASH = "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311"
 WEIGHTS_HASH = "sha256:e257506988203fdb8bb46976ee81c97e24f29073754bbff70137c7704dbadaa8"
 
 

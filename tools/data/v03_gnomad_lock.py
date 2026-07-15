@@ -29,14 +29,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from geno_lewm.data._v03_evidence_contract import (
+    GNOMAD_REMOTE_POSTFLIGHT_SCHEMA_VERSION as REMOTE_POSTFLIGHT_SCHEMA_VERSION,
+    GNOMAD_SOURCE_LOCK_SCHEMA_VERSION as LOCK_SCHEMA_VERSION,
+    GNOMAD_STAGING_RECEIPT_SCHEMA_VERSION as STAGING_RECEIPT_SCHEMA_VERSION,
+)
 from tools.data._immutable_json import ImmutableJsonError, write_immutable_json
 
-LOCK_SCHEMA_VERSION = "geno-lewm.gnomad-source-lock.v1"
 SELECTION_SCHEMA_VERSION = "geno-lewm.gnomad-stage-selection.v1"
 METADATA_VERIFICATION_SCHEMA_VERSION = "geno-lewm.gnomad-gcs-metadata-verification.v1"
 SOURCE_IDENTITY_SCHEMA_VERSION = "geno-lewm.gnomad-stream-identity.v1"
-STAGING_RECEIPT_SCHEMA_VERSION = "geno-lewm.gnomad-staging-receipt.v1"
-REMOTE_POSTFLIGHT_SCHEMA_VERSION = "geno-lewm.gnomad-remote-postflight.v1"
 _HASH_CHUNK_SIZE = 1 << 20
 _PARQUET_AUDIT_BATCH_ROWS = 131_072
 _HF_UPLOAD_MAX_ATTEMPTS = 12

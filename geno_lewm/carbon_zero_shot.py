@@ -450,7 +450,17 @@ def _autoregressive_log_likelihood(
     log_softmax = getattr(functional, "log_softmax", None)
     if not callable(log_softmax):
         raise RuntimeSetupError("torch.nn.functional.log_softmax is unavailable")
-    shifted_logits = logits[:, :-1, :]
+    # Accumulate in fp32 regardless of the model's compute dtype. A window
+    # log-likelihood is a sum over ~10^3 tokens and lands near -5000, while the
+    # quantity of interest -- logP(alt) - logP(ref) for a one-base edit -- is of
+    # order 1. In bf16 (8-bit mantissa) the spacing between representable values
+    # at that magnitude is 16, so the difference is quantized onto a coarse grid
+    # and almost always cancels to exactly zero: scoring 12,993 real SNVs in
+    # bf16 produced 90.7% exact zeros across just 18 distinct values, every one a
+    # multiple of 16. fp32 resolves ~5e-4 there, which is ample. The cast is on
+    # the logits rather than the sum because log_softmax itself must not be
+    # evaluated at reduced precision.
+    shifted_logits = _to_float32(logits[:, :-1, :])
     shifted_labels = input_ids[:, 1:]
     log_probs = log_softmax(shifted_logits, dim=-1)
     token_logp = log_probs.gather(-1, shifted_labels.unsqueeze(-1)).squeeze(-1)
@@ -458,6 +468,18 @@ def _autoregressive_log_likelihood(
         token_logp = token_logp * attention_mask[:, 1:].to(token_logp.dtype)
     value = token_logp.sum().item()
     return _require_finite_float("sequence log-likelihood", value)
+
+
+def _to_float32(tensor: Any) -> Any:
+    """Return ``tensor`` in fp32, leaving objects without a ``float`` method alone.
+
+    Guarded rather than a bare ``.float()`` because this module resolves every
+    torch entry point through ``getattr`` so it can run against stubs.
+    """
+    caster = getattr(tensor, "float", None)
+    if callable(caster):
+        return caster()
+    return tensor
 
 
 def _move_mapping(payload: Mapping[str, Any], device: str | None) -> dict[str, Any]:

@@ -35,7 +35,14 @@ IN_RUN="${IN_RUN:-r1-edit-response-e23fdf9}"
 OUT_REPO="${OUT_REPO:-abdelstark/geno-lewm-edit-response}"
 RUN_NAME="${RUN_NAME:-r5-delta-loglik-$(git -C "${REPO_DIR:-.}" rev-parse --short HEAD 2>/dev/null || echo local)}"
 WINDOW_BP="${WINDOW_BP:-4096}"
-DTYPE="${DTYPE:-bf16}"
+# fp32, NOT bf16. A window log-likelihood sums ~10^3 token terms to about -5000, while the
+# quantity of interest -- logP(alt) - logP(ref) for one base -- is of order 1. bf16 resolves
+# only ~16 at that magnitude, so the difference quantizes onto a grid coarser than the signal:
+# the first bf16 run of this job returned 90.7% exact zeros across just 18 distinct values,
+# every one a multiple of 16. geno_lewm.carbon_zero_shot now accumulates in fp32 regardless,
+# but a reference baseline should not depend on that cast to be correct, and the released
+# v0.2.1 suite pins fp32 here for the same reason.
+DTYPE="${DTYPE:-fp32}"
 KMER_FLANK="${KMER_FLANK:-5}"
 CARBON_DIR="${CARBON_DIR:-/carbon}"
 CARBON_REV="${CARBON_REV:-5d31d59b3c845b288a13aedb1358934196852eec}"

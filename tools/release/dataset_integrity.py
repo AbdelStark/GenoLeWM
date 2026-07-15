@@ -12,13 +12,16 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Final, TextIO
+from typing import Any, Final, Literal, TextIO
 
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import sha256_file
 from geno_lewm.provenance.hashing import looks_like_sha256
 
 SCHEMA_VERSION: Final = "1.0.0"
+ARTIFACT_ROLE_SCHEMA_VERSION: Final = "1.1.0"
+ArtifactRole = Literal["split_data", "split_companion", "evidence"]
+ARTIFACT_ROLES: Final[frozenset[str]] = frozenset({"split_data", "split_companion", "evidence"})
 GENERATED_BY: Final = "tools.release.dataset_integrity"
 DEFAULT_REPORT_NAME: Final = "split_integrity.json"
 _EVAL_PREFIXES: Final = ("eval", "test", "holdout", "validation", "val")
@@ -42,25 +45,35 @@ class IntegrityFile:
     """Observed record-count and key evidence for one dataset file."""
 
     path: str
-    split: str
-    records: int
+    split: str | None
+    records: int | None
     sha256: str
     size_bytes: int
     comparable_keys: int
     genomic_regions: int
     label_counts: dict[str, int]
+    artifact_role: ArtifactRole | None = None
+    companion_of: str | None = None
+    included_in_split_totals: bool | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "path": self.path,
-            "split": self.split,
-            "records": self.records,
             "sha256": self.sha256,
             "size_bytes": self.size_bytes,
             "comparable_keys": self.comparable_keys,
             "genomic_regions": self.genomic_regions,
             "label_counts": dict(sorted(self.label_counts.items())),
         }
+        if self.split is not None:
+            payload["split"] = self.split
+        if self.records is not None:
+            payload["records"] = self.records
+        if self.artifact_role is not None:
+            payload["artifact_role"] = self.artifact_role
+            payload["companion_of"] = self.companion_of
+            payload["included_in_split_totals"] = self.included_in_split_totals
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +132,7 @@ def build_dataset_integrity_report(
         dataset_dir / "dataset_manifest.json" if manifest_path is None else manifest_path
     )
     payload = _load_manifest(manifest_path)
+    schema_version = _required_text(payload, "schema_version")
     snapshot_id = _required_text(payload, "snapshot_id")
     raw_splits = payload.get("splits")
     if not isinstance(raw_splits, dict) or not raw_splits:
@@ -133,15 +147,28 @@ def build_dataset_integrity_report(
     split_keys: dict[str, set[str]] = {split: set() for split in split_specs}
     split_regions: dict[str, set[_GenomicRegion]] = {split: set() for split in split_specs}
     split_label_counts: dict[str, dict[str, int]] = {split: {} for split in split_specs}
+    file_keys: dict[str, set[str]] = {}
     for index, item in enumerate(raw_files):
         if not isinstance(item, dict):
             raise InputError(
                 "dataset manifest file entries must be objects", details={"index": index}
             )
         file_report, keys, regions = _inspect_file(
-            dataset_dir, item, index=index, splits=frozenset(split_specs)
+            dataset_dir,
+            item,
+            index=index,
+            splits=frozenset(split_specs),
+            schema_version=schema_version,
         )
         files.append(file_report)
+        file_keys[file_report.path] = keys
+        if file_report.included_in_split_totals is False:
+            continue
+        if file_report.split is None or file_report.records is None:
+            raise InputError(
+                "split-contributing dataset files require split and records",
+                details={"path": file_report.path},
+            )
         split_counts[file_report.split] = (
             split_counts.get(file_report.split, 0) + file_report.records
         )
@@ -150,6 +177,9 @@ def build_dataset_integrity_report(
         _merge_counts(
             split_label_counts.setdefault(file_report.split, {}), file_report.label_counts
         )
+
+    if schema_version == ARTIFACT_ROLE_SCHEMA_VERSION:
+        _validate_companion_parity(files, file_keys)
 
     splits: dict[str, dict[str, object]] = {}
     for split, spec in split_specs.items():
@@ -163,7 +193,11 @@ def build_dataset_integrity_report(
         splits[split] = {
             "declared_records": declared,
             "observed_records": observed,
-            "files": [file.path for file in files if file.split == split],
+            "files": [
+                file.path
+                for file in files
+                if file.split == split and file.included_in_split_totals is not False
+            ],
             "comparable_keys": len(split_keys.get(split, set())),
             "genomic_regions": len(split_regions.get(split, set())),
             "label_counts": dict(sorted(split_label_counts.get(split, {}).items())),
@@ -198,7 +232,7 @@ def build_dataset_integrity_report(
             )
 
     return SplitIntegrityReport(
-        schema_version=SCHEMA_VERSION,
+        schema_version=schema_version,
         generated_by=GENERATED_BY,
         snapshot_id=snapshot_id,
         generated_at=_utc_now() if generated_at is None else generated_at,
@@ -269,10 +303,13 @@ def _load_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise InputError("dataset manifest must be a JSON object")
     schema_version = _required_text(payload, "schema_version")
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in {SCHEMA_VERSION, ARTIFACT_ROLE_SCHEMA_VERSION}:
         raise InputError(
             "unsupported dataset manifest schema version",
-            details={"expected": SCHEMA_VERSION, "observed": schema_version},
+            details={
+                "expected": [SCHEMA_VERSION, ARTIFACT_ROLE_SCHEMA_VERSION],
+                "observed": schema_version,
+            },
         )
     return payload
 
@@ -304,12 +341,36 @@ def _inspect_file(
     *,
     index: int,
     splits: frozenset[str],
+    schema_version: str,
 ) -> tuple[IntegrityFile, set[str], set[_GenomicRegion]]:
     relative = _required_text(raw_file, "path", prefix=f"files[{index}].")
-    split = _required_text(raw_file, "split", prefix=f"files[{index}].")
-    if split not in splits:
-        raise InputError(
-            "dataset file split is not declared", details={"path": relative, "split": split}
+    artifact_role = _parse_artifact_role(
+        raw_file,
+        index=index,
+        schema_version=schema_version,
+        path=relative,
+    )
+    if artifact_role == "evidence":
+        forbidden = [key for key in ("split", "records", "companion_of") if key in raw_file]
+        if forbidden:
+            raise InputError(
+                "evidence files forbid split, records, and companion_of",
+                details={"path": relative, "fields": forbidden},
+            )
+        split = None
+        companion_of = None
+    else:
+        split = _required_text(raw_file, "split", prefix=f"files[{index}].")
+        if split not in splits:
+            raise InputError(
+                "dataset file split is not declared",
+                details={"path": relative, "split": split},
+            )
+        companion_of = _companion_of(
+            raw_file,
+            index=index,
+            artifact_role=artifact_role,
+            path=relative,
         )
     path = _safe_relative(dataset_dir, relative)
     if not path.is_file():
@@ -334,8 +395,24 @@ def _inspect_file(
             "dataset file size mismatch",
             details={"path": relative, "expected": size_bytes, "observed": observed_size},
         )
-    observed_records, keys, regions, label_counts = _read_records(path)
+    observed_records: int | None
+    keys: set[str]
+    regions: set[_GenomicRegion]
+    label_counts: dict[str, int]
+    if artifact_role == "evidence":
+        observed_records, keys, regions, label_counts = None, set(), set(), {}
+    else:
+        observed_records, keys, regions, label_counts = _read_records(path)
     declared_records = raw_file.get("records")
+    if (
+        schema_version == ARTIFACT_ROLE_SCHEMA_VERSION
+        and artifact_role != "evidence"
+        and declared_records is None
+    ):
+        raise InputError(
+            f"{artifact_role} files require records",
+            details={"path": relative},
+        )
     if declared_records is not None:
         if (
             isinstance(declared_records, bool)
@@ -357,6 +434,8 @@ def _inspect_file(
         records = declared_records
     elif observed_records is not None:
         records = observed_records
+    elif artifact_role == "evidence":
+        records = None
     else:
         raise InputError(
             "dataset file format is not record-countable; supply files[].records",
@@ -372,10 +451,95 @@ def _inspect_file(
             comparable_keys=len(keys),
             genomic_regions=len(regions),
             label_counts=label_counts,
+            artifact_role=artifact_role,
+            companion_of=companion_of,
+            included_in_split_totals=(
+                None if artifact_role is None else artifact_role == "split_data"
+            ),
         ),
         keys,
         regions,
     )
+
+
+def _parse_artifact_role(
+    raw_file: dict[str, Any],
+    *,
+    index: int,
+    schema_version: str,
+    path: str,
+) -> ArtifactRole | None:
+    if schema_version == SCHEMA_VERSION:
+        forbidden = [key for key in ("artifact_role", "companion_of") if key in raw_file]
+        if forbidden:
+            raise InputError(
+                "schema 1.0.0 forbids artifact_role and companion_of",
+                details={"path": path, "fields": forbidden},
+            )
+        return None
+    raw = _required_text(raw_file, "artifact_role", prefix=f"files[{index}].")
+    if raw not in ARTIFACT_ROLES:
+        raise InputError(
+            "dataset file artifact_role is invalid",
+            details={"path": path, "artifact_role": raw},
+        )
+    if raw == "split_data":
+        return "split_data"
+    if raw == "split_companion":
+        return "split_companion"
+    return "evidence"
+
+
+def _companion_of(
+    raw_file: dict[str, Any],
+    *,
+    index: int,
+    artifact_role: ArtifactRole | None,
+    path: str,
+) -> str | None:
+    if artifact_role == "split_companion":
+        return _required_text(raw_file, "companion_of", prefix=f"files[{index}].")
+    if "companion_of" in raw_file:
+        raise InputError(
+            "only split_companion files may declare companion_of",
+            details={"path": path, "artifact_role": artifact_role},
+        )
+    return None
+
+
+def _validate_companion_parity(
+    files: list[IntegrityFile],
+    file_keys: dict[str, set[str]],
+) -> None:
+    for file in files:
+        if file.artifact_role != "split_companion":
+            continue
+        targets = [
+            target
+            for target in files
+            if target.path == file.companion_of and target.artifact_role == "split_data"
+        ]
+        if len(targets) != 1:
+            raise InputError(
+                "split_companion companion_of must refer to exactly one split_data file",
+                details={"path": file.path, "companion_of": file.companion_of},
+            )
+        target = targets[0]
+        if (file.split, file.records) != (target.split, target.records):
+            raise InputError(
+                "split_companion must match companion_of split and records",
+                details={"path": file.path, "companion_of": target.path},
+            )
+        if file_keys[file.path] != file_keys[target.path]:
+            raise InputError(
+                "split_companion comparable key set mismatch",
+                details={"path": file.path, "companion_of": target.path},
+            )
+        if file.label_counts != target.label_counts:
+            raise InputError(
+                "split_companion label counts mismatch",
+                details={"path": file.path, "companion_of": target.path},
+            )
 
 
 def _read_records(
@@ -734,7 +898,7 @@ def _build_leakage_checks(
             train_regions = split_regions.get(train_split, set())
             eval_regions = split_regions.get(eval_split, set())
             overlap = sorted(train_keys & eval_keys)
-            check_regions = _is_holdout_split(eval_split)
+            check_regions = _requires_region_nonintersection(eval_split)
             region_overlap_count, region_examples = _region_overlap_report(
                 train_regions,
                 eval_regions if check_regions else set(),
@@ -785,8 +949,10 @@ def _build_leakage_checks(
     return tuple(checks)
 
 
-def _is_holdout_split(split: str) -> bool:
-    return "holdout" in split.lower()
+def _requires_region_nonintersection(split: str) -> bool:
+    """Identify chromosome-held roles that require interval-level isolation."""
+    normalized = split.lower()
+    return "holdout" in normalized or normalized in {"validation", "evaluation"}
 
 
 def _leakage_failure_reason(
@@ -850,12 +1016,20 @@ def _require_pyarrow_parquet() -> Any:
 
 def _safe_relative(root: Path, relative: str) -> Path:
     candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts:
+    if candidate.is_absolute() or ".." in candidate.parts or "\\" in relative:
         raise InputError(
             "dataset paths must be relative and stay inside dataset_dir",
             details={"path": relative},
         )
-    return root / candidate
+    resolved = root
+    for part in candidate.parts:
+        resolved /= part
+        if resolved.is_symlink():
+            raise InputError(
+                "dataset paths must not traverse symbolic links",
+                details={"path": relative},
+            )
+    return resolved
 
 
 def _required_text(payload: dict[str, Any], key: str, *, prefix: str = "") -> str:

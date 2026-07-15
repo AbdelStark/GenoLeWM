@@ -39,6 +39,20 @@ def test_ci_build_workflow_checks_sdist_release_assets() -> None:
     assert "python -m build" in text
     assert "twine check dist/*" in text
     assert "python -m tools.release.check_sdist_assets dist/*.tar.gz" in text
+    assert "python -m tests.wheel_membership_smoke prepare" in text
+    assert 'python -I "$GITHUB_WORKSPACE/tests/wheel_membership_smoke.py"' in text
+
+
+def test_ci_build_workflow_smokes_console_scripts_outside_the_checkout() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    smoke_step = text.split("      - name: Smoke install", maxsplit=1)[1].split(
+        "      - name: Upload dist artifacts", maxsplit=1
+    )[0]
+
+    assert 'repo_root="$PWD"' in smoke_step
+    assert 'smoke_dir="$(mktemp -d)"' in smoke_step
+    assert 'cd "$smoke_dir"' in smoke_step
+    assert 'python "$repo_root/tests/wheel_console_scripts_smoke.py"' in smoke_step
 
 
 def test_ci_type_dependencies_are_bounded_to_validated_versions() -> None:
@@ -68,6 +82,51 @@ def test_ci_workflow_runs_dedicated_ml_smoke_gate() -> None:
     assert "pytest tests/ml -q --tb=long --durations=10" in text
     assert "needs: [lint, types, gates, tests, ml-smoke, eval-smoke, build, docs, paper]" in text
     assert "needs.ml-smoke.result != 'success'" in text
+
+
+def test_ci_coverage_scopes_optional_modules_to_supported_matrix_legs() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    pytest_step = text.split("      - name: pytest", maxsplit=1)[1].split(
+        "      - name: Upload pytest output", maxsplit=1
+    )[0]
+    windows_branch, remaining_branches = pytest_step.split("          elif", maxsplit=1)
+    canonical_branch, lean_branch = remaining_branches.split("          else", maxsplit=1)
+
+    assert "--cov-fail-under=0" in windows_branch
+    assert "coverage report --show-missing --fail-under=84" in windows_branch
+    assert (
+        '--omit="*/encoder/cache.py,*/encoder/cache_build.py,*/cli/cache_windows.py,'
+        '*/training/resume.py,*/geno_lewm/_atomic.py,*/training/real.py"' in windows_branch
+    )
+    assert 'matrix.os }}" = "ubuntu-latest"' in canonical_branch
+    assert 'matrix.python }}" = "3.12"' in canonical_branch
+    assert "--cov-report=xml" in canonical_branch
+    assert "--cov-fail-under=0" not in canonical_branch
+    assert "coverage report" not in canonical_branch
+    assert "--cov-fail-under=0" in lean_branch
+    assert "coverage report --show-missing --fail-under=84" in lean_branch
+    assert '--omit="*/training/resume.py"' in lean_branch
+    # The POSIX-only atomic-publication module and the torch-gated production
+    # trainer are Windows-dead, so they are dropped from the Windows aggregate
+    # only. The lean/canonical legs run those paths, so they stay measured there
+    # and enforced by the changed-files coverage gate.
+    assert "_atomic.py" not in lean_branch
+    assert "_atomic.py" not in canonical_branch
+    assert "training/real.py" not in lean_branch
+    assert "training/real.py" not in canonical_branch
+    assert pytest_step.count('tee "$RUNNER_TEMP/pytest.out"') == 3
+    assert "tee pytest.out" not in pytest_step
+
+    changed_files_gate = text.split("      - name: Changed-files coverage gate", maxsplit=1)[
+        1
+    ].split("  ml-smoke:", maxsplit=1)[0]
+    assert "matrix.os == 'ubuntu-latest'" in changed_files_gate
+    assert "--threshold 0.84" in changed_files_gate
+
+    upload_step = text.split("      - name: Upload pytest output", maxsplit=1)[1].split(
+        "      - name: Upload coverage to Codecov", maxsplit=1
+    )[0]
+    assert "path: ${{ runner.temp }}/pytest.out" in upload_step
 
 
 def test_ci_workflow_runs_dedicated_eval_smoke_gate() -> None:

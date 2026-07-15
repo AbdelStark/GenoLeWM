@@ -17,6 +17,28 @@ ROLLOUT_CLAIM_BOUNDARY = (
 )
 
 
+def test_readiness_tool_delegates_installed_metric_requirements() -> None:
+    from geno_lewm import _v02_benchmark_metrics
+
+    assert (
+        v02_benchmark_readiness.BenchmarkRequirement is _v02_benchmark_metrics.BenchmarkRequirement
+    )
+    assert v02_benchmark_readiness.REQUIRED_METRICS is _v02_benchmark_metrics.REQUIRED_METRICS
+    assert v02_benchmark_readiness.VEP_REQUIREMENTS is _v02_benchmark_metrics.VEP_REQUIREMENTS
+    assert (
+        v02_benchmark_readiness.ROLLOUT_FIDELITY_REQUIREMENTS
+        is _v02_benchmark_metrics.ROLLOUT_FIDELITY_REQUIREMENTS
+    )
+    assert (
+        v02_benchmark_readiness.require_v02_vep_benchmark_metrics
+        is _v02_benchmark_metrics.require_v02_vep_benchmark_metrics
+    )
+    assert (
+        v02_benchmark_readiness.require_v02_rollout_benchmark_metrics
+        is _v02_benchmark_metrics.require_v02_rollout_benchmark_metrics
+    )
+
+
 def test_readiness_report_marks_missing_and_failed_rows(tmp_path: Path) -> None:
     metrics = tmp_path / "clinvar_coding.metrics.json"
     rollout = tmp_path / "rollout.ar_speed.json"
