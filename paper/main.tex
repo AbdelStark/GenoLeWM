@@ -114,36 +114,44 @@ discrete genomic edits, and whose latent transitions are cheap enough to score v
 haplotypes, and plan edit sets. That is the promise: one expensive encoder pass per reference
 window, then arbitrarily many cheap latent queries (\cref{fig:architecture}).
 
-This paper measures whether that promise can be kept, on one frozen encoder, and reports that it
-cannot---for a reason more general than any implementation. Our object of study is the
-\emph{edit-response geometry} of \carbon~\citep{carbon500m}: the displacement $\D=\salt-\sref$
-induced in a pooled representation by a single-nucleotide edit. We measure it on $14{,}000$
-GRCh38-grounded variants across four pooling widths, and we ask two questions of it in sequence.
-Does the frozen encoder \emph{register} the edit informatively? And can that registration be
-\emph{predicted} from the pooled reference state and the action?
+This paper measures whether that promise can be kept, and reports that it cannot---for a reason more
+general than any implementation. Our object of study is the \emph{edit-response geometry} of a
+frozen DNA foundation model, principally \carbon~\citep{carbon500m}: the displacement
+$\D=\salt-\sref$ induced in a pooled representation by a single-nucleotide edit. We measure it on
+$14{,}000$ GRCh38-grounded variants across four pooling widths, and we ask three questions of it in
+sequence. Does the frozen encoder \emph{register} the edit informatively? Is that a property of
+genomic foundation models, or of Carbon? And can the registration be \emph{predicted} from the
+pooled reference state and the action?
 
-The answers dissociate, and the dissociation is the result. The edit is registered richly: $\D$
-separates ClinVar pathogenic from benign SNVs at AUROC $0.9259$, and this survives every control we
-could construct---restriction to SNVs, restriction to within a substitution class, and probes that
-see the reference locus but never the edit. But the registration cannot be anticipated. The best
-learned predictor of $\D$ from $(\sref,a)$ recovers AUROC $0.6520$, against a ceiling of $0.9259$
-from reading the encoder's true response, and against $0.6306$ available from the substitution
-class alone with no model at all. Adding the pooled reference state to the action buys
-approximately nothing---and under a linear model it is worse than nothing, scoring $0.5854$ against
-$0.6079$ for a lookup table that ignores the reference state entirely. \textbf{The information
-exists; it is not where a latent world model needs it to be. There is no shortcut through the
-pooled latent: you must run the encoder on the edited sequence.}
+The answers dissociate, and the dissociation is the result. \emph{On Carbon}, the edit is registered
+richly: $\D$ separates ClinVar pathogenic from benign SNVs at AUROC $0.9259$, and this survives
+every control we could construct---restriction to SNVs, restriction to within a substitution class,
+conditioning on the full trinucleotide context, and probes that see the reference locus but never
+the edit. That richness, however, is \emph{Carbon's} and not the field's: run through two encoders
+sharing neither objective nor tokenizer, the identical measurement on the identical variants gives
+$0.7574$ on Nucleotide~Transformer~v2 and $0.5460$---near chance---on HyenaDNA
+(\cref{sec:generality}). And on Carbon, where the response is worth predicting at all, it cannot be
+anticipated. The best learned predictor of $\D$ from $(\sref,a)$ recovers AUROC $0.6520$, against a
+ceiling of $0.9259$ from reading the encoder's true response, and against $0.6306$ available from
+the substitution class alone with no model at all. Adding the pooled reference state to the action
+buys approximately nothing---and under a linear model it is worse than nothing, scoring $0.5854$
+against $0.6079$ for a lookup table that ignores the reference state entirely. \textbf{The
+information exists; it is not where a latent world model needs it to be. There is no shortcut
+through the pooled latent: you must run the encoder on the edited sequence.}
 
-\paragraph{The predict-no-change trap.} A second measurement explains why this failure mode is easy
-to misread, and why we consider the negative result worth reporting rather than quietly abandoning.
-At global pooling, $\cos(\sref,\salt)=0.99989$: the edited state is cosine-indistinguishable from
-the reference to four decimal places. Yet AUROC over those same states is $0.9313$. An objective
-that asks a model to predict $\salt$ from $\sref$---which is what the natural JEPA-style
-formulation asks---is therefore \emph{degenerate}: ``predict no change'' attains the target to
-within $10^{-4}$ while carrying none of the discriminative signal. Dilution of the edit under
-pooling is real and strong ($9.4\times$ in relative displacement), but it is \emph{not} information
-loss. The trap is the metric, not the representation. An experiment that reports a cosine gap under
-this formulation has measured its own objective, not the encoder.
+\paragraph{The predict-no-change trap, which \emph{is} universal.} A second measurement explains why
+this failure mode is easy to misread, and why we consider the negative result worth reporting rather
+than quietly abandoning. At global pooling, $\cos(\sref,\salt)=0.99989$: the edited state is
+cosine-indistinguishable from the reference to four decimal places. Yet AUROC over those same states
+is $0.9313$. An objective that asks a model to predict $\salt$ from $\sref$---which is what the
+natural JEPA-style formulation asks---is therefore \emph{degenerate}: ``predict no change'' attains
+the target to within $10^{-4}$ while carrying none of the discriminative signal. Dilution of the
+edit under pooling is real and strong ($9.4\times$ in relative displacement), but it is \emph{not}
+information loss. The trap is the metric, not the representation. An experiment that reports a
+cosine gap under this formulation has measured its own objective, not the encoder. Unlike the
+informativeness result, this one \emph{does} generalise: across all three encoders and every pooling
+width, $\cos(\sref,\salt)\ge0.993$, reaching $1.00000$ for HyenaDNA at global pooling
+(\cref{sec:generality}). It is a property of pooling a genomic FM, not of Carbon.
 
 \paragraph{This is a measurement paper with a negative headline.} We did not build a working
 genomic world model, and we do not claim one. We report what a frozen encoder's pooled edit
@@ -155,18 +163,24 @@ BRCA2 saturation genome editing), and we report that as a limitation rather than
 
 \paragraph{Contributions.}
 \begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
-\item \textbf{An edit-response spectroscopy of a frozen genomic FM} (\cref{sec:spectroscopy}): the
+\item \textbf{An edit-response spectroscopy of \carbon} (\cref{sec:spectroscopy}): the
 displacement induced by a single-base edit, measured across pooling widths on $14{,}000$
 GRCh38-grounded variants, with the sensitivity ceiling ($\cos=0.99989$ at global pooling) and the
 dissociation between that ceiling and a flat $0.92$--$0.93$ AUROC.
-\item \textbf{A controlled demonstration that the response is interventional}
+\item \textbf{A controlled demonstration that \carbon's response is interventional}
 (\cref{sec:controls}): the signal is not the mutation spectrum ($0.6306$ with no geometry), not the
 exact local sequence context (conditioning on the full trinucleotide context costs $0.0059$ AUROC),
 and not the genomic neighbourhood ($0.6392$ from a reference-only probe, tracked by a
 chromosome-held-out probe at $0.6354$, so not locus leakage).
 \item \textbf{A propagation measurement} (\cref{sec:propagation}): the local and distal components
 of the response point in genuinely different directions ($\cos=0.4714$), so pooling does not merely
-rescale a local token swap; the encoder propagates the edit.
+rescale a local token swap; Carbon propagates the edit.
+\item \textbf{A three-encoder generality test that splits the claim in two} (\cref{sec:generality}):
+the same $12{,}993$ SNVs through Carbon, Nucleotide~Transformer~v2, and HyenaDNA show that the
+predict-no-change trap is \emph{universal} ($\cos\ge0.993$ everywhere), while informativeness is
+\emph{not} ($0.93 \to 0.76 \to 0.55$) and the interventional property is Carbon-specific---on
+Nucleotide~Transformer~v2 at $\pm48$\,bp the unedited window predicts pathogenicity better than the
+edit response does. This is why we scope the interventional claim to Carbon throughout.
 \item \textbf{The core negative result} (\cref{sec:predict}): the pathogenicity-bearing component of
 the edit response is precisely the component that is \emph{not} predictable from the pooled
 reference state plus the action, with the failure worsening as the state is pooled more---as an
@@ -177,10 +191,15 @@ not have worked, and that a correct implementation would have failed too.
 \end{enumerate}
 
 \paragraph{What we do \emph{not} claim.} No clinical, diagnostic, or decision-support claim of any
-kind. No claim that this is a competitive variant-effect predictor. No claim about token-level
-world models, which we did not test. No claim of generality across genomic foundation models: this
-is one encoder, and until it is replicated it is an anecdote about Carbon. We collect these
-boundaries in \cref{sec:limitations}.
+kind. No claim that this is a competitive variant-effect predictor---and, as \cref{sec:loglik}
+shows, our ClinVar slice is an easy one, so the AUROCs here are cohort-dependent and are not
+comparable to published benchmark numbers. No claim about token-level world models, which we did not
+test. No claim that Carbon's informative, interventional edit response generalises to genomic
+foundation models at large: \cref{sec:generality} shows it does not, which is why every
+interventional statement in this paper is scoped to Carbon by name. No claim about encoders larger
+than $500$M or with longer contexts than we tested, and in particular no claim to know whether the
+spread we measure tracks architecture, objective, or capacity. We collect these boundaries in
+\cref{sec:limitations}.
 
 \figArchitecture
 
@@ -229,7 +248,9 @@ and supervised track predictors are a contrast class: they score variants by com
 assay tracks, not by a likelihood or a state displacement. Carbon itself has no archival
 publication; we cite the technical report and pin a model revision (\cref{tab:artifacts}). Every
 one of these papers reports downstream VEP \emph{accuracy}; none characterizes the intrinsic
-displacement geometry of a single edit, which is our object.
+displacement geometry of a single edit, which is our object. We measure that geometry on three of
+these models---Carbon, Nucleotide~Transformer~v2, and HyenaDNA---and one of our findings is that it
+differs sharply between them (\cref{sec:generality}).
 
 \paragraph{Variant-effect prediction: the $\Delta\log$-likelihood and embedding-distance paradigms.}
 ESM-1v~\citep{esm1v2021} established that a frozen LM's log-likelihood ratio predicts mutation
@@ -316,6 +337,48 @@ contributes $899$ pathogenic and $6{,}094$ benign, with $1{,}007$ non-SNV rows e
 Every one of the $12{,}993$ SNVs was checked against the reference FASTA and matched its recorded
 reference base ($12{,}993/12{,}993$).
 
+\subsection{Two further encoders, and the units that make them comparable}
+\label{sec:encoders}
+
+Everything above describes one encoder, and a measurement on one encoder cannot distinguish a
+property of pooled genomic FM states from a property of Carbon. To separate them
+(\cref{sec:generality}) we repeat the identical measurement on two further frozen encoders, chosen
+to share as little as possible with Carbon or with each other:
+\begin{description}[leftmargin=1.2em,itemsep=1pt,topsep=2pt]
+\item[Nucleotide Transformer v2, $100$M multi-species~\citep{nucleotidetransformer2025}:] a
+\emph{masked} language model---a different training objective---with a $6$\,bp tokenizer and
+$d{=}512$.
+\item[HyenaDNA-450k~\citep{hyenadna2023}:] implicit long convolutions rather than attention, and a
+\emph{single-nucleotide} (character) tokenizer, with $d{=}256$.
+\end{description}
+Three objectives, two tokenizations, three widths. Both additional encoders are frozen at load, both
+see the same $12{,}993$ SNVs in the same $4{,}096$\,bp windows at the same four pooling widths---%
+$51{,}972$ rows each, $0$ skips---and both are processed by
+\texttt{tools/research/edit\_response\_analysis.py} \emph{unchanged}, so no cross-encoder difference
+we report can come from the analysis.
+
+\paragraph{Radii are tokens; every comparison is in base pairs.} The pool radius $r$ is counted in
+\emph{tokens}. Carbon and NT-v2 pack $6$\,bp into a token; HyenaDNA packs $1$. Comparing the three
+at equal $r$ would therefore compare a $\pm48$\,bp pool against an $\pm8$\,bp one and call the
+difference an encoder effect. We instead run HyenaDNA at radii $0,48,384,1536$ so that its pooling
+windows match the others' $0,8,64,256$ at $0$ (global), $\pm48$, $\pm384$ and $\pm1536$\,bp, and we
+label every cross-encoder axis, row, and column \textbf{in base pairs}. The distinction is not
+cosmetic: a single base perturbs $1$ of $4{,}097$ character tokens against $1$ of $683$ $6$\,bp
+tokens, which is the mechanism behind the encoder differences in \cref{tab:enctrap}.
+
+\paragraph{A tokenizer hazard worth recording: NT-v2 re-anchors its grid on \texttt{N}.} NT-v2's
+tokenizer packs $6$-mers greedily behind a leading \texttt{<cls>}, which makes the obvious mapping
+from a genomic offset to a token index---$\lfloor \text{locus}/6\rfloor + 1$---look safe. It is not.
+A $6$-mer containing an \texttt{N} is out of vocabulary; the tokenizer degrades to single-nucleotide
+tokens across it and \emph{re-anchors the $6$-mer grid after it}. Any window containing an
+\texttt{N}---and reference windows do---therefore has a token layout that the arithmetic mapping
+silently gets wrong, and the pool is centred on the wrong tokens with no error raised anywhere. Our
+tool instead reconstructs each token's span from the token strings themselves, verifies that the
+reconstructed spans tile the window exactly, and fails closed on any \texttt{<unk>}. We record this
+because the failure is silent and label-independent: it is precisely the class of defect that
+survives review, and it is a close cousin of the pooling-coordinate defect that withdrew our own
+earlier release (\cref{sec:retraction}).
+
 \subsection{Predictability protocol and its baselines}
 \label{sec:predict-protocol}
 The world-model question, correctly posed, is not ``predict $\salt$ from $\sref$''---%
@@ -366,8 +429,12 @@ baselines are not. All predictability numbers are those emitted by
 \texttt{tools/research/delta\_predictability.py}, using the repository's tie-safe AUROC.
 
 % ======================================================================
-\section{Edit-Response Spectroscopy}
+\section{Edit-Response Spectroscopy of \carbon}
 \label{sec:spectroscopy}
+
+This section measures \carbon\ alone; \cref{sec:generality} then asks which of its findings are
+properties of Carbon and which are properties of pooling a genomic FM. The answer is not uniform, so
+we name the encoder rather than the field throughout.
 
 \subsection{The sensitivity ceiling: dilution is real, information loss is not}
 \label{sec:ceiling}
@@ -392,13 +459,19 @@ $0.99989$ is being scored almost entirely on a component of the problem that car
 objective is degenerate by construction. Displacement space is not a stylistic preference here; it
 is the only space in which the question is well posed.
 
+Of everything in this section, this is the finding that generalises: \cref{sec:generality} shows the
+same ceiling on a masked model and on a convolutional, character-level one, with
+$\cos(\sref,\salt)\ge0.993$ at every encoder and every pooling width.
+
 \figSensitivity
 
-\subsection{The response is interventional, not a confound}
+\subsection{\carbon's response is interventional, not a confound}
 \label{sec:controls}
 
 An AUROC of $0.93$ from a frozen encoder invites suspicion, so we tried to break it
-(\cref{tab:controls}, \cref{fig:auroc}).
+(\cref{tab:controls}, \cref{fig:auroc}). Everything in this subsection is a statement about Carbon:
+\cref{sec:generality} shows that the interventional conclusion we reach here is one Carbon earns and
+the other two encoders we measured do not.
 
 \paragraph{Not indels.} The raw cohort was not SNV-only, and indels displace the state far more than
 substitutions in a way that correlates with the pathogenic label---an inflation aligned with the
@@ -448,12 +521,15 @@ tracking the random-fold probe at every radius. There is no same-locus leakage, 
 neighbourhood explains at most $0.64$ of the $0.93$.
 
 What remains, after the spectrum and the neighbourhood are removed and leakage is excluded, is the
-edit itself. The response is \emph{interventional}.
+edit itself. \carbon's response is \emph{interventional}. We are deliberate about the subject of
+that sentence: run the same control on Nucleotide~Transformer~v2 at the same span and it inverts,
+the reference-only probe beating the edit response ($0.7794$ against $0.7496$; \cref{sec:generality}).
+The control is passed by an encoder, not by a field.
 
 \figAUROC
 \tabTrinuc
 
-\subsection{The encoder propagates the edit}
+\subsection{Carbon propagates the edit}
 \label{sec:propagation}
 
 If a single-base edit merely rewrote its own $6$\,bp token, then the displacement at a wide pool
@@ -476,14 +552,106 @@ response.
 \figPropagation
 
 % ======================================================================
+\section{Generality: The Trap Is Universal, the Signal Is Not}
+\label{sec:generality}
+
+Everything in \cref{sec:spectroscopy} is a measurement of one encoder, and two quite different
+claims are entangled in it. One is that a single edit barely moves a pooled genomic state, so any
+absolute-state objective is degenerate---a claim about \emph{pooling}, which ought to hold for any
+encoder. The other is that the displacement is informative and interventional---a claim we have so
+far only licensed for \emph{Carbon}. A paper that leaves these fused generalises an $n{=}1$ result
+by accident. So we ran the identical measurement, on the identical $12{,}993$ SNVs, through two
+encoders that share neither training objective nor tokenizer with Carbon or with each other
+(\cref{sec:encoders}), with the analysis code unchanged. The two claims come apart, and the second
+one does not survive.
+
+\subsection{The sensitivity ceiling replicates everywhere}
+
+\Cref{tab:enctrap} reports the ceiling at bp-matched spans. It holds on all three encoders. The
+lowest state cosine anywhere in the table is Carbon's $0.99352$ at $\pm48$\,bp, and since
+$\pm48$\,bp is the \emph{maximum}-sensitivity span on all three, $\cos(\sref,\salt)\ge0.993$ at every
+encoder and every pooling width. Under global pooling the edit is invisible to four decimal places
+on Carbon ($0.99989$) and on NT-v2 ($0.99998$), and to five on HyenaDNA, whose cosine is
+$1.00000$. The dilution curve has the same shape everywhere: sensitivity is highest at the narrowest
+pool and falls as the pool widens ($\mathrm{rel}\D$ of $0.0759 \to 0.0083$ on Carbon,
+$0.0889\to0.0050$ on NT-v2, $0.0130\to0.0008$ on HyenaDNA).
+
+HyenaDNA is the extreme case, and the instructive one: its response is the smallest by roughly an
+order of magnitude ($\mathrm{rel}\D = 0.0008$ globally against Carbon's $0.0083$; $0.0130$ against $0.0759$
+at $\pm48$\,bp). Character tokenization predicts exactly this: a single base perturbs $1$ of
+$4{,}097$ tokens rather than $1$ of $683$.
+
+\textbf{This strengthens the paper's first claim rather than qualifying it.} The predict-no-change
+trap is not an artifact of Carbon's tokenizer, its autoregressive objective, or its width. Across an
+autoregressive model, a masked model, and a convolutional one, an objective that scores a predicted
+edited state against the true one by cosine is being scored on a target the identity function
+already attains to at least three decimal places. Anyone building an action-conditioned latent
+predictor over pooled DNA-LM features will hit this, whichever encoder they pick.
+
+\tabEncoderTrap
+
+\subsection{Informativeness does not replicate, and the interventional property is Carbon's}
+
+The second claim fails, and it fails in a graded way (\cref{tab:encoders}, \cref{fig:encoders}). The
+same $\lVert\D\rVert$, on the same variants, from the same code, separates ClinVar pathogenic from
+benign at $0.9313$ on Carbon, $0.7574$ on NT-v2, and $0.5460$---near chance---on HyenaDNA, under
+global pooling; the ordering is stable across spans. Whether a frozen genomic FM's pooled state
+registers a point edit \emph{usefully} is therefore not a property of genomic FMs. It is a property
+of the encoder.
+
+The sharper version concerns the control that \cref{sec:controls} rests on. The fair test of whether
+the \emph{edit} beats the \emph{neighbourhood} is a supervised probe on $\D$ against the same
+supervised probe on $\sref$, which never observes the edit; we write the difference $\D$~adds.
+Carbon clears it at every span, by $+0.1346$ at $\pm48$\,bp, $+0.2967$ at $\pm1536$\,bp, and
+$+0.3075$ globally. HyenaDNA adds $+0.0229$ to $+0.0303$---nothing, and from a base of chance.
+NT-v2 adds $+0.1296$ and $+0.1326$ at the two wide spans but $\mathbf{-0.0298}$ at $\pm48$\,bp,
+where its \emph{unedited} window ($0.7794$) predicts pathogenicity better than its edit response
+does ($0.7496$). At that span, on that encoder, the interventional reading of \cref{sec:controls}
+would be simply false: the probe is reading the locus, not the edit.
+
+The three encoders are mechanistically consistent with one another. HyenaDNA's response at
+$\pm48$\,bp is about $6\times$ smaller than Carbon's ($\mathrm{rel}\D$ $0.0130$ vs.\ $0.0759$) and
+its AUROC is about chance. A weaker registered response carries a weaker signal, which is what one
+would expect and is worth stating because it makes the spread legible rather than mysterious. The
+BRCA2 transfer orders the same way, and is weak for both encoders that we measured on it: Spearman
+$-0.265$ for Carbon against $-0.186$ for NT-v2.
+
+\figEncoders
+\tabEncoders
+
+\subsection{What this licenses, and what it does not}
+
+The claim we set out to make---\emph{frozen genomic FMs register point edits informatively}---is
+false as stated, and \cref{tab:encoders} is what stopped us from publishing it. The claim we can
+support is narrower and, we think, more useful:
+
+\begin{quote}
+Whether a frozen genomic FM's pooled state usefully registers a point edit is an
+\textbf{encoder-specific} property. The predict-no-change trap, by contrast, is \textbf{universal}.
+And even for the best of the three encoders, the response still cannot be anticipated from the
+pooled state (\cref{sec:predict}).
+\end{quote}
+
+Two boundaries on this. First, we do not know \emph{what} the spread tracks. All three encoders are
+at most $500$M parameters, and objective, tokenizer, width, context length, and training data all
+vary together across them; a three-point comparison cannot attribute the $0.93$-to-$0.55$ range to
+architecture rather than capacity, or to either rather than pretraining corpus. Second, and for the
+same reason, nothing here predicts how a larger or longer-context model would behave. Carbon is the
+existence proof that an informative interventional pooled edit response is \emph{possible}; it is
+not evidence that it is typical. We take the honest reading to be that a group planning to build on
+this geometry must measure it on their own encoder first, because the measurement is cheap and the
+outcome is not predictable from architecture on the evidence we have.
+
+% ======================================================================
 \section{Predictability: The Core Negative Result}
 \label{sec:predict}
 
-The encoder registers the edit (\cref{sec:spectroscopy}). A world model does not need the encoder to
-register the edit; it needs to \emph{anticipate} that registration from the reference state and the
-action, because anticipating it is the only thing that saves the encoder pass. We now test that,
-under the protocol of \cref{sec:predict-protocol}, at radius~$8$---the most favourable setting
-available.
+Carbon registers the edit (\cref{sec:spectroscopy}), and of the three encoders we measured it is the
+only one whose registration is worth anticipating at all (\cref{sec:generality}). A world model does
+not need the encoder to register the edit; it needs to \emph{anticipate} that registration from the
+reference state and the action, because anticipating it is the only thing that saves the encoder
+pass. We now test that on Carbon---the best case available to us---under the protocol of
+\cref{sec:predict-protocol}, at radius~$8$, the most favourable pooling width.
 
 \Cref{tab:predict} and \cref{fig:predict} report the result. Reading the encoder's true response
 gives AUROC $0.9259$. The best learned predictor of that response, an MLP on $(\sref,a)$ trained
@@ -523,10 +691,14 @@ immediate surround---that determines the response.
 
 \paragraph{The conclusion, stated plainly.} The pathogenicity signal in the edit response is exactly
 the part that is not predictable from the pooled reference state plus the action. A latent world
-model over pooled frozen genomic FM states cannot recover it---not because the predictor is too
-small or the optimizer too weak, but because the conditioning information is not in $\sref$. The
-efficiency thesis fails at its premise. \textbf{There is no shortcut through the pooled latent: you
-must run the encoder on the edited sequence.}
+model over Carbon's pooled states cannot recover it---not because the predictor is too small or the
+optimizer too weak, but because the conditioning information is not in $\sref$. The efficiency
+thesis fails at its premise. And it fails in the most favourable case we could construct: Carbon is
+the one encoder of the three whose edit response is informative enough to be worth anticipating
+(\cref{sec:generality}), so it is the one with the most to lose here. We tested predictability only
+on Carbon, and we do not extrapolate the negative to encoders we did not test---but an encoder whose
+response is uninformative offers a world model less to predict, not more. \textbf{There is no
+shortcut through the pooled latent: you must run the encoder on the edited sequence.}
 
 \figPredict
 \tabControls
@@ -557,21 +729,73 @@ geometry measurement is good for.
 
 \tabScope
 
-\subsection{Relation to the model's own likelihood}
+\subsection{Relation to the model's own likelihood, and the difficulty of our cohort}
 \label{sec:loglik}
 
-% TODO(claude): dLogLik baselines -- NOT WRITTEN, per instruction. R5
-% (job 6a573d8485d9643ce16d38c2, Carbon delta-logLik on the same 12,993 SNVs)
-% had not landed at the time of writing, and its outcome decides the novelty
-% framing:
-%   * If |Delta| is largely ORTHOGONAL to dLogLik, the geometry carries signal
-%     the likelihood does not, and the measurement is independently useful.
-%   * If |Delta| ~ dLogLik, this is a unification: embedding displacement
-%     restates likelihood surprise. Still a real and honest finding, but the
-%     framing must change accordingly.
-% Either way this section must report: AUROC(dLogLik), Spearman(|Delta|, dLogLik),
-% and the ensemble. The abstract is gated on this. Author to write.
-\textsc{[Section pending: experiment R5.]}
+An AUROC of $0.92$ from a frozen encoder's displacement geometry is \emph{higher} than the
+$0.6$--$0.8$ typically reported for zero-shot $\Delta\log$-likelihood variant scoring with DNA
+language models~\citep{gpn2023,evo2024,esm1v2021}. A referee should not accept that at face value,
+and neither should we. There are two readings. Either our ClinVar slice is unusually easy, or
+embedding displacement genuinely beats likelihood surprise on this task. The measurement that
+discriminates between them is Carbon's own $\Delta\log$-likelihood scored on the \emph{same}
+variants: it is the standard score behind those published numbers, so it doubles as a
+\emph{difficulty calibration} of our cohort. We report it at radius $8$, joined to the geometry on
+$(\text{chrom},\text{pos},\text{ref},\text{alt})$, on $n{=}6{,}981$ ClinVar SNVs ($893$ pathogenic),
+in \cref{tab:scope}.
+
+Both readings turn out to be partly right, and we state each plainly because they are easy to
+mistake for a contradiction. They are not: the first is about our \emph{cohort}, the second about
+our \emph{quantity}.
+
+\paragraph{(a) Our cohort is easy, and every AUROC in this paper is cohort-dependent.}
+$-\Delta\log$-likelihood reaches AUROC $0.8945$ on this slice. That is far above what the same score
+attains in the published zero-shot DNA-LM literature, and it is a fact about our data rather than
+our method. \textbf{Our ClinVar slice is easy, and that---not a superior score---is the reason our
+raw AUROC exceeds the literature's.} ClinVar ascertainment is the obvious mechanism
+(\cref{sec:limitations}): the record contains what clinicians confidently called, so its positives
+and negatives are drawn from the tails. We therefore report $0.9255$ as a cohort-dependent
+measurement and explicitly \emph{not} as an absolute win over likelihood scoring; nothing here
+licenses a claim that this geometry is a better variant-effect predictor than
+$\Delta\log$-likelihood on any cohort but ours, and the weak BRCA2 transfer (\cref{sec:brca2})
+points the same way.
+
+\paragraph{(b) But on identical variants the geometry carries orthogonal signal.} Calibration is not
+the whole story, because the two scores are computed on the same $6{,}981$ variants and they do not
+agree with each other. $\lVert\D\rVert$ scores $0.9255$ against the likelihood's $0.8945$. They are
+only weakly correlated: Spearman$(\lVert\D\rVert,\Delta\log\mathrm{Lik}) = -0.2391$. Residualising
+$\lVert\D\rVert$ on $\Delta\log$-likelihood in rank space---deleting everything the likelihood
+explains---still leaves AUROC $0.8529$. And a rank ensemble of the two reaches $0.9482$, above
+either alone, which is the signature of two partly independent measurements rather than one measured
+twice. The pattern survives the trinucleotide stratification of \cref{sec:controls}: within context,
+$\lVert\D\rVert$ scores $0.9302$ against the likelihood's $0.9007$ ($n{=}5{,}021$, $64$ contexts).
+On BRCA2 the two separate further: Spearman with the functional score is $-0.2649$ for
+$\lVert\D\rVert$ against $+0.1124$ for $\Delta\log$-likelihood. Both are weak---this is the section
+that says so---but the likelihood carries almost nothing there.
+
+The consequence is a scoping claim, not a performance claim. \textbf{$\lVert\D\rVert$ is not a
+restatement of likelihood surprise.} A frozen encoder's pooled displacement and its next-token
+distribution register overlapping but distinct things about the same edit, which is why the
+embedding-distance paradigm~\citep{bend2024} is not simply a noisy proxy for the
+$\Delta\log$-likelihood paradigm~\citep{esm1v2021,gpn2023,evo2024}, and why the geometry was worth
+dissecting rather than replacing with a likelihood. It is also why \cref{sec:predict} is
+ceiling-relative and untouched by any of this: whatever $\lVert\D\rVert$ measures, and however easy
+the cohort, the part of it that carries the label is the part a world model cannot anticipate.
+
+\paragraph{A numerical hazard we walked into, and that others will.} Our first attempt at this
+measurement was invalid, and the failure mode is worth a paragraph because it is silent and the
+quantity is a standard one. Computed in \texttt{bf16}---the precision at which every other
+measurement in this paper runs---$90.7\%$ of the $\Delta\log$-likelihoods came back \emph{exactly}
+zero, and the survivors took only $18$ distinct values, every one a multiple of $16$. Nothing was
+wrong with the model, the data, or the code. A $4{,}096$\,bp window's log-likelihood has magnitude
+$\approx5{,}000$, and the spacing between adjacent representable \texttt{bf16} values at that
+magnitude \emph{is} $16$: a single-base edit changes the window log-likelihood by far less than one
+unit in the last place, so the difference is annihilated before it can be formed. The reported run
+is \texttt{fp32}, on which the same pipeline yields $0$ exact zeros, $9{,}115$ distinct values, and
+a range of $-486.0$ to $+36.3$. \textbf{Do not accumulate or difference log-likelihoods in
+\texttt{bf16}.} We cite no number from the \texttt{bf16} run anywhere in this paper. The general
+lesson is cheap to apply: before interpreting any distribution of differences, count its exact zeros
+and its distinct values---a large mass of exact zeros over a small set of evenly spaced levels is a
+float artifact, not a finding.
 
 % ======================================================================
 \section{Why the Released Run Failed, and Why a Correct One Would Have Too}
@@ -643,16 +867,19 @@ correctly-posed displacement objective---which is what \cref{sec:predict} does, 
 implementation on clean data---the best predictor of $\D$ from $(\sref,a)$ recovers $0.6520$ of the
 $0.9259$ available, barely above the $0.6306$ that requires no model at all. The pooled state is an
 information bottleneck that discards precisely the local sequence context determining the edit
-response. This is a property of pooled frozen genomic FM features, not of our optimizer, our
-architecture, or our bugs. It would have been true of a bug-free implementation. It would have been
-true of a better-designed one.
+response. This is a property of Carbon's pooled frozen features---the very features that release was
+built on---and not of our optimizer, our architecture, or our bugs. It would have been true of a
+bug-free implementation. It would have been true of a better-designed one.
 
 This is why we consider the reframe honest rather than convenient. A retraction that says ``we had
 bugs'' generalises to nobody. The measurement says something stronger and more useful: this
-architecture---an action-conditioned latent world model over pooled frozen genomic FM
-states---cannot deliver its premise, and the reason is information-theoretic rather than
-engineering. That converts a local embarrassment into a result other groups can act on, and it is
-the reading the data supports.
+architecture---an action-conditioned latent world model over the pooled frozen states this release
+was built on---cannot deliver its premise, and the reason is information-theoretic rather than
+engineering. Two of its components generalise beyond Carbon and one does not, and we are careful
+about which: the degenerate cosine objective is a trap on every encoder we measured
+(\cref{sec:generality}), whereas the claim that there was a rich response to anticipate in the first
+place is one only Carbon earns. That converts a local embarrassment into a result other groups can
+act on, and it is the reading the data supports.
 
 \tabVEP
 \tabRollout
@@ -670,11 +897,23 @@ model is impossible, and nothing here argues that it is. A predictor operating o
 hidden-state sequence retains the local context that pooling discards, and is the natural follow-up.
 Our result draws a boundary; it does not close the area behind it.
 
-\paragraph{One encoder.} Every number in this paper comes from \carbon at one revision, one layer,
-and one window length. Generality across genomic foundation models is untested. \textbf{A
-single-model result is an anecdote about Carbon until it is replicated}, and we ask readers to hold
-it at exactly that strength. Whether masked models, longer-context models, or single-nucleotide
-tokenizers show the same bottleneck is an open question our design cannot answer.
+\paragraph{Three encoders, none larger than $500$M.} An earlier draft of this paper carried a
+limitation headed ``one encoder'', conceding that a single-model result was an anecdote about Carbon
+until replicated. \Cref{sec:generality} replaced that concession with a measurement, and the
+measurement changed the claim rather than confirming it: the predict-no-change trap replicated on
+all three encoders, and the informative, interventional edit response did not replicate on either of
+the other two. What was a caveat is now a result, and the paper is scoped accordingly---Carbon by
+name wherever the response is called interventional.
+
+What remains untested is the direction the replication did \emph{not} go. All three encoders are at
+most $500$M parameters and share our $4{,}096$\,bp window, so we cannot say whether a larger or
+longer-context model behaves like Carbon or like HyenaDNA. Nor can a three-point comparison
+attribute the $0.9313$-to-$0.5460$ spread to any single cause: objective, tokenizer, width, context
+length, and pretraining corpus all covary across these models, so the spread may track capacity or
+training objective rather than architecture as such. \textbf{We do not claim to know which}, and a
+reader who wants an answer should measure their own encoder rather than interpolate ours. Carbon is
+additionally held at one revision, one layer, and one window length; that much of the original
+limitation stands.
 
 \paragraph{The action space is $12$ substitution classes.} Because every variant sits at the window
 centre by construction, position carries no information and the action reduces to which base changed
@@ -691,10 +930,16 @@ $\pm2$\,bp ($5$-mer) stratification, is too sparse to be powered at $899$ pathog
 we do not report an underpowered version of it. The trinucleotide result therefore bounds the
 $k$-mer explanation without eliminating it.
 
-\paragraph{ClinVar ascertainment bias.} ClinVar records what was confidently classified, which
-biases it toward clear-cut variants at the tails of the effect distribution. AUROC $0.9259$ should
-be read as separation of curated extremes, not as accuracy on the variants that are clinically
-difficult---which are exactly the ones anybody needs help with.
+\paragraph{ClinVar ascertainment bias, and it is measured, not merely suspected.} ClinVar records
+what was confidently classified, which biases it toward clear-cut variants at the tails of the
+effect distribution. We can put a number on how much this flatters us: Carbon's own
+$\Delta\log$-likelihood, the standard zero-shot DNA-LM variant score, reaches AUROC $0.8945$ on our
+slice against the $0.6$--$0.8$ it attains in the published literature (\cref{sec:loglik}). \textbf{Our
+slice is easy}, and that---not the merit of the geometry---is why our raw AUROCs exceed the
+literature's. AUROC $0.9259$ should be read as separation of curated extremes on a favourable
+cohort, not as accuracy on the variants that are clinically difficult, which are exactly the ones
+anybody needs help with. Every AUROC in this paper is cohort-dependent and none of them are
+comparable to a benchmark number.
 
 \paragraph{BRCA2 is one gene.} The quantitative-function evaluation ($\rho=-0.265$) covers a single
 gene's exons in a fixed context, from a single assay. It bounds the claim in the direction of
@@ -712,30 +957,44 @@ inform any decision about any person.
 \section{Conclusion}
 \label{sec:conclusion}
 
-We measured the edit-response geometry of a frozen genomic foundation model and found a clean
+We measured the edit-response geometry of frozen genomic foundation models and found a clean
 dissociation. \carbon \emph{registers} a single-base edit richly: the pooled displacement separates
 ClinVar pathogenic from benign SNVs at AUROC $0.9259$, and it does so interventionally---not via the
 mutation spectrum ($0.6306$ with no geometry), not via the exact local sequence context
 (conditioning on the full trinucleotide context costs $0.0059$), not via the genomic neighbourhood
 ($0.6392$ from a probe that never sees the edit, with no locus leakage), and not via a local token
-swap (distal and local response directions agree at only $\cos=0.4714$). The encoder propagates the edit through
-attention, and the signal survives at every pooling width, even where the edit is cosine-invisible
-($0.99989$).
+swap (distal and local response directions agree at only $\cos=0.4714$). Carbon propagates the edit
+through attention, and the signal survives at every pooling width, even where the edit is
+cosine-invisible ($0.99989$). It is not a restatement of the model's own likelihood either: on
+identical variants it beats $\Delta\log$-likelihood ($0.9255$ vs.\ $0.8945$), correlates with it at
+only $\rho=-0.2391$, and survives residualising it out ($0.8529$). The AUROCs are cohort-dependent
+and the cohort is easy---the likelihood's $0.8945$ says so---so none of this is a variant-effect
+claim.
 
-But that registration cannot be \emph{anticipated}. The best learned predictor of the response from
-the pooled reference state plus the action recovers AUROC $0.6520$ of the $0.9259$ available,
-against $0.6306$ free from the substitution class alone. The reference state buys almost nothing,
-and a linear model conditioned on it does worse ($0.5854$) than a lookup table that ignores it
-($0.6079$); predictability degrades toward chance as pooling widens while the ceiling stays flat.
-The pathogenicity-bearing component of the edit response is exactly the unpredictable one.
+Two of those sentences have Carbon as their subject on purpose. Run through two encoders sharing
+neither objective nor tokenizer, the same measurement on the same variants gives $0.7574$ and
+$0.5460$, the latter near chance, and Nucleotide~Transformer~v2's edit response is beaten at
+$\pm48$\,bp by a probe on its own unedited window. Whether a frozen genomic FM's pooled state
+usefully registers a point edit is an \emph{encoder-specific} property. The predict-no-change trap
+is not: $\cos(\sref,\salt)\ge0.993$ on all three encoders at every pooling width, reaching
+$1.00000$. The trap is what generalises; the signal is what does not.
+
+And on Carbon, where the response is worth anticipating, it cannot be \emph{anticipated}. The best
+learned predictor of the response from the pooled reference state plus the action recovers AUROC
+$0.6520$ of the $0.9259$ available, against $0.6306$ free from the substitution class alone. The
+reference state buys almost nothing, and a linear model conditioned on it does worse ($0.5854$) than
+a lookup table that ignores it ($0.6079$); predictability degrades toward chance as pooling widens
+while the ceiling stays flat. The pathogenicity-bearing component of the edit response is exactly
+the unpredictable one.
 
 The consequence for the architecture we set out to build is unambiguous, and negative. An
-action-conditioned latent world model over pooled frozen genomic FM features cannot deliver its
-premise, because the premise is that you can skip the encoder pass on the edited sequence, and the
-encoder pass is where the signal is created. Our own withdrawn \texttt{v0.2.1-r1} run had genuine
-implementation defects, but the defects were not the reason it failed; a correct implementation
-would have failed too, and now we can say why. The information exists. It is not where a latent
-world model needs it to be. \textbf{There is no shortcut through the pooled latent.}
+action-conditioned latent world model over Carbon's pooled features cannot deliver its premise,
+because the premise is that you can skip the encoder pass on the edited sequence, and the encoder
+pass is where the signal is created---and Carbon is the most favourable of the three encoders we
+measured. Our own withdrawn \texttt{v0.2.1-r1} run had genuine implementation defects, but the
+defects were not the reason it failed; a correct implementation would have failed too, and now we
+can say why. The information exists. It is not where a latent world model needs it to be.
+\textbf{There is no shortcut through the pooled latent.}
 
 \section*{Acknowledgments}
 We thank the maintainers of the open genomic-modeling and self-supervised-learning ecosystems whose
@@ -761,7 +1020,11 @@ $\enc(\cdot)$ & \carbon (rev.\ \texttt{5d31d59b}), layer $20$, mean pool at radi
 $\sref,\salt$ & pooled reference / edited state, $\Real^{1024}$ \\
 $\D=\salt-\sref$ & the edit response (displacement); the object of study \\
 $\mathrm{rel}\D$ & $\lVert\D\rVert_2/\lVert\sref\rVert_2$, relative displacement \\
-$r$ & pool radius in tokens; $6$\,bp per token, so $r{=}8,64,256 \equiv \pm48,\pm384,\pm1536$\,bp \\
+$r$ & pool radius \textbf{in tokens}; $6$\,bp per Carbon token, so $r{=}8,64,256 \equiv
+\pm48,\pm384,\pm1536$\,bp. \\
+& HyenaDNA is $1$\,bp per token and is run at $r{=}48,384,1536$ to match in bp
+(\cref{sec:encoders}). \\
+& All cross-encoder comparisons are reported in base pairs, never in $r$. \\
 $r{=}0$ & global-mean pooling over the whole window (the \emph{widest} setting) \\
 $a$ & the action: one of $12$ substitution classes \\
 $\gpred(\sref,a)\to\Dhat$ & the predictor under test; the ``shortcut'' \\

@@ -16,6 +16,10 @@
 \definecolor{actfill}{HTML}{FBE9E6}
 \definecolor{ceilingcolor}{HTML}{3E7D4F}
 \definecolor{probecolor}{HTML}{7B5EA7}
+% Per-encoder colours for the three-encoder comparison (Fig. 6). Carbon reuses
+% genocolor so that it reads as the same object throughout the paper.
+\definecolor{ntcolor}{HTML}{C77B1B}
+\definecolor{hycolor}{HTML}{7B5EA7}
 
 % Shared x-axis for the pooling-radius sweep. The grid is ordered by pooling
 % WIDTH, not by the nominal radius integer: r=0 denotes global-mean pooling
@@ -322,4 +326,104 @@
   AUROC is flat in \cref{fig:auroc} while direction is not conserved. Histogram over all
   $14{,}000$ variants; the quoted statistics are the verified subsample values.}
   \label{fig:propagation}
+\end{figure}}
+
+% ----------------------------------------------------------------------
+% Figure 6: the three-encoder comparison (R6).
+% Values: R6b table (jobs 6a57474485d9643ce16d3a4a / 6a57474485d9643ce16d3a4c;
+% data r6-nt-v2-693571d / r6-hyenadna-693571d), plus the Carbon rows of the
+% verified R1 tables.
+%
+% UNITS. The x axis is in BASE PAIRS, never in raw pool radius. Radius is
+% defined in TOKENS; Carbon and NT-v2 pack 6 bp per token and HyenaDNA 1, so
+% HyenaDNA was run at radii 0/48/384/1536 to bp-match the others' 0/8/64/256.
+% Plotting against radius would compare a +-48 bp pool to an +-8 bp pool.
+%
+% Only three of the four bp-matched spans appear: R6b reports global, +-48 bp
+% and +-1536 bp. The +-384 bp span is NOT reported there, so it is not plotted
+% and not interpolated.
+% ----------------------------------------------------------------------
+\pgfplotsset{bpaxis/.style={
+  symbolic x coords={b48,b1536,bG},
+  xtick={b48,b1536,bG},
+  xticklabels={%
+    {$\pm48$\,bp},%
+    {$\pm1536$\,bp},%
+    {global\\$4{,}096$\,bp}},
+  xticklabel style={align=center,font=\footnotesize},
+  xlabel={pooling window, \textbf{in base pairs} (narrow $\rightarrow$ wide)},
+  xlabel style={font=\footnotesize},
+  enlarge x limits=0.22,
+  ymajorgrids, grid style=dotted,
+}}
+
+\newcommand{\figEncoders}{%
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}
+  \begin{axis}[
+    width=0.86\linewidth, height=5.4cm,
+    bpaxis,
+    title={\small\textbf{(a)} is the response \emph{informative}? \quad AUROC$(\lVert\Delta\rVert)$},
+    ylabel={ClinVar AUROC},
+    ylabel style={font=\small}, yticklabel style={font=\footnotesize},
+    ymin=0.45, ymax=1.0,
+    legend style={font=\scriptsize,draw=black!30,at={(0.5,-0.40)},anchor=north,legend columns=3},
+  ]
+  \addplot[genocolor,very thick,mark=*] coordinates {(b48,0.9259) (b1536,0.9313) (bG,0.9313)};
+  \addlegendentry{Carbon-500M}
+  \addplot[ntcolor,very thick,mark=square*] coordinates {(b48,0.7616) (b1536,0.7590) (bG,0.7574)};
+  \addlegendentry{NT-v2-100M}
+  \addplot[hycolor,very thick,mark=triangle*] coordinates {(b48,0.5676) (b1536,0.5460) (bG,0.5460)};
+  \addlegendentry{HyenaDNA-450k}
+  \draw[baselinecolor,thick,dash dot]
+    ({rel axis cs:0,0}|-{axis cs:b48,0.5}) -- ({rel axis cs:1,0}|-{axis cs:bG,0.5});
+  \node[baselinecolor,font=\scriptsize,anchor=south east] at (axis cs:bG,0.5) {chance};
+  \end{axis}
+  \end{tikzpicture}
+
+  \vspace{4pt}
+
+  \begin{tikzpicture}
+  \begin{axis}[
+    width=0.86\linewidth, height=5.0cm,
+    bpaxis,
+    title={\small\textbf{(b)} is it \emph{interventional}? \quad probe on $\Delta$ $-$ probe on $s_{\mathrm{ref}}$},
+    ylabel={AUROC the edit adds},
+    ylabel style={font=\small},
+    yticklabel style={font=\footnotesize,/pgf/number format/.cd,fixed,zerofill,precision=2},
+    % ymin must leave room BELOW the NT-v2 marker at -0.0298 for the two-line
+    % annotation anchored there, or pgfplots clips it at the axis boundary.
+    ymin=-0.15, ymax=0.38,
+    ytick={-0.1,0,0.1,0.2,0.3},
+  ]
+  \addplot[genocolor,very thick,mark=*] coordinates {(b48,0.1346) (b1536,0.2967) (bG,0.3075)};
+  \addplot[ntcolor,very thick,mark=square*] coordinates {(b48,-0.0298) (b1536,0.1326) (bG,0.1296)};
+  \addplot[hycolor,very thick,mark=triangle*] coordinates {(b48,0.0229) (b1536,0.0269) (bG,0.0303)};
+  \draw[baselinecolor,thick,dash dot]
+    ({rel axis cs:0,0}|-{axis cs:b48,0}) -- ({rel axis cs:1,0}|-{axis cs:bG,0});
+  \node[carboncolor,font=\scriptsize,anchor=north west,align=left,inner sep=3pt]
+    at (axis cs:b48,-0.0298) {NT-v2 at $\pm48$\,bp: the \emph{unedited}\\window predicts better};
+  \end{axis}
+  \end{tikzpicture}
+  \caption{\textbf{The predict-no-change trap is a property of pooled genomic FM latents; the
+  informative, interventional edit response is a property of \emph{Carbon}.} The identical
+  measurement, on the identical $12{,}993$ SNVs, through three frozen encoders sharing neither
+  training objective nor tokenizer (\cref{tab:enctrap}, \cref{tab:encoders}). \textbf{(a)}~AUROC of
+  $\lVert\Delta\rVert$ for ClinVar pathogenic vs.\ benign. What is flat at $0.92$--$0.93$ on Carbon
+  is $0.76$ on Nucleotide~Transformer~v2 and $0.55$---near chance---on HyenaDNA. Informativeness
+  does not replicate. \textbf{(b)}~The fair interventional test: a supervised $5$-fold probe on the
+  displacement $\Delta$ minus the same probe on the reference state $s_{\mathrm{ref}}$, which never
+  observes the edit. Above zero, the edit tells you something the neighbourhood does not. Carbon
+  clears it by $+0.13$ to $+0.31$ at every span; HyenaDNA by $\approx+0.02$, from a base of chance;
+  and Nucleotide~Transformer~v2 goes \emph{negative} at $\pm48$\,bp ($-0.0298$), where its unedited
+  window is the better predictor of the two. Not shown here, because it does not vary across the
+  three: $\cos(s_{\mathrm{ref}},s_{\mathrm{alt}}) \ge 0.993$ everywhere, reaching $1.00000$ for
+  HyenaDNA under global pooling (\cref{tab:enctrap}). \emph{Units:} the $x$ axis is base pairs, not
+  pool radius. Radius is counted in tokens, and Carbon and NT-v2 pack $6$\,bp per token against
+  HyenaDNA's $1$, so HyenaDNA is run at radii $0/48/384/1536$ to match the others' $0/8/64/256$
+  (\cref{sec:encoders}); comparing at equal radius would compare an $\pm8$\,bp pool with a
+  $\pm48$\,bp one. The $\pm384$\,bp span is omitted because the probe comparison is not reported at
+  that span.}
+  \label{fig:encoders}
 \end{figure}}

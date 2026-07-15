@@ -12,6 +12,17 @@
 %    intercept (the prototype standardised a constant column, zeroing it), and
 %    AUROC now averages tied ranks (which moves only the tie-heavy model-free
 %    baselines, not the MLP-MSE headline).
+%  * tabScope lower block: R5, the fp32 delta-logLik run
+%    (job 6a5744c2b1669a49bf073b77, run r5-delta-loglik-fp32-edd9b5a). The
+%    earlier bf16 run r5-delta-loglik-82eb3c2 is INVALID (90.7% exact zeros over
+%    18 distinct values) and NONE of its numbers appear in this paper.
+%  * tabEncoderTrap, tabEncoders: R6 (jobs 6a57474485d9643ce16d3a4a nt-v2 and
+%    6a57474485d9643ce16d3a4c hyenadna; data r6-nt-v2-693571d and
+%    r6-hyenadna-693571d). Same 12,993 SNVs x 4 radii = 51,972 rows each, 0
+%    skips, tools/research/edit_response_analysis.py run UNCHANGED on both.
+%    ALL SPANS ARE BP-MATCHED: radius is in TOKENS, and HyenaDNA is 1 bp/token
+%    against Carbon's and NT-v2's 6, so it was run at radii 0/48/384/1536.
+%    Never tabulate raw radius across encoders.
 %  * tabVEP, tabRollout: HISTORICAL v0.2.1-r1 measurements, retained verbatim
 %    from the withdrawn release for auditability. They are NOT findings.
 %  * tabArtifacts: identity/provenance of both lineages.
@@ -139,10 +150,17 @@
 \newcommand{\tabScope}{%
 \begin{table}[t]
   \centering
-  \caption{\textbf{Scope of the measurement beyond curated binary labels.} The BRCA2 rows are the
-  honest limit of the result: strong separation of curated pathogenic/benign extremes does
-  \emph{not} transfer to a quantitative functional score within a single gene. This is not a
-  competitive variant-effect-prediction method and we do not present it as one
+  \caption{\textbf{Scope of the measurement beyond curated binary labels, and its relation to
+  Carbon's own likelihood.} The BRCA2 rows are the honest limit of the result: strong separation of
+  curated pathogenic/benign extremes does \emph{not} transfer to a quantitative functional score
+  within a single gene. The lower block does two jobs at once (\cref{sec:loglik}). It
+  \emph{calibrates the difficulty of our cohort}: $\Delta\log$-likelihood, the standard zero-shot
+  DNA-LM variant score, reaches $0.8945$ here against $0.6$--$0.8$ in the published literature, so
+  our ClinVar slice is easy and every AUROC in this paper must be read as cohort-dependent rather
+  than as a method win. And it shows that, on identical variants, the geometry is nonetheless
+  \emph{not} a restatement of likelihood surprise: it scores higher, correlates with the likelihood
+  only weakly, survives residualisation of the likelihood, and ensembles above either score alone.
+  This is not a competitive variant-effect-prediction method and we do not present it as one
   (\cref{sec:limitations}).}
   \label{tab:scope}
   \small
@@ -155,14 +173,119 @@
     BRCA2 sGE (quantitative)     & Spearman$(\lVert\Delta\rVert,\ \text{function})$, $r{=}8$ & $6{,}000$ & $-0.265$ \\
     BRCA2 sGE (quantitative)     & Spearman, ClinVar-learned direction transfer & $6{,}000$ & $-0.155$ \\
     \midrule
-    % TODO(claude): dLogLik baselines -- R5 (job 6a573d8485d9643ce16d38c2) had not
-    % landed at the time of writing. Required rows, per the brief: AUROC(dLogLik),
-    % Spearman(|Delta|, dLogLik), and the |Delta| + dLogLik ensemble, all on the
-    % same 12,993 SNVs. Left for the author.
-    Carbon $\Delta\log$-likelihood & AUROC & -- & \textsc{pending} \\
-    Carbon $\Delta\log$-likelihood & Spearman$(\lVert\Delta\rVert,\ \Delta\log\mathrm{Lik})$ & -- & \textsc{pending} \\
+    % R5 dLogLik, fp32 (job 6a5744c2b1669a49bf073b77, run
+    % r5-delta-loglik-fp32-edd9b5a). The earlier bf16 run
+    % (r5-delta-loglik-82eb3c2) is INVALID -- 90.7% of its dLogLik values were
+    % exactly zero -- and none of its numbers appear anywhere in this paper.
+    % See sec:loglik for the mechanism.
+    \multicolumn{4}{l}{\emph{Relation to Carbon's own likelihood; same variants, joined on $(\mathrm{chrom},\mathrm{pos},\mathrm{ref},\mathrm{alt})$, $r{=}8$, \texttt{fp32}}}\\
+    ClinVar SNVs ($893$ path.)   & AUROC$(\lVert\Delta\rVert)$                          & $6{,}981$ & $0.9255$ \\
+    ClinVar SNVs ($893$ path.)   & AUROC$(-\Delta\log\mathrm{Lik})$                     & $6{,}981$ & $0.8945$ \\
+    ClinVar SNVs ($893$ path.)   & AUROC$(\lVert\Delta\rVert$ residualised on $\Delta\log\mathrm{Lik})$ & $6{,}981$ & $0.8529$ \\
+    ClinVar SNVs ($893$ path.)   & AUROC(rank ensemble of the two)                      & $6{,}981$ & $\mathbf{0.9482}$ \\
+    ClinVar SNVs ($893$ path.)   & Spearman$(\lVert\Delta\rVert,\ \Delta\log\mathrm{Lik})$ & $6{,}981$ & $-0.2391$ \\
+    \quad within trinucleotide context & AUROC$(\lVert\Delta\rVert)$                    & $5{,}021$ & $0.9302$ \\
+    \quad within trinucleotide context & AUROC$(-\Delta\log\mathrm{Lik})$               & $5{,}021$ & $0.9007$ \\
+    BRCA2 sGE (quantitative)     & Spearman$(\lVert\Delta\rVert,\ \text{function})$      & $6{,}000$ & $-0.2649$ \\
+    BRCA2 sGE (quantitative)     & Spearman$(\Delta\log\mathrm{Lik},\ \text{function})$  & $6{,}000$ & $+0.1124$ \\
     \bottomrule
   \end{tabular}
+  \vspace{2pt}
+
+  {\footnotesize The within-context rows retain $64$ trinucleotide contexts over the joined cohort
+  (\cref{tab:trinuc} retains $37$ under its own threshold). The BRCA2 $-0.2649$ is the $-0.265$
+  above at four decimal places, not a second measurement.}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 3b: R6a -- the sensitivity ceiling across three encoders.
+% Values verbatim from the R6a table. Jobs 6a57474485d9643ce16d3a4a (NT-v2) and
+% 6a57474485d9643ce16d3a4c (HyenaDNA); data r6-nt-v2-693571d /
+% r6-hyenadna-693571d; Carbon rows from the verified R1 summary.
+% Spans are BP-MATCHED (radius is in tokens; see sec:encoders). R6a reports the
+% global and +-48 bp spans only, so no other span is tabulated.
+% ----------------------------------------------------------------------
+\newcommand{\tabEncoderTrap}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{The predict-no-change trap replicates on every encoder we measured.} The same
+  $12{,}993$ SNVs in the same $4{,}096$\,bp windows, through three frozen encoders that share
+  neither training objective nor tokenizer, at \textbf{bp-matched} pooling spans
+  (\cref{sec:encoders}). A single-base edit leaves the pooled state cosine-indistinguishable from
+  the reference on all three: the smallest cosine anywhere in this table is Carbon's $0.99352$, and
+  $\pm48$\,bp is the \emph{maximum}-sensitivity span, so every intermediate span is closer to $1$
+  still. HyenaDNA is the extreme case---$\cos = 1.00000$ under global pooling---and the mechanism is
+  visible in the tokenizer column: one base perturbs $1$ of $4{,}097$ character tokens against $1$
+  of $683$ $6$\,bp tokens, and its relative displacement is correspondingly $\approx10\times$
+  smaller than Carbon's at global pooling and $\approx6\times$ smaller at $\pm48$\,bp. The dilution
+  curve has the same shape everywhere: sensitivity peaks at the narrowest pool and falls as the pool
+  widens. Any objective scored by $\cos(s_{\mathrm{ref}},s_{\mathrm{alt}})$ is degenerate on all
+  three encoders. Whether the displacement is \emph{informative}, however, does not replicate at all
+  (\cref{tab:encoders}).}
+  \label{tab:enctrap}
+  \small
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{llcccc}
+    \toprule
+    & & \multicolumn{2}{c}{$\cos(s_{\mathrm{ref}},s_{\mathrm{alt}})$} & \multicolumn{2}{c}{$\mathrm{rel}\Delta = \lVert\Delta\rVert_2/\lVert s_{\mathrm{ref}}\rVert_2$} \\
+    \cmidrule(lr){3-4}\cmidrule(lr){5-6}
+    Encoder & Objective / tokenizer / width & global & $\pm48$\,bp & global & $\pm48$\,bp \\
+    \midrule
+    Carbon-500M   & autoregressive, $6$\,bp token, $d{=}1024$   & $0.99989$ & $0.99352$ & $0.0083$ & $0.0759$ \\
+    NT-v2-100M    & masked LM, $6$\,bp token, $d{=}512$         & $0.99998$ & $0.99479$ & $0.0050$ & $0.0889$ \\
+    HyenaDNA-450k & implicit conv., $1$\,bp token, $d{=}256$    & $\mathbf{1.00000}$ & $0.99991$ & $0.0008$ & $0.0130$ \\
+    \bottomrule
+  \end{tabular}}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 3c: R6b -- informativeness and the interventional test across encoders.
+% "D adds" = dir(Delta) - ref-probe, both supervised 5-fold CV: the fair test.
+% Verified: 0.8575-0.5500=+0.3075, 0.7737-0.6392=+0.1346 (reported value),
+% 0.7496-0.7794=-0.0298, etc.
+% R6b reports the global, +-48 bp and +-1536 bp spans only.
+% ----------------------------------------------------------------------
+\newcommand{\tabEncoders}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Informativeness is encoder-specific, and the interventional property is
+  \emph{Carbon}-specific.} Same $12{,}993$ SNVs, same windows, same analysis code, bp-matched spans
+  (\cref{sec:encoders}). $\lVert\Delta\rVert$ is the unsupervised displacement magnitude;
+  $\mathrm{dir}(\Delta)$ is a supervised $5$-fold directional probe on $\Delta$; \emph{Ref.\ probe}
+  is the same supervised probe on $s_{\mathrm{ref}}$ alone, which never observes the edit.
+  \emph{$\Delta$ adds} is $\mathrm{dir}(\Delta)$ minus the reference probe---probe against probe, so
+  it is the fair test of whether the \emph{edit} beats the \emph{neighbourhood}, and it is the
+  quantity that separates the three encoders. Carbon clears it at every span. HyenaDNA adds
+  $\approx0.02$ from a base of chance. Nucleotide~Transformer~v2 goes \emph{negative} at
+  $\pm48$\,bp: its unedited window predicts pathogenicity better than its edit response does. The
+  BRCA2 column is Spearman$(\lVert\Delta\rVert, \text{function})$ at $\pm48$\,bp, and is not
+  reported for HyenaDNA.}
+  \label{tab:encoders}
+  \small
+  \begin{tabular}{llcccc}
+    \toprule
+    Encoder & Span & $\lVert\Delta\rVert$ & $\mathrm{dir}(\Delta)$ & Ref.\ probe & $\Delta$ adds \\
+    \midrule
+    \multirow{3}{*}{Carbon-500M}
+      & $\pm48$\,bp             & $0.9259$ & $0.7737$ & $0.6392$ & $\mathbf{+0.1346}$ \\
+      & $\pm1536$\,bp           & $0.9313$ & $0.8506$ & $0.5539$ & $\mathbf{+0.2967}$ \\
+      & global ($4{,}096$\,bp)  & $0.9313$ & $0.8575$ & $0.5500$ & $\mathbf{+0.3075}$ \\
+    \midrule
+    \multirow{3}{*}{NT-v2-100M}
+      & $\pm48$\,bp             & $0.7616$ & $0.7496$ & $0.7794$ & $\mathbf{-0.0298}$ \\
+      & $\pm1536$\,bp           & $0.7590$ & $0.7232$ & $0.5907$ & $+0.1326$ \\
+      & global ($4{,}096$\,bp)  & $0.7574$ & $0.7119$ & $0.5823$ & $+0.1296$ \\
+    \midrule
+    \multirow{3}{*}{HyenaDNA-450k}
+      & $\pm48$\,bp             & $0.5676$ & $0.5795$ & $0.5566$ & $+0.0229$ \\
+      & $\pm1536$\,bp           & $0.5460$ & $0.5814$ & $0.5545$ & $+0.0269$ \\
+      & global ($4{,}096$\,bp)  & $0.5460$ & $0.5824$ & $0.5521$ & $+0.0303$ \\
+    \bottomrule
+  \end{tabular}
+  \vspace{2pt}
+
+  {\footnotesize BRCA2 sGE, Spearman$(\lVert\Delta\rVert,\ \text{function})$ at $\pm48$\,bp
+  ($n{=}6{,}000$): Carbon $-0.265$, NT-v2 $-0.186$.}
 \end{table}}
 
 % ----------------------------------------------------------------------
@@ -266,6 +389,21 @@
     Predictability commit & \texttt{187a1c5} (\texttt{tools/research/delta\_predictability.py}) \\
     Cohort             & $14{,}000$ GRCh38-grounded variants $\times\ 4$ pool radii $=56{,}000$ rows; $0$ skips \\
     FASTA ref-base check & $12{,}993/12{,}993$ SNVs matched \\
+    \midrule
+    \multicolumn{2}{l}{\emph{R5: Carbon $\Delta\log$-likelihood (\cref{sec:loglik})}}\\
+    R5 job             & \texttt{6a5744c2b1669a49bf073b77}, run \texttt{r5-delta-loglik-fp32-edd9b5a} \\
+    Precision          & \texttt{fp32}. The earlier \texttt{bf16} run \texttt{r5-delta-loglik-82eb3c2} is \\
+                       & \textbf{invalid} ($90.7\%$ exact zeros over $18$ distinct values) and no number \\
+                       & from it appears in this paper. \\
+    fp32 sanity        & $0$ exact zeros; $9{,}115$ distinct values; range $-486.0$ to $+36.3$ \\
+    \midrule
+    \multicolumn{2}{l}{\emph{R6: two further encoders (\cref{sec:generality}); analysis code run unchanged}}\\
+    NT-v2 job          & \texttt{6a57474485d9643ce16d3a4a}; data \texttt{r6-nt-v2-693571d} \\
+    HyenaDNA job       & \texttt{6a57474485d9643ce16d3a4c}; data \texttt{r6-hyenadna-693571d} \\
+    R6 cohort (each)   & the same $12{,}993$ SNVs $\times\ 4$ pool radii $=51{,}972$ rows; $0$ skips \\
+    Pooling            & bp-matched: HyenaDNA at radii $0/48/384/1536$ ($1$\,bp per token) \\
+                       & against Carbon's and NT-v2's $0/8/64/256$ ($6$\,bp per token) \\
+    \midrule
     Data               & \scriptsize\url{https://huggingface.co/datasets/abdelstark/geno-lewm-edit-response} \\
     Data files         & \texttt{r1-edit-response-e23fdf9/edit\_response\_embeddings.parquet}, \\
                        & \texttt{r1-edit-response-e23fdf9/edit\_response\_summary.json}, \\
