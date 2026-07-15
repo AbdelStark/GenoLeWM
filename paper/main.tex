@@ -213,7 +213,8 @@ forward model on top of frozen DINOv2~\citep{dinov2_2024} patch features and pla
 by predicting future patch embeddings. \citet{sobal2025rewardfree} isolate what a latent dynamics
 model buys over model-free alternatives on reward-free offline data; the Dreamer
 line~\citep{dreamerv3} and TD-MPC2~\citep{tdmpc2_2024} establish, respectively, generative and
-decoder-free latent dynamics for control; Ha and Schmidhuber~\citep{worldmodels2018} originate the
+decoder-free latent dynamics for control, while PETS~\citep{pets2018} shows probabilistic dynamics
+models suffice for control in a handful of trials; Ha and Schmidhuber~\citep{worldmodels2018} originate the
 frozen-encoder plus latent-controller decomposition. Our setting differs in a way that turns out to
 be decisive. These are \emph{high action-authority} domains: an action moves the state
 substantially, so ``predict-no-change'' is a weak baseline and the target signal is rich. A
@@ -804,8 +805,11 @@ float artifact, not a finding.
 This project previously released \texttt{v0.2.1-r1}: an action-conditioned latent predictor over a
 frozen Carbon encoder, trained to predict $\hat s_{t+1}$ from $(s_t,a)$, benchmarked on ClinVar,
 BRCA2, and TraitGym, and published with content-addressed receipts binding every reported number to
-its bytes. Its results were withdrawn. This section preserves that record, and then makes the point
-that matters: the defects were real, but they are not the reason the idea could not work.
+its bytes. Its results were withdrawn. That combination is the cautionary part: reproducible
+execution reproduces an invalid computation just as faithfully as a valid one, so provenance has to
+be paired with tested scientific contracts rather than mistaken for them~\citep{reproducibility2021}.
+This section preserves that record, and then makes the point that matters: the defects were real,
+but they are not the reason the idea could not work.
 
 \subsection{What was actually broken}
 
