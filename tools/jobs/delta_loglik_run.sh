@@ -126,7 +126,18 @@ import sys
 from geno_lewm.carbon_zero_shot import load_carbon_logp_scorer, write_carbon_zero_shot_scores
 
 vcf, fasta, scores, meta, cache, window_bp, dtype, model_dir, revision = sys.argv[1:10]
-scorer = load_carbon_logp_scorer(model_dir, revision=revision, dtype=dtype, device="cuda")
+# Carbon ships custom modeling code, and unlike the encoder path -- which uses
+# the repo's own CarbonDNATokenizer and AutoModel -- likelihood scoring needs
+# AutoModelForCausalLM to execute it. Opting in is the repo's sanctioned
+# pattern precisely because the revision below is pinned, so the code being
+# trusted is a fixed, audited commit rather than whatever HEAD becomes.
+scorer = load_carbon_logp_scorer(
+    model_dir,
+    revision=revision,
+    dtype=dtype,
+    device="cuda",
+    trust_remote_code=True,
+)
 summary = write_carbon_zero_shot_scores(
     vcf_path=vcf,
     fasta_path=fasta,

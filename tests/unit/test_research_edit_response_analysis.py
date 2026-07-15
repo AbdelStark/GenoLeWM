@@ -15,6 +15,7 @@ matching the repository's optional-dependency test convention.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -85,6 +86,9 @@ def _synth_variants(seed: int = 20240714) -> list[dict[str, Any]]:
                     "variant_id": f"{group}_{i}",
                     "label_group": group,
                     "continuous_score": None,
+                    "chrom": str((i % 6) + 1),
+                    "ref": "A",
+                    "alt": "GCT"[i % 3],
                     "cos_ref_alt": cos,
                     "rel_delta": rel,
                     "s_ref": [float(x) for x in r],
@@ -105,6 +109,9 @@ def _synth_variants(seed: int = 20240714) -> list[dict[str, Any]]:
                 "variant_id": f"brca2_{i}",
                 "label_group": "brca2_sge",
                 "continuous_score": t,
+                "chrom": "13",
+                "ref": "A",
+                "alt": "GCT"[i % 3],
                 "cos_ref_alt": cos,
                 "rel_delta": rel,
                 "s_ref": [float(x) for x in r],
@@ -127,6 +134,9 @@ def _write_parquet(path: Path, variants: list[dict[str, Any]]) -> Path:
         "rel_delta": [],
         "s_ref": [],
         "s_alt": [],
+        "chrom": [],
+        "ref": [],
+        "alt": [],
     }
     for pool_radius in _RADII:
         for variant in variants:
@@ -138,6 +148,9 @@ def _write_parquet(path: Path, variants: list[dict[str, Any]]) -> Path:
             columns["rel_delta"].append(variant["rel_delta"])
             columns["s_ref"].append(variant["s_ref"])
             columns["s_alt"].append(variant["s_alt"])
+            columns["chrom"].append(variant["chrom"])
+            columns["ref"].append(variant["ref"])
+            columns["alt"].append(variant["alt"])
     schema = pa.schema(
         [
             ("variant_id", pa.string()),
@@ -148,6 +161,9 @@ def _write_parquet(path: Path, variants: list[dict[str, Any]]) -> Path:
             ("rel_delta", pa.float64()),
             ("s_ref", pa.list_(pa.float32())),
             ("s_alt", pa.list_(pa.float32())),
+            ("chrom", pa.string()),
+            ("ref", pa.string()),
+            ("alt", pa.string()),
         ]
     )
     table = pa.table(columns, schema=schema)
@@ -171,6 +187,9 @@ def _variant_geometry_rows() -> list[VariantGeometry]:
                 rel_delta=float(variant["rel_delta"]),
                 s_ref=s_ref,
                 s_alt=s_alt,
+                chrom=variant["chrom"],
+                ref=variant["ref"],
+                alt=variant["alt"],
             )
         )
     assert np is not None
@@ -287,3 +306,166 @@ def test_missing_required_column_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(InputError):
         run_analysis(bad, config=_FAST_CONFIG)
+
+
+# ---------------------------------------------------------------------------
+# Confound controls.
+#
+# The controls exist to stop a displacement AUROC being believed when a cheaper
+# explanation produces the same number, so each test below plants the confound
+# it is meant to catch. A control that cannot fail on rigged data is not
+# evidence, so these assert the control *fires*, not merely that it runs.
+
+
+def _confound_rows(
+    *,
+    magnitude_by_substitution: bool,
+    magnitude_by_label: bool,
+    region_by_label: bool,
+    n_per_group: int = 60,
+    seed: int = 7,
+) -> list[VariantGeometry]:
+    """Synthesise ClinVar-like SNVs with specific confounds switched on.
+
+    ``magnitude_by_substitution`` makes ||delta|| depend only on the REF>ALT
+    class; ``magnitude_by_label`` makes it depend on pathogenicity itself;
+    ``region_by_label`` shifts the *unedited* reference state by label.
+    """
+    np = pytest.importorskip("numpy")
+    rng = np.random.default_rng(seed)
+    rows: list[VariantGeometry] = []
+    # Pathogenic variants are drawn overwhelmingly from one substitution class,
+    # mirroring the C>T-at-CpG skew of real ClinVar.
+    for group, is_path in (("clinvar_path", True), ("clinvar_benign", False)):
+        for i in range(n_per_group):
+            if is_path:
+                sub_alt = "T" if i < int(n_per_group * 0.8) else "G"
+            else:
+                sub_alt = "T" if i < int(n_per_group * 0.2) else "G"
+            scale = 1.0
+            if magnitude_by_substitution and sub_alt == "T":
+                scale *= 4.0
+            if magnitude_by_label and is_path:
+                scale *= 4.0
+            r = np.zeros(_D_STATE, dtype=np.float64)
+            r[_REF_AXIS] = 100.0
+            if region_by_label and is_path:
+                # The neighbourhood itself differs, with no edit involved.
+                r[_DIR_AXIS] = 25.0
+            delta = rng.normal(0.0, 0.05, _D_STATE)
+            delta[2] = scale + rng.normal(0.0, 0.05)
+            s_alt = r + delta
+            cos, rel = _geometry(np, r, s_alt)
+            rows.append(
+                VariantGeometry(
+                    variant_id=f"{group}_{i}",
+                    label_group=group,
+                    continuous_score=None,
+                    cos_ref_alt=cos,
+                    rel_delta=rel,
+                    s_ref=tuple(float(x) for x in r),
+                    s_alt=tuple(float(x) for x in s_alt),
+                    chrom=str((i % 8) + 1),
+                    ref="C",
+                    alt=sub_alt,
+                )
+            )
+    return rows
+
+
+def test_within_substitution_control_unmasks_a_pure_spectrum_confound() -> None:
+    """||delta|| driven only by REF>ALT must survive nothing once stratified."""
+    pytest.importorskip("numpy")
+    rows = _confound_rows(
+        magnitude_by_substitution=True, magnitude_by_label=False, region_by_label=False
+    )
+    controls = analyze_radius(rows, config=_FAST_CONFIG)["confound_controls"]
+
+    # Unstratified, the confound looks like a strong biological result...
+    assert controls["magnitude_raw_snv_only"]["auroc"] > 0.75
+    # ...but it is fully explained by the substitution spectrum alone,
+    # and vanishes once the spectrum is held constant.
+    assert controls["substitution_only_auroc"]["auroc"] > 0.75
+    assert controls["within_substitution_auroc"] == pytest.approx(0.5, abs=0.1)
+
+
+def test_within_substitution_control_preserves_genuine_label_signal() -> None:
+    """Signal tied to the label, not the spectrum, must survive stratification."""
+    pytest.importorskip("numpy")
+    rows = _confound_rows(
+        magnitude_by_substitution=False, magnitude_by_label=True, region_by_label=False
+    )
+    controls = analyze_radius(rows, config=_FAST_CONFIG)["confound_controls"]
+
+    assert controls["magnitude_raw_snv_only"]["auroc"] > 0.9
+    # The spectrum baseline still scores, because class and label are correlated
+    # by construction -- which is exactly why the stratified number is the one
+    # that decides the question. It stays high.
+    assert controls["within_substitution_auroc"] > 0.9
+
+
+def test_reference_only_probe_detects_a_region_confound() -> None:
+    """A probe with no access to the edit must expose neighbourhood leakage."""
+    pytest.importorskip("numpy")
+    rows = _confound_rows(
+        magnitude_by_substitution=False, magnitude_by_label=False, region_by_label=True
+    )
+    controls = analyze_radius(rows, config=_FAST_CONFIG)["confound_controls"]
+
+    # s_ref alone separates the classes: the displacement is not the source.
+    assert controls["reference_only_probe_auroc"]["auroc"] > 0.9
+    assert controls["reference_only_probe_chrom_holdout_auroc"]["auroc"] > 0.9
+    assert controls["reference_only_probe_chrom_holdout_auroc"]["n_groups"] == 8
+
+
+def test_reference_only_probe_is_silent_without_a_region_confound() -> None:
+    """With a shared neighbourhood, the no-edit probe must find nothing."""
+    pytest.importorskip("numpy")
+    rows = _confound_rows(
+        magnitude_by_substitution=False, magnitude_by_label=True, region_by_label=False
+    )
+    controls = analyze_radius(rows, config=_FAST_CONFIG)["confound_controls"]
+
+    # The displacement carries the signal, but s_ref is identical across labels,
+    # so the region explanation is ruled out.
+    assert controls["magnitude_raw_snv_only"]["auroc"] > 0.9
+    assert controls["reference_only_probe_auroc"]["auroc"] == pytest.approx(0.5, abs=0.15)
+
+
+def test_controls_exclude_non_snv_rows_from_the_statistics() -> None:
+    """Multi-base alleles must be counted and excluded, never silently scored."""
+    pytest.importorskip("numpy")
+    rows = _confound_rows(
+        magnitude_by_substitution=False, magnitude_by_label=True, region_by_label=False
+    )
+    indel = replace(rows[0], variant_id="indel_0", ref="CA", alt="C")
+    controls = analyze_radius([*rows, indel], config=_FAST_CONFIG)["confound_controls"]
+
+    assert controls["n_non_snv_excluded"] == 1
+    assert controls["n_path"] + controls["n_benign"] == len(rows)
+
+
+def test_variant_geometry_classifies_alleles() -> None:
+    """is_snv / substitution must reflect the allele lengths, not the labels."""
+    base = VariantGeometry(
+        variant_id="v",
+        label_group="clinvar_path",
+        continuous_score=None,
+        cos_ref_alt=0.99,
+        rel_delta=0.01,
+        s_ref=(1.0, 0.0),
+        s_alt=(0.99, 0.01),
+        chrom="1",
+        ref="C",
+        alt="T",
+    )
+    assert base.is_snv is True
+    assert base.substitution == "C>T"
+
+    indel = replace(base, ref="CA", alt="C")
+    assert indel.is_snv is False
+    assert indel.substitution is None
+
+    unknown = replace(base, ref=None, alt=None)
+    assert unknown.is_snv is False
+    assert unknown.substitution is None

@@ -100,7 +100,13 @@ clinvar_labels, brca2_scores, brca2_mapped, out_path, max_brca2 = sys.argv[1:6]
 records = []
 
 # ClinVar -> clinvar_path / clinvar_benign
-n_path = n_benign = 0
+#
+# SNV-only. ClinVar ships indels and MNVs under the same clinical-significance
+# codes, but they are ~43% of pathogenic against ~5% of benign and displace the
+# pooled state ~3.7x further than a single-base edit, so their length change --
+# not their biology -- tracks the label. This study measures single-base edit
+# response, so multi-base alleles are out of scope rather than merely awkward.
+n_path = n_benign = n_non_snv = 0
 for line in Path(clinvar_labels).read_text().splitlines():
     line = line.strip()
     if not line:
@@ -108,6 +114,9 @@ for line in Path(clinvar_labels).read_text().splitlines():
     row = json.loads(line)
     binary = _binary_label(row["clinical_significance"])
     if binary is None:
+        continue
+    if len(row["ref"]) != 1 or len(row["alt"]) != 1:
+        n_non_snv += 1
         continue
     group = "clinvar_path" if binary else "clinvar_benign"
     n_path += binary
@@ -141,7 +150,8 @@ with Path(out_path).open("w") as fh:
     for rec in records:
         fh.write(json.dumps(rec, sort_keys=True) + "\n")
 
-print(f"ClinVar path={n_path} benign={n_benign} | BRCA2 kept={len(brca2_rows)} skipped={skipped}")
+print(f"ClinVar path={n_path} benign={n_benign} dropped_non_snv={n_non_snv} | "
+      f"BRCA2 kept={len(brca2_rows)} skipped={skipped}")
 print(f"total variants: {len(records)}")
 PY
 echo "unified variants: $(wc -l < "$VARIANTS")"

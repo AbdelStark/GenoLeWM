@@ -90,6 +90,9 @@ REQUIRED_COLUMNS: Final[tuple[str, ...]] = (
     "rel_delta",
     "s_ref",
     "s_alt",
+    "chrom",
+    "ref",
+    "alt",
 )
 
 
@@ -142,6 +145,26 @@ class VariantGeometry:
     rel_delta: float
     s_ref: tuple[float, ...]
     s_alt: tuple[float, ...]
+    chrom: str | None = None
+    ref: str | None = None
+    alt: str | None = None
+
+    @property
+    def is_snv(self) -> bool:
+        """True when this row is a single-base substitution.
+
+        Multi-base alleles displace the pooled state far further than a point
+        edit purely because they change sequence length, so they are excluded
+        from the controlled statistics rather than allowed to inflate them.
+        """
+        return self.ref is not None and self.alt is not None and len(self.ref) == len(self.alt) == 1
+
+    @property
+    def substitution(self) -> str | None:
+        """The ``REF>ALT`` substitution class, or ``None`` for non-SNV rows."""
+        if not self.is_snv:
+            return None
+        return f"{self.ref}>{self.alt}"
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +458,147 @@ def _brca2_block(
     return result
 
 
+def _confound_controls(
+    rows: Sequence[VariantGeometry],
+    delta_raw: Any,
+    config: AnalysisConfig,
+) -> dict[str, Any]:
+    """Test whether the ClinVar displacement AUROC survives its rival explanations.
+
+    A raw ``||delta||`` AUROC is not evidence that the encoder registers biology:
+    three cheaper explanations predict the same number, and each is checked here
+    against the identical variant set.
+
+    ``substitution_only_auroc``
+        Scores each variant by the pathogenic rate of its ``REF>ALT`` class and
+        nothing else. ClinVar's mutation spectrum is skewed (C>T at CpG is a
+        deamination hotspot), so a model that has learned only which base swaps
+        are chemically common would reproduce that much AUROC with no geometry.
+    ``within_substitution_auroc``
+        Pools ``||delta||`` AUROC computed *inside* each substitution class, where
+        the spectrum is constant by construction. Signal that survives here
+        cannot be the spectrum.
+    ``reference_only_*``
+        Probes the unedited state ``s_ref`` alone. Pathogenic and benign variants
+        occupy systematically different genomic neighbourhoods, so a probe with
+        no access to the edit at all can appear to score variants. This is the
+        sharpest threat: if it matches the displacement AUROC, the geometry is
+        reading the region rather than the intervention. The chromosome-held-out
+        fold assignment additionally denies the probe any same-locus leakage.
+
+    The displacement claim is only supported when the controlled AUROCs stay far
+    above these baselines.
+    """
+    np = _numpy()
+    snv = np.asarray([row.is_snv for row in rows])
+    groups = np.asarray([row.label_group or _UNLABELED for row in rows])
+    keep = ((groups == _CLINVAR_PATH) | (groups == _CLINVAR_BENIGN)) & snv
+    n_path = int((keep & (groups == _CLINVAR_PATH)).sum())
+    n_benign = int((keep & (groups == _CLINVAR_BENIGN)).sum())
+    if (
+        int(keep.sum()) < config.min_clinvar_total
+        or n_path < config.min_class_count
+        or n_benign < config.min_class_count
+    ):
+        return {
+            "skipped": "insufficient ClinVar path/benign SNVs",
+            "n_path": n_path,
+            "n_benign": n_benign,
+            "n_non_snv_excluded": int((~snv).sum()),
+        }
+
+    labels = (groups[keep] == _CLINVAR_PATH).astype(np.int64)
+    label_list = [int(value) for value in labels.tolist()]
+    magnitudes = _row_magnitudes(delta_raw[keep])
+    kept_rows = [row for row, flag in zip(rows, keep.tolist(), strict=True) if flag]
+    subs = np.asarray([row.substitution for row in kept_rows])
+
+    result: dict[str, Any] = {
+        "n_path": n_path,
+        "n_benign": n_benign,
+        "n_non_snv_excluded": int((~snv).sum()),
+        "magnitude_raw_snv_only": _auroc_with_ci(magnitudes, label_list, config),
+    }
+
+    # Baseline 1: substitution-class pathogenic rate, carrying zero geometry.
+    rates = {
+        str(name): float(labels[subs == name].mean()) for name in np.unique(subs)  # noqa: PD011
+    }
+    lookup = [rates[str(name)] for name in subs.tolist()]
+    result["substitution_only_auroc"] = _auroc_with_ci(lookup, label_list, config)
+
+    # Baseline 2: displacement AUROC within each substitution class, pooled by n.
+    per_class: dict[str, Any] = {}
+    weighted_sum = 0.0
+    weight_total = 0
+    magnitude_array = np.asarray(magnitudes, dtype=np.float64)
+    for name in np.unique(subs):
+        mask = subs == name
+        class_labels = labels[mask]
+        n_pos = int(class_labels.sum())
+        n_neg = int((1 - class_labels).sum())
+        if n_pos < config.min_class_count * 2 or n_neg < config.min_class_count * 2:
+            continue
+        auroc = _mann_whitney_auroc(
+            [bool(value) for value in class_labels.tolist()],
+            [float(value) for value in magnitude_array[mask].tolist()],
+        )
+        size = int(mask.sum())
+        per_class[str(name)] = {"n": size, "n_path": n_pos, "auroc": auroc}
+        weighted_sum += auroc * size
+        weight_total += size
+    result["within_substitution_per_class"] = per_class
+    result["within_substitution_auroc"] = (
+        weighted_sum / weight_total if weight_total > 0 else None
+    )
+    result["within_substitution_n"] = weight_total
+
+    # Baseline 3: the unedited reference state, which knows nothing of the edit.
+    s_ref = _stack_vectors(kept_rows, "s_ref")
+    result["reference_only_norm_auroc"] = _auroc_with_ci(
+        _row_magnitudes(s_ref), label_list, config
+    )
+    result["reference_only_probe_auroc"], _ = _directional_cv_auroc(s_ref, labels, config)
+    chroms = [row.chrom for row in kept_rows]
+    if all(value is not None for value in chroms) and len(set(chroms)) >= config.kfold_splits:
+        result["reference_only_probe_chrom_holdout_auroc"] = _grouped_probe_auroc(
+            s_ref, labels, np.asarray(chroms), config
+        )
+    return result
+
+
+def _grouped_probe_auroc(
+    features: Any,
+    labels: Any,
+    groups: Any,
+    config: AnalysisConfig,
+) -> dict[str, Any]:
+    """Mean-difference probe AUROC with whole groups held out per fold.
+
+    Random folds let a probe memorise a locus seen in training; assigning entire
+    chromosomes to a fold forces it to generalise across genomic location.
+    """
+    np = _numpy()
+    unique = sorted({str(value) for value in groups.tolist()})
+    fold_of = {name: index % config.kfold_splits for index, name in enumerate(unique)}
+    folds = np.asarray([fold_of[str(value)] for value in groups.tolist()])
+    scores = np.zeros(len(labels), dtype=np.float64)
+    for fold in range(config.kfold_splits):
+        test = folds == fold
+        train = ~test
+        if not bool(test.any()) or len(np.unique(labels[train])) < 2:
+            continue
+        axis = _learn_direction(features[train], labels[train])
+        scores[test] = features[test] @ axis
+    return {
+        "auroc": _mann_whitney_auroc(
+            [bool(value) for value in labels.tolist()],
+            [float(value) for value in scores.tolist()],
+        ),
+        "n_groups": len(unique),
+    }
+
+
 def _pca_delta(delta_norm: Any) -> dict[str, Any]:
     np = _numpy()
     if int(delta_norm.shape[0]) < 2:
@@ -481,6 +645,7 @@ def analyze_radius(
         "n": len(rows),
         "sensitivity": _sensitivity_ceiling(rows),
         "clinvar_path_vs_benign": clinvar,
+        "confound_controls": _confound_controls(rows, delta_raw, cfg),
         "brca2": _brca2_block(rows, delta_norm, transfer_axis, cfg),
         "pca_delta": _pca_delta(delta_norm),
     }
@@ -566,6 +731,9 @@ def _row_to_geometry(record: Mapping[str, Any], source: Path, line_no: int) -> V
         rel_delta=_require_row_float(record, "rel_delta", source, line_no),
         s_ref=_require_row_vector(record, "s_ref", source, line_no),
         s_alt=_require_row_vector(record, "s_alt", source, line_no),
+        chrom=_optional_row_str(record.get("chrom")),
+        ref=_optional_row_str(record.get("ref")),
+        alt=_optional_row_str(record.get("alt")),
     )
 
 
