@@ -228,3 +228,50 @@ def _cache_row(*, sequence_sha256: str, log_likelihood: float) -> dict[str, obje
         "sequence_sha256": sequence_sha256,
         "log_likelihood": log_likelihood,
     }
+
+
+def test_log_likelihood_resolves_small_deltas_under_bf16_logits() -> None:
+    """A one-base edit's likelihood shift must survive a bf16 forward.
+
+    Regression test for a silent numerical failure. A window log-likelihood sums
+    ~10^3 token terms and lands near -5000, while logP(alt) - logP(ref) for a
+    single SNV is of order 1. Accumulated in bf16 (8-bit mantissa, spacing 16 at
+    that magnitude) the difference quantizes to the grid and almost always
+    cancels to exactly zero -- scoring 12,993 real SNVs this way produced 90.7%
+    exact zeros over 18 distinct values, all multiples of 16. The scorer must
+    therefore accumulate in fp32 even when the model computes in bf16.
+    """
+    torch = pytest.importorskip("torch")
+    from geno_lewm.carbon_zero_shot import _autoregressive_log_likelihood
+
+    generator = torch.Generator().manual_seed(20260715)
+    n_tokens, vocab = 1024, 64
+    base = torch.randn(1, n_tokens, vocab, generator=generator) * 4.0
+    ids = torch.randint(0, vocab, (1, n_tokens), generator=generator)
+    mask = torch.ones(1, n_tokens, dtype=torch.long)
+
+    # An edited window differs from the reference at exactly one token.
+    edited = base.clone()
+    edited[0, n_tokens // 2, :] += torch.randn(vocab, generator=generator) * 2.0
+
+    def score(logits: object) -> float:
+        return _autoregressive_log_likelihood(
+            torch=torch, logits=logits, input_ids=ids, attention_mask=mask
+        )
+
+    reference = score(base.to(torch.float32))
+    fp32_delta = score(edited.to(torch.float32)) - reference
+    # The planted edit must actually move the likelihood, or the test proves nothing.
+    assert abs(fp32_delta) > 1e-3
+
+    bf16_delta = score(edited.to(torch.bfloat16)) - score(base.to(torch.bfloat16))
+    # bf16 logits must still yield the fp32 answer: the cast happens inside.
+    assert bf16_delta == pytest.approx(fp32_delta, abs=0.5)
+    assert bf16_delta != 0.0
+
+    # And the magnitudes must not be quantized onto the coarse bf16 grid.
+    assert (
+        score(base.to(torch.bfloat16))
+        != pytest.approx(round(score(base.to(torch.bfloat16)) / 16.0) * 16.0, abs=1e-9)
+        or abs(score(base.to(torch.bfloat16))) < 1e-9
+    )
