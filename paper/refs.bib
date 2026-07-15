@@ -5,13 +5,133 @@
 % tech-report citation exposed); a few page numbers are inferred.
 % ======================================================================
 
-@misc{carbon500m,
-  title        = {{Carbon-500M} Model Card},
-  author       = {{Hugging Face Biology Research}},
-  howpublished = {Hugging Face model card},
-  year         = {2025},
-  note         = {500M-parameter decoder-only autoregressive DNA model, Carbon family, Apache-2.0},
-  url          = {https://huggingface.co/HuggingFaceBio/Carbon-500M}
+% NOTE: Carbon has no archival (arXiv/journal) publication. It is cited as a
+% technical report plus a pinned model revision; see Appendix D.
+@techreport{carbon500m,
+  title       = {Carbon: An Open-Source Autoregressive Genomic Foundation Model},
+  author      = {{Hugging Face Biology Research (HuggingFaceBio)}},
+  institution = {Hugging Face},
+  type        = {Technical Report},
+  year        = {2026},
+  note        = {500M-parameter decoder-only autoregressive DNA model with a 6-mer tokenizer,
+                 Apache-2.0. No peer-reviewed or arXiv version exists. Tech report:
+                 \url{https://github.com/huggingface/carbon/blob/main/tech-report.pdf}.
+                 This work pins model revision 5d31d59b},
+  url         = {https://huggingface.co/HuggingFaceBio/Carbon-500M}
+}
+
+@inproceedings{dinowm2025,
+  title     = {{DINO-WM}: World Models on Pre-trained Visual Features enable Zero-shot Planning},
+  author    = {Zhou, Gaoyue and Pan, Hengkai and LeCun, Yann and Pinto, Lerrel},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2025},
+  eprint    = {2411.04983},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  note      = {venue inferred from OpenReview; verify before camera-ready},
+  url       = {https://arxiv.org/abs/2411.04983}
+}
+
+@article{sobal2025rewardfree,
+  title   = {Learning from Reward-Free Offline Data: A Case for Planning with Latent Dynamics Models},
+  author  = {Sobal, Vlad and Zhang, Wancong and Cho, Kyunghyun and Balestriero, Randall and Rudner, Tim G. J. and LeCun, Yann},
+  journal = {arXiv preprint arXiv:2502.14819},
+  year    = {2025},
+  eprint  = {2502.14819},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  url     = {https://arxiv.org/abs/2502.14819}
+}
+
+@article{vjepa2_2025,
+  title   = {{V-JEPA 2}: Self-Supervised Video Models Enable Understanding, Prediction and Planning},
+  author  = {Assran, Mahmoud and Bardes, Adrien and others},
+  journal = {arXiv preprint arXiv:2506.09985},
+  year    = {2025},
+  eprint  = {2506.09985},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CV},
+  note      = {author list truncated; expand from source before camera-ready},
+  url     = {https://arxiv.org/abs/2506.09985}
+}
+
+@inproceedings{tdmpc2_2024,
+  title     = {{TD-MPC2}: Scalable, Robust World Models for Continuous Control},
+  author    = {Hansen, Nicklas and Su, Hao and Wang, Xiaolong},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  eprint    = {2310.16828},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  url       = {https://arxiv.org/abs/2310.16828}
+}
+
+@article{dinov2_2024,
+  title   = {{DINOv2}: Learning Robust Visual Features without Supervision},
+  author  = {Oquab, Maxime and Darcet, Timoth{\'e}e and Moutakanni, Th{\'e}o and others},
+  journal = {Transactions on Machine Learning Research (TMLR)},
+  year    = {2024},
+  eprint  = {2304.07193},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CV},
+  note    = {author list truncated; expand from source before camera-ready},
+  url     = {https://arxiv.org/abs/2304.07193}
+}
+
+@inproceedings{bend2024,
+  title     = {{BEND}: Benchmarking {DNA} Language Models on Biologically Meaningful Tasks},
+  author    = {Marin, Frederikke Isa and Teufel, Felix and Horlacher, Marc and Madsen, Dennis and Pultz, Dennis and Winther, Ole and Boomsma, Wouter},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  eprint    = {2311.12570},
+  archivePrefix = {arXiv},
+  primaryClass  = {q-bio.GN},
+  url       = {https://arxiv.org/abs/2311.12570}
+}
+
+% CITATION RISK: paper confirmed (arXiv:2602.17162, Feb 2026) but the author
+% list was not captured. Fill before camera-ready. See Appendix D.
+@article{jepadna2026,
+  title   = {{JEPA-DNA}: Grounding Genomic Foundation Models through Joint-Embedding Predictive Architectures},
+  author  = {Larey, Ariel and Dahan, Elay and Bleiweiss, Amit and Kellerman, Raizy and Leib, Guy and Nayshool, Omri and Ofer, Dan and Zinger, Tal},
+  journal = {arXiv preprint arXiv:2602.17162},
+  year    = {2026},
+  eprint  = {2602.17162},
+  archivePrefix = {arXiv},
+  primaryClass  = {q-bio.GN},
+  note    = {concurrent work},
+  url     = {https://arxiv.org/abs/2602.17162}
+}
+
+@inproceedings{esm1v2021,
+  title     = {Language Models Enable Zero-Shot Prediction of the Effects of Mutations on Protein Function},
+  author    = {Meier, Joshua and Rao, Roshan and Verkuil, Robert and Liu, Jason and Sercu, Tom and Rives, Alexander},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  pages     = {29287--29303},
+  year      = {2021},
+  url       = {https://proceedings.neurips.cc/paper/2021/hash/f51338d736f95dd42287296e9764fc74-Abstract.html}
+}
+
+@article{gpn2023,
+  title   = {{DNA} language models are powerful predictors of genome-wide variant effects},
+  author  = {Benegas, Gonzalo and Batra, Sanjit Singh and Song, Yun S.},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {120},
+  number  = {44},
+  pages   = {e2311219120},
+  year    = {2023},
+  doi     = {10.1073/pnas.2311219120},
+  url     = {https://doi.org/10.1073/pnas.2311219120}
+}
+
+@article{mavedb2025,
+  title   = {{MaveDB} 2024: a curated community database with over seven million variant effects from multiplexed functional assays},
+  author  = {Rubin, Alan F. and Stone, Jeremy and Bianchi, Aisha Haley and Capodanno, Benjamin J. and Fowler, Douglas M. and others},
+  journal = {Genome Biology},
+  year    = {2025},
+  doi     = {10.1186/s13059-025-03476-y},
+  note    = {author list truncated; expand from source before camera-ready},
+  url     = {https://doi.org/10.1186/s13059-025-03476-y}
 }
 
 @inproceedings{jepa2023,

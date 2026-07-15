@@ -1,25 +1,309 @@
 % ======================================================================
-% tables.tex  --  all result tables for the GenoLeWM paper.
-% Historical metric values are from the published v0.2.1-r1 readiness report / README;
-% state norms are from the post-release audit. Metrics are retained only as historical
-% implementation measurements after the validity correction.
-% Carbon columns are recovered as (GenoLeWM value) - (reported delta).
+% tables.tex  --  all result tables.
+%
+% NUMERIC PROVENANCE.
+%  * tabControls, tabPredict, tabScope: verbatim from the verified R1/R3 result
+%    tables (job 6a565de7b1669a49bf07274b, git e23fdf9; Carbon-500M rev
+%    5d31d59b, layer 20, window 4,096 bp, bf16; analysis independently
+%    reproduced by tools/research/edit_response_analysis.py @ 82eb3c2).
+%    tabPredict values are those emitted by
+%    tools/research/delta_predictability.py @ 187a1c5, which SUPERSEDE the
+%    earlier scratchpad prototype on two counts: ridge is now fit with an
+%    intercept (the prototype standardised a constant column, zeroing it), and
+%    AUROC now averages tied ranks (which moves only the tie-heavy model-free
+%    baselines, not the MLP-MSE headline).
+%  * tabScope lower block: R5, the fp32 delta-logLik run
+%    (job 6a5744c2b1669a49bf073b77, run r5-delta-loglik-fp32-edd9b5a). The
+%    earlier bf16 run r5-delta-loglik-82eb3c2 is INVALID (90.7% exact zeros over
+%    18 distinct values) and NONE of its numbers appear in this paper.
+%  * tabEncoderTrap, tabEncoders: R6 (jobs 6a57474485d9643ce16d3a4a nt-v2 and
+%    6a57474485d9643ce16d3a4c hyenadna; data r6-nt-v2-693571d and
+%    r6-hyenadna-693571d). Same 12,993 SNVs x 4 radii = 51,972 rows each, 0
+%    skips, tools/research/edit_response_analysis.py run UNCHANGED on both.
+%    ALL SPANS ARE BP-MATCHED: radius is in TOKENS, and HyenaDNA is 1 bp/token
+%    against Carbon's and NT-v2's 6, so it was run at radii 0/48/384/1536.
+%    Never tabulate raw radius across encoders.
+%  * tabVEP, tabRollout: HISTORICAL v0.2.1-r1 measurements, retained verbatim
+%    from the withdrawn release for auditability. They are NOT findings.
+%  * tabArtifacts: identity/provenance of both lineages.
 % ======================================================================
 
 % ----------------------------------------------------------------------
-% Table 1: variant-effect prediction vs Carbon zero-shot
+% Table 1: the full control table (Result 1)
+% ----------------------------------------------------------------------
+\newcommand{\tabControls}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{The edit response is informative, and no trivial confound explains it.} ClinVar
+  pathogenic-vs-benign AUROC from the displacement $\Delta$, swept over pooling width, with every
+  control we could construct from the same artifact. \emph{All rows}: the raw cohort, which is
+  contaminated by indels. \emph{SNV-only}: restricted to the $12{,}993$ single-nucleotide variants
+  ($899$ pathogenic / $6{,}094$ benign in ClinVar), excluding $1{,}007$ non-SNV rows. \emph{Within
+  substitution class}: additionally scored only within each of the $12$ substitution classes
+  (covering $n{=}6{,}993$), removing the mutation spectrum. \emph{Substitution only}: the spectrum
+  with no geometry and no model. \emph{Reference probe}: a linear probe on $s_{\mathrm{ref}}$
+  alone, which never observes the edit. \emph{Chromosome held-out}: the same probe with
+  chromosome-disjoint folds, testing for locus leakage. The pooling grid is ordered by width, not
+  by the radius integer: $r{=}0$ denotes global-mean pooling over the whole $4{,}096$\,bp window.}
+  \label{tab:controls}
+  \small
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lcccccc}
+    \toprule
+    & & \multicolumn{2}{c}{Edit-response $\Delta$} & \multicolumn{3}{c}{Controls (no edit geometry)} \\
+    \cmidrule(lr){3-4}\cmidrule(lr){5-7}
+    Pooling & All rows & SNV-only & Within sub.\ class & Substitution only & Ref.\ probe & Chrom.\ held-out \\
+    \midrule
+    $r{=}8$   ($\pm48$\,bp)     & $0.9376$ & $\mathbf{0.9259}$ & $0.9202$ & $0.6306$ & $0.6392$ & $0.6354$ \\
+    $r{=}64$  ($\pm384$\,bp)    & $0.9362$ & $\mathbf{0.9278}$ & $0.9220$ & $0.6306$ & $0.5741$ & $0.5753$ \\
+    $r{=}256$ ($\pm1536$\,bp)   & $0.9323$ & $\mathbf{0.9313}$ & $0.9245$ & $0.6306$ & $0.5539$ & $0.5523$ \\
+    global    ($4{,}096$\,bp)   & $0.9301$ & $\mathbf{0.9313}$ & $0.9240$ & $0.6306$ & $0.5500$ & $0.5473$ \\
+    \bottomrule
+  \end{tabular}}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 1b: the trinucleotide-context control (Result 1b), radius 8.
+% Verified: variant_context.jsonl is FASTA string extraction, so it is
+% untouched by the bf16 defect that invalidated the first R5 dLogLik run;
+% context offsets re-verified (ref base at variant_offset_in_context).
+% ----------------------------------------------------------------------
+\newcommand{\tabTrinuc}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{The trinucleotide-context control: conditioning on the exact local sequence costs
+  essentially nothing.} Radius $8$, ClinVar SNVs. This is the standard mutational-signature
+  decomposition: we condition on the $5'$ base, the reference base, the $3'$ base, \emph{and} the
+  substitution, then score only \emph{within} each trinucleotide context. If the edit response were
+  a restatement of mutation chemistry or of local $k$-mer identity, stratifying it away would
+  collapse the AUROC. It costs $0.0059$. The comparison is made \emph{apples-to-apples}, on the
+  identical $5{,}027$ variants that the $37$ sufficiently populated contexts cover: comparing the
+  stratified number against the full-cohort $0.9259$ would compare different populations and
+  overstate the result. The two zero-geometry lookups are reported on the full cohort for
+  reference; the trinucleotide lookup beats the $12$-class lookup, as strictly more conditioning
+  information should, and both remain far below the geometry. \emph{Caveat:} trinucleotide context
+  spans $\pm1$\,bp while Carbon's tokenizer packs $6$\,bp per token, so this does not fully control
+  the exact ref-$6$-mer\,$\to$\,alt-$6$-mer token pair (\cref{sec:limitations}).}
+  \label{tab:trinuc}
+  \small
+  \begin{tabular}{lcc}
+    \toprule
+    Scoring & $n$ & AUROC \up \\
+    \midrule
+    \multicolumn{3}{l}{\emph{Apples-to-apples, on the same subset ($745$ pathogenic)}}\\
+    Unstratified $\lVert\Delta\rVert$                       & $5{,}027$ & $0.9364$ \\
+    Within-trinucleotide-context pooled                     & $5{,}027$ & $0.9305$ \\
+    \emph{\quad cost of conditioning on exact local context} & & $\mathbf{-0.0059}$ \\
+    \midrule
+    \multicolumn{3}{l}{\emph{Full-cohort references}}\\
+    Unstratified $\lVert\Delta\rVert$                       & $6{,}993$ & $0.9259$ \\
+    Trinucleotide-context lookup, zero geometry             & $6{,}993$ & $0.6618$ \\
+    Substitution-class lookup ($12$ classes), zero geometry & $6{,}993$ & $0.6306$ \\
+    \bottomrule
+  \end{tabular}
+  \vspace{2pt}
+
+  {\footnotesize $37$ trinucleotide contexts retained ($\geq10$ variants per class).}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 2: predictability of Delta (Result 4)
+% ----------------------------------------------------------------------
+\newcommand{\tabPredict}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{The edit response is not anticipatable from the pooled reference state.}
+  Prediction of the displacement $\Delta$ from $(s_{\mathrm{ref}},a)$ \emph{without} encoding the
+  edited window, at radius $8$ (the most favourable pooling width), $5$-fold cross-validation,
+  $n{=}12{,}993$ SNVs. $\cos(\hat\Delta,\Delta)$ measures direction; AUROC$(\lVert\hat\Delta\rVert)$
+  measures whether the predicted magnitude carries the pathogenicity signal that the true magnitude
+  carries. The cosine-trained MLP's magnitude is omitted by construction, not by selection: a
+  cosine objective is scale-invariant, so its $\lVert\hat\Delta\rVert$ is unconstrained and its
+  AUROC would not be a fair test (\cref{sec:predict-protocol}). Every learned predictor sits
+  between the model-free baselines and the ceiling, far closer to the baselines; ridge, which sees
+  $s_{\mathrm{ref}}$, scores \emph{below} the class-mean lookup, which does not.}
+  \label{tab:predict}
+  \small
+  \begin{tabular}{lcc}
+    \toprule
+    Predictor of $\Delta$ from $(s_{\mathrm{ref}},a)$ & $\cos(\hat\Delta,\Delta)$ \up & AUROC$(\lVert\hat\Delta\rVert)$ \up \\
+    \midrule
+    \multicolumn{3}{l}{\emph{Model-free references}}\\
+    Global-mean $\Delta$ (knows nothing)                & $0.0493$ & $0.4939$ \\
+    Per-substitution-class-mean lookup                  & $0.2107$ & $0.6079$ \\
+    Substitution class alone, no model at all           & --       & $0.6306$ \\
+    \midrule
+    \multicolumn{3}{l}{\emph{Learned world models}}\\
+    Ridge$(s_{\mathrm{ref}},a)$, $\lambda$ swept $1$--$10^{6}$ (best $10^{3}$) & $0.1770$ & $0.5854$ \\
+    MLP$(s_{\mathrm{ref}},a)$, MSE loss                 & $0.1949$ & $\mathbf{0.6520}$ \\
+    MLP$(s_{\mathrm{ref}},a)$, cosine loss              & $\mathbf{0.3228}$ & n/a (scale-free) \\
+    \midrule
+    \multicolumn{3}{l}{\emph{Ceiling}}\\
+    \textbf{TRUE $\Delta$ (run the encoder on the edited window)} & $1.0$ & $\mathbf{0.9259}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 3: scope -- quantitative function (BRCA2) and the likelihood baseline
+% ----------------------------------------------------------------------
+\newcommand{\tabScope}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Scope of the measurement beyond curated binary labels, and its relation to
+  Carbon's own likelihood.} The BRCA2 rows are the honest limit of the result: strong separation of
+  curated pathogenic/benign extremes does \emph{not} transfer to a quantitative functional score
+  within a single gene. The lower block does two jobs at once (\cref{sec:loglik}). It
+  \emph{calibrates the difficulty of our cohort}: $\Delta\log$-likelihood, the standard zero-shot
+  DNA-LM variant score, reaches $0.8945$ here against $0.6$--$0.8$ in the published literature, so
+  our ClinVar slice is easy and every AUROC in this paper must be read as cohort-dependent rather
+  than as a method win. And it shows that, on identical variants, the geometry is nonetheless
+  \emph{not} a restatement of likelihood surprise: it scores higher, correlates with the likelihood
+  only weakly, survives residualisation of the likelihood, and ensembles above either score alone.
+  This is not a competitive variant-effect-prediction method and we do not present it as one
+  (\cref{sec:limitations}).}
+  \label{tab:scope}
+  \small
+  \begin{tabular}{llcc}
+    \toprule
+    Evaluation & Quantity & $n$ & Value \\
+    \midrule
+    ClinVar (curated binary)     & AUROC$(\lVert\Delta\rVert)$, $r{=}8$, SNV-only & $6{,}993$ & $0.9259$ \\
+    \midrule
+    BRCA2 sGE (quantitative)     & Spearman$(\lVert\Delta\rVert,\ \text{function})$, $r{=}8$ & $6{,}000$ & $-0.265$ \\
+    BRCA2 sGE (quantitative)     & Spearman, ClinVar-learned direction transfer & $6{,}000$ & $-0.155$ \\
+    \midrule
+    % R5 dLogLik, fp32 (job 6a5744c2b1669a49bf073b77, run
+    % r5-delta-loglik-fp32-edd9b5a). The earlier bf16 run
+    % (r5-delta-loglik-82eb3c2) is INVALID -- 90.7% of its dLogLik values were
+    % exactly zero -- and none of its numbers appear anywhere in this paper.
+    % See sec:loglik for the mechanism.
+    \multicolumn{4}{l}{\emph{Relation to Carbon's own likelihood; same variants, joined on $(\mathrm{chrom},\mathrm{pos},\mathrm{ref},\mathrm{alt})$, $r{=}8$, \texttt{fp32}}}\\
+    ClinVar SNVs ($893$ path.)   & AUROC$(\lVert\Delta\rVert)$                          & $6{,}981$ & $0.9255$ \\
+    ClinVar SNVs ($893$ path.)   & AUROC$(-\Delta\log\mathrm{Lik})$                     & $6{,}981$ & $0.8945$ \\
+    ClinVar SNVs ($893$ path.)   & AUROC$(\lVert\Delta\rVert$ residualised on $\Delta\log\mathrm{Lik})$ & $6{,}981$ & $0.8529$ \\
+    ClinVar SNVs ($893$ path.)   & AUROC(rank ensemble of the two)                      & $6{,}981$ & $\mathbf{0.9482}$ \\
+    ClinVar SNVs ($893$ path.)   & Spearman$(\lVert\Delta\rVert,\ \Delta\log\mathrm{Lik})$ & $6{,}981$ & $-0.2391$ \\
+    \quad within trinucleotide context & AUROC$(\lVert\Delta\rVert)$                    & $5{,}021$ & $0.9302$ \\
+    \quad within trinucleotide context & AUROC$(-\Delta\log\mathrm{Lik})$               & $5{,}021$ & $0.9007$ \\
+    BRCA2 sGE (quantitative)     & Spearman$(\lVert\Delta\rVert,\ \text{function})$      & $6{,}000$ & $-0.2649$ \\
+    BRCA2 sGE (quantitative)     & Spearman$(\Delta\log\mathrm{Lik},\ \text{function})$  & $6{,}000$ & $+0.1124$ \\
+    \bottomrule
+  \end{tabular}
+  \vspace{2pt}
+
+  {\footnotesize The within-context rows pool the $37$ of the $64$ trinucleotide contexts present
+  that carry at least ten variants per class---the same $37$ as \cref{tab:trinuc}. The two differ
+  only in cohort: \cref{tab:trinuc} covers $5{,}027$ variants of the $6{,}993$ ClinVar SNVs, while
+  the rows here cover $5{,}021$ of $6{,}981$, twelve fewer because twelve duplicated
+  $(\text{chrom},\text{pos},\text{ref},\text{alt})$ keys collapse when the set is keyed for the
+  likelihood join. The BRCA2 $-0.2649$ is the $-0.265$ above at four decimal places, not a second
+  measurement.}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 3b: R6a -- the sensitivity ceiling across three encoders.
+% Values verbatim from the R6a table. Jobs 6a57474485d9643ce16d3a4a (NT-v2) and
+% 6a57474485d9643ce16d3a4c (HyenaDNA); data r6-nt-v2-693571d /
+% r6-hyenadna-693571d; Carbon rows from the verified R1 summary.
+% Spans are BP-MATCHED (radius is in tokens; see sec:encoders). R6a reports the
+% global and +-48 bp spans only, so no other span is tabulated.
+% ----------------------------------------------------------------------
+\newcommand{\tabEncoderTrap}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{The predict-no-change trap replicates on every encoder we measured.} The same
+  $12{,}993$ SNVs in the same $4{,}096$\,bp windows, through three frozen encoders that share
+  neither training objective nor tokenizer, at \textbf{bp-matched} pooling spans
+  (\cref{sec:encoders}). A single-base edit leaves the pooled state cosine-indistinguishable from
+  the reference on all three: the smallest cosine anywhere in this table is Carbon's $0.99352$, and
+  $\pm48$\,bp is the \emph{maximum}-sensitivity span, so every intermediate span is closer to $1$
+  still. HyenaDNA is the extreme case---$\cos = 1.00000$ under global pooling---and the mechanism is
+  visible in the tokenizer column: one base perturbs $1$ of $4{,}097$ character tokens against $1$
+  of $683$ $6$\,bp tokens, and its relative displacement is correspondingly $\approx10\times$
+  smaller than Carbon's at global pooling and $\approx6\times$ smaller at $\pm48$\,bp. The dilution
+  curve has the same shape everywhere: sensitivity peaks at the narrowest pool and falls as the pool
+  widens. Any objective scored by $\cos(s_{\mathrm{ref}},s_{\mathrm{alt}})$ is degenerate on all
+  three encoders. Whether the displacement is \emph{informative}, however, does not replicate at all
+  (\cref{tab:encoders}).}
+  \label{tab:enctrap}
+  \small
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{llcccc}
+    \toprule
+    & & \multicolumn{2}{c}{$\cos(s_{\mathrm{ref}},s_{\mathrm{alt}})$} & \multicolumn{2}{c}{$\mathrm{rel}\Delta = \lVert\Delta\rVert_2/\lVert s_{\mathrm{ref}}\rVert_2$} \\
+    \cmidrule(lr){3-4}\cmidrule(lr){5-6}
+    Encoder & Objective / tokenizer / width & global & $\pm48$\,bp & global & $\pm48$\,bp \\
+    \midrule
+    Carbon-500M   & autoregressive, $6$\,bp token, $d{=}1024$   & $0.99989$ & $0.99352$ & $0.0083$ & $0.0759$ \\
+    NT-v2-100M    & masked LM, $6$\,bp token, $d{=}512$         & $0.99998$ & $0.99479$ & $0.0050$ & $0.0889$ \\
+    HyenaDNA-450k & implicit conv., $1$\,bp token, $d{=}256$    & $\mathbf{1.00000}$ & $0.99991$ & $0.0008$ & $0.0130$ \\
+    \bottomrule
+  \end{tabular}}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 3c: R6b -- informativeness and the interventional test across encoders.
+% "D adds" = dir(Delta) - ref-probe, both supervised 5-fold CV: the fair test.
+% Verified: 0.8575-0.5500=+0.3075, 0.7737-0.6392=+0.1346 (reported value),
+% 0.7496-0.7794=-0.0298, etc.
+% R6b reports the global, +-48 bp and +-1536 bp spans only.
+% ----------------------------------------------------------------------
+\newcommand{\tabEncoders}{%
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Informativeness is encoder-specific, and the interventional property is
+  \emph{Carbon}-specific.} Same $12{,}993$ SNVs, same windows, same analysis code, bp-matched spans
+  (\cref{sec:encoders}). $\lVert\Delta\rVert$ is the unsupervised displacement magnitude;
+  $\mathrm{dir}(\Delta)$ is a supervised $5$-fold directional probe on $\Delta$; \emph{Ref.\ probe}
+  is the same supervised probe on $s_{\mathrm{ref}}$ alone, which never observes the edit.
+  \emph{$\Delta$ adds} is $\mathrm{dir}(\Delta)$ minus the reference probe---probe against probe, so
+  it is the fair test of whether the \emph{edit} beats the \emph{neighbourhood}, and it is the
+  quantity that separates the three encoders. Carbon clears it at every span. HyenaDNA adds
+  $\approx0.02$ from a base of chance. Nucleotide~Transformer~v2 goes \emph{negative} at
+  $\pm48$\,bp: its unedited window predicts pathogenicity better than its edit response does. The
+  BRCA2 column is Spearman$(\lVert\Delta\rVert, \text{function})$ at $\pm48$\,bp, and is not
+  reported for HyenaDNA.}
+  \label{tab:encoders}
+  \small
+  \begin{tabular}{llcccc}
+    \toprule
+    Encoder & Span & $\lVert\Delta\rVert$ & $\mathrm{dir}(\Delta)$ & Ref.\ probe & $\Delta$ adds \\
+    \midrule
+    \multirow{3}{*}{Carbon-500M}
+      & $\pm48$\,bp             & $0.9259$ & $0.7737$ & $0.6392$ & $\mathbf{+0.1346}$ \\
+      & $\pm1536$\,bp           & $0.9313$ & $0.8506$ & $0.5539$ & $\mathbf{+0.2967}$ \\
+      & global ($4{,}096$\,bp)  & $0.9313$ & $0.8575$ & $0.5500$ & $\mathbf{+0.3075}$ \\
+    \midrule
+    \multirow{3}{*}{NT-v2-100M}
+      & $\pm48$\,bp             & $0.7616$ & $0.7496$ & $0.7794$ & $\mathbf{-0.0298}$ \\
+      & $\pm1536$\,bp           & $0.7590$ & $0.7232$ & $0.5907$ & $+0.1326$ \\
+      & global ($4{,}096$\,bp)  & $0.7574$ & $0.7119$ & $0.5823$ & $+0.1296$ \\
+    \midrule
+    \multirow{3}{*}{HyenaDNA-450k}
+      & $\pm48$\,bp             & $0.5676$ & $0.5795$ & $0.5566$ & $+0.0229$ \\
+      & $\pm1536$\,bp           & $0.5460$ & $0.5814$ & $0.5545$ & $+0.0269$ \\
+      & global ($4{,}096$\,bp)  & $0.5460$ & $0.5824$ & $0.5521$ & $+0.0303$ \\
+    \bottomrule
+  \end{tabular}
+  \vspace{2pt}
+
+  {\footnotesize BRCA2 sGE, Spearman$(\lVert\Delta\rVert,\ \text{function})$ at $\pm48$\,bp
+  ($n{=}6{,}000$): Carbon $-0.265$, NT-v2 $-0.186$.}
+\end{table}}
+
+% ----------------------------------------------------------------------
+% Table 4 (historical): v0.2.1-r1 variant-effect rows -- withdrawn
 % ----------------------------------------------------------------------
 \newcommand{\tabVEP}{%
 \begin{table}[t]
   \centering
-  \caption{\textbf{Historical variant-effect measurements (v0.2.1-r1; invalid for the intended
-  method).} Binary ClinVar slices report
-  accuracy / AUROC / average precision (AP) / balanced accuracy; BRCA2 saturation and TraitGym
-  Mendelian report Spearman $\rho$ against a BRCA2 continuous functional score and TraitGym binary labels. The baseline is the
-  same frozen Carbon-500M encoder scored zero-shot. $\Delta$ is GenoLeWM~$-$~Carbon (positive favours
-  GenoLeWM). The GenoLeWM score was derived from an $L_2$ residual between unit-norm predictions and
-  raw target states whose norms were about $29$--$34$. Thus the rows preserve released bytes but do not
-  compare the intended normalized-state method with Carbon. Bold marks only the larger historical value.}
+  \caption{\textbf{Historical variant-effect measurements from the withdrawn \texttt{v0.2.1-r1}
+  release; retained for auditability, invalid as a method comparison.} The GenoLeWM score was an
+  $L_2$ residual between unit-norm predictions and raw target states whose norms were about
+  $29$--$34$ (\cref{tab:rollout}), so these rows do not evaluate the intended normalized-state
+  method. The slices are additionally underpowered ($N{=}16$ per ClinVar slice, $N{=}32$ for BRCA2
+  and TraitGym). $\Delta$ is GenoLeWM~$-$~Carbon. Bold marks only the larger historical value.}
   \label{tab:vep}
   \small
   \begin{tabular}{llrrr}
@@ -45,33 +329,37 @@
 \end{table}}
 
 % ----------------------------------------------------------------------
-% Table 2: latent rollout fidelity vs source-state baseline
+% Table 5 (historical): v0.2.1-r1 rollout + the state-norm audit
 % ----------------------------------------------------------------------
 \newcommand{\tabRollout}{%
 \begin{table}[t]
   \centering
-  \caption{\textbf{Historical rollout measurements and state-norm audit (v0.2.1-r1).} Cosine values
-  are scale-invariant historical measurements but are confounded by the invalid mixed-scale training
-  objective, global-source/nominally-centered-target training mismatch, a one-hidden-token center offset, and train/rollout distribution shift. The $L_2$ columns are invalid comparisons: the
-  predictor was unit norm while encoder source and target states were raw. No capability or mechanism
-  is inferred. Recall@$k$ was $1.0$ for both model and baseline and was non-discriminating.}
+  \caption{\textbf{Historical rollout measurements and the state-norm audit that withdrew them
+  (\texttt{v0.2.1-r1}).} The lower block is the direct evidence of the normalization defect: the
+  predictor emitted unit-norm vectors while the encoder emitted raw states with norms near
+  $29$--$34$, so the $L_2$ columns compare incommensurable operands. The cosine columns are
+  scale-invariant and remain numerically reproducible, but are confounded by mixed-scale training,
+  mismatched pooling coordinates, and train/rollout distribution shift. Recall@$k$ was $1.0$ for
+  both model and baseline at $N{=}8$ and was non-discriminating. \Cref{sec:retraction} argues that
+  repairing all of this would not have rescued the run.}
   \label{tab:rollout}
   \small
+  \resizebox{\linewidth}{!}{%
   \begin{tabular}{lrrrrrr}
     \toprule
-    & \multicolumn{3}{c}{Cosine to $\stp$ \up (confounded)} & \multicolumn{3}{c}{$L_2$ to $\stp$ (invalid)} \\
+    & \multicolumn{3}{c}{Cosine to $s_{t+1}$ \up (confounded)} & \multicolumn{3}{c}{$L_2$ to $s_{t+1}$ (invalid)} \\
     \cmidrule(lr){2-4}\cmidrule(lr){5-7}
     Setting & GenoLeWM & Source-state & $\Delta$ & GenoLeWM & Source-state & $\Delta$ \\
     \midrule
     Phased haplotypes      & 0.2889 & \textbf{0.9978} & $-0.7090$ & 33.32 & \textbf{2.13} & $+31.19$ \\
     Synthetic edit chains  & 0.3016 & \textbf{0.9912} & $-0.6896$ & 28.80 & \textbf{3.17} & $+25.64$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \vspace{3pt}
 
   \begin{tabular}{lrrr}
     \toprule
-    Setting & Mean $\lVert\st\rVert_2$ & Mean $\lVert\stp\rVert_2$ & Mean $\lVert\shat\rVert_2$ \\
+    Setting & Mean $\lVert s_t\rVert_2$ & Mean $\lVert s_{t+1}\rVert_2$ & Mean $\lVert\hat s_{t+1}\rVert_2$ \\
     \midrule
     Phased haplotypes     & 33.982 & 33.595 & 1.000 \\
     Synthetic edit chains & 29.253 & 29.089 & 1.000 \\
@@ -80,54 +368,62 @@
 \end{table}}
 
 % ----------------------------------------------------------------------
-% Table 3: inference efficiency + AR rollout speed
-% ----------------------------------------------------------------------
-\newcommand{\tabEfficiency}{%
-\begin{table}[t]
-  \centering
-  \caption{\textbf{Historical implementation timing (v0.2.1-r1, single NVIDIA H200).} The released
-  single-variant score path includes process start, artifact loading, and two frozen Carbon-500M
-  forward passes; its end-to-end latency is $\approx$115\,s, without a component profile. The KV-cache micro-benchmark uses synthetic tensors at $d_{\mathrm{state}}{=}1024$ on H200/CUDA bf16 with a benchmark-specific predictor shape. Because model-quality evaluation is invalidated, these rows do not support an
-  efficiency--quality or deployment conclusion.}
-  \label{tab:efficiency}
-  \small
-  \begin{tabular}{lr}
-    \toprule
-    Quantity & Value \\
-    \midrule
-    Single-variant latency (cold, 2 Carbon passes) & $115{,}262.94$ ms ($\approx$115\,s) \\
-    Batched throughput                             & $0.3095$ variants/s \\
-    Peak memory                                    & $1{,}966{,}149{,}632$ B ($\approx$1.83\,GiB) \\
-    \midrule
-    AR rollout speedup, $K{=}5$  & $2.41\times$ \;(local $2\times$ target met) \\
-    AR rollout speedup, $K{=}20$ & $2.47\times$ \;(RFC-0004 $5\times$ target \emph{not} met, \#42 open) \\
-    \bottomrule
-  \end{tabular}
-\end{table}}
-
-% ----------------------------------------------------------------------
-% Table 4: artifact identity / reproducibility commitments
+% Table 6: artifact identity / provenance for both lineages
 % ----------------------------------------------------------------------
 \newcommand{\tabArtifacts}{%
 \begin{table}[H]
   \centering
-  \caption{\textbf{Content-addressed identity of the invalidated release.} Every historical number is
-  bound to these identities through checksum receipts, and all 28 suite outputs verified at the byte
-  and graph level. The receipts did not verify normalization semantics, token-layout offsets,
-  transitive tokenizer dependencies, or gradient paths. A corrected
-  run must use a new identity (\S\ref{sec:reproducibility}).}
+  \caption{\textbf{Artifact identity and provenance.} The upper block identifies the measurement
+  reported in this paper; the lower block identifies the withdrawn release discussed in
+  \cref{sec:retraction}, retained so that its historical numbers stay bound to the bytes that
+  produced them. The two lineages are disjoint: no result in \cref{sec:spectroscopy} or
+  \cref{sec:predict} depends on any \texttt{v0.2.1-r1} artifact.}
   \label{tab:artifacts}
-  \small
+  \footnotesize
   \begin{tabular}{ll}
     \toprule
     Field & Value \\
     \midrule
+    \multicolumn{2}{l}{\emph{Edit-response measurement (this paper)}}\\
+    Encoder            & \texttt{HuggingFaceBio/Carbon-500M}, rev.\ \texttt{5d31d59b}, \texttt{bf16}, frozen \\
+    Representation     & layer $20$; mean pool; window $4{,}096$\,bp \\
+    R1 job             & \texttt{6a565de7b1669a49bf07274b} (A100-large) \\
+    R1 code commit     & \texttt{e23fdf9} \\
+    Analysis commit    & \texttt{82eb3c2} (\texttt{tools/research/edit\_response\_analysis.py}) \\
+    Predictability commit & \texttt{187a1c5} (\texttt{tools/research/delta\_predictability.py}) \\
+    Cohort             & $14{,}000$ GRCh38-grounded variants $\times\ 4$ pool radii $=56{,}000$ rows; $0$ skips \\
+    FASTA ref-base check & $12{,}993/12{,}993$ SNVs matched \\
+    \midrule
+    \multicolumn{2}{l}{\emph{R5: Carbon $\Delta\log$-likelihood (\cref{sec:loglik})}}\\
+    R5 job             & \texttt{6a5744c2b1669a49bf073b77}, run \texttt{r5-delta-loglik-fp32-edd9b5a} \\
+    Precision          & \texttt{fp32}. The earlier \texttt{bf16} run \texttt{r5-delta-loglik-82eb3c2} is \\
+                       & \textbf{invalid} ($90.7\%$ exact zeros over $18$ distinct values) and no number \\
+                       & from it appears in this paper. \\
+    fp32 sanity        & $0$ exact zeros; $9{,}115$ distinct values; range $-486.0$ to $+36.3$ \\
+    \midrule
+    \multicolumn{2}{l}{\emph{R6: two further encoders (\cref{sec:generality}); analysis code run unchanged}}\\
+    NT-v2 job          & \texttt{6a57474485d9643ce16d3a4a}; data \texttt{r6-nt-v2-693571d} \\
+    HyenaDNA job       & \texttt{6a57474485d9643ce16d3a4c}; data \texttt{r6-hyenadna-693571d} \\
+    R6 cohort (each)   & the same $12{,}993$ SNVs $\times\ 4$ pool radii $=51{,}972$ rows; $0$ skips \\
+    Pooling            & bp-matched: HyenaDNA at radii $0/48/384/1536$ ($1$\,bp per token) \\
+                       & against Carbon's and NT-v2's $0/8/64/256$ ($6$\,bp per token) \\
+    \midrule
+    Data               & \scriptsize\url{https://huggingface.co/datasets/abdelstark/geno-lewm-edit-response} \\
+    Data files         & \texttt{r1-edit-response-e23fdf9/edit\_response\_embeddings.parquet}, \\
+                       & \texttt{r1-edit-response-e23fdf9/edit\_response\_summary.json}, \\
+                       & \texttt{r1-edit-response-e23fdf9/variants.jsonl} \\
+    Code               & \texttt{tools/research/edit\_response\_spectroscopy.py}, \\
+                       & \texttt{tools/research/edit\_response\_analysis.py}, \\
+                       & \texttt{tools/research/delta\_predictability.py}, \\
+                       & \texttt{tools/jobs/edit\_response\_run.sh}, \texttt{tools/jobs/delta\_loglik\_run.sh} \\
+    \midrule
+    \multicolumn{2}{l}{\emph{Withdrawn release (\cref{sec:retraction}; historical only)}}\\
     Model release    & \texttt{geno-lewm-v0.2.1-r1} \\
     Model id         & \texttt{sha256:cddb8f3b9671\ldots f5f3ed6af4} \\
     Dataset snapshot & \texttt{geno-lewm-data-v0.2.1-r1} \\
     Commit           & \texttt{d9b06815cf8e\ldots5aa4154d} \\
     Hardware         & NVIDIA H200 (Linux x86\_64, glibc 2.35) \\
-    Suite outputs    & 28 / 28 verified (\texttt{release\_inputs}: pass) \\
+    Suite outputs    & 28 / 28 verified at the byte level (semantics unverified) \\
     \bottomrule
   \end{tabular}
 \end{table}}
