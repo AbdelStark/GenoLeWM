@@ -192,9 +192,13 @@
   \end{tabular}
   \vspace{2pt}
 
-  {\footnotesize The within-context rows retain $64$ trinucleotide contexts over the joined cohort
-  (\cref{tab:trinuc} retains $37$ under its own threshold). The BRCA2 $-0.2649$ is the $-0.265$
-  above at four decimal places, not a second measurement.}
+  {\footnotesize The within-context rows pool the $37$ of the $64$ trinucleotide contexts present
+  that carry at least ten variants per class---the same $37$ as \cref{tab:trinuc}. The two differ
+  only in cohort: \cref{tab:trinuc} covers $5{,}027$ variants of the $6{,}993$ ClinVar SNVs, while
+  the rows here cover $5{,}021$ of $6{,}981$, twelve fewer because twelve duplicated
+  $(\text{chrom},\text{pos},\text{ref},\text{alt})$ keys collapse when the set is keyed for the
+  likelihood join. The BRCA2 $-0.2649$ is the $-0.265$ above at four decimal places, not a second
+  measurement.}
 \end{table}}
 
 % ----------------------------------------------------------------------
