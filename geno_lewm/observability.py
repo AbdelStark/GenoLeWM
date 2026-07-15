@@ -153,6 +153,43 @@ EVENTS: tuple[EventSpec, ...] = (
         frozenset({"shard_id", "key"}),
     ),
     EventSpec(
+        "data.cache.build.start",
+        "info",
+        "finite cache build plan accepted",
+        frozenset({"request_count", "unique_rows", "planned_shards", "requests_sha256"}),
+    ),
+    EventSpec(
+        "data.cache.build.progress",
+        "info",
+        "cache build shard completed or resumed",
+        frozenset(
+            {
+                "shard_id",
+                "status",
+                "completed_shards",
+                "total_shards",
+                "encoded_rows",
+                "resumed_rows",
+                "throughput_per_s",
+            }
+        ),
+    ),
+    EventSpec(
+        "data.cache.build.end",
+        "info",
+        "finite cache build evidence completed",
+        frozenset(
+            {
+                "completed_shards",
+                "encoded_rows",
+                "resumed_rows",
+                "elapsed_s",
+                "throughput_per_s",
+                "evidence_report",
+            }
+        ),
+    ),
+    EventSpec(
         "data.shard.write",
         "info",
         "new shard written",

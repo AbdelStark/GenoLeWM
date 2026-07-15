@@ -1,0 +1,132 @@
+{
+  "$schema": "./carbon-500m-runtime-content-lock.schema.json",
+  "claim_boundary": "This offline lock binds the exact upstream Carbon weight and runtime-file digests to the eight local encoder implementation files and recomputes the canonical runtime hash. It does not attest model quality, encoded-state equality, a container image, a mounted filesystem, or successful H200 completion.",
+  "correction_receipt": {
+    "cause": {
+      "change": "self.pool_type = cast(_PoolType, pool_type) became self.pool_type = pool_type",
+      "file": "geno_lewm/encoder/carbon.py",
+      "merge_commit": "e12273f538370c23235743cf559f19fcb344cfc0",
+      "pull_request": 286,
+      "semantic_effect": "No runtime value or encoded-state semantics changed; the source bytes changed in a file intentionally committed by the runtime hash."
+    },
+    "fail_closed_h200_jobs": [
+      {
+        "job_id": "6a56055fb1669a49bf071e81",
+        "observed_runtime_hash": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311",
+        "stale_expected_runtime_hash": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e",
+        "status": "ERROR"
+      },
+      {
+        "job_id": "6a56107985d9643ce16d2b3e",
+        "observed_runtime_hash": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311",
+        "stale_expected_runtime_hash": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e",
+        "status": "ERROR"
+      }
+    ],
+    "runtime_hash_provenance": {
+      "first_affected_merge_commit": "8a278c5e8ec57d1e4839336f9cd65823d3a216e2",
+      "post_rebase_runtime_hash": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311",
+      "pre_rebase_runtime_hash": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e",
+      "pre_rebase_source_commit": "e9845cffb4ff1dcdb00cce0215564d83d6ce8317",
+      "typing_change_commit": "e12273f538370c23235743cf559f19fcb344cfc0"
+    },
+    "stale_lock_source_range": {
+      "first_commit": "8a278c5e8ec57d1e4839336f9cd65823d3a216e2",
+      "inclusive": true,
+      "last_commit": "c90d366c761a35a1746bf27418777473a6acf29f"
+    },
+    "superseded_runtime_hash": "sha256:add3c1a663a35fb92fbd3fd935b067da1aed8aeb143ea01f7d92c2cd3ed2aa5e",
+    "training_trace": {
+      "hub_revision": "da0d86cde7bf88de2015ab7c516f356e9ae89469",
+      "reason": "The trace attests ordered request construction from window and edit-locus inputs. Its rows contain neither an encoder runtime hash nor a cache key, and its claim boundary does not attest a runtime container.",
+      "reusable": true
+    }
+  },
+  "implementation_files": [
+    {
+      "path": "geno_lewm/_inference.py",
+      "sha256": "sha256:43bfc44c7fc46c75d78aa0f7f9d5d79045f1a18440db97abee83e79fda0f8c54"
+    },
+    {
+      "path": "geno_lewm/encoder/_canonical.py",
+      "sha256": "sha256:878d00cd50e727ff274ee10b8d6115f8cbcdb2ea84554c8bc05efe50078f6612"
+    },
+    {
+      "path": "geno_lewm/encoder/_dna_tokenizer.py",
+      "sha256": "sha256:6fdc1f8f4caea8eb161d798654aa5ee00510d65cb10c1017dfc1981e090eed94"
+    },
+    {
+      "path": "geno_lewm/encoder/_identity.py",
+      "sha256": "sha256:6cf567c1b85febc19354a255f8778a2e23aca8a74a1de01c516c0479c9f2af1b"
+    },
+    {
+      "path": "geno_lewm/encoder/_normalization.py",
+      "sha256": "sha256:1dbcf7439c77e44a3d0ce76a67e6120b336e516e85912f836f7c539b96bba34f"
+    },
+    {
+      "path": "geno_lewm/encoder/carbon.py",
+      "sha256": "sha256:6ab7fdd61fa04d982d2e3fc83d3c3d9becfbe5e3ac0d3f5875b3a5ee9bf98200"
+    },
+    {
+      "path": "geno_lewm/encoder/pooling.py",
+      "sha256": "sha256:19b872adbdb6afd2bfef586f42a779286b60caccad34a3327cd5175c54eb7a42"
+    },
+    {
+      "path": "geno_lewm/encoder/windowing.py",
+      "sha256": "sha256:297e11c2ef69f8f566fb2303d25481b701875a665be10310fe8ed5b0512405c2"
+    }
+  ],
+  "model": {
+    "repository": "HuggingFaceBio/Carbon-500M",
+    "revision": "5d31d59b3c845b288a13aedb1358934196852eec"
+  },
+  "runtime_files": [
+    {
+      "path": "config.json",
+      "sha256": "sha256:e2bdf330ba0c2c2427c82d4982941b5081eeb032d8a90420ff2f9f5c38094ef4"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "sha256": "sha256:f0ebf75e73c89e3131331cdd41e04436e8fc0c3e33d1020e191ad746c07e2479"
+    },
+    {
+      "path": "tokenizer.py",
+      "sha256": "sha256:96c62fbc0cf6a2a7dea6f433f74378e963e1209cd12efe2b912c6bb09564aacd"
+    },
+    {
+      "path": "added_tokens.json",
+      "sha256": "sha256:c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+    },
+    {
+      "path": "dna_config.json",
+      "sha256": "sha256:5aa3c13df5452264fdc6140b5a4b4f9dc35c1b81bd168bc84223bd610f165a7e"
+    },
+    {
+      "path": "generation_config.json",
+      "sha256": "sha256:269049836d11c5e25b7f206da818ba5d9a2ba2bda4041fb66bac46a3e36dfbca"
+    },
+    {
+      "path": "merges.txt",
+      "sha256": "sha256:8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+    },
+    {
+      "path": "special_tokens_map.json",
+      "sha256": "sha256:6676f091c8bc4d1b50146427cfde92073402866b87b6e39223227931b70083e9"
+    },
+    {
+      "path": "tokenizer.json",
+      "sha256": "sha256:aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+    },
+    {
+      "path": "vocab.json",
+      "sha256": "sha256:ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    }
+  ],
+  "runtime_hash": "sha256:a1fd1dd20756c7248b7f9ca95c59c821f0329530fd49c6fea253a8df9a6a6311",
+  "runtime_hash_contract": "geno_lewm.encoder_runtime.v1",
+  "schema_version": "geno-lewm.carbon-runtime-content-lock.v1",
+  "weights": {
+    "artifact": "model.safetensors",
+    "sha256": "sha256:e257506988203fdb8bb46976ee81c97e24f29073754bbff70137c7704dbadaa8"
+  }
+}

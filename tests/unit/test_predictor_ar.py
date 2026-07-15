@@ -384,3 +384,138 @@ def test_ar_rollout_rejects_invalid_inputs() -> None:
         rollout.rollout(state, actions, torch.full((2, 2), 0.5))
     with pytest.raises(InputError):
         rollout.predict_single(state, actions)
+
+
+def _full_topology_predictor(torch_module: object, *, max_actions: int) -> object:
+    """Build a predictor with the contract 4-cross/2-self topology.
+
+    The narrower equivalence tests above use ``n_cross_layers=2``, which only
+    instantiates the two cross blocks whose action-side projections the rollout
+    cache precomputes. Cross blocks 2 and 3 consume action tokens that block 1
+    has already mixed with state information, so they are recomputed every step.
+    Only a 4-cross topology exercises the boundary between the cached and the
+    recomputed blocks.
+    """
+    from geno_lewm.predictor import Predictor
+
+    predictor = Predictor(
+        d_state=12,
+        d_action=6,
+        d_hidden=12,
+        n_heads=3,
+        n_cross_layers=4,
+        n_self_layers=2,
+        ffn_dim=24,
+        max_actions=max_actions,
+    )
+    # The output head is zero-initialized, which would make every rollout step a
+    # no-op and hide cache defects behind an identity transition.
+    torch_module.nn.init.normal_(predictor.output_mlp[-1].weight, mean=0.0, std=0.03)  # type: ignore[attr-defined]
+    torch_module.nn.init.normal_(predictor.output_mlp[-1].bias, mean=0.0, std=0.03)  # type: ignore[attr-defined]
+    return predictor
+
+
+def _naive_unroll(
+    torch_module: object, predictor: object, state: object, actions: object
+) -> object:
+    """Reference rollout: repeated single-action ``Predictor.forward`` calls."""
+    step_mask = torch_module.ones(actions.shape[0], 1, dtype=torch_module.bool)  # type: ignore[attr-defined]
+    current = state
+    expected = []
+    for step in range(actions.shape[1]):  # type: ignore[attr-defined]
+        current = predictor(current, actions[:, step : step + 1, :], step_mask)[:, 0, :]  # type: ignore[operator,index]
+        expected.append(current)
+    return torch_module.stack(expected, dim=1)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("horizon", [5, 20])
+def test_ar_rollout_matches_naive_unroll_on_full_cross_topology(horizon: int) -> None:
+    """Cached rollout must be numerically equivalent to the naive unroll.
+
+    Tolerance is 1e-6 absolute/relative, which is float32 round-off for this
+    topology: the cached and naive paths apply the same operations in the same
+    order and differ only in that action-only projections are computed once
+    instead of per step.
+    """
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import ARPredictor
+
+    torch.manual_seed(23)
+    predictor = _full_topology_predictor(torch, max_actions=horizon)
+    state = torch.nn.functional.normalize(torch.randn(2, 12), dim=-1)
+    actions = torch.randn(2, horizon, 6)
+
+    expected = _naive_unroll(torch, predictor, state, actions)
+    observed = ARPredictor(predictor).rollout_tensor(state, actions)
+
+    assert observed.shape == (2, horizon, 12)
+    torch.testing.assert_close(observed, expected, atol=1e-6, rtol=1e-6)
+
+
+def test_ar_rollout_per_step_work_is_constant_in_horizon() -> None:
+    """Rollout cost must be linear in the horizon, not quadratic.
+
+    This asserts the cache is load-bearing rather than merely correct, without
+    depending on wall-clock timing. Two invariants pin linearity:
+
+    * action-token projection runs exactly once per rollout, not once per step;
+    * every attention call sees a fixed 2-token key/value context (the current
+      state token plus the current action token), so per-step attention work
+      does not grow with the horizon.
+    """
+    torch = pytest.importorskip("torch")
+    from geno_lewm.predictor import ARPredictor
+
+    torch.manual_seed(29)
+    predictor = _full_topology_predictor(torch, max_actions=16)
+    state = torch.nn.functional.normalize(torch.randn(2, 12), dim=-1)
+
+    original_sdpa = torch.nn.functional.scaled_dot_product_attention
+    original_projection = predictor.action_projection.forward
+
+    def measure(horizon: int) -> tuple[int, int, set[int]]:
+        attention_calls = 0
+        projection_calls = 0
+        key_value_lengths: set[int] = set()
+
+        def counted_sdpa(
+            query: torch.Tensor,
+            key: torch.Tensor,
+            value: torch.Tensor,
+            *args: object,
+            **kwargs: object,
+        ) -> torch.Tensor:
+            nonlocal attention_calls
+            attention_calls += 1
+            key_value_lengths.add(int(key.shape[-2]))
+            return original_sdpa(query, key, value, *args, **kwargs)
+
+        def counted_projection(input_tensor: torch.Tensor) -> torch.Tensor:
+            nonlocal projection_calls
+            projection_calls += 1
+            return original_projection(input_tensor)
+
+        torch.nn.functional.scaled_dot_product_attention = counted_sdpa  # type: ignore[assignment]
+        predictor.action_projection.forward = counted_projection  # type: ignore[method-assign]
+        try:
+            ARPredictor(predictor).rollout_tensor(state, torch.randn(2, horizon, 6))
+        finally:
+            torch.nn.functional.scaled_dot_product_attention = original_sdpa  # type: ignore[assignment]
+            predictor.action_projection.forward = original_projection  # type: ignore[method-assign]
+        return attention_calls, projection_calls, key_value_lengths
+
+    short_attention, short_projection, short_lengths = measure(4)
+    long_attention, long_projection, long_lengths = measure(16)
+
+    # The action projection is hoisted out of the loop: one call at any horizon.
+    assert short_projection == 1
+    assert long_projection == 1
+
+    # Attention context never grows with the horizon.
+    assert short_lengths == {2}
+    assert long_lengths == {2}
+
+    # Attention work per step is identical at both horizons => total is linear.
+    assert short_attention > 0
+    assert short_attention % 4 == 0
+    assert long_attention == short_attention // 4 * 16

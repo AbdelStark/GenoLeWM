@@ -5,10 +5,15 @@ fixture-oriented in-memory `MembershipArtifact`. It is designed for the full
 autosomal gnomAD membership plus the pinned ClinVar source without constructing
 a Python tuple or set containing every row or variant key.
 
-This repository currently ships the contract and synthetic tests. It does not
-ship a real v0.3 membership store, prove a real split, or define the phased
-haplotype holdout described by historical RFC-0006. A proximity window over
-unphased variants is not a substitute for phased haplotype membership.
+This repository ships the contract, producer, verifier, and synthetic tests.
+The first real store candidate is published and independently verified at
+[exact Hub commit `96e97a7ff...`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/96e97a7ffe1e9ad8f9a98f690b220a32ac75ddc2/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/success),
+with its placed-window and held-role split evidence separately verified at
+[exact Hub commit `6d2ec7dd...`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/6d2ec7dd68af636ba8c594774c3c55a236c0995f/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/splits/geno-lewm-v03-membership-splits-bb24f6344274-r2/success).
+These are deterministic unphased variant-membership artifacts, not the phased
+haplotype holdout described by historical RFC-0006 or a released v0.3 snapshot.
+A proximity window over unphased variants is not a substitute for phased
+haplotype membership.
 
 ## Artifact layout
 

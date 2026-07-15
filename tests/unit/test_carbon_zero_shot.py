@@ -275,3 +275,19 @@ def test_log_likelihood_resolves_small_deltas_under_bf16_logits() -> None:
         != pytest.approx(round(score(base.to(torch.bfloat16)) / 16.0) * 16.0, abs=1e-9)
         or abs(score(base.to(torch.bfloat16))) < 1e-9
     )
+
+
+def test_to_float32_passes_through_objects_without_a_float_method() -> None:
+    """Stub tensors lacking ``float`` must survive the fp32 cast unchanged.
+
+    This module resolves torch entry points through ``getattr`` so it can run
+    against stubs, so the fp32 cast has to tolerate the same. Without the guard
+    a stub-backed caller would raise on a missing attribute instead of scoring.
+    """
+    from geno_lewm.carbon_zero_shot import _to_float32
+
+    class _StubTensor:
+        """A tensor-like object that never learned ``.float()``."""
+
+    stub = _StubTensor()
+    assert _to_float32(stub) is stub

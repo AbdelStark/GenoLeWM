@@ -16,8 +16,9 @@ from geno_lewm._artifact_sources import (
     CARBON_ZERO_SHOT_GENERATED_BY,
     SCORE_JSONL_GENERATED_BY,
 )
+from geno_lewm.data import MEMBERSHIP_STORE_SCHEMA_VERSION, V03_CHROMOSOME_ROLES
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
-from geno_lewm.provenance import Manifest, load_manifest, sha256_file
+from geno_lewm.provenance import Manifest, canonical_json_sha256, load_manifest, sha256_file
 from geno_lewm.provenance.hashing import looks_like_sha256
 from geno_lewm.training.preflight import REPORT_NAME as TRAINING_PREFLIGHT_REPORT_NAME
 from tools.demo.terminal_inference import (
@@ -35,7 +36,12 @@ from tools.release.dataset_integrity import (
     GENERATED_BY as DATASET_INTEGRITY_GENERATED_BY,
     build_dataset_integrity_report,
 )
-from tools.release.dataset_package import load_dataset_package, render_data_card
+from tools.release.dataset_package import (
+    ARTIFACT_ROLES,
+    DatasetPackage,
+    load_dataset_package,
+    render_data_card,
+)
 from tools.release.dataset_snapshot import (
     GENERATED_BY as DATASET_SNAPSHOT_GENERATED_BY,
     INPUT_CHECK_GENERATED_BY as DATASET_INPUT_CHECK_GENERATED_BY,
@@ -135,6 +141,13 @@ class RuntimePreflightEvidence:
     manifest_summary: dict[str, Any] | None
 
 
+@dataclass(frozen=True, slots=True)
+class _DatasetVerification:
+    snapshot_id: str | None
+    membership_runtime_binding: dict[str, object] | None
+    package_valid: bool
+
+
 def verify_package(
     paths: PackagePaths,
     *,
@@ -148,7 +161,8 @@ def verify_package(
         issues,
         allow_fixture_manifest=allow_fixture_manifest,
     )
-    dataset_snapshot = _verify_dataset_dir(paths.dataset_dir, issues)
+    dataset = _verify_dataset_dir(paths.dataset_dir, issues)
+    _verify_training_dataset_membership_binding(paths.model_dir, dataset, issues)
     _verify_demo_dir(
         paths.demo_dir,
         issues,
@@ -162,7 +176,7 @@ def verify_package(
             paths.paper_path,
             issues,
             model_id=None if manifest is None else manifest.model_id(),
-            dataset_snapshot=dataset_snapshot,
+            dataset_snapshot=dataset.snapshot_id,
             model_dir=paths.model_dir,
             dataset_dir=paths.dataset_dir,
             demo_dir=paths.demo_dir,
@@ -944,14 +958,27 @@ def _eval_report_has_baseline_rows(text: str) -> bool:
     return False
 
 
-def _verify_dataset_dir(dataset_dir: Path, issues: list[PackageIssue]) -> str | None:
+def _verify_dataset_dir(
+    dataset_dir: Path,
+    issues: list[PackageIssue],
+) -> _DatasetVerification:
     _require_markdown_sections(
         dataset_dir / "data_card.md",
         issues,
         code_prefix="dataset.card",
         sections=("Sources", "License", "Preprocessing", "Splits", "Limitations"),
     )
-    _verify_dataset_package_metadata(dataset_dir, issues)
+    package = _verify_dataset_package_metadata(dataset_dir, issues)
+    has_membership_and_split_evidence = (
+        package is not None and package.membership_and_split_evidence is not None
+    )
+    if has_membership_and_split_evidence and (dataset_dir / "data_card.md").is_file():
+        _require_markdown_sections(
+            dataset_dir / "data_card.md",
+            issues,
+            code_prefix="dataset.card",
+            sections=("Membership and Split Evidence",),
+        )
     manifest_path = dataset_dir / "dataset_manifest.json"
     dataset_files: tuple[str, ...] = ()
     snapshot_id: str | None = None
@@ -985,13 +1012,19 @@ def _verify_dataset_dir(dataset_dir: Path, issues: list[PackageIssue]) -> str | 
             *dataset_files,
         ),
     )
-    return snapshot_id
+    return _DatasetVerification(
+        snapshot_id=snapshot_id,
+        membership_runtime_binding=(
+            None if package is None else _dataset_membership_runtime_binding(package)
+        ),
+        package_valid=package is not None,
+    )
 
 
 def _verify_dataset_package_metadata(
     dataset_dir: Path,
     issues: list[PackageIssue],
-) -> None:
+) -> DatasetPackage | None:
     metadata_path = dataset_dir / "dataset_package.json"
     manifest_path = dataset_dir / "dataset_manifest.json"
     data_card_path = dataset_dir / "data_card.md"
@@ -1002,7 +1035,7 @@ def _verify_dataset_package_metadata(
             metadata_path,
             "dataset_package.json is required",
         )
-        return
+        return None
     try:
         package = load_dataset_package(dataset_dir, metadata_path)
     except GenoLeWMError as exc:
@@ -1012,7 +1045,7 @@ def _verify_dataset_package_metadata(
             metadata_path,
             exc.message or str(exc),
         )
-        return
+        return None
     if manifest_path.is_file():
         try:
             observed_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1045,6 +1078,58 @@ def _verify_dataset_package_metadata(
                     data_card_path,
                     "data_card.md does not match dataset_package.json",
                 )
+    return package
+
+
+def _dataset_membership_runtime_binding(
+    package: DatasetPackage,
+) -> dict[str, object] | None:
+    evidence = package.membership_and_split_evidence
+    if evidence is None:
+        return None
+    policy = {
+        "schema_version": MEMBERSHIP_STORE_SCHEMA_VERSION,
+        "membership_content_identity": evidence.membership_store.content_identity,
+        "excluded_chromosomes": [
+            *V03_CHROMOSOME_ROLES.validation,
+            *V03_CHROMOSOME_ROLES.evaluation,
+        ],
+        "selection": "chromosome_roles",
+        "lookup": "lookup.sqlite",
+    }
+    return {
+        **evidence.to_dict(),
+        "holdout_policy": policy,
+        "holdout_policy_identity": canonical_json_sha256(policy),
+    }
+
+
+def _verify_training_dataset_membership_binding(
+    model_dir: Path,
+    dataset: _DatasetVerification,
+    issues: list[PackageIssue],
+) -> None:
+    if not dataset.package_valid:
+        return
+    manifest_path = model_dir / TRAINING_RUN_MANIFEST_NAME
+    try:
+        run_manifest = verify_training_run_manifest(
+            model_dir,
+            manifest_path,
+            require_preflight=True,
+        )
+    except GenoLeWMError:
+        return
+    if run_manifest.membership_and_split_evidence != dataset.membership_runtime_binding:
+        _error(
+            issues,
+            "model.training_run.dataset_membership_mismatch",
+            manifest_path,
+            (
+                "training-run membership store, split report, and holdout policy must "
+                "match the verified dataset package"
+            ),
+        )
 
 
 def _expected_dataset_integrity_for_card(
@@ -1221,6 +1306,9 @@ def _verify_dataset_snapshot_report(
     _verify_snapshot_package_block(
         payload.get("package"),
         snapshot_files=payload.get("files"),
+        membership_and_split_evidence=_dataset_manifest_membership_and_split_evidence(
+            manifest_path
+        ),
         dataset_dir=dataset_dir,
         report_path=report_path,
         snapshot_id=snapshot_id,
@@ -1349,44 +1437,34 @@ def _expected_input_check_entries(snapshot_files: object) -> list[dict[str, obje
             continue
         path = item.get("path")
         source_path = item.get("source_path")
-        split = item.get("split")
-        description = item.get("description")
         source_sha256 = item.get("source_sha256")
         source_size_bytes = item.get("source_size_bytes")
-        if not all(
-            isinstance(value, str)
-            for value in (path, source_path, split, description, source_sha256)
-        ):
+        if not all(isinstance(value, str) for value in (path, source_path, source_sha256)):
             continue
         if not _is_positive_int(source_size_bytes):
             continue
-        expected.append(
-            {
-                "source_path": source_path,
-                "staged_path": path,
-                "split": split,
-                "description": description,
-                "sha256": source_sha256,
-                "size_bytes": source_size_bytes,
-            }
-        )
+        semantic_fields = _normalized_snapshot_input_semantic_fields(item)
+        if semantic_fields is None:
+            continue
+        entry: dict[str, object] = {
+            "source_path": source_path,
+            "staged_path": path,
+            **semantic_fields,
+            "sha256": source_sha256,
+            "size_bytes": source_size_bytes,
+        }
+        expected.append(entry)
     return expected
 
 
 def _normalized_input_check_entry(item: dict[str, object]) -> dict[str, object] | None:
     source_path = item.get("source_path")
     staged_path = item.get("staged_path")
-    split = item.get("split")
-    description = item.get("description")
     sha256 = item.get("sha256")
     size_bytes = item.get("size_bytes")
     if not isinstance(source_path, str):
         return None
     if not isinstance(staged_path, str):
-        return None
-    if not isinstance(split, str):
-        return None
-    if not isinstance(description, str):
         return None
     if not isinstance(sha256, str) or not looks_like_sha256(sha256):
         return None
@@ -1396,20 +1474,61 @@ def _normalized_input_check_entry(item: dict[str, object]) -> dict[str, object] 
         staged_path
     ):
         return None
-    return {
+    semantic_fields = _normalized_snapshot_input_semantic_fields(item)
+    if semantic_fields is None:
+        return None
+    normalized: dict[str, object] = {
         "source_path": source_path,
         "staged_path": staged_path,
-        "split": split,
-        "description": description,
+        **semantic_fields,
         "sha256": sha256,
         "size_bytes": size_bytes,
     }
+    return normalized
+
+
+def _normalized_snapshot_input_semantic_fields(
+    item: dict[str, object],
+) -> dict[str, object] | None:
+    if "artifact_role" not in item:
+        split = item.get("split")
+        description = item.get("description")
+        if not isinstance(split, str) or not isinstance(description, str):
+            return None
+        return {"split": split, "description": description}
+
+    artifact_role = item.get("artifact_role")
+    if not isinstance(artifact_role, str) or artifact_role not in ARTIFACT_ROLES:
+        return None
+    semantic_fields: dict[str, object] = {"artifact_role": artifact_role}
+    if artifact_role == "evidence":
+        if "split" in item or "companion_of" in item:
+            return None
+    else:
+        split = item.get("split")
+        if not isinstance(split, str) or not split:
+            return None
+        semantic_fields["split"] = split
+    if artifact_role == "split_companion":
+        companion_of = item.get("companion_of")
+        if not isinstance(companion_of, str) or not companion_of:
+            return None
+        semantic_fields["companion_of"] = companion_of
+    elif "companion_of" in item:
+        return None
+    if "description" in item:
+        description = item["description"]
+        if not isinstance(description, str) or not description:
+            return None
+        semantic_fields["description"] = description
+    return semantic_fields
 
 
 def _verify_snapshot_package_block(
     raw: object,
     *,
     snapshot_files: object,
+    membership_and_split_evidence: object | None,
     dataset_dir: Path,
     report_path: Path,
     snapshot_id: str | None,
@@ -1459,12 +1578,32 @@ def _verify_snapshot_package_block(
             report_path=report_path,
             issues=issues,
         )
+    if raw.get("membership_and_split_evidence") != membership_and_split_evidence:
+        _error(
+            issues,
+            "dataset.snapshot_report.package.membership_and_split_evidence",
+            report_path,
+            (
+                "package.membership_and_split_evidence must match the verified "
+                "dataset manifest binding"
+            ),
+        )
     _verify_snapshot_package_files(
         raw.get("files"),
         snapshot_files=snapshot_files,
         report_path=report_path,
         issues=issues,
     )
+
+
+def _dataset_manifest_membership_and_split_evidence(manifest_path: Path) -> object | None:
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload.get("membership_and_split_evidence")
 
 
 def _verify_snapshot_package_files(
@@ -1491,7 +1630,16 @@ def _verify_snapshot_package_files(
         expected.append(
             {
                 key: item[key]
-                for key in ("path", "sha256", "size_bytes", "split", "records", "description")
+                for key in (
+                    "path",
+                    "sha256",
+                    "size_bytes",
+                    "split",
+                    "records",
+                    "artifact_role",
+                    "companion_of",
+                    "description",
+                )
                 if key in item
             }
         )
@@ -1717,7 +1865,7 @@ def _compare_snapshot_file_identity(
     index: int,
     issues: list[PackageIssue],
 ) -> None:
-    for key in ("split", "records", "description"):
+    for key in ("split", "records", "artifact_role", "companion_of", "description"):
         if item.get(key) != manifest_file.get(key):
             _error(
                 issues,

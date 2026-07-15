@@ -27,6 +27,7 @@ __all__ = [
     "ERROR_CODES",
     "BackendUnsupportedError",
     "CacheCorruptError",
+    "CacheKeyAlreadyIndexedError",
     "CollapseDetectedError",
     "ConfigError",
     "DataLoaderError",
@@ -212,6 +213,12 @@ class CacheCorruptError(ResourceError):
     """A cache shard failed an integrity check."""
 
     code = "RESOURCE.CACHE_CORRUPT"
+
+
+class CacheKeyAlreadyIndexedError(CacheCorruptError):
+    """A serialized cache publication lost the logical-key reservation race."""
+
+    code = "RESOURCE.CACHE_KEY_ALREADY_INDEXED"
 
 
 class DiskFullError(ResourceError):
@@ -455,6 +462,11 @@ ERROR_CODES: tuple[ErrorCodeEntry, ...] = (
     ErrorCodeEntry("RESOURCE.GENERIC", ResourceError, "Capacity, IO, or network failure"),
     ErrorCodeEntry(
         "RESOURCE.CACHE_CORRUPT", CacheCorruptError, "Cache shard failed integrity check"
+    ),
+    ErrorCodeEntry(
+        "RESOURCE.CACHE_KEY_ALREADY_INDEXED",
+        CacheKeyAlreadyIndexedError,
+        "Cache logical key was published by another writer",
     ),
     ErrorCodeEntry("RESOURCE.DISK_FULL", DiskFullError, "Storage exhausted during write"),
     ErrorCodeEntry("RESOURCE.OOM", OutOfMemoryError, "CUDA or host OOM with context"),

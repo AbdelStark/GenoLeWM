@@ -33,7 +33,12 @@ from geno_lewm.encoder import (
     write_shard,
 )
 from geno_lewm.encoder._normalization import l2_normalize_state
-from geno_lewm.errors import CacheCorruptError, InputError, RuntimeSetupError
+from geno_lewm.errors import (
+    CacheCorruptError,
+    CacheKeyAlreadyIndexedError,
+    InputError,
+    RuntimeSetupError,
+)
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt",
@@ -944,7 +949,10 @@ def test_concurrent_different_paths_same_key_leaves_no_orphan(tmp_path: Path) ->
 
     results = _run_concurrent_writes(tmp_path, ((0, record), (1, record)))
 
-    assert sorted(status for status, _detail in results) == ["CacheCorruptError", "ok"]
+    assert sorted(status for status, _detail in results) == [
+        CacheKeyAlreadyIndexedError.__name__,
+        "ok",
+    ]
     assert len(list(tmp_path.rglob("*.parquet"))) == 1
     assert read_embedding(tmp_path, record.key) == record.embedding
     assert list(tmp_path.rglob("*.tmp")) == []
@@ -1114,6 +1122,66 @@ def test_dirfd_publication_fails_closed_if_namespace_parent_is_swapped(
     assert swapped
     assert list(outside.iterdir()) == []
     assert list(tmp_path.rglob("*.parquet")) == []
+
+
+def test_inspection_rejects_parent_swap_after_held_descriptor_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _record(174)
+    shard = write_shard(
+        tmp_path,
+        encoder_id="carbon",
+        contig=record.chrom,
+        stride_block=0,
+        records=[record],
+    )
+    outside = tmp_path.parent / f"{tmp_path.name}-inspect-outside"
+    outside.mkdir()
+    victim = outside / "victim.txt"
+    victim.write_text("untouched", encoding="utf-8")
+    original_read = cache_module._read_records_from_descriptor
+
+    def read_then_swap(descriptor: int, *, path: Path) -> object:
+        records = original_read(descriptor, path=path)
+        held = shard.parent.with_name(shard.parent.name + "-held")
+        shard.parent.rename(held)
+        shard.parent.symlink_to(outside, target_is_directory=True)
+        return records
+
+    monkeypatch.setattr(cache_module, "_read_records_from_descriptor", read_then_swap)
+
+    with pytest.raises(CacheCorruptError, match=r"binding|symlink|unsafe"):
+        cache_module.inspect_cache_shard(tmp_path, shard)
+
+    assert victim.read_text(encoding="utf-8") == "untouched"
+
+
+def test_inspection_rejects_same_parent_final_name_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _record(175)
+    shard = write_shard(
+        tmp_path,
+        encoder_id="carbon",
+        contig=record.chrom,
+        stride_block=0,
+        records=[record],
+    )
+    replacement = shard.with_name("replacement.parquet")
+    replacement.write_bytes(shard.read_bytes())
+    original_read = cache_module._read_records_from_descriptor
+
+    def read_then_replace(descriptor: int, *, path: Path) -> object:
+        records = original_read(descriptor, path=path)
+        replacement.replace(shard)
+        return records
+
+    monkeypatch.setattr(cache_module, "_read_records_from_descriptor", read_then_replace)
+
+    with pytest.raises(CacheCorruptError, match=r"binding"):
+        cache_module.inspect_cache_shard(tmp_path, shard)
 
 
 def test_publication_fsyncs_created_namespace_ancestors_before_completion(

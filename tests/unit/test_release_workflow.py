@@ -84,20 +84,37 @@ def test_ci_workflow_runs_dedicated_ml_smoke_gate() -> None:
     assert "needs.ml-smoke.result != 'success'" in text
 
 
-def test_ci_windows_coverage_excludes_only_the_posix_cache_module() -> None:
+def test_ci_coverage_scopes_optional_modules_to_supported_matrix_legs() -> None:
     text = CI_WORKFLOW.read_text(encoding="utf-8")
     pytest_step = text.split("      - name: pytest", maxsplit=1)[1].split(
         "      - name: Upload pytest output", maxsplit=1
     )[0]
-    windows_branch, non_windows_branch = pytest_step.split("          else", maxsplit=1)
+    windows_branch, remaining_branches = pytest_step.split("          elif", maxsplit=1)
+    canonical_branch, lean_branch = remaining_branches.split("          else", maxsplit=1)
 
     assert "--cov-fail-under=0" in windows_branch
     assert "coverage report --show-missing --fail-under=84" in windows_branch
-    assert '--omit="*/encoder/cache.py"' in windows_branch
-    assert "coverage report" not in non_windows_branch
-    assert "--cov-report=xml" in non_windows_branch
-    assert "--omit=" not in non_windows_branch
-    assert pytest_step.count('tee "$RUNNER_TEMP/pytest.out"') == 2
+    assert (
+        '--omit="*/encoder/cache.py,*/encoder/cache_build.py,*/cli/cache_windows.py,'
+        '*/training/resume.py,*/geno_lewm/_atomic.py,*/training/real.py"' in windows_branch
+    )
+    assert 'matrix.os }}" = "ubuntu-latest"' in canonical_branch
+    assert 'matrix.python }}" = "3.12"' in canonical_branch
+    assert "--cov-report=xml" in canonical_branch
+    assert "--cov-fail-under=0" not in canonical_branch
+    assert "coverage report" not in canonical_branch
+    assert "--cov-fail-under=0" in lean_branch
+    assert "coverage report --show-missing --fail-under=84" in lean_branch
+    assert '--omit="*/training/resume.py"' in lean_branch
+    # The POSIX-only atomic-publication module and the torch-gated production
+    # trainer are Windows-dead, so they are dropped from the Windows aggregate
+    # only. The lean/canonical legs run those paths, so they stay measured there
+    # and enforced by the changed-files coverage gate.
+    assert "_atomic.py" not in lean_branch
+    assert "_atomic.py" not in canonical_branch
+    assert "training/real.py" not in lean_branch
+    assert "training/real.py" not in canonical_branch
+    assert pytest_step.count('tee "$RUNNER_TEMP/pytest.out"') == 3
     assert "tee pytest.out" not in pytest_step
 
     changed_files_gate = text.split("      - name: Changed-files coverage gate", maxsplit=1)[
