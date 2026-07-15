@@ -11,13 +11,14 @@ import importlib
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
-from geno_lewm.encoder.carbon import EncodedTokenStates
 from geno_lewm.encoder.pooling import pool_hidden_states
 from tools.research import edit_response_spectroscopy as ers
+from tools.research.edit_response_spectroscopy import EncodedTokenStates
 
 _CONTIG = "chr1"
 _WINDOW_BP = 4096
@@ -518,3 +519,247 @@ def test_run_spectroscopy_rejects_negative_radius() -> None:
             window_bp=_WINDOW_BP,
             pool_radii=(-1,),
         )
+
+
+# ---------------------------------------------------------------------------
+# CarbonTokenStateEncoder <-> CarbonStateEncoder equivalence.
+#
+# The R1 dataset is published and the paper cites its numbers, so the tool's
+# token-state path must reproduce the frozen encoder's pooled states exactly.
+# These fakes are Carbon-shaped (6bp/token, one <dna> control pair, right
+# padding, layered hidden states) so both paths exercise the real tokenize ->
+# layout -> forward -> pool code in geno_lewm.encoder.carbon.
+
+
+_KMER_BASES = "ACGT"
+
+
+def _kmer_index(kmer: str) -> int:
+    index = 0
+    for base in kmer:
+        index = index * 4 + _KMER_BASES.index(base)
+    return index
+
+
+class _CarbonShapedTokenizer:
+    """Minimal Carbon-shaped tokenizer: 6bp k-mers wrapped in a control pair."""
+
+    k = 6
+    dna_start_id = 151_669
+    dna_vocab_size = 4_107
+    dna_begin_token_id = 151_669
+    dna_end_token_id = 151_670
+    oov_token_id = 151_671
+    pad_token_id = 151_643
+
+    def __call__(
+        self,
+        texts: list[str],
+        *,
+        return_tensors: str,
+        padding: bool,
+        add_special_tokens: bool,
+    ) -> dict[str, list[list[int]]]:
+        assert return_tensors == "pt"
+        assert padding is True
+        assert add_special_tokens is False
+        rows: list[list[int]] = []
+        for text in texts:
+            dna = text.removeprefix("<dna>").removesuffix("</dna>")
+            n_content = (len(dna) + self.k - 1) // self.k
+            ids = [self.dna_begin_token_id]
+            for i in range(n_content):
+                kmer = dna[i * self.k : (i + 1) * self.k].ljust(self.k, "A")
+                ids.append(self.dna_start_id + 3 + _kmer_index(kmer))
+            ids.append(self.dna_end_token_id)
+            rows.append(ids)
+        width = max(len(row) for row in rows)
+        return {
+            "input_ids": [row + [self.pad_token_id] * (width - len(row)) for row in rows],
+            "attention_mask": [[1] * len(row) + [0] * (width - len(row)) for row in rows],
+        }
+
+
+class _CarbonShapedModel:
+    """Deterministic layered hidden states keyed on token id and position."""
+
+    config = SimpleNamespace(hidden_size=3)
+    n_layers = 3
+
+    def __init__(self) -> None:
+        self.forward_calls = 0
+
+    def eval(self) -> _CarbonShapedModel:
+        return self
+
+    def __call__(
+        self,
+        *,
+        input_ids: list[list[int]],
+        attention_mask: list[list[int]],
+        output_hidden_states: bool,
+    ) -> object:
+        assert output_hidden_states is True
+        self.forward_calls += 1
+        return SimpleNamespace(
+            hidden_states=tuple(
+                tuple(self._rows(ids, layer) for ids in input_ids) for layer in range(self.n_layers)
+            )
+        )
+
+    @staticmethod
+    def _rows(ids: list[int], layer: int) -> tuple[tuple[float, ...], ...]:
+        return tuple(
+            (
+                float(token_id % 97) + float(pos) + 100.0 * layer,
+                float(token_id % 89) - 2.0 * float(pos) + 10.0 * layer,
+                float(pos * pos) - float(token_id % 83) + float(layer),
+            )
+            for pos, token_id in enumerate(ids)
+        )
+
+
+#: Two windows of different length so the batch is genuinely right-padded.
+_EQUIV_WINDOWS = ["ACGTAC" * 6, "TTGGCA" * 6 + "AC"]
+_EQUIV_LOCI: list[int | None] = [7, 20]
+_EQUIV_STATE_LAYER = -1
+
+
+def _carbon_encoder(*, pool_type: str, pool_radius: int) -> Any:
+    from geno_lewm.encoder.carbon import CarbonStateEncoder
+
+    return CarbonStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        model=_CarbonShapedModel(),
+        tokenizer=_CarbonShapedTokenizer(),
+        state_layer=_EQUIV_STATE_LAYER,
+        pool_type=pool_type,
+        pool_radius=pool_radius,
+        normalize=False,
+    )
+
+
+@pytest.mark.parametrize("pool_radius", [1, 2, 64])
+def test_token_state_encoder_pools_identically_to_encode_batch(pool_radius: int) -> None:
+    """Centred pooling over the tool's token states == the encoder's own pooling.
+
+    Exact equality, not allclose: both paths feed the same float rows through
+    the same ``pool_hidden_states``, so any difference would mean the token
+    states or the pooling anchors drifted -- which would silently invalidate the
+    published R1 table.
+    """
+    batched = _carbon_encoder(pool_type="centered_mean", pool_radius=pool_radius).encode_batch(
+        _EQUIV_WINDOWS, _EQUIV_LOCI
+    )
+
+    token_encoder = ers.CarbonTokenStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        state_layer=_EQUIV_STATE_LAYER,
+        encoder=_carbon_encoder(pool_type="centered_mean", pool_radius=0),
+    )
+    states = token_encoder.encode_token_states(_EQUIV_WINDOWS, _EQUIV_LOCI)
+    manual = tuple(
+        pool_hidden_states(
+            item.rows,
+            edit_locus=locus,
+            center_token=item.center_token,
+            content_token_bounds=item.content_token_bounds,
+            pool_type="centered_mean",
+            pool_radius=pool_radius,
+        ).vector
+        for item, locus in zip(states, _EQUIV_LOCI, strict=True)
+    )
+
+    assert manual == batched
+
+
+def test_token_state_encoder_global_mean_matches_encode_batch() -> None:
+    """Radius 0 (the tool's global-mean rung) also reproduces the encoder.
+
+    The encoder is passed ``None`` loci where the tool is passed real ones:
+    ``encode_batch`` always derives a ``center_token`` from a non-None locus and
+    ``pool_hidden_states`` rejects that under ``global_mean``, so ``None`` is the
+    only way to ask the encoder for a global mean. The tool's radius-0 rung
+    ignores the locus instead. Equality here is therefore the point, not an
+    accident: it shows the locus cannot leak into the global-mean rung.
+    """
+    batched = _carbon_encoder(pool_type="global_mean", pool_radius=0).encode_batch(
+        _EQUIV_WINDOWS, [None, None]
+    )
+
+    token_encoder = ers.CarbonTokenStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        state_layer=_EQUIV_STATE_LAYER,
+        encoder=_carbon_encoder(pool_type="centered_mean", pool_radius=0),
+    )
+    states = token_encoder.encode_token_states(_EQUIV_WINDOWS, _EQUIV_LOCI)
+    manual = tuple(
+        ers._pool_state(item, edit_locus=cast(int, locus), pool_radius=0)
+        for item, locus in zip(states, _EQUIV_LOCI, strict=True)
+    )
+
+    assert manual == batched
+
+
+def test_token_state_encoder_serves_every_radius_from_one_forward() -> None:
+    """The whole point: one forward, many radii."""
+    encoder = _carbon_encoder(pool_type="centered_mean", pool_radius=0)
+    model = cast(_CarbonShapedModel, encoder.model)
+    token_encoder = ers.CarbonTokenStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        state_layer=_EQUIV_STATE_LAYER,
+        encoder=encoder,
+    )
+
+    (item, _alt) = token_encoder.encode_token_states(_EQUIV_WINDOWS, _EQUIV_LOCI)
+    pooled = [ers._pool_state(item, edit_locus=7, pool_radius=radius) for radius in (0, 1, 2, 64)]
+
+    assert model.forward_calls == 1
+    assert token_encoder.d_state == 3
+    # Radius 0 pools the control tokens too, so it must differ from radius 1.
+    assert pooled[0] != pooled[1]
+
+
+def test_token_state_encoder_excludes_padding_rows() -> None:
+    """Active rows only: the shorter window must not carry the batch's padding."""
+    token_encoder = ers.CarbonTokenStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        state_layer=_EQUIV_STATE_LAYER,
+        encoder=_carbon_encoder(pool_type="centered_mean", pool_radius=0),
+    )
+
+    short, long = token_encoder.encode_token_states(_EQUIV_WINDOWS, _EQUIV_LOCI)
+
+    # 36bp -> 6 content tokens + 2 control; 38bp -> 7 content tokens + 2.
+    assert len(short.rows) == 8
+    assert len(long.rows) == 9
+    assert short.content_token_bounds == (1, 7)
+    assert long.content_token_bounds == (1, 8)
+    assert short.center_token == 1 + 7 // 6
+    assert long.center_token == 1 + 20 // 6
+
+
+def test_token_state_encoder_d_state_is_none_before_any_forward() -> None:
+    token_encoder = ers.CarbonTokenStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        encoder=_carbon_encoder(pool_type="centered_mean", pool_radius=0),
+    )
+
+    assert token_encoder.d_state is None
+
+
+def test_token_state_encoder_rejects_mismatched_lengths() -> None:
+    token_encoder = ers.CarbonTokenStateEncoder(
+        "HuggingFaceBio/Carbon-500M",
+        "main@deadbeef",
+        encoder=_carbon_encoder(pool_type="centered_mean", pool_radius=0),
+    )
+
+    with pytest.raises(ers.InputError, match="same length"):
+        token_encoder.encode_token_states(["ACGTAC"], [0, 1])

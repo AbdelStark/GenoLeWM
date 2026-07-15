@@ -72,6 +72,22 @@ A durable single-publication intent repairs a crash between final-shard linking
 and index commit without scanning existing shards, while first-index creation is
 private and atomically published so readers never observe an empty bootstrap.
 
+`geno-lewm-cache-windows` also has a finite request-artifact build mode. Its
+newline-terminated JSONL input names each genomic window and `edit_locus`; the
+builder resolves the actual tokenizer-derived `center_token`, deduplicates only
+the resulting complete cache key, and commits a plan rederived exactly from the
+immutable requests, runtime/resolved-config identity, batch size, hardware, and
+caller-supplied `created_at_ns` before encoding. A durable per-shard state binds
+evidence-owned Parquet bytes and narrowly scoped `encode_batch` timing. Resume
+first fully decodes and hash-verifies every completed shard and repairs its index
+entry, then inspects and reuses globally indexed logical keys and invokes Carbon
+only for misses. Decoded vectors are held one shard at a time. The evidence
+bundle closes a fixed file inventory and request-scoped key-to-shard mappings;
+it intentionally does not hash the mutable shared SQLite index, so unrelated
+cache growth cannot invalidate prior evidence. This is request-scoped build
+plumbing; it does not establish a 10% corpus build, the RFC-0006 24-hour target,
+corrected training/evaluation, model quality, or clinical validity.
+
 The corrected Carbon path does not execute the upstream custom tokenizer. The
 pinned upstream `tokenizer.py` delegated to an unpinned, network-capable
 `Qwen/Qwen3-4B-Base` tokenizer lookup, so hashing that file alone could not make
@@ -228,6 +244,53 @@ The v0.2.1 Phase 2 KL term was computed only from frozen target states, so it
 had no gradient with respect to the predictor or action encoder; it must not
 be described as active regularization.
 
+### Production Carbon continuation boundary
+
+`geno-lewm-train --carbon-train` resolves code identity from the imported
+`geno_lewm` package root, not the operator's current directory. Production
+launches require that package to be the canonical tracked package with only
+regular tracked files, a clean `geno_lewm/` source tree, and no ignored package
+artifacts (including bytecode). The checkpoint source contract closes the full
+lowercase 40-character commit and tree SHAs together with the package version;
+unresolved values, sentinels, dirty/unbound source, unrelated caller
+repositories, and cross-version resume are rejected before run artifacts are
+written. Wheels do not yet embed build-time commit/tree provenance, so Carbon
+training from a wheel-only installation intentionally fails closed. Carbon
+preflight and the fixture trainer remain available from wheels.
+
+The public CLI acquires one run-directory writer lock before publishing its
+effective config or preflight; the same re-entrant lock spans dataset binding,
+training, metrics, checkpoint, log, metadata, and optional release-package
+writes. The direct runner acquires that lock independently. Checkpoints and
+resume-equivalence reports additionally use a per-target lock and a unique
+same-directory temporary opened with exclusive creation and no-follow flags.
+All lock, temporary, replacement, cleanup, and directory-`fsync` operations are
+anchored to one opened non-symlink parent directory; a parent-path swap fails
+closed. Successful publication flushes and `fsync`s the file, atomically
+replaces the destination, and `fsync`s the directory. Failure cleanup compares
+inode identity through the held directory descriptor and removes only files
+owned by that writer; concurrent writers and precreated locks fail closed.
+Production checkpoint/report publication therefore requires anchored `dir_fd`,
+no-follow, hard-link, and rename support; unsupported platforms/filesystems
+fail before creating the publication parent or artifacts.
+
+The production checkpoint schema closes predictor and action-encoder weights,
+AdamW moments/parameter groups, trainer horizon and finite collapse-monitor
+state, Python/NumPy/Torch RNG state, data and encoder identities, exact consumed
+window order, cumulative metric rows/counters, and the learning-rate schedule
+against the original `N`-step horizon. On resume, cursor replay and all state
+and cumulative-history restoration complete before the `K+1` batch is fetched
+or encoded. CUDA RNG continuation binds availability and device count only; it
+does not bind GPU model, UUID, driver, or hardware-independent floating-point
+behavior.
+
+`tools/research/production_resume_equivalence.py` runs uninterrupted, prefix,
+and fresh-process resumed public CLI arms. Its external verifier requires
+COMMIT/TREE/N/K again, rejects a dirty source checkout, rehashes raw artifacts,
+and compares the closed final payload, state, RNG, metric, and cursor contracts.
+This is single-process software-equivalence evidence, not accelerator,
+distributed, model-quality, biological, or clinical evidence.
+
 ### v0.3 staging lineage boundary
 
 The v0.3 data path separates remote staging verification, offline lineage
@@ -271,9 +334,11 @@ provenance and policy metadata, not a transfer of upstream rights.
 
 The lineage assembler deliberately has no membership writer or network client.
 Lineage alone cannot be described as a dataset snapshot. The first real
-variant-membership candidate is a separate downstream artifact, and it remains
-a candidate until placed training windows, exported held-role streams, and
-leakage controls are bound and published without broadening the claim.
+variant-membership candidate and its placed-window/held-role split evidence are
+separate downstream artifacts, each published and independently verified at an
+immutable Hub revision. The canonical schema-`1.1.0` assembler now binds those
+artifacts into a closed package locally; publication of that snapshot candidate
+remains pending and does not broaden either upstream claim.
 See the [operator guide](docs/data-v03-snapshot-lineage.md) for required
 evidence and failure behavior.
 
@@ -373,12 +438,37 @@ binds both streams' file identities, class and binary counts, keyset digests,
 the exhaustive result, and the sample identity. Publication is atomic,
 no-clobber, and checksum-closed.
 
-Package schema changes and training-loop wiring are follow-on boundaries. The
-current dataset-package model cannot distinguish split data, companions, and
-evidence without double-counting records, and the trainer does not yet open the
-package-bound membership store and pass its holdout policy to tuple streaming.
-This evidence remains variant-level and unphased; it does not satisfy a
-phased-haplotype requirement.
+Dataset-package schema `1.1.0` carries that evidence without double-counting.
+`split_data` contributes records and is eligible for its matching loader;
+`split_companion` must point to one `split_data` artifact with the same split
+and record count; `evidence` has neither and is never training input. The
+optional closed membership binding names exactly the verified store and split
+report. The store binding commits its artifact, semantic content, physical,
+and rowset identities; the report binding commits its artifact and tracked
+schema.
+
+```text
+role-aware dataset manifest
+        │
+        ├── preflight preserves roles and checks companion/store/report closure
+        ├── runtime opens one verified store and installs the holdout policy
+        ├── metrics + checkpoint + run metadata carry store/report/policy identity
+        ├── run verifier checks copied dataset store/report and full metrics identity
+        └── paper verifier rechecks dataset, input-check, and snapshot-report binding
+```
+
+The policy payload is the exact `MembershipStoreHoldoutPolicy.to_dict()` value;
+its identity is recomputed from canonical JSON and its membership content
+identity must equal the store binding. Training-run release verification hashes
+and sizes checkpoint artifacts without loading their serialized contents.
+
+Schema `1.0.0` compatibility is intentionally strict. Legacy dataset manifests
+forbid roles, companions, and membership binding; legacy training-run
+manifests remain unbound and render no membership section. The canonical
+schema-`1.1.0` v0.3 assembler is implemented and locally contract-verified,
+but no assembled snapshot candidate or released v0.3 snapshot is claimed yet.
+The bound evidence remains variant-level and unphased; it does not satisfy a
+phased-haplotype or model-quality requirement.
 
 ## Inference Data Flow
 

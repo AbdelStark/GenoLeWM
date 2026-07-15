@@ -5,18 +5,46 @@ For each genomic variant this tool encodes the reference window and the
 single-base-edited window with Carbon, then studies the displacement
 ``delta = s(alt) - s(ref)`` in Carbon's raw state space across a pooling
 radius grid. A single Carbon forward per window feeds every radius:
-:meth:`geno_lewm.encoder.carbon.CarbonStateEncoder.encode_token_states`
-returns the per-token states once, and
-:func:`geno_lewm.encoder.pooling.pool_hidden_states` re-pools them at each
-radius. Reference windows are extracted with the exact scorer path
-(:func:`geno_lewm.surprise.score._reference_window_for_variant`) so the
-geometry is measured over windows identical to the surprise scorer's.
+:meth:`CarbonTokenStateEncoder.encode_token_states` returns the per-token
+states once, and :func:`geno_lewm.encoder.pooling.pool_hidden_states`
+re-pools them at each radius. Reference windows are extracted with the exact
+scorer path (:func:`geno_lewm.surprise.score._reference_window_for_variant`)
+so the geometry is measured over windows identical to the surprise scorer's.
 
 The tool is deliberately model-object agnostic: the core
 :func:`run_spectroscopy` accepts any object exposing ``encode_token_states``
 so tests inject a deterministic fake and never load Carbon. The CLI builds a
-frozen :class:`CarbonStateEncoder` and writes a per-``(variant, pool_radius)``
+:class:`CarbonTokenStateEncoder` and writes a per-``(variant, pool_radius)``
 Parquet table plus a provenance/aggregate summary JSON.
+
+Why the token-state extraction lives here
+-----------------------------------------
+The obvious home for :meth:`CarbonTokenStateEncoder.encode_token_states` is
+:class:`~geno_lewm.encoder.carbon.CarbonStateEncoder` itself. It cannot live
+there. ``configs/data_v03/carbon-500m-runtime-content-lock.json`` pins the
+**sha256 of the bytes** of ``geno_lewm/encoder/carbon.py`` (and seven sibling
+files) and binds them to a published data lineage, so *any* edit to that file
+— even a provably behaviour-preserving one — invalidates the lock and fails
+the H200 cache jobs closed. Research tooling must not mutate an encoder whose
+bytes a data lineage pins; the lock is doing its job. So the radius-sweep
+primitive is built here, on top of the frozen encoder, instead.
+
+Why this composes ``CarbonStateEncoder`` rather than reimplementing it
+----------------------------------------------------------------------
+The R1 dataset is published and the paper cites its numbers, so this path must
+produce pooled states *identical* to the frozen encoder's — not merely similar.
+Carbon's locus-to-token mapping is the load-bearing part (pooling the wrong
+tokens produces plausible garbage), and it is ~130 lines of control-token and
+padding validation in ``carbon.py``. Reimplementing it would fork that logic
+and invite silent drift, so this module instead **composes** a real
+``CarbonStateEncoder`` — which loads the repo's own ``CarbonDNATokenizer`` (not
+``AutoTokenizer``, whose framing would differ) plus a plain ``AutoModel``,
+verifies the weight hash, and enforces the frozen-parameter contract — and
+reuses its tokenize/layout/forward helpers verbatim. Only the pooling step is
+new: the states are pooled at many radii rather than one. This file already
+imports ``geno_lewm.surprise.score._reference_window_for_variant`` for exactly
+the same reason, and ``tests/unit/test_research_edit_response_spectroscopy.py``
+asserts the two paths agree exactly.
 """
 
 from __future__ import annotations
@@ -34,14 +62,32 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
+from geno_lewm._inference import torch_inference_context
 from geno_lewm.action import EditSpec, apply_edit
-from geno_lewm.encoder.carbon import EncodedTokenStates
+
+# Private helpers imported deliberately, not copied: they are the exact
+# tokenize -> layout -> forward path CarbonStateEncoder.encode_batch runs, and
+# reusing them is what makes this module's pooled states identical to the
+# frozen encoder's rather than merely similar. See the module docstring.
+from geno_lewm.encoder.carbon import (
+    CarbonStateEncoder,
+    _call_model,
+    _hidden_rows_by_item,
+    _move_inputs_to_device,
+    _resolve_dna_token_layouts,
+    _tokenize,
+)
 from geno_lewm.encoder.pooling import (
     POOL_CENTERED_MEAN,
     POOL_GLOBAL_MEAN,
     pool_hidden_states,
 )
-from geno_lewm.encoder.windowing import DEFAULT_WINDOW_BP, SUPPORTED_WINDOW_BP
+from geno_lewm.encoder.windowing import (
+    DEFAULT_WINDOW_BP,
+    SUPPORTED_WINDOW_BP,
+    canonicalize_dna,
+    wrap_dna_for_tokenizer,
+)
 from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
 from geno_lewm.surprise.score import _load_reference_fasta, _reference_window_for_variant
 
@@ -53,7 +99,9 @@ __all__ = [
     "EMBEDDING_COLUMNS",
     "GENERATED_BY",
     "SCHEMA_VERSION",
+    "CarbonTokenStateEncoder",
     "EditGeometry",
+    "EncodedTokenStates",
     "PreparedVariant",
     "SpectroscopyRun",
     "TokenStateEncoder",
@@ -111,6 +159,24 @@ _REQUIRED_VARIANT_KEYS: Final = ("chrom", "pos", "ref", "alt")
 _OPTIONAL_STR_KEYS: Final = ("label", "label_group", "region", "gene", "variant_id")
 
 
+@dataclass(frozen=True, slots=True)
+class EncodedTokenStates:
+    """Per-item Carbon token states plus the anchors needed to pool them.
+
+    Produced by :meth:`CarbonTokenStateEncoder.encode_token_states` from a
+    single Carbon forward pass. Holding the token-level ``rows`` (already
+    truncated to the active, non-padding tokens) together with the
+    tokenizer-resolved ``center_token`` and ``content_token_bounds`` lets a
+    caller pool the same states at many radii via
+    :func:`geno_lewm.encoder.pooling.pool_hidden_states` without paying for a
+    second forward pass per radius.
+    """
+
+    rows: tuple[tuple[float, ...], ...]
+    center_token: int | None
+    content_token_bounds: tuple[int, int]
+
+
 class TokenStateEncoder(Protocol):
     """Structural type for encoders that expose one-forward token states."""
 
@@ -119,6 +185,143 @@ class TokenStateEncoder(Protocol):
         windows: Sequence[str],
         edit_loci: Sequence[int | None],
     ) -> Sequence[EncodedTokenStates]: ...
+
+
+class CarbonTokenStateEncoder:
+    """Expose Carbon per-token states so one forward can serve many radii.
+
+    Wraps a frozen :class:`~geno_lewm.encoder.carbon.CarbonStateEncoder` and
+    stops one step short of it: where ``encode_batch`` pools each window at the
+    single configured radius and discards the token states, this returns those
+    states plus their pooling anchors so the caller can pool at every radius on
+    the grid from one forward pass.
+
+    The wrapped encoder does the loading (``CarbonDNATokenizer`` + ``AutoModel``,
+    optional weight-hash verification), the freezing, and the device placement;
+    its ``pool_type`` / ``pool_radius`` / ``normalize`` settings are irrelevant
+    here because this class never calls ``encode_batch``. Construction is
+    otherwise identical to the path R1 already published from, which is what
+    makes the states reproduce. See the module docstring for why this composes
+    the encoder instead of extending or reimplementing it.
+    """
+
+    def __init__(
+        self,
+        model_id: str,
+        revision: str,
+        *,
+        dtype: str = DEFAULT_DTYPE,
+        state_layer: int = DEFAULT_STATE_LAYER,
+        device: str | None = None,
+        encoder: CarbonStateEncoder | None = None,
+    ) -> None:
+        if encoder is None:
+            encoder = CarbonStateEncoder(
+                model_id,
+                revision,
+                dtype=dtype,
+                state_layer=state_layer,
+                pool_type=POOL_CENTERED_MEAN,
+                pool_radius=0,
+                normalize=False,
+                device=device,
+            )
+        self._encoder = encoder
+        self._d_state: int | None = None
+
+    @property
+    def encoder(self) -> CarbonStateEncoder:
+        """Return the wrapped frozen Carbon encoder."""
+        return self._encoder
+
+    @property
+    def d_state(self) -> int | None:
+        """Return the token-state width once a forward has run, else ``None``.
+
+        Deliberately ``None``-returning rather than raising like
+        ``CarbonStateEncoder.d_state``: the provenance summary probes this
+        before any window is encoded.
+        """
+        return self._d_state
+
+    def encode_token_states(
+        self,
+        windows: Sequence[str],
+        edit_loci: Sequence[int | None],
+    ) -> tuple[EncodedTokenStates, ...]:
+        """Encode a batch of DNA windows to per-token states (no pooling).
+
+        Runs exactly one Carbon forward pass and returns, per window, the active
+        token rows plus the tokenizer-resolved pooling anchors (``center_token``
+        and ``content_token_bounds``).
+        """
+        if not isinstance(windows, Sequence) or isinstance(windows, str | bytes):
+            raise InputError(
+                "windows must be a sequence of DNA strings",
+                details={"type": type(windows).__name__},
+            )
+        if not isinstance(edit_loci, Sequence) or isinstance(edit_loci, str | bytes):
+            raise InputError(
+                "edit_loci must be a sequence of int or None values",
+                details={"type": type(edit_loci).__name__},
+            )
+        if len(windows) != len(edit_loci):
+            raise InputError(
+                "windows and edit_loci must have the same length",
+                details={"windows": len(windows), "edit_loci": len(edit_loci)},
+            )
+        if not windows:
+            raise InputError("windows must contain at least one sequence")
+
+        encoder = self._encoder
+        normalized = tuple(canonicalize_dna(window) for window in windows)
+        wrapped = [wrap_dna_for_tokenizer(window) for window in normalized]
+        tokenized = _tokenize(encoder.tokenizer, wrapped)
+        layouts = _resolve_dna_token_layouts(
+            encoder.tokenizer,
+            tokenized,
+            sequences=normalized,
+        )
+        tokenized = _move_inputs_to_device(tokenized, encoder.device)
+        with torch_inference_context():
+            output = _call_model(encoder.model, tokenized)
+        rows_by_item = _hidden_rows_by_item(output, state_layer=encoder.state_layer)
+        if len(rows_by_item) != len(windows):
+            raise InputError(
+                "encoder output batch size does not match input windows",
+                details={"expected": len(windows), "observed": len(rows_by_item)},
+            )
+
+        encoded: list[EncodedTokenStates] = []
+        for rows, edit_locus, layout, sequence in zip(
+            rows_by_item,
+            edit_loci,
+            layouts,
+            normalized,
+            strict=True,
+        ):
+            if len(rows) != layout.padded_token_count:
+                raise InputError(
+                    "encoder hidden-state length does not match tokenized input",
+                    details={
+                        "hidden_tokens": len(rows),
+                        "tokenized_tokens": layout.padded_token_count,
+                    },
+                )
+            center_token = layout.center_token(edit_locus, sequence_bp=len(sequence))
+            encoded.append(
+                EncodedTokenStates(
+                    rows=rows[: layout.active_token_count],
+                    center_token=center_token,
+                    content_token_bounds=(
+                        layout.dna_content_start,
+                        layout.dna_content_start + layout.dna_content_count,
+                    ),
+                )
+            )
+        if encoded:
+            self._d_state = len(encoded[0].rows[0])
+        return tuple(encoded)
 
 
 @dataclass(frozen=True, slots=True)
@@ -822,16 +1025,11 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _build_encoder(args: argparse.Namespace) -> TokenStateEncoder:
-    from geno_lewm.encoder.carbon import CarbonStateEncoder
-
-    return CarbonStateEncoder(
+    return CarbonTokenStateEncoder(
         args.model_id,
         args.revision,
         dtype=args.dtype,
         state_layer=args.state_layer,
-        pool_type=POOL_CENTERED_MEAN,
-        pool_radius=0,
-        normalize=False,
         device=args.device,
     )
 

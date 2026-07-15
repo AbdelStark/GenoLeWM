@@ -1,0 +1,351 @@
+{
+  "$defs": {
+    "commit": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "identity": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://abdelstark.github.io/GenoLeWM/schemas/cache-h200-job-receipt.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "./cache-h200-job-receipt.schema.json"
+    },
+    "claim_boundary": {
+      "additionalProperties": false,
+      "properties": {
+        "jobinfo_terminal_status_attested": {
+          "const": true
+        },
+        "proof_exact_revision_replayed": {
+          "const": true
+        },
+        "requested_submission_timeout": {
+          "const": "8h"
+        },
+        "statement": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "timeout_server_echo_attested": {
+          "const": false
+        }
+      },
+      "required": [
+        "jobinfo_terminal_status_attested",
+        "proof_exact_revision_replayed",
+        "requested_submission_timeout",
+        "timeout_server_echo_attested",
+        "statement"
+      ],
+      "type": "object"
+    },
+    "generated_by": {
+      "const": "tools.research.v03_cache_h200_job_receipt"
+    },
+    "job": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "const": []
+        },
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "environment": {
+          "additionalProperties": false,
+          "properties": {
+            "CARBON_REPOSITORY": {
+              "const": "HuggingFaceBio/Carbon-500M"
+            },
+            "CARBON_REVISION": {
+              "const": "5d31d59b3c845b288a13aedb1358934196852eec"
+            },
+            "COMMIT_SHA": {
+              "$ref": "#/$defs/commit"
+            },
+            "CONTAINER_IMAGE": {
+              "const": "ghcr.io/astral-sh/uv@sha256:35b0aa516fbcf6f18624919cfc38fa02ab3458e0ffcd3c03e932051b37f315db"
+            },
+            "RUN_ATTEMPT": {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            "TRACE_ARTIFACT_PATH": {
+              "const": "training-traces/v0.3/geno-lewm-v03-training-trace-48b5bf71397f-712d612d85ea-job-6a55f38e85d9643ce16d29e7-r1/success"
+            },
+            "TRACE_REPOSITORY": {
+              "const": "abdelstark/geno-lewm-data"
+            },
+            "TRACE_REVISION": {
+              "const": "da0d86cde7bf88de2015ab7c516f356e9ae89469"
+            }
+          },
+          "required": [
+            "COMMIT_SHA",
+            "CONTAINER_IMAGE",
+            "CARBON_REPOSITORY",
+            "CARBON_REVISION",
+            "TRACE_REPOSITORY",
+            "TRACE_REVISION",
+            "TRACE_ARTIFACT_PATH",
+            "RUN_ATTEMPT"
+          ],
+          "type": "object"
+        },
+        "flavor": {
+          "const": "h200"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "type": "string"
+        },
+        "image": {
+          "const": "ghcr.io/astral-sh/uv@sha256:35b0aa516fbcf6f18624919cfc38fa02ab3458e0ffcd3c03e932051b37f315db"
+        },
+        "labels": {
+          "additionalProperties": false,
+          "properties": {
+            "purpose": {
+              "const": "geno-lewm-v03-cache-h200-proof"
+            }
+          },
+          "required": [
+            "purpose"
+          ],
+          "type": "object"
+        },
+        "namespace": {
+          "const": "abdelstark"
+        },
+        "secret_names": {
+          "const": [
+            "HF_TOKEN"
+          ]
+        },
+        "space_id": {
+          "type": "null"
+        },
+        "status": {
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "COMPLETED"
+            }
+          },
+          "required": [
+            "stage"
+          ],
+          "type": "object"
+        },
+        "url": {
+          "pattern": "^https://huggingface\\.co/jobs/abdelstark/[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "type": "string"
+        },
+        "volumes": {
+          "items": false,
+          "maxItems": 1,
+          "minItems": 1,
+          "prefixItems": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "mount_path": {
+                  "const": "/carbon"
+                },
+                "path": {
+                  "type": "null"
+                },
+                "read_only": {
+                  "const": true
+                },
+                "revision": {
+                  "const": "5d31d59b3c845b288a13aedb1358934196852eec"
+                },
+                "source": {
+                  "const": "HuggingFaceBio/Carbon-500M"
+                },
+                "type": {
+                  "const": "model"
+                }
+              },
+              "required": [
+                "type",
+                "source",
+                "mount_path",
+                "revision",
+                "read_only",
+                "path"
+              ],
+              "type": "object"
+            }
+          ],
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "url",
+        "namespace",
+        "status",
+        "image",
+        "space_id",
+        "command",
+        "arguments",
+        "environment",
+        "flavor",
+        "labels",
+        "secret_names",
+        "volumes"
+      ],
+      "type": "object"
+    },
+    "ok": {
+      "const": true
+    },
+    "proof": {
+      "additionalProperties": false,
+      "properties": {
+        "checksums": {
+          "$ref": "#/$defs/identity"
+        },
+        "exact_revision_download_replayed": {
+          "const": true
+        },
+        "namespace": {
+          "pattern": "^candidates/v0\\.3/geno-lewm-data-v0\\.3\\.0-r1/cache-h200-proofs/geno-lewm-v03-cache-h200-proof-[0-9a-f]{12}-r[1-9][0-9]*/success$",
+          "type": "string"
+        },
+        "report": {
+          "$ref": "#/$defs/identity"
+        },
+        "repository": {
+          "const": "abdelstark/geno-lewm-data"
+        },
+        "revision": {
+          "$ref": "#/$defs/commit"
+        },
+        "runtime_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "revision",
+        "namespace",
+        "checksums",
+        "report",
+        "runtime_hash",
+        "exact_revision_download_replayed"
+      ],
+      "type": "object"
+    },
+    "publication": {
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "pattern": "^candidates/v0\\.3/geno-lewm-data-v0\\.3\\.0-r1/cache-h200-proofs/geno-lewm-v03-cache-h200-proof-[0-9a-f]{12}-r[1-9][0-9]*/terminal-job-receipt$",
+          "type": "string"
+        },
+        "repository": {
+          "const": "abdelstark/geno-lewm-data"
+        },
+        "sibling_of_proof_namespace": {
+          "const": true
+        }
+      },
+      "required": [
+        "repository",
+        "namespace",
+        "sibling_of_proof_namespace"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "geno-lewm.v03-cache-h200-job-receipt.v1"
+    },
+    "source": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "repository": {
+          "const": "https://github.com/AbdelStark/GenoLeWM.git"
+        },
+        "run_attempt": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "repository",
+        "commit",
+        "run_attempt"
+      ],
+      "type": "object"
+    },
+    "trace": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_path": {
+          "const": "training-traces/v0.3/geno-lewm-v03-training-trace-48b5bf71397f-712d612d85ea-job-6a55f38e85d9643ce16d29e7-r1/success"
+        },
+        "repository": {
+          "const": "abdelstark/geno-lewm-data"
+        },
+        "revision": {
+          "const": "da0d86cde7bf88de2015ab7c516f356e9ae89469"
+        }
+      },
+      "required": [
+        "repository",
+        "revision",
+        "artifact_path"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "generated_by",
+    "ok",
+    "source",
+    "job",
+    "trace",
+    "proof",
+    "publication",
+    "claim_boundary"
+  ],
+  "type": "object"
+}

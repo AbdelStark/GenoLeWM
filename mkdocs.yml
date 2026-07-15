@@ -141,6 +141,8 @@ nav:
       - v0.3 membership store: data-v03-membership-store.md
       - v0.3 membership HF Job: data-v03-membership-hf-job.md
       - v0.3 membership split evidence: data-v03-membership-splits.md
+      - Finite window-cache builds: cache-build.md
+      - Carbon runtime-hash CPU probe: carbon-runtime-hash-probe.md
       - Glossary: glossary.md
       - FAQ: faq.md
       - ClinVar v0.3 staging verification: data-v03-staging-verification.md

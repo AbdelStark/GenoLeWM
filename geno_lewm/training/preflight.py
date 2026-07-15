@@ -46,6 +46,24 @@ _DATASET_CORE_FILES: Final = (
 _DATASET_PACKAGE_GENERATED_BY: Final = "tools.release.dataset_package"
 _DATASET_SNAPSHOT_GENERATED_BY: Final = "tools.release.dataset_snapshot"
 _DATASET_INPUT_CHECK_GENERATED_BY: Final = "tools.release.dataset_snapshot.check_inputs"
+_LEGACY_DATASET_SCHEMA_VERSION: Final = "1.0.0"
+_ARTIFACT_ROLE_DATASET_SCHEMA_VERSION: Final = "1.1.0"
+_DATASET_ARTIFACT_ROLES: Final = frozenset({"split_data", "split_companion", "evidence"})
+_MEMBERSHIP_STORE_FILES: Final = frozenset(
+    {
+        "manifest.json",
+        "memberships.parquet",
+        "lookup.sqlite",
+        "snapshot-lineage.json",
+        "build-receipt.json",
+    }
+)
+_MEMBERSHIP_STORE_BINDING_KEYS: Final = frozenset(
+    {"path", "artifact_id", "content_identity", "physical_identity", "rowset_sha256"}
+)
+_SPLIT_REPORT_BINDING_KEYS: Final = frozenset(
+    {"path", "schema_path", "artifact_id", "schema_version"}
+)
 _EVAL_PREFIXES: Final = ("eval", "test", "holdout", "validation", "val")
 Severity = Literal["error", "warning"]
 
@@ -297,6 +315,19 @@ def _inspect_dataset(
     checksum_entries = _parse_sha256sums(dataset_dir / "SHA256SUMS", issues)
     if manifest is None:
         return dataset
+    dataset_schema_version = _text(manifest.get("schema_version"))
+    dataset["schema_version"] = dataset_schema_version
+    if dataset_schema_version not in {
+        _LEGACY_DATASET_SCHEMA_VERSION,
+        _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION,
+    }:
+        _issue(
+            issues,
+            "error",
+            "dataset.schema_version",
+            dataset_dir / "dataset_manifest.json",
+            "dataset schema_version must be 1.0.0 or 1.1.0",
+        )
     snapshot_id = _text(manifest.get("snapshot_id"))
     dataset["snapshot_id"] = snapshot_id
     if snapshot_id is not None and not allow_fixture_dataset and _looks_like_fixture(snapshot_id):
@@ -315,11 +346,24 @@ def _inspect_dataset(
         _issue(issues, "error", "dataset.splits.invalid", dataset_dir, "splits must be an object")
     raw_files = manifest.get("files")
     if isinstance(raw_files, list):
-        dataset["files"] = _inspect_dataset_files(dataset_dir, raw_files, checksum_entries, issues)
+        dataset["files"] = _inspect_dataset_files(
+            dataset_dir,
+            raw_files,
+            checksum_entries,
+            issues,
+            schema_version=dataset_schema_version,
+        )
     else:
         _issue(issues, "error", "dataset.files.invalid", dataset_dir, "files must be a list")
     if package is not None:
         _verify_dataset_package_metadata(dataset_dir, manifest, package, issues)
+    binding = _inspect_membership_and_split_evidence(
+        dataset_dir,
+        manifest=manifest,
+        issues=issues,
+    )
+    if binding is not None:
+        dataset["membership_and_split_evidence"] = binding
     if integrity is not None:
         _verify_integrity_report(dataset_dir, manifest, integrity, issues)
     if input_check is not None:
@@ -538,6 +582,8 @@ def _inspect_dataset_files(
     raw_files: list[Any],
     checksum_entries: dict[str, str],
     issues: list[TrainingPreflightIssue],
+    *,
+    schema_version: str | None,
 ) -> list[dict[str, object]]:
     files: list[dict[str, object]] = []
     for index, item in enumerate(raw_files):
@@ -587,15 +633,129 @@ def _inspect_dataset_files(
                 path,
                 "SHA256SUMS hash does not match file contents",
             )
-        files.append(
-            {
-                "path": relative,
-                "split": item.get("split"),
-                "records": item.get("records"),
-                **identity,
-            }
+        semantics = _dataset_file_semantics(
+            item,
+            index=index,
+            schema_version=schema_version,
+            path=path,
+            issues=issues,
         )
+        files.append({"path": relative, **semantics, **identity})
+    if schema_version == _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION:
+        _verify_dataset_companions(files, dataset_dir=dataset_dir, issues=issues)
     return files
+
+
+def _dataset_file_semantics(
+    item: dict[str, Any],
+    *,
+    index: int,
+    schema_version: str | None,
+    path: Path,
+    issues: list[TrainingPreflightIssue],
+) -> dict[str, object]:
+    if schema_version != _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION:
+        if "artifact_role" in item or "companion_of" in item:
+            _issue(
+                issues,
+                "error",
+                "dataset.file.role_forbidden",
+                path,
+                "schema 1.0.0 files must not declare artifact roles",
+            )
+        return {"split": item.get("split"), "records": item.get("records")}
+
+    role = item.get("artifact_role")
+    if not isinstance(role, str) or role not in _DATASET_ARTIFACT_ROLES:
+        _issue(
+            issues,
+            "error",
+            "dataset.file.artifact_role",
+            path,
+            f"files[{index}].artifact_role is invalid",
+        )
+        return {"artifact_role": role}
+    semantics: dict[str, object] = {"artifact_role": role}
+    if role == "evidence":
+        if any(key in item for key in ("split", "records", "companion_of")):
+            _issue(
+                issues,
+                "error",
+                "dataset.file.evidence_fields",
+                path,
+                "evidence files must not declare split, records, or companion_of",
+            )
+        return semantics
+
+    split = item.get("split")
+    records = item.get("records")
+    if not isinstance(split, str) or not split:
+        _issue(
+            issues,
+            "error",
+            "dataset.file.split",
+            path,
+            "split_data and split_companion files require split",
+        )
+    else:
+        semantics["split"] = split
+    if not _is_non_negative_int(records):
+        _issue(
+            issues,
+            "error",
+            "dataset.file.records",
+            path,
+            "split_data and split_companion files require non-negative records",
+        )
+    else:
+        semantics["records"] = records
+    if role == "split_companion":
+        companion_of = item.get("companion_of")
+        if not isinstance(companion_of, str) or not companion_of:
+            _issue(
+                issues,
+                "error",
+                "dataset.file.companion_of",
+                path,
+                "split_companion files require companion_of",
+            )
+        else:
+            semantics["companion_of"] = companion_of
+    elif "companion_of" in item:
+        _issue(
+            issues,
+            "error",
+            "dataset.file.companion_of",
+            path,
+            "only split_companion files may declare companion_of",
+        )
+    return semantics
+
+
+def _verify_dataset_companions(
+    files: list[dict[str, object]],
+    *,
+    dataset_dir: Path,
+    issues: list[TrainingPreflightIssue],
+) -> None:
+    by_path = {item.get("path"): item for item in files if isinstance(item.get("path"), str)}
+    for item in files:
+        if item.get("artifact_role") != "split_companion":
+            continue
+        target = by_path.get(item.get("companion_of"))
+        if (
+            target is None
+            or target.get("artifact_role") != "split_data"
+            or (item.get("split"), item.get("records"))
+            != (target.get("split"), target.get("records"))
+        ):
+            _issue(
+                issues,
+                "error",
+                "dataset.file.companion_binding",
+                dataset_dir / str(item.get("path")),
+                "split companion binding does not match one split_data artifact",
+            )
 
 
 def _verify_dataset_package_metadata(
@@ -621,6 +781,14 @@ def _verify_dataset_package_metadata(
             path,
             "dataset_package snapshot_id must match dataset_manifest",
         )
+    if package.get("schema_version") != manifest.get("schema_version"):
+        _issue(
+            issues,
+            "error",
+            "dataset.package.schema_mismatch",
+            path,
+            "dataset_package schema_version must match dataset_manifest",
+        )
     if package.get("files") != manifest.get("files"):
         _issue(
             issues,
@@ -629,6 +797,189 @@ def _verify_dataset_package_metadata(
             path,
             "dataset_package files must match dataset_manifest",
         )
+    if package.get("membership_and_split_evidence") != manifest.get(
+        "membership_and_split_evidence"
+    ):
+        _issue(
+            issues,
+            "error",
+            "dataset.package.membership_binding_mismatch",
+            path,
+            "dataset_package membership and split evidence must match dataset_manifest",
+        )
+
+
+def _inspect_membership_and_split_evidence(
+    dataset_dir: Path,
+    *,
+    manifest: dict[str, Any],
+    issues: list[TrainingPreflightIssue],
+) -> dict[str, object] | None:
+    raw = manifest.get("membership_and_split_evidence")
+    schema_version = manifest.get("schema_version")
+    if raw is None:
+        return None
+    path = dataset_dir / "dataset_manifest.json"
+    if schema_version != _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION:
+        _issue(
+            issues,
+            "error",
+            "dataset.membership_binding.schema_version",
+            path,
+            "membership and split evidence requires dataset schema 1.1.0",
+        )
+        return None
+    if not isinstance(raw, dict) or set(raw) != {"membership_store", "report"}:
+        _issue(
+            issues,
+            "error",
+            "dataset.membership_binding.shape",
+            path,
+            "membership_and_split_evidence must contain exactly membership_store and report",
+        )
+        return None
+    store = raw.get("membership_store")
+    report_binding = raw.get("report")
+    if not isinstance(store, dict) or set(store) != _MEMBERSHIP_STORE_BINDING_KEYS:
+        _issue(
+            issues,
+            "error",
+            "dataset.membership_binding.store",
+            path,
+            "membership store binding fields are invalid",
+        )
+        return None
+    if not isinstance(report_binding, dict) or set(report_binding) != _SPLIT_REPORT_BINDING_KEYS:
+        _issue(
+            issues,
+            "error",
+            "dataset.membership_binding.report",
+            path,
+            "split report binding fields are invalid",
+        )
+        return None
+    if any(
+        not isinstance(value, str) or not value
+        for value in (*store.values(), *report_binding.values())
+    ):
+        _issue(
+            issues,
+            "error",
+            "dataset.membership_binding.values",
+            path,
+            "membership and split evidence binding values must be non-empty strings",
+        )
+        return None
+
+    raw_files = manifest.get("files")
+    by_path = (
+        {
+            item.get("path"): item
+            for item in raw_files
+            if isinstance(raw_files, list) and isinstance(item, dict)
+        }
+        if isinstance(raw_files, list)
+        else {}
+    )
+    store_root = str(store["path"])
+    store_root_path = _safe_relative(
+        dataset_dir,
+        store_root,
+        issues,
+        code="dataset.membership_binding.store_path",
+    )
+    report_path = _safe_relative(
+        dataset_dir,
+        str(report_binding["path"]),
+        issues,
+        code="dataset.membership_binding.report_path",
+    )
+    schema_path = _safe_relative(
+        dataset_dir,
+        str(report_binding["schema_path"]),
+        issues,
+        code="dataset.membership_binding.schema_path",
+    )
+    if store_root_path is None or report_path is None or schema_path is None:
+        return None
+    required_paths = {
+        *(f"{store_root}/{name}" for name in _MEMBERSHIP_STORE_FILES),
+        str(report_binding["path"]),
+        str(report_binding["schema_path"]),
+    }
+    invalid_paths = sorted(
+        relative
+        for relative in required_paths
+        if not isinstance(by_path.get(relative), dict)
+        or by_path[relative].get("artifact_role") != "evidence"
+    )
+    if invalid_paths:
+        _issue(
+            issues,
+            "error",
+            "dataset.membership_binding.evidence_files",
+            path,
+            f"membership evidence paths are not declared evidence files: {invalid_paths}",
+        )
+
+    store_manifest = _load_json_object(
+        store_root_path / "manifest.json",
+        issues,
+        "dataset.membership_store.manifest",
+    )
+    expected_store = {
+        key: store[key]
+        for key in ("artifact_id", "content_identity", "physical_identity", "rowset_sha256")
+    }
+    if store_manifest is not None:
+        observed_store = {key: store_manifest.get(key) for key in expected_store}
+        if observed_store != expected_store:
+            _issue(
+                issues,
+                "error",
+                "dataset.membership_binding.store_identity",
+                store_root_path / "manifest.json",
+                "membership store manifest identities do not match the dataset binding",
+            )
+
+    report = _load_json_object(
+        report_path,
+        issues,
+        "dataset.membership_split_report",
+    )
+    if report is not None:
+        observed_report = {
+            "artifact_id": report.get("artifact_id"),
+            "schema_version": report.get("schema_version"),
+        }
+        expected_report = {
+            "artifact_id": report_binding["artifact_id"],
+            "schema_version": report_binding["schema_version"],
+        }
+        report_store = report.get("membership_store")
+        observed_report_store = (
+            {key: report_store.get(key) for key in expected_store}
+            if isinstance(report_store, dict)
+            else None
+        )
+        claim = report.get("claim_boundary")
+        if (
+            observed_report != expected_report
+            or observed_report_store != expected_store
+            or not isinstance(claim, dict)
+            or claim.get("publication_eligible") is not True
+        ):
+            _issue(
+                issues,
+                "error",
+                "dataset.membership_binding.report_identity",
+                report_path,
+                "split report does not match the publication-eligible dataset binding",
+            )
+    return {
+        "membership_store": dict(store),
+        "report": dict(report_binding),
+    }
 
 
 def _verify_input_check_report(
@@ -825,6 +1176,21 @@ def _verify_snapshot_files_match_manifest(
             path,
             "dataset_snapshot_report files must match dataset_manifest paths",
         )
+        return
+    for index, (snapshot_file, manifest_file) in enumerate(
+        zip(raw_snapshot_files, raw_manifest_files, strict=True)
+    ):
+        if not isinstance(snapshot_file, dict) or not isinstance(manifest_file, dict):
+            continue
+        for key in ("split", "records", "artifact_role", "companion_of", "description"):
+            if snapshot_file.get(key) != manifest_file.get(key):
+                _issue(
+                    issues,
+                    "error",
+                    f"dataset.snapshot_report.file.{key}",
+                    path,
+                    f"snapshot file {index} {key} does not match dataset_manifest",
+                )
 
 
 def _expected_input_check_entries(snapshot_files: object) -> list[dict[str, object] | None]:
@@ -837,25 +1203,23 @@ def _expected_input_check_entries(snapshot_files: object) -> list[dict[str, obje
             continue
         path = item.get("path")
         source_path = item.get("source_path")
-        split = item.get("split")
-        description = item.get("description")
         source_sha256 = item.get("source_sha256")
         source_size_bytes = item.get("source_size_bytes")
-        if not all(
-            isinstance(value, str)
-            for value in (path, source_path, split, description, source_sha256)
-        ):
+        if not all(isinstance(value, str) for value in (path, source_path, source_sha256)):
             expected.append(None)
             continue
         if not _is_positive_int(source_size_bytes):
+            expected.append(None)
+            continue
+        semantic_fields = _normalized_snapshot_input_semantic_fields(item)
+        if semantic_fields is None:
             expected.append(None)
             continue
         expected.append(
             {
                 "source_path": source_path,
                 "staged_path": path,
-                "split": split,
-                "description": description,
+                **semantic_fields,
                 "sha256": source_sha256,
                 "size_bytes": source_size_bytes,
             }
@@ -866,30 +1230,63 @@ def _expected_input_check_entries(snapshot_files: object) -> list[dict[str, obje
 def _normalized_input_check_entry(item: dict[str, object]) -> dict[str, object] | None:
     source_path = item.get("source_path")
     staged_path = item.get("staged_path")
-    split = item.get("split")
-    description = item.get("description")
     sha256 = item.get("sha256")
     size_bytes = item.get("size_bytes")
     if not isinstance(source_path, str) or not _is_public_relative_reference(source_path):
         return None
     if not isinstance(staged_path, str) or not _is_public_relative_reference(staged_path):
         return None
-    if not isinstance(split, str):
-        return None
-    if not isinstance(description, str):
-        return None
     if not isinstance(sha256, str) or not _looks_like_sha256(sha256):
         return None
     if not _is_positive_int(size_bytes):
         return None
+    semantic_fields = _normalized_snapshot_input_semantic_fields(item)
+    if semantic_fields is None:
+        return None
     return {
         "source_path": source_path,
         "staged_path": staged_path,
-        "split": split,
-        "description": description,
+        **semantic_fields,
         "sha256": sha256,
         "size_bytes": size_bytes,
     }
+
+
+def _normalized_snapshot_input_semantic_fields(
+    item: dict[str, object],
+) -> dict[str, object] | None:
+    if "artifact_role" not in item:
+        split = item.get("split")
+        description = item.get("description")
+        if not isinstance(split, str) or not isinstance(description, str):
+            return None
+        return {"split": split, "description": description}
+
+    role = item.get("artifact_role")
+    if not isinstance(role, str) or role not in _DATASET_ARTIFACT_ROLES:
+        return None
+    semantics: dict[str, object] = {"artifact_role": role}
+    if role == "evidence":
+        if "split" in item or "companion_of" in item:
+            return None
+    else:
+        split = item.get("split")
+        if not isinstance(split, str) or not split:
+            return None
+        semantics["split"] = split
+    if role == "split_companion":
+        companion_of = item.get("companion_of")
+        if not isinstance(companion_of, str) or not companion_of:
+            return None
+        semantics["companion_of"] = companion_of
+    elif "companion_of" in item:
+        return None
+    if "description" in item:
+        description = item.get("description")
+        if not isinstance(description, str) or not description:
+            return None
+        semantics["description"] = description
+    return semantics
 
 
 def _verify_integrity_report(
@@ -1164,10 +1561,16 @@ def _safe_relative(
     code: str,
 ) -> Path | None:
     candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts:
+    if candidate.is_absolute() or ".." in candidate.parts or "\\" in relative:
         _issue(issues, "error", code, relative, "path must stay inside dataset_dir")
         return None
-    return root / candidate
+    resolved = root
+    for part in candidate.parts:
+        resolved /= part
+        if resolved.is_symlink():
+            _issue(issues, "error", code, relative, "path must not traverse symbolic links")
+            return None
+    return resolved
 
 
 def _file_identity(path: Path, *, public_path: str | None = None) -> dict[str, object]:
@@ -1203,6 +1606,10 @@ def _is_public_relative_reference(value: str) -> bool:
 
 def _is_positive_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _is_non_negative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def _looks_like_sha256(value: str) -> bool:

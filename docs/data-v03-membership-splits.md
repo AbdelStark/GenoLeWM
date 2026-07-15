@@ -3,8 +3,9 @@
 `tools/data/v03_membership_splits.py` exports the deterministic ClinVar
 validation and evaluation streams from one verified membership store and audits
 one exact placed-window training artifact against those held roles. The result
-is an atomic, checksum-closed evidence directory; it is not a dataset package
-or a training-runtime integration.
+is an atomic, checksum-closed evidence directory. The real artifact is
+published and independently verified, but it is not by itself a dataset
+package or training-runtime integration.
 
 ## Published membership prerequisite
 
@@ -31,6 +32,27 @@ the exact returned Hub revision. A separate independent download verified the
 This is a real deterministic **variant-membership candidate**. It is not a
 released v0.3 snapshot, phased-haplotype membership, evidence of dataset
 representativeness, a model or benchmark result, or a clinical-validity claim.
+
+## Published split evidence
+
+Hugging Face Job `6a551993effc02a91cbdbc61` built the real split bundle from
+GenoLeWM commit `bb24f6344274eff053f2917ffd72a34c7e20d7df`. The successful
+namespace was downloaded at exact Hub commit
+[`6d2ec7dd68af636ba8c594774c3c55a236c0995f`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/6d2ec7dd68af636ba8c594774c3c55a236c0995f/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/splits/geno-lewm-v03-membership-splits-bb24f6344274-r2/success)
+and independently reverified against the membership store and placed-window
+bytes.
+
+| Binding | Exact value |
+| --- | --- |
+| Artifact | `geno-lewm-v03-membership-splits-bb24f6344274-r2` |
+| Hub path | `candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/splits/geno-lewm-v03-membership-splits-bb24f6344274-r2/success` |
+| Placed windows | `976`; zero policy exclusions and zero indexed overlaps |
+| Validation | `34,657`; B `4,720`, LB `24,886`, LP `2,297`, P `2,754` |
+| Evaluation | `20,653`; B `2,851`, LB `14,395`, LP `1,549`, P `1,858` |
+
+This publication closes the deterministic unphased split-evidence contract. It
+does not turn the upstream membership candidate into a released v0.3 snapshot
+or establish model quality, dataset representativeness, or clinical validity.
 
 ## Exact placed-window input
 
@@ -244,18 +266,79 @@ and bounds the deterministic sample by that same universe. Independent review
 must rerun those semantic checks against the exact store and window bytes;
 schema validation alone is not a semantic verifier.
 
-## Deliberate follow-ons
+## Dataset and training binding
 
-This artifact does not yet wire the membership policy into real training or
-add the outputs to a dataset package. The current package schema treats every
-listed file as split data; listing JSONL plus its companion VCF would
-double-count records, while listing the evidence report would contaminate
-split totals. A package follow-on needs explicit `split_data`,
-`split_companion`, and `evidence` roles plus companion and report bindings.
+Dataset-package schema `1.1.0` closes the earlier double-counting ambiguity by
+requiring one role on every listed artifact:
 
-Training integration must then open the package-bound store once and pass
-`MembershipStoreHoldoutPolicy` through tuple streaming. Neither follow-on may
-rename variant evidence as phased haplotypes.
+| Role | Package semantics |
+| --- | --- |
+| `split_data` | Declares a split and record count; it is eligible for the matching training or evaluation loader and contributes to split totals. |
+| `split_companion` | Declares the same split and record count as the exact `split_data` path named by `companion_of`; it does not contribute a second copy of those records. |
+| `evidence` | Declares no split, record count, or companion; it is verified provenance and is not training input. |
+
+The optional `membership_and_split_evidence` object is closed to exactly two
+bindings. `membership_store` records its package-relative path, artifact ID,
+semantic content identity, physical identity, and rowset digest. `report`
+records the report path, copied schema path, artifact ID, and schema version.
+Package verification requires all store and report files to have the
+`evidence` role, opens and fully verifies the store, pins the tracked report
+schema digest and version, validates publication eligibility, and reconciles
+the report's streams and placed training windows with their declared
+`split_data` and `split_companion` artifacts.
+
+The same binding is checked at each implemented consumer boundary:
+
+```text
+schema-1.1 dataset package
+        ├── Carbon preflight: roles, companions, store + report
+        ├── training runtime: one verified store + membership holdout policy
+        ├── training-run verifier: dataset store/report + full metrics/policy binding
+        └── paper verifier: dataset package == input check == snapshot report
+```
+
+The runtime serializes the complete store/report binding,
+`MembershipStoreHoldoutPolicy.to_dict()`, and its canonical SHA-256 identity
+into metrics, checkpoints, and bound training-run metadata. Resume and release
+verification fail closed on any drift. Release verification hashes checkpoint
+files but does not deserialize them.
+
+Legacy dataset schema `1.0.0` remains unchanged and forbids artifact roles,
+companions, and membership binding. Legacy training-run schema `1.0.0` remains
+unbound and omits the new manifest and card surface; bound training runs use
+schema `1.1.0`.
+
+## Published schema-1.1 snapshot candidate
+
+Hugging Face Job
+[`6a555eb7effc02a91cbdbfe1`](https://huggingface.co/jobs/abdelstark/6a555eb7effc02a91cbdbfe1)
+assembled the real package from GenoLeWM commit
+`959079248000ab7a641ecc6d3b806700a71837f2` in the digest-pinned `uv` image and
+published it at exact Hub commit
+[`712d612d85ea6341b8ce17bd3460ff5c2207b802`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/712d612d85ea6341b8ce17bd3460ff5c2207b802/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/snapshots/geno-lewm-v03-dataset-snapshot-959079248000-r3/success).
+
+| Binding | Exact value |
+| --- | --- |
+| Hub path | `candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/snapshots/geno-lewm-v03-dataset-snapshot-959079248000-r3/success` |
+| Generated at | `2026-07-13T21:55:02Z` |
+| Dataset snapshot ID | `geno-lewm-data-v0.3.0-r1` |
+| Package inventory | 45 manifest files; 52 regular files total; 51 `SHA256SUMS` entries |
+| Snapshot report SHA-256 | `3984eef6272856c006d0051168038765935aa84418d715a865e1734c1ef89d2f` |
+| Train data | gnomAD `705,827`; ClinVar `1,545,260`; placed windows `976` |
+| Validation | `34,657`; B `4,720`, LB `24,886`, LP `2,297`, P `2,754` |
+| Evaluation | `20,653`; B `2,851`, LB `14,395`, LP `1,549`, P `1,858` |
+
+An independent exact-revision download verified every checksum, reproduced the
+published report byte-for-byte under both the default and strict upstream
+replay paths, observed zero overlap in all six train/held-role leakage checks,
+and passed the paper-package and training-preflight consumers with zero issues.
+
+The published report sets `publication_eligible=true` and
+`variant_membership=true`, while keeping `phased_haplotype_membership=false`
+and `released_v03_snapshot=false`. Accordingly, this is a verified
+schema-`1.1.0` **snapshot candidate**. It is not a released v0.3 snapshot,
+phased-haplotype membership, corrected model-quality or benchmark evidence,
+evidence of dataset representativeness, or clinical evidence.
 
 ## Local contract checks
 

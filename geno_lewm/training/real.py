@@ -9,19 +9,22 @@ environment with local Carbon model files and a packaged dataset.
 
 from __future__ import annotations
 
-import importlib
 import json
 import math
 import platform
+import re
 import shutil
 import time
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from geno_lewm._atomic import exclusive_writer_lock
+from geno_lewm._source_provenance import resolve_package_source
 from geno_lewm.action import ActionEncoder, EditSpec, EditType
-from geno_lewm.config import GenoLeWMConfig, write_resolved_config
+from geno_lewm.config import GenoLeWMConfig, config_to_dict, write_resolved_config
 from geno_lewm.config._state_contract import encoder_uses_normalized_states
 from geno_lewm.data import (
     DEFAULT_EDIT_SOURCE_COUNTS,
@@ -31,7 +34,9 @@ from geno_lewm.data import (
     SOURCE_SYNTHETIC_INDEL,
     SOURCE_SYNTHETIC_SNV,
     EditSourceCount,
-    GenoLeWMDataset,
+    HoldoutPolicy,
+    MembershipStore,
+    MembershipStoreHoldoutPolicy,
     TrainingDatasetItem,
     WindowContext,
     iter_clinvar_shard,
@@ -45,15 +50,24 @@ from geno_lewm.encoder._identity import encoder_identity_hash
 from geno_lewm.errors import InputError, RuntimeSetupError
 from geno_lewm.observability import get_logger
 from geno_lewm.predictor import build_predictor
-from geno_lewm.provenance import sha256_file
+from geno_lewm.provenance import canonical_json_sha256, sha256_file
+from geno_lewm.provenance.hashing import looks_like_sha256
+from geno_lewm.training._data_stream import PreparedTrainingStream
 from geno_lewm.training._phase_contract import require_executable_training_phase
 from geno_lewm.training.preflight import REPORT_NAME, TrainingPreflightReport
+from geno_lewm.training.resume import (
+    capture_rng_state,
+    load_resume_checkpoint,
+    restore_rng_state,
+    write_resume_checkpoint,
+)
 from geno_lewm.training.trainer import (
     TorchTrainer,
     TrainerSeeds,
     build_adamw_optimizer,
     configure_torch_reproducibility,
     encode_training_batch,
+    wsd_lr_multiplier,
 )
 
 __all__ = [
@@ -72,6 +86,28 @@ CARBON_TRAINING_METADATA_NAME = "training_run.json"
 _SCHEMA_VERSION = "1.0.0"
 _TRAINING_RUN_PACKAGE_GENERATED_BY = "tools.release.training_run"
 _RESOLVED_CONFIG_NAME = "training_config.effective.yaml"
+_LEGACY_DATASET_SCHEMA_VERSION = "1.0.0"
+_ARTIFACT_ROLE_DATASET_SCHEMA_VERSION = "1.1.0"
+_STEP_METRIC_KEYS = frozenset(
+    {
+        "step",
+        "lr_multiplier",
+        "loss",
+        "pred_loss",
+        "kl_reg",
+        "action_count",
+        "pred_var_per_dim",
+    }
+)
+_FULL_GIT_SHA = re.compile(r"[0-9a-f]{40}")
+_DATASET_ARTIFACT_ROLES = frozenset({"split_data", "split_companion", "evidence"})
+_MEMBERSHIP_STORE_BINDING_KEYS = frozenset(
+    {"path", "artifact_id", "content_identity", "physical_identity", "rowset_sha256"}
+)
+_MEMBERSHIP_REPORT_BINDING_KEYS = frozenset(
+    {"path", "schema_path", "artifact_id", "schema_version"}
+)
+_MEMBERSHIP_EVIDENCE_BINDING_KEYS = frozenset({"membership_store", "report"})
 _ALL_V1_SUB_ENCODERS = ("snv", "ins", "del", "mnv")
 _SNV_ONLY_EDIT_SOURCE_COUNTS = (
     EditSourceCount(SOURCE_GNOMAD_COMMON, 3),
@@ -139,31 +175,91 @@ def run_carbon_training(
     command: str,
     commit_sha: str,
     package_version: str,
+    source_tree: str | None = None,
     preflight_report: TrainingPreflightReport | None = None,
     resume_from: Path | None = None,
+    stop_after_step: int | None = None,
 ) -> CarbonTrainingReport:
     """Run a single-process Carbon-backed training job."""
     require_executable_training_phase(config, boundary="run_carbon_training")
+    commit_sha, source_tree = _validated_training_source(
+        commit_sha=commit_sha,
+        source_tree=source_tree,
+        package_version=package_version,
+    )
     _require_positive_int("steps", steps)
     _require_positive_int("data.batch_size", config.data.batch_size)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    config_path = write_resolved_config(config, run_dir / _RESOLVED_CONFIG_NAME)
+    if stop_after_step is not None:
+        _require_positive_int("stop_after_step", stop_after_step)
+        if stop_after_step >= steps:
+            raise InputError(
+                "stop_after_step must be less than the target steps",
+                details={"stop_after_step": stop_after_step, "target_steps": steps},
+            )
+    with exclusive_writer_lock(run_dir / "production-carbon-run"):
+        write_resolved_config(config, run_dir / _RESOLVED_CONFIG_NAME)
+        run_dataset_manifest_path = run_dir / "dataset_manifest.json"
+
+        dataset_manifest = _load_dataset_manifest(dataset_dir)
+        shutil.copy2(dataset_dir / "dataset_manifest.json", run_dataset_manifest_path)
+        with _membership_holdout_policy(dataset_dir, dataset_manifest) as holdouts:
+            membership_identity = _membership_runtime_identity(dataset_manifest, holdouts)
+            return _run_carbon_training_with_dataset(
+                config=config,
+                dataset_dir=dataset_dir,
+                carbon_model_dir=carbon_model_dir,
+                run_dir=run_dir,
+                steps=steps,
+                command=command,
+                commit_sha=commit_sha,
+                source_tree=source_tree,
+                package_version=package_version,
+                preflight_report=preflight_report,
+                resume_from=resume_from,
+                stop_after_step=stop_after_step,
+                dataset_manifest=dataset_manifest,
+                holdouts=holdouts,
+                membership_identity=membership_identity,
+            )
+
+
+def _run_carbon_training_with_dataset(
+    *,
+    config: GenoLeWMConfig,
+    dataset_dir: Path,
+    carbon_model_dir: Path,
+    run_dir: Path,
+    steps: int,
+    command: str,
+    commit_sha: str,
+    source_tree: str,
+    package_version: str,
+    preflight_report: TrainingPreflightReport | None,
+    resume_from: Path | None,
+    stop_after_step: int | None,
+    dataset_manifest: dict[str, Any],
+    holdouts: HoldoutPolicy | None,
+    membership_identity: Mapping[str, object] | None,
+) -> CarbonTrainingReport:
+    config_path = run_dir / _RESOLVED_CONFIG_NAME
     log_path = run_dir / CARBON_LOG_NAME
     metrics_path = run_dir / CARBON_METRICS_NAME
     checkpoint_path = run_dir / CARBON_CHECKPOINT_NAME
     metadata_path = run_dir / CARBON_TRAINING_METADATA_NAME
     run_dataset_manifest_path = run_dir / "dataset_manifest.json"
     preflight_path = run_dir / REPORT_NAME if (run_dir / REPORT_NAME).is_file() else None
-
-    dataset_manifest = _load_dataset_manifest(dataset_dir)
-    shutil.copy2(dataset_dir / "dataset_manifest.json", run_dataset_manifest_path)
     dataset_snapshot_id = _required_text(dataset_manifest, "snapshot_id")
+    schema_version = _required_text(dataset_manifest, "schema_version")
     dataset_files = _dataset_files(dataset_manifest)
-    windows = tuple(_load_windows(dataset_dir, dataset_files))
+    windows = tuple(_load_windows(dataset_dir, dataset_files, schema_version=schema_version))
     if not windows:
         raise InputError("Carbon training requires at least one source window")
-    gnomad_edits = tuple(_load_gnomad_edits(dataset_dir, dataset_files))
-    clinvar_edits = tuple(_load_clinvar_edits(dataset_dir, dataset_files))
+    gnomad_edits = tuple(
+        _load_gnomad_edits(dataset_dir, dataset_files, schema_version=schema_version)
+    )
+    clinvar_edits = tuple(
+        _load_clinvar_edits(dataset_dir, dataset_files, schema_version=schema_version)
+    )
     if not gnomad_edits:
         raise InputError("Carbon training requires at least one gnomAD edit")
     carbon_identity_hash = _carbon_identity_hash(
@@ -181,13 +277,18 @@ def run_carbon_training(
         gnomad_edits=gnomad_edits,
         clinvar_edits=clinvar_edits,
     )
-    iterator = _repeat_training_items(
-        windows,
-        providers,
+    prepared_stream = PreparedTrainingStream.from_components(
+        dataset_snapshot_id=dataset_snapshot_id,
+        schema_version=schema_version,
+        windows=windows,
+        providers=providers,
         seed=seeds.data,
         fallback_sources=_dataset_fallback_sources(windows),
         mix=edit_source_counts,
+        holdouts=holdouts,
+        membership_identity=membership_identity,
     )
+    iterator = prepared_stream.iter_repeated()
     resumed_from_step = 0
     resume_checkpoint: _ResumeCheckpoint | None = None
     if resume_from is not None:
@@ -199,11 +300,30 @@ def run_carbon_training(
             seeds=seeds,
             target_steps=steps,
             encoder_identity_hash=carbon_identity_hash,
+            dataset_manifest=dataset_manifest,
+            commit_sha=commit_sha,
+            source_tree=source_tree,
+            package_version=package_version,
+            membership_identity=membership_identity,
         )
         resumed_from_step = resume_checkpoint.steps_completed
+        progress = resume_checkpoint.payload["progress"]
+        assert isinstance(progress, dict)
+        expected_window_ids = progress["consumed_window_ids"]
+        assert isinstance(expected_window_ids, list)
         _skip_training_items(
             iterator,
             item_count=resumed_from_step * config.data.batch_size,
+            expected_window_ids=expected_window_ids,
+        )
+    execution_end_step = steps if stop_after_step is None else stop_after_step
+    if execution_end_step <= resumed_from_step:
+        raise InputError(
+            "stop_after_step must be greater than the resumed checkpoint step",
+            details={
+                "stop_after_step": execution_end_step,
+                "resumed_from_step": resumed_from_step,
+            },
         )
 
     encoder = CarbonStateEncoder(
@@ -220,16 +340,6 @@ def run_carbon_training(
         trust_remote_code=config.encoder.trust_remote_code,
     )
     training_started_at = time.perf_counter()
-    first_items = _next_batch(iterator, config.data.batch_size)
-    first_batch = _encode_items(encoder, first_items, device=device)
-    observed_d_state = int(first_batch.state.shape[1])
-    if observed_d_state != config.predictor.d_state:
-        raise InputError(
-            "predictor.d_state must match the Carbon encoder state width",
-            details={"predictor.d_state": config.predictor.d_state, "observed": observed_d_state},
-            remediation="set predictor.d_state to the encoder output width in the training config",
-        )
-
     action_encoder = _move_trainable_to_device(
         ActionEncoder(d_action=config.action.d_action),
         device,
@@ -239,13 +349,6 @@ def run_carbon_training(
     optimizer = build_adamw_optimizer(
         predictor=predictor, action_encoder=action_encoder, config=config
     )
-    if resume_checkpoint is not None:
-        _restore_resume_checkpoint(
-            resume_checkpoint.payload,
-            predictor=predictor,
-            action_encoder=action_encoder,
-            optimizer=optimizer,
-        )
     trainer = TorchTrainer(
         predictor=predictor,
         action_encoder=action_encoder,
@@ -253,11 +356,40 @@ def run_carbon_training(
         config=config,
         total_steps=steps,
     )
-    progress_every = max(1, int(config.training.collapse_log_every_steps))
-
+    if resume_checkpoint is not None:
+        _restore_resume_checkpoint(
+            resume_checkpoint.payload,
+            predictor=predictor,
+            action_encoder=action_encoder,
+            optimizer=optimizer,
+            trainer=trainer,
+        )
     step_results = []
+    checkpoint_metrics: list[dict[str, object]] = []
+    consumed_window_ids: list[str] = []
     collapse_alert_count = 0
     sample_count = resumed_from_step * config.data.batch_size
+    if resume_checkpoint is not None:
+        progress = resume_checkpoint.payload["progress"]
+        assert isinstance(progress, dict)
+        consumed = progress["consumed_window_ids"]
+        history = resume_checkpoint.payload["metric_history"]
+        assert isinstance(consumed, list)
+        assert isinstance(history, list)
+        consumed_window_ids = [str(item) for item in consumed]
+        checkpoint_metrics = [dict(item) for item in history if isinstance(item, dict)]
+        collapse_alert_count = int(progress["collapse_alert_count"])
+        sample_count = int(progress["samples_consumed"])
+    first_items = _next_batch(iterator, config.data.batch_size)
+    first_batch = _encode_items(encoder, first_items, device=device)
+    observed_d_state = int(first_batch.state.shape[1])
+    if observed_d_state != config.predictor.d_state:
+        raise InputError(
+            "predictor.d_state must match the Carbon encoder state width",
+            details={"predictor.d_state": config.predictor.d_state, "observed": observed_d_state},
+            remediation="set predictor.d_state to the encoder output width in the training config",
+        )
+    progress_every = max(1, int(config.training.collapse_log_every_steps))
     log_mode = "a" if resumed_from_step else "w"
     progress_logger = get_logger("training", run_id=config.run_id, log_dir=run_dir)
     with log_path.open(log_mode, encoding="utf-8") as log:
@@ -281,7 +413,7 @@ def run_carbon_training(
             log.write(json.dumps({"event": "train.start", "run_id": config.run_id}) + "\n")
         current_batch = first_batch
         first_step = resumed_from_step + 1
-        for step in range(first_step, steps + 1):
+        for step in range(first_step, execution_end_step + 1):
             if step > first_step:
                 current_batch = _encode_items(
                     encoder,
@@ -290,11 +422,13 @@ def run_carbon_training(
                 )
             result = trainer.train_step(current_batch, step=step)
             step_results.append(result)
+            checkpoint_metrics.append(result.to_dict())
             collapse_alerts = _last_collapse_alerts(trainer)
             collapse_alert_count += len(collapse_alerts)
             sample_count += len(current_batch.window_ids)
+            consumed_window_ids.extend(str(window_id) for window_id in current_batch.window_ids)
             log.write(json.dumps({"event": "train.step", **result.to_dict()}) + "\n")
-            if step in (first_step, steps) or step % progress_every == 0:
+            if step in (first_step, execution_end_step) or step % progress_every == 0:
                 progress_logger.info(
                     "training.metric",
                     step=step,
@@ -324,11 +458,21 @@ def run_carbon_training(
                     predictor=predictor,
                     action_encoder=action_encoder,
                     optimizer=optimizer,
+                    trainer=trainer,
                     config=config,
                     dataset_snapshot_id=dataset_snapshot_id,
+                    dataset_manifest=dataset_manifest,
                     steps=step,
+                    target_steps=steps,
                     seeds=seeds,
                     encoder_identity_hash=carbon_identity_hash,
+                    commit_sha=commit_sha,
+                    source_tree=source_tree,
+                    package_version=package_version,
+                    consumed_window_ids=consumed_window_ids,
+                    metric_history=checkpoint_metrics,
+                    collapse_alert_count=collapse_alert_count,
+                    membership_identity=membership_identity,
                 )
             for alert in collapse_alerts:
                 log.write(
@@ -338,33 +482,55 @@ def run_carbon_training(
                     )
                     + "\n"
                 )
-        log.write(json.dumps({"event": "train.end", "steps_completed": steps}) + "\n")
+        log.write(
+            json.dumps(
+                {
+                    "event": "train.end",
+                    "steps_completed": execution_end_step,
+                    "target_steps": steps,
+                    "stopped_early": execution_end_step < steps,
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
     elapsed_seconds = max(time.perf_counter() - training_started_at, 1e-9)
 
     final = step_results[-1]
     _write_metrics(
         metrics_path,
         config=config,
-        steps=steps,
+        steps=execution_end_step,
         resumed_from_step=resumed_from_step,
         sample_count=sample_count,
         final_loss=final.loss,
-        step_results=step_results,
+        step_results=checkpoint_metrics,
         elapsed_seconds=elapsed_seconds,
         collapse_alert_count=collapse_alert_count,
         dataset_snapshot_id=dataset_snapshot_id,
         resume_checkpoint_path=resume_from,
+        membership_identity=membership_identity,
     )
     _write_checkpoint(
         checkpoint_path,
         predictor=predictor,
         action_encoder=action_encoder,
         optimizer=optimizer,
+        trainer=trainer,
         config=config,
         dataset_snapshot_id=dataset_snapshot_id,
-        steps=steps,
+        dataset_manifest=dataset_manifest,
+        steps=execution_end_step,
+        target_steps=steps,
         seeds=seeds,
         encoder_identity_hash=carbon_identity_hash,
+        commit_sha=commit_sha,
+        source_tree=source_tree,
+        package_version=package_version,
+        consumed_window_ids=consumed_window_ids,
+        metric_history=checkpoint_metrics,
+        collapse_alert_count=collapse_alert_count,
+        membership_identity=membership_identity,
     )
     _write_training_metadata(
         metadata_path,
@@ -385,15 +551,18 @@ def run_carbon_training(
         preflight_report=preflight_report,
         final_loss=final.loss,
         sample_count=sample_count,
+        target_steps=steps,
+        steps_completed=execution_end_step,
         resumed_from_step=resumed_from_step,
         resume_checkpoint_path=resume_from,
+        membership_identity=membership_identity,
     )
     return CarbonTrainingReport(
         run_id=config.run_id,
         run_dir=run_dir,
         dataset_snapshot_id=dataset_snapshot_id,
         steps_requested=steps,
-        steps_completed=steps,
+        steps_completed=execution_end_step,
         resumed_from_step=resumed_from_step,
         sample_count=sample_count,
         final_loss=final.loss,
@@ -411,50 +580,37 @@ def _skip_training_items(
     iterator: Iterator[TrainingDatasetItem],
     *,
     item_count: int,
+    expected_window_ids: Sequence[str],
 ) -> None:
+    if len(expected_window_ids) != item_count:
+        raise InputError(
+            "resume checkpoint sample order length does not match its cursor",
+            details={"items_to_skip": item_count, "window_ids": len(expected_window_ids)},
+        )
     for index in range(item_count):
         try:
-            next(iterator)
+            item = next(iterator)
         except StopIteration as exc:
             raise InputError(
                 "training dataset exhausted while advancing to resume checkpoint",
                 details={"items_to_skip": item_count, "items_skipped": index},
                 remediation="resume with the same dataset snapshot and training config",
             ) from exc
-
-
-def _repeat_training_items(
-    windows: Sequence[WindowContext],
-    providers: Mapping[str, Any],
-    *,
-    seed: int,
-    fallback_sources: Mapping[str, str],
-    mix: Sequence[EditSourceCount] = DEFAULT_EDIT_SOURCE_COUNTS,
-) -> Iterator[TrainingDatasetItem]:
-    """Yield deterministic repeated passes over a finite release dataset."""
-    epoch = 0
-    while True:
-        dataset = GenoLeWMDataset(
-            windows,
-            providers,
-            seed=seed + epoch,
-            fallback_sources=fallback_sources,
-            mix=mix,
-        )
-        produced = 0
-        for item in dataset.iter_with_source_windows():
-            produced += 1
-            yield item
-        if produced == 0:
+        try:
+            observed_window_id = item.training_tuple.window_id
+        except AttributeError as exc:  # pragma: no cover - guarded by the stream contract.
+            raise InputError("training stream item is missing its window identity") from exc
+        expected_window_id = expected_window_ids[index]
+        if observed_window_id != expected_window_id:
             raise InputError(
-                "training dataset epoch produced no usable tuples",
-                details={"epoch": epoch, "window_count": len(windows)},
-                remediation=(
-                    "provide placed windows with matching edit shards or restore explicit "
-                    "fallback sources for the active release dataset"
-                ),
+                "replayed training sample order does not match the resume checkpoint",
+                details={
+                    "sample_index": index,
+                    "expected_window_id": expected_window_id,
+                    "observed_window_id": observed_window_id,
+                },
+                remediation="resume with the identical dataset snapshot and stream contract",
             )
-        epoch += 1
 
 
 def _training_edit_contract(
@@ -582,7 +738,13 @@ def _dataset_files(manifest: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     return tuple(files)
 
 
-def _load_windows(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[WindowContext]:
+def _load_windows(
+    dataset_dir: Path,
+    files: Sequence[dict[str, Any]],
+    *,
+    schema_version: str = _LEGACY_DATASET_SCHEMA_VERSION,
+) -> Iterator[WindowContext]:
+    files = _split_data_files(files, schema_version=schema_version)
     placed_paths = _window_jsonl_paths(files, prefix="placed/")
     path_texts = placed_paths or _window_jsonl_paths(files, prefix="carbon/")
     require_chrom = bool(placed_paths)
@@ -608,6 +770,181 @@ def _load_windows(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterato
                 )
 
 
+def _split_data_files(
+    files: Sequence[dict[str, Any]],
+    *,
+    schema_version: str,
+) -> tuple[dict[str, Any], ...]:
+    if schema_version == _LEGACY_DATASET_SCHEMA_VERSION:
+        return tuple(files)
+    if schema_version != _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION:
+        raise InputError(
+            "unsupported dataset manifest schema version",
+            details={"schema_version": schema_version},
+        )
+    selected: list[dict[str, Any]] = []
+    for index, item in enumerate(files):
+        role = item.get("artifact_role")
+        if role not in _DATASET_ARTIFACT_ROLES:
+            raise InputError(
+                "schema 1.1.0 dataset files require a recognized artifact_role",
+                details={"index": index, "artifact_role": role},
+            )
+        if role == "split_data":
+            selected.append(item)
+    return tuple(selected)
+
+
+@contextmanager
+def _membership_holdout_policy(
+    dataset_dir: Path,
+    manifest: dict[str, Any],
+) -> Iterator[MembershipStoreHoldoutPolicy | None]:
+    binding = _membership_store_binding(manifest)
+    if binding is None:
+        yield None
+        return
+    store_dir = _safe_dataset_directory(dataset_dir, binding["path"])
+    store = MembershipStore.open(store_dir, verify=True)
+    try:
+        store_manifest = store.manifest
+        observed = {
+            "artifact_id": store_manifest.artifact_id,
+            "content_identity": store_manifest.content_identity,
+            "physical_identity": store_manifest.physical_identity,
+            "rowset_sha256": store_manifest.rowset_sha256,
+        }
+        for field, value in observed.items():
+            expected = binding[field]
+            if value != expected:
+                raise InputError(
+                    "membership store identity does not match dataset manifest binding",
+                    details={"field": field, "expected": expected, "observed": value},
+                )
+        yield MembershipStoreHoldoutPolicy(store)
+    finally:
+        store.close()
+
+
+def _membership_store_binding(manifest: dict[str, Any]) -> dict[str, str] | None:
+    binding = _membership_evidence_binding(manifest)
+    return None if binding is None else dict(binding["membership_store"])
+
+
+def _membership_evidence_binding(
+    manifest: dict[str, Any],
+) -> dict[str, dict[str, str]] | None:
+    section = manifest.get("membership_and_split_evidence")
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise InputError("membership_and_split_evidence must be an object")
+    if "membership_store" not in section:
+        raise InputError("membership_and_split_evidence.membership_store is required")
+    if "report" not in section:
+        raise InputError("membership_and_split_evidence.report is required")
+    section_keys = frozenset(section)
+    if section_keys != _MEMBERSHIP_EVIDENCE_BINDING_KEYS:
+        raise InputError(
+            "membership_and_split_evidence fields do not match the runtime contract",
+            details={
+                "missing": sorted(_MEMBERSHIP_EVIDENCE_BINDING_KEYS - section_keys),
+                "unexpected": sorted(section_keys - _MEMBERSHIP_EVIDENCE_BINDING_KEYS),
+            },
+        )
+    raw_store = section["membership_store"]
+    if not isinstance(raw_store, dict):
+        raise InputError("membership_and_split_evidence.membership_store must be an object")
+    store_keys = frozenset(raw_store)
+    if store_keys != _MEMBERSHIP_STORE_BINDING_KEYS:
+        raise InputError(
+            "membership store binding fields do not match the runtime contract",
+            details={
+                "missing": sorted(_MEMBERSHIP_STORE_BINDING_KEYS - store_keys),
+                "unexpected": sorted(store_keys - _MEMBERSHIP_STORE_BINDING_KEYS),
+            },
+        )
+    store = {key: _required_text(raw_store, key) for key in sorted(_MEMBERSHIP_STORE_BINDING_KEYS)}
+    for key in ("content_identity", "physical_identity", "rowset_sha256"):
+        if not looks_like_sha256(store[key]):
+            raise InputError(
+                "membership store binding identity must be a canonical SHA-256",
+                details={"field": key, "observed": store[key]},
+            )
+
+    raw_report = section["report"]
+    if not isinstance(raw_report, dict):
+        raise InputError("membership_and_split_evidence.report must be an object")
+    report_keys = frozenset(raw_report)
+    if report_keys != _MEMBERSHIP_REPORT_BINDING_KEYS:
+        raise InputError(
+            "membership split report binding fields do not match the runtime contract",
+            details={
+                "missing": sorted(_MEMBERSHIP_REPORT_BINDING_KEYS - report_keys),
+                "unexpected": sorted(report_keys - _MEMBERSHIP_REPORT_BINDING_KEYS),
+            },
+        )
+    report = {
+        key: _required_text(raw_report, key) for key in sorted(_MEMBERSHIP_REPORT_BINDING_KEYS)
+    }
+    if manifest.get("schema_version") != _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION:
+        raise InputError(
+            "membership and split evidence requires dataset manifest schema 1.1.0",
+            details={"schema_version": manifest.get("schema_version")},
+        )
+    return {"membership_store": store, "report": report}
+
+
+def _membership_runtime_identity(
+    manifest: dict[str, Any],
+    holdouts: HoldoutPolicy | None,
+) -> dict[str, object] | None:
+    binding = _membership_evidence_binding(manifest)
+    if binding is None:
+        if holdouts is not None:
+            raise InputError("membership holdouts require a dataset manifest binding")
+        return None
+    if not isinstance(holdouts, MembershipStoreHoldoutPolicy):
+        raise InputError("membership store binding requires indexed membership holdouts")
+    policy = holdouts.to_dict()
+    policy_identity = canonical_json_sha256(policy)
+    if holdouts.identity() != policy_identity:
+        raise InputError("membership holdout policy identity is not canonical")
+    content_identity = binding["membership_store"]["content_identity"]
+    if policy.get("membership_content_identity") != content_identity:
+        raise InputError(
+            "membership holdout policy content identity does not match dataset binding",
+            details={
+                "dataset": content_identity,
+                "policy": policy.get("membership_content_identity"),
+            },
+        )
+    return {
+        "membership_store": dict(binding["membership_store"]),
+        "report": dict(binding["report"]),
+        "holdout_policy": policy,
+        "holdout_policy_identity": policy_identity,
+    }
+
+
+def _safe_dataset_directory(dataset_dir: Path, relative: str) -> Path:
+    path = Path(relative)
+    if path.is_absolute() or not path.parts or ".." in path.parts:
+        raise InputError("dataset manifest paths must stay inside dataset_dir")
+    root = dataset_dir.resolve()
+    candidate = dataset_dir
+    for part in path.parts:
+        candidate /= part
+        if candidate.is_symlink():
+            raise InputError("dataset manifest directory paths must not contain symlinks")
+    target = candidate.resolve()
+    if target == root or root not in target.parents:
+        raise InputError("dataset manifest paths must stay inside dataset_dir")
+    if not target.is_dir():
+        raise InputError("dataset manifest directory is missing", details={"path": str(target)})
+    return target
+
+
 def _window_jsonl_paths(files: Sequence[dict[str, Any]], *, prefix: str) -> tuple[str, ...]:
     paths: list[str] = []
     for item in files:
@@ -624,13 +961,25 @@ def _dataset_fallback_sources(windows: Sequence[WindowContext]) -> dict[str, str
     return dict(DEFAULT_SOURCE_FALLBACKS)
 
 
-def _load_gnomad_edits(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[EditSpec]:
+def _load_gnomad_edits(
+    dataset_dir: Path,
+    files: Sequence[dict[str, Any]],
+    *,
+    schema_version: str = _LEGACY_DATASET_SCHEMA_VERSION,
+) -> Iterator[EditSpec]:
+    files = _split_data_files(files, schema_version=schema_version)
     for path in _variant_shard_paths(dataset_dir, files, prefix="gnomad/"):
         for row in iter_gnomad_shard(path):
             yield EditSpec(row.chrom, row.pos, row.ref, row.alt)
 
 
-def _load_clinvar_edits(dataset_dir: Path, files: Sequence[dict[str, Any]]) -> Iterator[EditSpec]:
+def _load_clinvar_edits(
+    dataset_dir: Path,
+    files: Sequence[dict[str, Any]],
+    *,
+    schema_version: str = _LEGACY_DATASET_SCHEMA_VERSION,
+) -> Iterator[EditSpec]:
+    files = _split_data_files(files, schema_version=schema_version)
     for path in _variant_shard_paths(dataset_dir, files, prefix="clinvar/"):
         for row in iter_clinvar_shard(path):
             yield EditSpec(row.chrom, row.pos, row.ref, row.alt)
@@ -668,6 +1017,34 @@ def _carbon_identity_hash(carbon_model_dir: Path, *, state_contract_version: str
     )
 
 
+def _validated_training_source(
+    *,
+    commit_sha: str,
+    source_tree: str | None,
+    package_version: str,
+) -> tuple[str, str]:
+    values = [("commit", commit_sha)]
+    if source_tree is not None:
+        values.append(("tree", source_tree))
+    for label, value in values:
+        if not isinstance(value, str) or _FULL_GIT_SHA.fullmatch(value) is None:
+            raise InputError(
+                f"production source {label} must be a full lowercase 40-character Git SHA"
+            )
+    if not isinstance(package_version, str) or not package_version.strip():
+        raise InputError("production checkpoint package version must be non-empty")
+    from geno_lewm import __version__ as imported_package_version
+
+    resolved = resolve_package_source(package_version=imported_package_version)
+    if (
+        commit_sha != resolved.commit_sha
+        or (source_tree is not None and source_tree != resolved.tree_sha)
+        or package_version != resolved.package_version
+    ):
+        raise InputError("production source identity does not match the imported package")
+    return resolved.commit_sha, resolved.tree_sha
+
+
 def _json_object_line(line: str, *, path: Path, line_no: int) -> dict[str, Any]:
     try:
         payload = json.loads(line)
@@ -697,6 +1074,7 @@ def _write_metrics(
     collapse_alert_count: int,
     dataset_snapshot_id: str,
     resume_checkpoint_path: Path | None,
+    membership_identity: Mapping[str, object] | None = None,
 ) -> None:
     new_sample_count = sample_count - (resumed_from_step * config.data.batch_size)
     samples_per_second = new_sample_count / max(elapsed_seconds, 1e-9)
@@ -728,14 +1106,20 @@ def _write_metrics(
             "collapse_var_min": {"value": _collapse_var_min(step_results)},
             "collapse_alert_count": collapse_alert_count,
         },
-        "history": [result.to_dict() for result in step_results],
+        "history": [_step_metric_dict(result) for result in step_results],
     }
+    if membership_identity is not None:
+        payload["membership_and_split_evidence"] = dict(membership_identity)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _nan_loss_count(step_results: Sequence[Any]) -> int:
     """Count optimizer steps whose loss was non-finite (NaN/inf)."""
-    return sum(1 for result in step_results if not math.isfinite(float(result.loss)))
+    count = 0
+    for result in step_results:
+        if not math.isfinite(_step_metric_float(result, "loss")):
+            count += 1
+    return count
 
 
 def _collapse_var_min(step_results: Sequence[Any]) -> float:
@@ -744,8 +1128,30 @@ def _collapse_var_min(step_results: Sequence[Any]) -> float:
     Values near zero indicate representation collapse (training contract). Returns
     ``0.0`` when no steps ran.
     """
-    variances = [float(result.pred_var_per_dim) for result in step_results]
+    variances = [_step_metric_float(result, "pred_var_per_dim") for result in step_results]
     return min(variances) if variances else 0.0
+
+
+def _step_metric_dict(result: Any) -> dict[str, object]:
+    if isinstance(result, Mapping):
+        return dict(result)
+    to_dict = getattr(result, "to_dict", None)
+    if not callable(to_dict):
+        raise InputError("training metric history entry must expose to_dict")
+    payload = to_dict()
+    if not isinstance(payload, dict):
+        raise InputError("training metric history entry must resolve to a mapping")
+    return payload
+
+
+def _step_metric_float(result: Any, field: str) -> float:
+    value = _step_metric_dict(result).get(field)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise InputError(
+            "training metric history value must be numeric",
+            details={"field": field},
+        )
+    return float(value)
 
 
 def _last_collapse_alerts(trainer: TorchTrainer) -> tuple[dict[str, object], ...]:
@@ -761,67 +1167,65 @@ def _write_checkpoint(
     predictor: object,
     action_encoder: object,
     optimizer: object,
+    trainer: object,
     config: GenoLeWMConfig,
     dataset_snapshot_id: str,
+    dataset_manifest: Mapping[str, object],
     steps: int,
+    target_steps: int,
     seeds: TrainerSeeds,
     encoder_identity_hash: str,
+    commit_sha: str,
+    source_tree: str,
+    package_version: str,
+    consumed_window_ids: Sequence[str],
+    metric_history: Sequence[Mapping[str, object]],
+    collapse_alert_count: int,
+    membership_identity: Mapping[str, object] | None = None,
 ) -> None:
-    try:
-        torch = importlib.import_module("torch")
-    except ImportError as exc:  # pragma: no cover - guarded by trainer runtime.
-        raise RuntimeSetupError("Carbon training checkpointing requires PyTorch") from exc
-    torch.save(
-        {
-            "schema_version": _SCHEMA_VERSION,
-            "run_id": config.run_id,
-            "dataset_snapshot_id": dataset_snapshot_id,
-            "steps_completed": steps,
+    trainer_state = _state_dict(trainer)
+    if not isinstance(trainer_state, Mapping):
+        raise InputError("trainer state_dict must return a mapping")
+    write_resume_checkpoint(
+        path,
+        source={
+            "commit_sha": commit_sha,
+            "tree_sha": source_tree,
+            "package_version": package_version,
+        },
+        training_contract={
+            "target_steps": target_steps,
+            "batch_size": config.data.batch_size,
+            "config": config_to_dict(config),
             "seeds": seeds.to_dict(),
+        },
+        identities={
+            "dataset_snapshot_id": dataset_snapshot_id,
+            "dataset_manifest": canonical_json_sha256(dataset_manifest),
+            "encoder": encoder_identity_hash,
+            "membership_and_split": (
+                None if membership_identity is None else canonical_json_sha256(membership_identity)
+            ),
+        },
+        progress={
+            "steps_completed": steps,
+            "samples_consumed": len(consumed_window_ids),
+            "consumed_window_ids": list(consumed_window_ids),
+            "collapse_alert_count": collapse_alert_count,
+        },
+        states={
             "predictor": _state_dict(predictor),
             "action_encoder": _state_dict(action_encoder),
             "optimizer": _state_dict(optimizer),
-            "config": {
-                "run_id": config.run_id,
-                "seed": config.seed,
-                "deterministic": config.deterministic,
-                "data.batch_size": config.data.batch_size,
-                "predictor.d_state": config.predictor.d_state,
-                "predictor.dtype": config.predictor.dtype,
-                "action.d_action": config.action.d_action,
-                "action.sub_encoders": list(config.action.sub_encoders),
-                "encoder.normalize": config.encoder.normalize,
-                "encoder.state_contract_version": config.encoder.state_contract_version,
-                "encoder.effective_normalize": encoder_uses_normalized_states(config.encoder),
-                "encoder.identity_hash": encoder_identity_hash,
-                "encoder.revision": config.encoder.revision,
-                "encoder.dtype": config.encoder.dtype,
-                "encoder.state_layer": config.encoder.state_layer,
-                "encoder.pool_type": config.encoder.pool_type,
-                "encoder.pool_radius": config.encoder.pool_radius,
-            },
         },
-        path,
+        trainer_state=trainer_state,
+        rng_state=capture_rng_state(),
+        metric_history=[dict(row) for row in metric_history],
     )
 
 
 def _load_torch_checkpoint(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise InputError("resume checkpoint is missing", details={"path": str(path)})
-    try:
-        torch = importlib.import_module("torch")
-    except ImportError as exc:  # pragma: no cover - guarded by trainer runtime.
-        raise RuntimeSetupError("Carbon training resume requires PyTorch") from exc
-    try:
-        payload = torch.load(path, map_location="cpu")
-    except Exception as exc:
-        raise InputError(
-            "failed to load resume checkpoint",
-            details={"path": str(path), "error": str(exc)},
-        ) from exc
-    if not isinstance(payload, dict):
-        raise InputError("resume checkpoint must be a mapping", details={"path": str(path)})
-    return payload
+    return load_resume_checkpoint(path)
 
 
 def _validate_resume_checkpoint_payload(
@@ -833,35 +1237,51 @@ def _validate_resume_checkpoint_payload(
     seeds: TrainerSeeds,
     target_steps: int,
     encoder_identity_hash: str,
+    dataset_manifest: Mapping[str, object],
+    commit_sha: str,
+    source_tree: str,
+    package_version: str,
+    membership_identity: Mapping[str, object] | None = None,
 ) -> _ResumeCheckpoint:
-    if payload.get("schema_version") != _SCHEMA_VERSION:
+    source = payload.get("source")
+    if source != {
+        "commit_sha": commit_sha,
+        "tree_sha": source_tree,
+        "package_version": package_version,
+    }:
         raise InputError(
-            "resume checkpoint schema version is unsupported",
-            details={
-                "path": str(path),
-                "expected": _SCHEMA_VERSION,
-                "observed": payload.get("schema_version"),
-            },
+            "resume checkpoint source identity does not match the live training source",
+            details={"path": str(path)},
         )
-    if payload.get("run_id") != config.run_id:
+    contract = payload.get("training_contract")
+    expected_contract = {
+        "target_steps": target_steps,
+        "batch_size": config.data.batch_size,
+        "config": config_to_dict(config),
+        "seeds": seeds.to_dict(),
+    }
+    if contract != expected_contract:
         raise InputError(
-            "resume checkpoint run_id does not match training config",
-            details={
-                "path": str(path),
-                "checkpoint": payload.get("run_id"),
-                "config": config.run_id,
-            },
+            "resume checkpoint training contract does not match",
+            details={"path": str(path)},
         )
-    if payload.get("dataset_snapshot_id") != dataset_snapshot_id:
+    expected_identities = {
+        "dataset_snapshot_id": dataset_snapshot_id,
+        "dataset_manifest": canonical_json_sha256(dataset_manifest),
+        "encoder": encoder_identity_hash,
+        "membership_and_split": (
+            None if membership_identity is None else canonical_json_sha256(membership_identity)
+        ),
+    }
+    if payload.get("identities") != expected_identities:
         raise InputError(
-            "resume checkpoint dataset_snapshot_id does not match dataset package",
-            details={
-                "path": str(path),
-                "checkpoint": payload.get("dataset_snapshot_id"),
-                "dataset": dataset_snapshot_id,
-            },
+            "resume checkpoint data or encoder identities do not match",
+            details={"path": str(path)},
         )
-    steps_completed = payload.get("steps_completed")
+    progress = payload.get("progress")
+    if not isinstance(progress, dict):
+        raise InputError("resume checkpoint progress must be a mapping")
+    steps_completed = progress.get("steps_completed")
     if isinstance(steps_completed, bool) or not isinstance(steps_completed, int):
         raise InputError(
             "resume checkpoint steps_completed must be an integer",
@@ -881,134 +1301,65 @@ def _validate_resume_checkpoint_payload(
                 "target_steps": target_steps,
             },
         )
-    checkpoint_seeds = payload.get("seeds")
-    if checkpoint_seeds != seeds.to_dict():
+    samples_consumed = progress.get("samples_consumed")
+    expected_samples = steps_completed * config.data.batch_size
+    if samples_consumed != expected_samples:
         raise InputError(
-            "resume checkpoint seed split does not match training config",
+            "resume checkpoint sample cursor does not match its completed steps",
+            details={
+                "path": str(path),
+                "samples_consumed": samples_consumed,
+                "expected": expected_samples,
+            },
+        )
+    consumed = progress.get("consumed_window_ids")
+    if not isinstance(consumed, list) or len(consumed) != expected_samples:
+        raise InputError(
+            "resume checkpoint consumed sample order length is invalid",
             details={"path": str(path)},
         )
-    checkpoint_config = payload.get("config")
-    if not isinstance(checkpoint_config, dict):
-        raise InputError("resume checkpoint config must be a mapping", details={"path": str(path)})
-    _validate_resume_state_contract(
-        checkpoint_config,
-        path=path,
-        config=config,
-        encoder_identity_hash=encoder_identity_hash,
-    )
-    expected_config = {
-        "run_id": config.run_id,
-        "seed": config.seed,
-        "deterministic": config.deterministic,
-        "data.batch_size": config.data.batch_size,
-        "predictor.d_state": config.predictor.d_state,
-        "predictor.dtype": config.predictor.dtype,
-        "action.d_action": config.action.d_action,
-        "action.sub_encoders": list(config.action.sub_encoders),
-    }
-    for key, expected in expected_config.items():
-        if checkpoint_config.get(key) != expected:
+    history = payload.get("metric_history")
+    if not isinstance(history, list) or len(history) != steps_completed:
+        raise InputError("resume checkpoint metric prefix length is invalid")
+    for expected_step, row in enumerate(history, start=1):
+        if not isinstance(row, dict) or row.get("step") != expected_step:
             raise InputError(
-                "resume checkpoint config does not match training config",
-                details={
-                    "path": str(path),
-                    "field": key,
-                    "checkpoint": checkpoint_config.get(key),
-                    "config": expected,
-                },
+                "resume checkpoint metric prefix step order is invalid",
+                details={"path": str(path), "step": expected_step},
             )
-    for key in ("predictor", "action_encoder", "optimizer"):
-        if key not in payload:
+        if set(row) != _STEP_METRIC_KEYS:
             raise InputError(
-                "resume checkpoint is missing trainer state",
-                details={"path": str(path), "state": key},
+                "resume checkpoint metric row fields do not match the closed contract",
+                details={"path": str(path), "step": expected_step},
             )
+        expected_lr = wsd_lr_multiplier(
+            expected_step,
+            total_steps=target_steps,
+            warmup_steps=config.optimizer.warmup_steps,
+            schedule=config.optimizer.schedule,
+        )
+        observed_lr = row.get("lr_multiplier")
+        if (
+            isinstance(observed_lr, bool)
+            or not isinstance(observed_lr, int | float)
+            or not math.isfinite(float(observed_lr))
+            or float(observed_lr) != expected_lr
+        ):
+            raise InputError(
+                "resume checkpoint metric learning-rate schedule does not match N",
+                details={"path": str(path), "step": expected_step},
+            )
+        action_count = row.get("action_count")
+        if isinstance(action_count, bool) or not isinstance(action_count, int) or action_count < 0:
+            raise InputError("resume checkpoint metric action_count must be non-negative")
+        for field in ("loss", "pred_loss", "kl_reg", "pred_var_per_dim"):
+            value = row.get(field)
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise InputError(
+                    "resume checkpoint metric values must be numeric",
+                    details={"path": str(path), "step": expected_step, "field": field},
+                )
     return _ResumeCheckpoint(path=path, steps_completed=steps_completed, payload=payload)
-
-
-def _validate_resume_state_contract(
-    checkpoint_config: dict[str, Any],
-    *,
-    path: Path,
-    config: GenoLeWMConfig,
-    encoder_identity_hash: str,
-) -> None:
-    keys = {
-        "encoder.normalize",
-        "encoder.state_contract_version",
-        "encoder.effective_normalize",
-    }
-    present = keys.intersection(checkpoint_config)
-    if present != keys:
-        raise InputError(
-            "resume checkpoint is missing a complete encoder state contract",
-            details={"path": str(path), "present": sorted(present), "required": sorted(keys)},
-        )
-
-    expected_version = config.encoder.state_contract_version
-    expected_effective = encoder_uses_normalized_states(config.encoder)
-    observed_version = checkpoint_config["encoder.state_contract_version"]
-    observed_effective = checkpoint_config["encoder.effective_normalize"]
-    observed_configured = checkpoint_config["encoder.normalize"]
-    if not isinstance(observed_configured, bool) or not isinstance(observed_effective, bool):
-        raise InputError(
-            "resume checkpoint encoder normalization fields must be boolean",
-            details={"path": str(path)},
-        )
-    if observed_configured != config.encoder.normalize:
-        raise InputError(
-            "resume checkpoint config does not match training config",
-            details={
-                "path": str(path),
-                "field": "encoder.normalize",
-                "checkpoint": observed_configured,
-                "config": config.encoder.normalize,
-            },
-        )
-
-    if observed_version != expected_version or observed_effective != expected_effective:
-        raise InputError(
-            "resume checkpoint encoder state contract does not match training config",
-            details={
-                "path": str(path),
-                "checkpoint_version": observed_version,
-                "checkpoint_effective_normalize": observed_effective,
-                "config_version": expected_version,
-                "config_effective_normalize": expected_effective,
-            },
-        )
-
-    identity = {
-        "encoder.identity_hash": encoder_identity_hash,
-        "encoder.revision": config.encoder.revision,
-        "encoder.dtype": config.encoder.dtype,
-        "encoder.state_layer": config.encoder.state_layer,
-        "encoder.pool_type": config.encoder.pool_type,
-        "encoder.pool_radius": config.encoder.pool_radius,
-    }
-    identity_keys = set(identity)
-    identity_present = identity_keys.intersection(checkpoint_config)
-    if identity_present != identity_keys:
-        raise InputError(
-            "resume checkpoint is missing a complete encoder representation identity",
-            details={
-                "path": str(path),
-                "present": sorted(identity_present),
-                "required": sorted(identity_keys),
-            },
-        )
-    for field, expected in identity.items():
-        observed = checkpoint_config.get(field)
-        if observed != expected:
-            raise InputError(
-                "resume checkpoint encoder representation does not match training config",
-                details={
-                    "path": str(path),
-                    "field": field,
-                    "checkpoint": observed,
-                    "config": expected,
-                },
-            )
 
 
 def _restore_resume_checkpoint(
@@ -1017,10 +1368,19 @@ def _restore_resume_checkpoint(
     predictor: object,
     action_encoder: object,
     optimizer: object,
+    trainer: object,
 ) -> None:
-    _load_state_dict(predictor, payload["predictor"], "predictor")
-    _load_state_dict(action_encoder, payload["action_encoder"], "action_encoder")
-    _load_state_dict(optimizer, payload["optimizer"], "optimizer")
+    states = payload.get("states")
+    if not isinstance(states, dict):
+        raise InputError("resume checkpoint states must be a mapping")
+    _load_state_dict(predictor, states["predictor"], "predictor")
+    _load_state_dict(action_encoder, states["action_encoder"], "action_encoder")
+    _load_state_dict(optimizer, states["optimizer"], "optimizer")
+    _load_state_dict(trainer, payload["trainer_state"], "trainer")
+    rng_state = payload.get("rng_state")
+    if not isinstance(rng_state, dict):
+        raise InputError("resume checkpoint RNG state must be a mapping")
+    restore_rng_state(rng_state)
 
 
 def _load_state_dict(target: object, state: object, label: str) -> None:
@@ -1050,12 +1410,19 @@ def _write_training_metadata(
     preflight_report: TrainingPreflightReport | None,
     final_loss: float,
     sample_count: int,
+    target_steps: int,
+    steps_completed: int,
     resumed_from_step: int,
     resume_checkpoint_path: Path | None,
+    membership_identity: Mapping[str, object] | None = None,
 ) -> None:
     artifact_identities = _training_artifact_identities(path.parent, artifacts)
     payload = {
-        "schema_version": _SCHEMA_VERSION,
+        "schema_version": (
+            _ARTIFACT_ROLE_DATASET_SCHEMA_VERSION
+            if membership_identity is not None
+            else _SCHEMA_VERSION
+        ),
         "run_id": config.run_id,
         "generated_by": _TRAINING_RUN_PACKAGE_GENERATED_BY,
         "command": command,
@@ -1068,7 +1435,10 @@ def _write_training_metadata(
         "logs": artifacts["logs"],
         "checkpoint_files": artifacts["checkpoint_files"],
         "artifact_identities": artifact_identities,
-        "status": "completed",
+        "status": "completed" if steps_completed == target_steps else "stopped_early",
+        "target_steps": target_steps,
+        "steps_completed": steps_completed,
+        "stopped_early": steps_completed < target_steps,
         "hardware": _hardware_notes(),
         "runtime": _runtime_notes(preflight_report),
         "seeds": {"base": config.seed, **seeds.to_dict()},
@@ -1082,10 +1452,12 @@ def _write_training_metadata(
         "resume_checkpoint": None
         if resume_checkpoint_path is None
         else _public_resume_path(resume_checkpoint_path),
-        "result_summary": (
-            f"Completed Carbon-backed training launch for {sample_count} samples"
-            f"{_resume_summary_suffix(resumed_from_step)}; "
-            f"final training loss {final_loss:.6g}."
+        "result_summary": _training_result_summary(
+            sample_count=sample_count,
+            final_loss=final_loss,
+            resumed_from_step=resumed_from_step,
+            target_steps=target_steps,
+            steps_completed=steps_completed,
         ),
         "limitations": [
             "This run supports research iteration only until the paired evaluation report is published.",
@@ -1098,6 +1470,8 @@ def _write_training_metadata(
             path.parent / REPORT_NAME,
             label=REPORT_NAME,
         )
+    if membership_identity is not None:
+        payload["membership_and_split_evidence"] = dict(membership_identity)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -1157,6 +1531,22 @@ def _artifact_names(artifacts: Mapping[str, object], key: str) -> tuple[str, ...
 
 def _resume_summary_suffix(resumed_from_step: int) -> str:
     return "" if resumed_from_step == 0 else f" resumed from step {resumed_from_step}"
+
+
+def _training_result_summary(
+    *,
+    sample_count: int,
+    final_loss: float,
+    resumed_from_step: int,
+    target_steps: int,
+    steps_completed: int,
+) -> str:
+    disposition = "Completed" if steps_completed == target_steps else "Stopped"
+    return (
+        f"{disposition} Carbon-backed training at step {steps_completed}/{target_steps} "
+        f"after {sample_count} samples{_resume_summary_suffix(resumed_from_step)}; "
+        f"final training loss {final_loss:.6g}."
+    )
 
 
 def _public_resume_path(path: Path) -> str:

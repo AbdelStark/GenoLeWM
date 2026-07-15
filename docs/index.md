@@ -53,6 +53,8 @@ benchmarked, and published with public artifacts.
 | Model package | <https://huggingface.co/abdelstark/geno-lewm> |
 | Dataset package | <https://huggingface.co/datasets/abdelstark/geno-lewm-data> |
 | Verified v0.3 variant-membership candidate | [Exact Hub commit `96e97a7f…`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/96e97a7ffe1e9ad8f9a98f690b220a32ac75ddc2/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/success) |
+| Verified v0.3 membership split evidence | [Exact Hub commit `6d2ec7dd…`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/6d2ec7dd68af636ba8c594774c3c55a236c0995f/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/splits/geno-lewm-v03-membership-splits-bb24f6344274-r2/success) |
+| Verified schema-1.1 v0.3 snapshot candidate | [Exact Hub commit `712d612d…`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/712d612d85ea6341b8ce17bd3460ff5c2207b802/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/snapshots/geno-lewm-v03-dataset-snapshot-959079248000-r3/success) |
 | Historical v0.2.1 benchmark/planning/paper tree | <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1> |
 | Historical v0.2.1 generated paper | <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md> |
 
@@ -81,8 +83,15 @@ for Carbon-backed training paths.
 - A real checksum-closed v0.3 variant-membership candidate is published and
   independently verified at exact Hub commit
   `96e97a7ffe1e9ad8f9a98f690b220a32ac75ddc2`. It is not a released v0.3
-  snapshot or phased-haplotype holdout; placed-window split evidence remains a
-  separate artifact and claim boundary.
+  snapshot or phased-haplotype holdout. Its placed-window and held-role split
+  evidence is separately published and independently verified at exact Hub
+  commit `6d2ec7dd68af636ba8c594774c3c55a236c0995f`. A schema-`1.1.0` snapshot
+  candidate assembled from those inputs is published and independently
+  verified at exact Hub commit
+  `712d612d85ea6341b8ce17bd3460ff5c2207b802`. Its report explicitly keeps
+  `released_v03_snapshot=false` and `phased_haplotype_membership=false`; it is
+  not corrected model-quality, benchmark, representativeness, or clinical
+  evidence.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
 - The FX precomputed-Borzoi rescue is complete as a no-positive-claim

@@ -31,9 +31,40 @@ or incompatible command changes require an explicit compatibility note.
 - Corrected training to pool source and target states at the same edit locus,
   persist the complete encoder representation in resume checkpoints, and
   reject cross-identity resumes.
+- Added production Carbon continuation checkpoints with atomic replacement and
+  closed model, action-encoder, AdamW, trainer-monitor, Python/NumPy/Torch RNG,
+  cursor, metric-history, and learning-rate state. `geno-lewm-train` now
+  supports `--steps N --stop-after-step K` followed by strict `--resume-from`
+  continuation at `K+1`.
+- Production Carbon source provenance now resolves from the clean imported
+  package checkout rather than the caller working directory, rejects
+  non-regular or ignored package artifacts, requires exact COMMIT/TREE and
+  package-version identity, and fails closed for wheel-only installs that lack
+  embedded build provenance. The public CLI locks before preflight publication.
+  Checkpoint/report publication uses directory-anchored unique exclusive
+  no-follow temporaries, writer ownership, file and directory durability, and
+  concurrent-run rejection, and fails closed where secure anchored directory
+  operations are unavailable.
+- Added a three-process production resume-equivalence harness and external
+  verifier. It requires an exact clean Git COMMIT/TREE plus explicit N/K,
+  rehashes the raw checkpoints and public metrics, and limits its passing claim
+  to single-process software equivalence; it makes no accelerator, model-quality,
+  biological, or clinical claim.
 - Corrected encoder provenance. `l2_normalized_v2` manifests and cache keys
   commit Carbon weights plus runtime-critical config and tokenizer files;
   manifest-backed loading verifies that local runtime before inference.
+- Corrected the v0.3 Carbon runtime identity from the stale `add3...` digest to
+  the recomputed `a1fd...` digest after PR #286 removed a no-op type cast in a
+  runtime-hashed file. Added a closed offline content lock for the exact weight,
+  ten upstream runtime files, and eight local implementation files. The two H200
+  attempts that exposed the mismatch failed closed and are not successful cache
+  evidence.
+- Corrected the v0.3 H200 hardware receipt contract. CUDA `totalGlobalMem` bytes
+  and NVML `memory.total` MiB are now retained as distinct measurements instead
+  of being forced through an invalid one-MiB equality tolerance. The closed v2
+  receipt still binds a single H200 at index zero, capability, and driver, and
+  is revalidated before cache encoding begins. The attempt that exposed the
+  mismatch failed closed after computation and published no proof artifact.
 - Removed the unpinned transitive tokenizer load from the Carbon runtime path.
   The pinned upstream `tokenizer.py` delegated to a network-capable
   `Qwen/Qwen3-4B-Base` lookup without a revision, so hashing the local file did
@@ -53,6 +84,10 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Compatibility
 
+- `run_carbon_training` retains its keyword contract and validates optional
+  `source_tree` plus `commit_sha` as full lowercase 40-character SHAs. When
+  `source_tree` is omitted it resolves the clean imported package checkout and
+  requires `commit_sha` to match; it never resolves provenance from caller CWD.
 - `WindowCacheKey` and `WindowCacheRecord` now require `center_token`, and
   cache schema `1.0.0` is intentionally not reusable.
 - New cache writes use schema `3.0.0`. Schema-2 Parquet remains read-only
@@ -91,9 +126,17 @@ or incompatible command changes require an explicit compatibility note.
   names and error contracts are unchanged. Training-run release packaging used
   by `geno-lewm-train --package-release-run` is dependency-closed in the wheel
   as well.
+- Dataset-package schema `1.0.0` remains the strict role-less legacy format and
+  rejects role, companion, and membership fields. Training-run schema `1.0.0`
+  remains strictly unbound and preserves its existing manifest, card, and CLI
+  report surfaces; membership-bound training runs use schema `1.1.0`.
 
 ### Added
 
+- Added a nonpublishing `cpu-basic` Hugging Face Job probe that mounts the
+  exact Carbon revision, clones an exact public GenoLeWM commit, computes the
+  complete encoder runtime hash including weights, and fails closed on both
+  JobInfo drift and hash mismatch before a subsequent H200 cache attempt.
 - Added an exact-revision ClinVar staging postflight that binds immutable
   source-code contracts, reconciles audit/prepare/runtime/source identities,
   and full-scans the corrected Parquet shard with a closed JSON report schema.
@@ -148,8 +191,22 @@ or incompatible command changes require an explicit compatibility note.
   SHA-256-priority sample, and publishes atomically with an exact report schema
   and checksum closure. Official evidence additionally binds a clean exact
   producer commit and digest-pinned container; fixture runs are explicitly not
-  publication eligible. Training/package wiring and phased-haplotype evidence
-  remain follow-on work.
+  publication eligible. The artifact remains variant-level and unphased;
+  phased-haplotype evidence remains follow-on work.
+- Added role-aware dataset-package schema `1.1.0` with `split_data`,
+  `split_companion`, and `evidence` artifacts, exact companion relationships,
+  and an optional closed membership-store plus split-report binding. Carbon
+  preflight and training preserve that contract; runtime metrics, checkpoints,
+  and training metadata also bind the canonical membership holdout policy.
+  Training-run and paper verification reject semantic drift across their
+  copied dataset, metrics, input-check, and snapshot-report evidence.
+- Added the canonical v0.3 schema-`1.1.0` dataset assembler and checked
+  Hugging Face Job runner. The assembler selects exact train-role gnomAD and
+  ClinVar rows, packages the published held-role streams and placed windows,
+  binds the full membership/split/source lineage, and supports strict replay
+  against all 23 prepared upstream inputs. It is locally contract-verified;
+  no assembled snapshot candidate or released v0.3 snapshot is published yet,
+  and it is not a corrected model result or clinical claim.
 - Added fixture-backed scoring tutorial notebooks for a single
   ClinVar-like SNV and a one-row VCF, including checksum receipt
   validation and notebook execution tests. These examples are scoped as
@@ -203,6 +260,11 @@ or incompatible command changes require an explicit compatibility note.
 
 ### Fixed
 
+- Corrected the H200 cache-proof validator to accept the cache builder's
+  canonical lexicographic path order once shard stride blocks reach two digits.
+  The verifier now derives each path from its declared stride, requires the
+  complete contiguous stride set, and compares row counts in numeric stride
+  order without weakening duplicate-path or checksum checks.
 - Replaced bounded retry sampling for synthetic SNVs with exact uniform
   sampling over valid A/C/G/T interior anchors. Sparse Carbon windows can no
   longer fail nondeterministically after eleven draws land on ambiguous bases;

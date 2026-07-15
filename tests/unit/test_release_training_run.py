@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from geno_lewm.data import MEMBERSHIP_STORE_SCHEMA_VERSION
 from geno_lewm.errors import InputError
-from geno_lewm.provenance import sha256_file
+from geno_lewm.provenance import canonical_json_sha256, sha256_file
 from geno_lewm.training.preflight import (
     GENERATED_BY as TRAINING_PREFLIGHT_GENERATED_BY,
     REPORT_NAME as TRAINING_PREFLIGHT_REPORT_NAME,
@@ -56,6 +57,158 @@ def test_build_training_run_package_writes_release_evidence(tmp_path: Path) -> N
         "log",
         "checkpoint",
     }
+    assert loaded.schema_version == "1.0.0"
+    assert loaded.membership_and_split_evidence is None
+    manifest_payload = json.loads(
+        (tmp_path / "training_run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert "membership_and_split_evidence" not in manifest_payload
+    assert "Membership and Split Evidence" not in (tmp_path / "training_run_card.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_bound_training_run_round_trips_membership_evidence(tmp_path: Path) -> None:
+    binding = _membership_runtime_binding()
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+
+    report = build_training_run_package(tmp_path, metadata_path)
+    loaded = verify_training_run_manifest(tmp_path)
+
+    assert report.to_dict()["schema_version"] == "1.1.0"
+    assert loaded.schema_version == "1.1.0"
+    assert loaded.membership_and_split_evidence == binding
+    manifest_payload = json.loads(
+        (tmp_path / "training_run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest_payload["membership_and_split_evidence"] == binding
+    card = (tmp_path / "training_run_card.md").read_text(encoding="utf-8")
+    assert "## Membership and Split Evidence" in card
+    assert _MEMBERSHIP_STORE_BINDING["content_identity"] in card
+    assert binding["holdout_policy_identity"] in card
+
+
+def test_bound_training_run_rejects_metrics_membership_mismatch(tmp_path: Path) -> None:
+    binding = _membership_runtime_binding()
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+    metrics_path = tmp_path / "metrics.json"
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    metrics["membership_and_split_evidence"]["report"]["artifact_id"] = "wrong-report"
+    metrics_path.write_text(json.dumps(metrics, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="metrics membership and split evidence"):
+        build_training_run_package(tmp_path, metadata_path)
+
+
+@pytest.mark.parametrize(
+    ("artifact_name", "expected_error"),
+    [
+        ("metrics.json", "metrics membership and split evidence"),
+        ("dataset_manifest.json", "dataset manifest membership and split evidence"),
+    ],
+)
+def test_verify_bound_training_run_rejects_semantic_membership_mismatch(
+    tmp_path: Path,
+    artifact_name: str,
+    expected_error: str,
+) -> None:
+    binding = _membership_runtime_binding()
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+    build_training_run_package(tmp_path, metadata_path)
+    artifact_path = tmp_path / artifact_name
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["membership_and_split_evidence"]["report"]["artifact_id"] = "wrong-report"
+    artifact_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    _rewrite_manifest_artifact_identity(tmp_path, artifact_name)
+
+    with pytest.raises(InputError, match=expected_error):
+        verify_training_run_manifest(tmp_path)
+
+
+@pytest.mark.parametrize("section", ["membership_store", "report"])
+def test_bound_training_run_rejects_dataset_manifest_membership_mismatch(
+    tmp_path: Path,
+    section: str,
+) -> None:
+    binding = _membership_runtime_binding()
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+    dataset_path = tmp_path / "dataset_manifest.json"
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+    dataset["membership_and_split_evidence"][section]["artifact_id"] = "wrong-artifact"
+    dataset_path.write_text(json.dumps(dataset, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="dataset manifest membership and split evidence"):
+        build_training_run_package(tmp_path, metadata_path)
+
+
+def test_bound_training_run_rejects_noncanonical_policy_digest(tmp_path: Path) -> None:
+    binding = _membership_runtime_binding()
+    binding["holdout_policy_identity"] = "sha256:" + ("f" * 64)
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+
+    with pytest.raises(InputError, match="holdout policy identity does not match"):
+        build_training_run_package(tmp_path, metadata_path)
+
+
+def test_bound_training_run_rejects_policy_content_mismatch(tmp_path: Path) -> None:
+    binding = _membership_runtime_binding()
+    policy = binding["holdout_policy"]
+    assert isinstance(policy, dict)
+    policy["membership_content_identity"] = "sha256:" + ("f" * 64)
+    binding["holdout_policy_identity"] = canonical_json_sha256(policy)
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+
+    with pytest.raises(InputError, match="policy content identity"):
+        build_training_run_package(tmp_path, metadata_path)
+
+
+def test_bound_training_run_rejects_noncanonical_holdout_chromosomes(tmp_path: Path) -> None:
+    binding = _membership_runtime_binding()
+    policy = binding["holdout_policy"]
+    assert isinstance(policy, dict)
+    policy["excluded_chromosomes"] = ["1"]
+    binding["holdout_policy_identity"] = canonical_json_sha256(policy)
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+
+    with pytest.raises(InputError, match=r"do not match the v0\.3 split"):
+        build_training_run_package(tmp_path, metadata_path)
+
+
+def test_verify_bound_training_run_rejects_preflight_membership_mismatch(
+    tmp_path: Path,
+) -> None:
+    binding = _membership_runtime_binding()
+    metadata_path = _write_bound_training_run_inputs(tmp_path, binding=binding)
+    build_training_run_package(tmp_path, metadata_path)
+    preflight_path = tmp_path / TRAINING_PREFLIGHT_REPORT_NAME
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    del preflight["dataset"]["membership_and_split_evidence"]
+    preflight_path.write_text(
+        json.dumps(preflight, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _rewrite_manifest_artifact_identity(tmp_path, TRAINING_PREFLIGHT_REPORT_NAME)
+
+    with pytest.raises(InputError, match="preflight membership and split evidence"):
+        verify_training_run_manifest(tmp_path, require_preflight=True)
+
+
+def test_legacy_schema_rejects_membership_binding(tmp_path: Path) -> None:
+    _write_training_files(tmp_path)
+    payload = _metadata()
+    payload["membership_and_split_evidence"] = _membership_runtime_binding()
+
+    with pytest.raises(InputError, match=r"schema 1\.0\.0 cannot bind"):
+        parse_training_run_metadata(payload, run_dir=tmp_path)
+
+
+def test_bound_schema_requires_membership_binding(tmp_path: Path) -> None:
+    _write_training_files(tmp_path)
+    payload = _metadata()
+    payload["schema_version"] = "1.1.0"
+
+    with pytest.raises(InputError, match=r"schema 1\.1\.0 requires"):
+        parse_training_run_metadata(payload, run_dir=tmp_path)
 
 
 def test_training_run_main_outputs_json_report(
@@ -226,6 +379,104 @@ def _write_training_run_inputs(root: Path, *, include_preflight: bool = True) ->
         encoding="utf-8",
     )
     return metadata_path
+
+
+_MEMBERSHIP_STORE_BINDING = {
+    "path": "evidence/membership-store",
+    "artifact_id": "geno-lewm-v03-membership-fixture-r1",
+    "content_identity": "sha256:" + ("b" * 64),
+    "physical_identity": "sha256:" + ("c" * 64),
+    "rowset_sha256": "sha256:" + ("d" * 64),
+}
+_MEMBERSHIP_REPORT_BINDING = {
+    "path": "evidence/membership-split-evidence.json",
+    "schema_path": "contract/membership-split-evidence.schema.json",
+    "artifact_id": "geno-lewm-v03-membership-splits-fixture-r1",
+    "schema_version": "geno-lewm.membership-split-evidence.v1",
+}
+
+
+def _membership_runtime_binding() -> dict[str, object]:
+    policy = {
+        "schema_version": MEMBERSHIP_STORE_SCHEMA_VERSION,
+        "membership_content_identity": _MEMBERSHIP_STORE_BINDING["content_identity"],
+        "excluded_chromosomes": ["20", "21"],
+        "selection": "chromosome_roles",
+        "lookup": "lookup.sqlite",
+    }
+    return {
+        "membership_store": dict(_MEMBERSHIP_STORE_BINDING),
+        "report": dict(_MEMBERSHIP_REPORT_BINDING),
+        "holdout_policy": policy,
+        "holdout_policy_identity": canonical_json_sha256(policy),
+    }
+
+
+def _write_bound_training_run_inputs(
+    root: Path,
+    *,
+    binding: dict[str, object],
+) -> Path:
+    _write_training_files(root)
+    dataset_binding = {
+        "membership_store": binding["membership_store"],
+        "report": binding["report"],
+    }
+    (root / "dataset_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.1.0",
+                "snapshot_id": "geno-lewm-data-v0.1.0-r1",
+                "membership_and_split_evidence": dataset_binding,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    metrics_path = root / "metrics.json"
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    metrics["membership_and_split_evidence"] = binding
+    metrics_path.write_text(json.dumps(metrics, sort_keys=True) + "\n", encoding="utf-8")
+    preflight_path = root / TRAINING_PREFLIGHT_REPORT_NAME
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["dataset"]["membership_and_split_evidence"] = dataset_binding
+    dataset_manifest_path = root / "dataset_manifest.json"
+    preflight["dataset"]["core_files"]["dataset_manifest.json"] = {
+        "path": "dataset_manifest.json",
+        "sha256": sha256_file(dataset_manifest_path),
+        "size_bytes": dataset_manifest_path.stat().st_size,
+    }
+    preflight_path.write_text(
+        json.dumps(preflight, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    metadata = _metadata()
+    metadata["schema_version"] = "1.1.0"
+    metadata["membership_and_split_evidence"] = binding
+    metadata_path = root / "training_run.json"
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return metadata_path
+
+
+def _rewrite_manifest_artifact_identity(root: Path, artifact_name: str) -> None:
+    manifest_path = root / "training_run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = root / artifact_name
+    for artifact in manifest["artifacts"]:
+        if artifact["path"] == artifact_name:
+            artifact["sha256"] = sha256_file(artifact_path)
+            artifact["size_bytes"] = artifact_path.stat().st_size
+            break
+    else:  # pragma: no cover - fixture contract guard.
+        raise AssertionError(f"missing artifact {artifact_name}")
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _write_training_files(root: Path, *, include_preflight: bool = True) -> None:
