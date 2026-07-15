@@ -62,10 +62,41 @@ The Edit-Response Geometry of a Frozen Genomic Foundation Model}
 \maketitle
 
 \begin{abstract}
-% TODO(claude): abstract -- deliberately not drafted; the author is writing this.
-% It is additionally gated on R5 (Carbon dLogLik orthogonality,
-% job 6a573d8485d9643ce16d38c2), which decides the novelty framing. See
-% \cref{sec:loglik}.
+Latent world models promise to predict the consequence of an action in representation space,
+skipping the encoder forward pass that would otherwise be needed to observe it. We ask whether
+that promise holds for the most economical genomic action---a single-base edit---on frozen DNA
+foundation-model features, and we find that it does not, for a reason that is
+information-theoretic rather than architectural. We measure the \emph{edit-response geometry}:
+the displacement $\Delta = s(\walt) - s(\wref)$ a point edit induces in a pooled state, over
+$12{,}993$ GRCh38-grounded ClinVar and BRCA2 saturation-editing variants, across a pooling grid,
+on three encoders that share neither objective nor tokenizer. Three findings follow. First, the
+\emph{predict-no-change trap} is universal: a single edit leaves $\cos(s(\wref),s(\walt)) \ge
+0.993$ on every encoder and every pooling width, reaching $1.00000$ under global pooling, so an
+identity map wins any cosine-supervised objective---yet on \carbon{} the pathogenicity AUROC of
+$\lVert\Delta\rVert$ stays flat at $0.92$--$0.93$ while the relative displacement varies
+$9.4\times$. Dilution is not information loss; the trap is the metric, not the geometry. Second,
+whether that geometry is \emph{informative} is an encoder-specific property, not a property of
+genomic FMs: the same measurement gives AUROC $0.93$ on \carbon{}, $0.76$ on
+Nucleotide~Transformer~v2, and $0.55$---near chance---on HyenaDNA. On \carbon{} the response is
+interventional, exceeding a reference-only probe that never sees the edit by $0.13$--$0.31$ and
+surviving conditioning on the full trinucleotide context ($-0.006$); on Nucleotide~Transformer~v2
+at the same span it does not, the unedited window predicting better than the edit response.
+Third, and independent of the first two, the pathogenicity-bearing component of the response is
+precisely the component that cannot be anticipated: predicting $\Delta$ from the pooled reference
+state and the action reaches AUROC $0.652$ against a $0.926$ ceiling, barely above the $0.631$
+obtainable from the substitution class with no model at all, and the pooled state is not merely
+uninformative but harmful (ridge $0.585$, below a lookup that ignores it). The failure deepens as
+the state is pooled more, as an information-bottleneck account predicts. On \carbon{} the
+geometry is not a restatement of the model's own likelihood: it beats $\Delta\log$-likelihood on
+identical variants ($0.9255$ vs.\ $0.8945$), correlates with it only weakly ($\rho = -0.24$),
+retains $0.853$ once it is residualised out, and ensembles to $0.948$. We report these AUROCs as
+cohort-dependent---$\Delta\log$-likelihood reaches $0.89$ on our ClinVar slice against
+$0.6$--$0.8$ in the literature, so the slice is easy---and we make no claim to a competitive
+variant-effect predictor; transfer to quantitative function is weak ($\rho = -0.27$). These
+results supersede our withdrawn \texttt{v0.2.1-r1} release, whose implementation defects were
+real but incidental: the bottleneck we identify would have defeated a correct implementation too.
+For an action-conditioned latent world model over pooled genomic features, there is no shortcut
+through the latent---the encoder must be run on the edited sequence.
 \end{abstract}
 
 % ======================================================================
