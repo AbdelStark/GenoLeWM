@@ -1,8 +1,9 @@
 \documentclass{article}
 
 % ======================================================================
-% GenoLeWM paper -- preprint (NeurIPS 2025 style, preprint mode)
-% Build:  tectonic main.tex
+% Edit-response geometry of a frozen genomic foundation model -- preprint
+% (NeurIPS 2025 style, preprint mode)
+% Build:  make   (tectonic, two passes)
 % ======================================================================
 \usepackage[preprint,nonatbib]{neurips}
 
@@ -34,13 +35,11 @@
 % --- canonical notation (notation contract) ---
 \newcommand{\Real}{\mathbb{R}}
 \newcommand{\enc}{\mathrm{enc}}
-\newcommand{\st}{s_t}
-\newcommand{\stp}{s_{t+1}}
-\newcommand{\shat}{\hat s_{t+1}}
-\newcommand{\aemb}{a_{\mathrm{emb}}}
+\newcommand{\sref}{s_{\mathrm{ref}}}
+\newcommand{\salt}{s_{\mathrm{alt}}}
+\newcommand{\D}{\Delta}
+\newcommand{\Dhat}{\hat\Delta}
 \newcommand{\gpred}{g}
-\newcommand{\Lpred}{\mathcal{L}_{\mathrm{pred}}}
-\newcommand{\Lreg}{\mathcal{L}_{\mathrm{reg}}}
 \newcommand{\wref}{w_{\mathrm{ref}}}
 \newcommand{\walt}{w_{\mathrm{alt}}}
 \newcommand{\carbon}{Carbon-500M\xspace}
@@ -51,8 +50,8 @@
 \input{figures.tex}
 \input{tables.tex}
 
-\title{GenoLeWM: An Action-Conditioned Latent World Model for Genomic Edits.\\
-Post-Release Validity Correction for \texttt{v0.2.1-r1}}
+\title{Registered but Not Anticipated:\\
+The Edit-Response Geometry of a Frozen Genomic Foundation Model}
 
 \author{%
   Abdelhamid Bakhta\\
@@ -63,31 +62,94 @@ Post-Release Validity Correction for \texttt{v0.2.1-r1}}
 \maketitle
 
 \begin{abstract}
-GenoLeWM is an action-conditioned latent-prediction pipeline that freezes \carbon and trains a cross-attention predictor over explicit genomic edits. This paper originally interpreted the released \texttt{v0.2.1-r1} benchmark as a negative scientific result. A post-release audit invalidates that interpretation. Although the release configuration set \texttt{normalize: true}, the encoder returned raw pooled source and target states, while the predictor always returned a unit-norm vector. Training also used incompatible pooling coordinates: reference states fell back to global-mean pooling because no edit locus was supplied, whereas targets were pooled around the edit; rollout source and target states were edit-centered, and historical distractors could be centered elsewhere. Moreover, every historical ``centered'' pool omitted the leading \texttt{<dna>} control-token offset and was shifted one hidden token left. The pinned Carbon tokenizer code also made an unpinned, network-capable transitive load of \texttt{Qwen/Qwen3-4B-Base}, so its local hash did not define a self-contained runtime. On the released rollout slices, mean source/target norms were $33.982/33.595$ (phased) and $29.253/29.089$ (synthetic), whereas mean prediction norm was $1.000$ on both. Consequently, released $L_2$ losses, surprise scores, $L_2$ rollout metrics, and conclusions derived from them do not evaluate the intended normalized, coordinate-matched method. The released cosine values ($0.289$ and $0.302$, versus source-state values $0.998$ and $0.991$) remain reproducible historical implementation measurements because cosine is scale-invariant, but they are confounded by invalid mixed-scale, mixed-pooling training and a train/rollout distribution mismatch; they do not establish model capability or a failure mechanism. The actual released run used seed $271828$, $10{,}000$ optimizer steps and $80{,}000$ samples. It was labeled \texttt{phase2}, but used no LoRA, and its target-only Gaussian KL term was constant with respect to trainable parameters and supplied no gradient. We preserve the released numbers for auditability, withdraw the mechanistic attribution and capability conclusions, and require a corrected end-to-end run under a new content-addressed identity before making either positive or negative scientific claims.
+% TODO(claude): abstract -- deliberately not drafted; the author is writing this.
+% It is additionally gated on R5 (Carbon dLogLik orthogonality,
+% job 6a573d8485d9643ce16d38c2), which decides the novelty framing. See
+% \cref{sec:loglik}.
 \end{abstract}
-
-\section*{Post-Release Validity Correction}
-\textbf{Correction issued 10 July 2026.} This version supersedes the original interpretation of all \texttt{v0.2.1-r1} model-quality results. The release receipts establish included-artifact identity, not semantic or transitive-runtime validity, and therefore did not detect that \texttt{normalize: true} was ignored, that pooling omitted the leading DNA control-token offset, or that the pinned tokenizer code could fetch an unpinned Qwen tokenizer. Four boundaries now govern the paper: (i)~all reported values remain available only as historical measurements of the released implementation; (ii)~all $L_2$-dependent results, including surprise-based VEP, are invalid as evaluations of the intended method; (iii)~cosine measurements are retained but cannot support a capability or causal conclusion because training used mismatched scale and pooling coordinates while rollout evaluation used a different distribution; and (iv)~no corrected result may reuse the \texttt{v0.2.1-r1} identity. A new checkpoint, dataset/evaluation manifest, metric report, and receipt graph are required after normalization, token-layout, pooling-coordinate, and self-contained-runtime contracts are fixed and tested end to end.
 
 % ======================================================================
 \section{Introduction}
 \label{sec:intro}
 
-DNA foundation models~\citep{dnabert2021,hyenadna2023,nucleotidetransformer2025,caduceus2024,evo2024} answer a representational question: \emph{what is the embedding, or the likelihood, of this sequence?} A different and largely unanswered question is \emph{interventional}: given a reference genomic window and an explicit edit (a single-nucleotide variant, an insertion, or a deletion), can a model predict the \emph{consequence} of that edit directly in representation space, cheaply enough to score variants, roll out multi-edit haplotypes, and plan edit sets? An affirmative answer would turn a static genomic encoder into an action-conditioned \emph{world model}~\citep{worldmodels2018,dreamerv3} whose actions are discrete genomic edits.
+DNA foundation models~\citep{dnabert2021,hyenadna2023,nucleotidetransformer2025,caduceus2024,evo2024}
+answer a representational question: \emph{what is the embedding, or the likelihood, of this
+sequence?} A different question is \emph{interventional}: given a reference genomic window and an
+explicit edit, what is the \emph{consequence} of that edit in representation space? If a frozen
+encoder's response to an edit could be \emph{anticipated}---computed from the reference state plus
+a description of the edit, without re-running the encoder---then a static genomic encoder would
+become an action-conditioned \emph{world model}~\citep{worldmodels2018,dreamerv3} whose actions are
+discrete genomic edits, and whose latent transitions are cheap enough to score variants, roll out
+haplotypes, and plan edit sets. That is the promise: one expensive encoder pass per reference
+window, then arbitrarily many cheap latent queries (\cref{fig:architecture}).
 
-\method tests this question in its most economical form. The intended method freezes a pretrained DNA encoder, \carbon~\citep{carbon500m}, and trains only a small predictor: a reference window $\wref$ is encoded at the edit locus to a state $\st=\enc(\wref)\in\Real^{1024}$, an edit action $a$ is embedded by a lightweight action encoder, and a cross-attention predictor estimates the post-edit state $\shat=\gpred(\st,a)$, supervised against a coordinate-matched frozen encoding $\stp=\enc(\walt)$ of the edited window (\cref{fig:architecture}). The implementation also exposes surprise scoring, autoregressive rollout, and CEM planning. The released experiment, however, did not instantiate the intended state contract: encoder states were raw, training source and target pooling differed, and predictor outputs were unit-normalized. We therefore describe the architecture but do not treat \texttt{v0.2.1-r1} as a valid test of it.
+This paper measures whether that promise can be kept, on one frozen encoder, and reports that it
+cannot---for a reason more general than any implementation. Our object of study is the
+\emph{edit-response geometry} of \carbon~\citep{carbon500m}: the displacement $\D=\salt-\sref$
+induced in a pooled representation by a single-nucleotide edit. We measure it on $14{,}000$
+GRCh38-grounded variants across four pooling widths, and we ask two questions of it in sequence.
+Does the frozen encoder \emph{register} the edit informatively? And can that registration be
+\emph{predicted} from the pooled reference state and the action?
 
-\paragraph{The headline is a validity correction.} The released benchmark cannot determine whether \method beats, matches, or trails its intended baselines. Historical VEP deltas include $-0.1875$ (ClinVar coding AUROC) and $-0.3125$ (ClinVar non-coding AUROC), while historical rollout cosine is ${\approx}\,0.29$ versus ${\approx}\,0.99$ for the source-state baseline. Those values describe the flawed implementation, not the normalized-state method. In particular, the VEP score and rollout $L_2$ metric compare unit-norm predictions with targets whose mean norms are about $29$--$34$. The content-addressed package makes this failure reproducible, but its receipts bind identities and bytes; they do not validate the semantics of the computation.
+The answers dissociate, and the dissociation is the result. The edit is registered richly: $\D$
+separates ClinVar pathogenic from benign SNVs at AUROC $0.9259$, and this survives every control we
+could construct---restriction to SNVs, restriction to within a substitution class, and probes that
+see the reference locus but never the edit. But the registration cannot be anticipated. The best
+learned predictor of $\D$ from $(\sref,a)$ recovers AUROC $0.6520$, against a ceiling of $0.9259$
+from reading the encoder's true response, and against $0.6306$ available from the substitution
+class alone with no model at all. Adding the pooled reference state to the action buys
+approximately nothing---and under a linear model it is worse than nothing, scoring $0.5854$ against
+$0.6079$ for a lookup table that ignores the reference state entirely. \textbf{The information
+exists; it is not where a latent world model needs it to be. There is no shortcut through the
+pooled latent: you must run the encoder on the edited sequence.}
 
-\paragraph{Contributions after correction.} This paper now makes four narrower contributions.
+\paragraph{The predict-no-change trap.} A second measurement explains why this failure mode is easy
+to misread, and why we consider the negative result worth reporting rather than quietly abandoning.
+At global pooling, $\cos(\sref,\salt)=0.99989$: the edited state is cosine-indistinguishable from
+the reference to four decimal places. Yet AUROC over those same states is $0.9313$. An objective
+that asks a model to predict $\salt$ from $\sref$---which is what the natural JEPA-style
+formulation asks---is therefore \emph{degenerate}: ``predict no change'' attains the target to
+within $10^{-4}$ while carrying none of the discriminative signal. Dilution of the edit under
+pooling is real and strong ($9.4\times$ in relative displacement), but it is \emph{not} information
+loss. The trap is the metric, not the representation. An experiment that reports a cosine gap under
+this formulation has measured its own objective, not the encoder.
+
+\paragraph{This is a measurement paper with a negative headline.} We did not build a working
+genomic world model, and we do not claim one. We report what a frozen encoder's pooled edit
+response contains, what it costs to obtain, and what cannot be learned from it. The intended
+audience is other groups considering the same architecture; the intended saving is their compute.
+We are also not proposing a variant-effect predictor: \cref{sec:scope} shows the measurement is
+strong on curated binary labels and \emph{weak} on quantitative function (Spearman $-0.265$ on
+BRCA2 saturation genome editing), and we report that as a limitation rather than an aside.
+
+\paragraph{Contributions.}
 \begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
-\item \textbf{An implemented research architecture} (\cref{sec:method}): a discrete-edit action encoder, cross-attention predictor, rollout wrapper, surprise interface, and CEM planner. No behavioral capability is inferred from the released run.
-\item \textbf{A content-addressed train$\to$eval$\to$benchmark$\to$replay pipeline} (\cref{sec:systems}) whose strengths and limits are now explicit: it binds artifacts and outputs, but does not establish semantic correctness.
-\item \textbf{A post-release validity audit} (\cref{sec:experiments,sec:discussion}) that preserves the historical measurements, reports the state-norm and token-layout mismatches, discloses the unpinned transitive tokenizer, corrects the run metadata, and identifies which metrics and conclusions must be withdrawn.
-\item \textbf{A falsifiable correction protocol} (\cref{sec:future}) requiring self-contained tokenization, token-layout-derived centers, consistent state normalization, gradient-bearing regularization if claimed, distribution-matched evaluation, and a new content-addressed run identity before scientific interpretation resumes.
+\item \textbf{An edit-response spectroscopy of a frozen genomic FM} (\cref{sec:spectroscopy}): the
+displacement induced by a single-base edit, measured across pooling widths on $14{,}000$
+GRCh38-grounded variants, with the sensitivity ceiling ($\cos=0.99989$ at global pooling) and the
+dissociation between that ceiling and a flat $0.92$--$0.93$ AUROC.
+\item \textbf{A controlled demonstration that the response is interventional}
+(\cref{sec:controls}): the signal is not the mutation spectrum ($0.6306$ with no geometry), not the
+exact local sequence context (conditioning on the full trinucleotide context costs $0.0059$ AUROC),
+and not the genomic neighbourhood ($0.6392$ from a reference-only probe, tracked by a
+chromosome-held-out probe at $0.6354$, so not locus leakage).
+\item \textbf{A propagation measurement} (\cref{sec:propagation}): the local and distal components
+of the response point in genuinely different directions ($\cos=0.4714$), so pooling does not merely
+rescale a local token swap; the encoder propagates the edit.
+\item \textbf{The core negative result} (\cref{sec:predict}): the pathogenicity-bearing component of
+the edit response is precisely the component that is \emph{not} predictable from the pooled
+reference state plus the action, with the failure worsening as the state is pooled more---as an
+information-bottleneck account predicts.
+\item \textbf{An explained retraction} (\cref{sec:retraction}): our own withdrawn
+\texttt{v0.2.1-r1} release had real implementation defects, but we show the deeper reason it could
+not have worked, and that a correct implementation would have failed too.
 \end{enumerate}
 
-\paragraph{What we do \emph{not} claim.} \method is not a clinical, diagnostic, or decision-support tool. We make no model-quality, world-model-capability, surprise-validity, planning-usefulness, or mechanistic claim from \texttt{v0.2.1-r1}; we also make no privacy, runtime-execution, or efficiency guarantee. The released VEP, rollout $L_2$, and planning-distance results are not valid evaluations of the intended normalized-state method. The historical cosine results are insufficient for interpretation rather than evidence for a specific failure mode. We collect these boundaries in \cref{sec:limitations}.
+\paragraph{What we do \emph{not} claim.} No clinical, diagnostic, or decision-support claim of any
+kind. No claim that this is a competitive variant-effect predictor. No claim about token-level
+world models, which we did not test. No claim of generality across genomic foundation models: this
+is one encoder, and until it is replicated it is an anecdote about Carbon. We collect these
+boundaries in \cref{sec:limitations}.
 
 \figArchitecture
 
@@ -95,236 +157,559 @@ DNA foundation models~\citep{dnabert2021,hyenadna2023,nucleotidetransformer2025,
 \section{Related Work}
 \label{sec:related}
 
-\method sits at the intersection of four research programs. DNA foundation models supply the encoder; variant-effect prediction supplies the evaluation and the foil; joint-embedding predictive architectures supply the intended objective; and latent world models supply the action-conditioned framing and planning interface. The released experiment does not support a scientific comparison to these programs because it violated its state contract.
+\paragraph{Latent world models over frozen features.}
+The template we test is DINO-WM~\citep{dinowm2025}, which learns an action-conditioned latent
+forward model on top of frozen DINOv2~\citep{dinov2_2024} patch features and plans in latent space
+by predicting future patch embeddings. \citet{sobal2025rewardfree} isolate what a latent dynamics
+model buys over model-free alternatives on reward-free offline data; the Dreamer
+line~\citep{dreamerv3} and TD-MPC2~\citep{tdmpc2_2024} establish, respectively, generative and
+decoder-free latent dynamics for control; Ha and Schmidhuber~\citep{worldmodels2018} originate the
+frozen-encoder plus latent-controller decomposition. Our setting differs in a way that turns out to
+be decisive. These are \emph{high action-authority} domains: an action moves the state
+substantially, so ``predict-no-change'' is a weak baseline and the target signal is rich. A
+single-nucleotide edit moves a pooled genomic state by $\cos=0.99989$ at global pooling, so
+predict-no-change is nearly unbeatable in absolute-state space, and the science has to move into
+displacement space (\cref{sec:spectroscopy}). We are not planning; we are measuring the ceiling
+that any such world model would be built against.
 
-\paragraph{DNA foundation models and genomic functional prediction.}
-Masked, causal, and state-space sequence models include DNABERT~\citep{dnabert2021}, the multi-species Nucleotide Transformer~\citep{nucleotidetransformer2025}, HyenaDNA~\citep{hyenadna2023}, Caduceus~\citep{caduceus2024}, and the genome-scale generative models Evo and Evo~2~\citep{evo2024,evo2_2025}; they expose sequence representations or likelihoods. AlphaGenome~\citep{alphagenome2025} instead predicts functional genomic tracks and can compare reference and alternate sequences. \carbon~\citep{carbon500m} is the frozen sequence encoder used here. The intended \method distinction is narrower: a structured edit action conditions a learned latent transition operator. The released experiment does not establish that this operator is valid.
+\paragraph{JEPAs and anti-collapse regularization.}
+I-JEPA~\citep{jepa2023} predicts target-block representations from a context block without a pixel
+decoder, and V-JEPA~2~\citep{vjepa2_2025} adds an action-conditioned variant enabling planning from
+image goals---the closest visual analogue of the predictor we test, with an SNV as the action.
+LeJEPA~\citep{lejepa2025}, by Balestriero and LeCun, proves that among embedding distributions at a
+fixed covariance budget the isotropic Gaussian uniquely minimizes downstream probe bias, and
+enforces it with \emph{SIGReg}: random one-dimensional projections with characteristic-function
+matching, in linear time and memory. \textbf{We adopt LeJEPA's isotropic-Gaussian \emph{rationale},
+not its estimator.} The regularizer in our own withdrawn release (\cref{sec:retraction}) was a
+closed-form Gaussian KL to an isotropic target---a different and weaker mechanism than SIGReg,
+which we describe here only so that run is characterized accurately. VICReg, Barlow Twins, and DINO
+supply the surrounding anti-collapse toolbox. The difference from all of these is one of regime
+rather than method: in vision, the masked target is high-uncertainty and information-rich; here the
+target is $\approx99.99\%$ recoverable by copying the input, and the entire signal lives in the
+residual.
 
-\paragraph{Variant-effect prediction and its resources, and the precise sense in which we are not a clinical predictor.}
-The released evaluation used ClinVar clinical interpretations~\citep{clinvar2014}, gnomAD population frequencies~\citep{gnomad2020}, TraitGym~\citep{traitgym2025}, the Sahu et al.\ BRCA2 saturation genome-editing functional assay~\citep{sahu2025}, and a \carbon zero-shot baseline; AlphaMissense~\citep{alphamissense2023} provides broader field context. \method is not a clinical predictor. No pathogenicity label enters predictor training, and no output should be treated as a decision. More importantly after this correction, the released surprise score was an $L_2$ residual between unit-norm predictions and unnormalized target states. Its ranking metrics therefore cannot answer even the narrow internal question of whether action conditioning adds signal over \carbon. We retain the benchmark rows as provenance records, not clinical or comparative evidence.
+\paragraph{Genomic foundation models and their variant-effect paradigm.}
+Carbon is autoregressive and decoder-only with a $6$\,bp tokenizer, so, like Evo and
+Evo~2~\citep{evo2024,evo2_2025}, GPN~\citep{gpn2023}, and HyenaDNA~\citep{hyenadna2023}, it
+supports zero-shot $\Delta\log$-likelihood scoring; masked models such as the Nucleotide
+Transformer~\citep{nucleotidetransformer2025}, DNABERT~\citep{dnabert2021}, and
+Caduceus~\citep{caduceus2024} support pseudo-likelihood analogues. AlphaGenome~\citep{alphagenome2025}
+and supervised track predictors are a contrast class: they score variants by comparing predicted
+assay tracks, not by a likelihood or a state displacement. Carbon itself has no archival
+publication; we cite the technical report and pin a model revision (\cref{tab:artifacts}). Every
+one of these papers reports downstream VEP \emph{accuracy}; none characterizes the intrinsic
+displacement geometry of a single edit, which is our object.
 
-\paragraph{JEPAs and anti-collapse SSL: intended objective versus released computation.}
-The objective lineage is the Joint-Embedding Predictive Architecture. I-JEPA~\citep{jepa2023} predicts in representation space, and LeJEPA~\citep{lejepa2025} motivates distribution regularization. \method intended to combine cosine and normalized-state $L_2$ prediction terms and, in Phase~2, a Gaussian regularizer with encoder adaptation. The released run did something materially different: its configuration said \texttt{phase2}, but \carbon remained frozen with no LoRA; the KL was computed only from frozen target states, making it constant with respect to trainable parameters; and the $L_2$ term compared unit-norm predictions with raw target states. Thus neither the intended normalized prediction objective nor a gradient-bearing Phase-2 regularizer was evaluated. Any proposed latent-residual or representation-geometry explanation remains a hypothesis for a corrected experiment, not a finding of this release.
+\paragraph{Variant-effect prediction: the $\Delta\log$-likelihood and embedding-distance paradigms.}
+ESM-1v~\citep{esm1v2021} established that a frozen LM's log-likelihood ratio predicts mutation
+effect with no task supervision, and GPN~\citep{gpn2023} and Evo~\citep{evo2024} carry the identical
+idea into DNA; AlphaMissense~\citep{alphamissense2023} gives broader field context. Our nearest
+methodological neighbour is \textbf{embedding-distance VEP}: BEND~\citep{bend2024} and general
+in-silico-mutagenesis practice already use the distance between reference and alternate embeddings
+as a variant score. That is precisely the quantity whose geometry we dissect. Prior work
+\emph{thresholds} $\lVert\D\rVert$ as a black-box score; we characterize why it behaves as it does
+and---the part that is new---ask whether it can be \emph{anticipated} rather than measured. The
+evaluation resources are ClinVar~\citep{clinvar2014}, gnomAD~\citep{gnomad2020},
+TraitGym~\citep{traitgym2025}, and MaveDB~\citep{mavedb2025}, specifically the BRCA2 saturation
+genome-editing assay of \citet{sahu2025}.
 
-\paragraph{Latent world models and planning: a world model whose action is a discrete genomic edit.}
-The architectural lineage runs from Ha and Schmidhuber's World Models~\citep{worldmodels2018} through the Dreamer family~\citep{dreamerv3} to sampling-based latent model-predictive control. These systems may support continuous or discrete control actions; \method's distinction is the structured genomic semantics $(\text{position},\text{type},\text{ref},\text{alt})$ and a factored CEM search space. That interface is an architectural research scaffold. Because both training and latent-distance evaluation were affected by the state-contract violation, the released planning trace demonstrates code-path execution only; it does not show a valid transition model or planning capability.
-
-\Cref{tab:related} summarizes the positioning.
-
-\begin{table}[t]
-  \centering
-  \caption{Architectural positioning. The released \method run used a frozen encoder and discrete genomic-edit actions, but its normalization and regularization mismatches prevent behavioral comparison.}
-  \label{tab:related}
-  \small
-  \resizebox{\linewidth}{!}{%
-  \begin{tabular}{lcccl}
-    \toprule
-    Method family & Learns encoder? & Anti-collapse & Action & Planning \\
-    \midrule
-    DNA FMs~\citep{dnabert2021,hyenadna2023,nucleotidetransformer2025,evo2024} & yes (pretrain) & n/a & none & none \\
-    Supervised VEP~\citep{alphamissense2023} & task-tuned & n/a & none & none \\
-    JEPA / LeJEPA~\citep{jepa2023,lejepa2025} & \textbf{yes, jointly} & EMA / Gaussian reg. & n/a & none \\
-    Latent world models~\citep{worldmodels2018,dreamerv3,pets2018} & yes & recon./reward & continuous / discrete control & imagination / MPC \\
-    \textbf{\method (released)} & \textbf{no (frozen)} & target KL (no gradient) & \textbf{discrete edit} & CEM interface \\
-    \bottomrule
-  \end{tabular}}
-\end{table}
+\paragraph{The gap, and the closest concurrent work.}
+Across this literature we find no systematic characterization of the pooled-state displacement
+geometry of a single-nucleotide edit, and no test of whether that displacement is recoverable by an
+action-conditioned latent predictor. The most direct concurrent neighbour is
+JEPA-DNA~\citep{jepadna2026}, which grounds genomic FMs by predicting masked-segment latent
+representations and improves linear-probe accuracy. It is a \emph{pretraining objective evaluated by
+downstream accuracy}; ours is a \emph{measurement of single-edit displacement geometry and its
+predictability}. The two are complementary, and---if our bottleneck account is right---JEPA-DNA's
+choice to predict \emph{segment} rather than pooled representations is on the more promising side
+of exactly the boundary we draw in \cref{sec:limitations}.
 
 % ======================================================================
 \section{Method}
 \label{sec:method}
 
-\method has three trained-or-frozen components (a frozen state encoder, a trainable action encoder, and a trainable predictor) and three downstream operations: surprise scoring, rollout, and planning. We distinguish the intended normalized-state method from the released \texttt{v0.2.1-r1} computation. This distinction is load-bearing: configuration intent is not evidence of runtime behavior.
+\subsection{Frozen encoder and the representation contract}
+The encoder is \carbon~\citep{carbon500m}, a $500$M-parameter decoder-only DNA language model
+(LLaMA-style, hidden size $1024$, $6$\,bp tokenizer), loaded at pinned revision \texttt{5d31d59b}
+in \texttt{bf16} and \textbf{frozen throughout}. No encoder parameter is trained anywhere in this
+paper. Each variant is placed at the centre of a $4{,}096$\,bp GRCh38 window. We take layer-$20$
+hidden states $H\in\Real^{T\times 1024}$ and pool them to a state $s\in\Real^{1024}$.
 
-\subsection{State encoder (frozen)}
-The encoder is \carbon, a $500$M-parameter decoder-only DNA language model (LLaMA-style, hidden size $1024$), loaded at a pinned revision in \texttt{bf16} and frozen in the released run. The code default is a $12{,}288$\,bp window, but the released \texttt{v0.2.1} placed-window manifest supplied $4{,}096$\,bp windows (padded to the tokenizer's six-base multiple). The intended representation pools layer-$20$ hidden states by a centered mean over a $\pm 8$-token window ($\pm 48$\,bp) around one shared edit locus. Carbon emits one leading \texttt{<dna>} control token, so let
+Three contracts fix the measurement. We state them explicitly because the failure documented in
+\cref{sec:retraction} was caused by leaving them implicit.
+\begin{description}[leftmargin=1.2em,itemsep=1pt,topsep=2pt]
+\item[Window.] Reference and edited windows are the same $4{,}096$\,bp interval, differing in
+exactly one base for an SNV. The variant is at the window centre by construction.
+\item[Pooling.] $s^{(r)}=\mathrm{mean}\big(H[c-r:c+r+1]\big)$ for radius $r\in\{8,64,256\}$ tokens,
+where $c$ is the token index of the edited base, derived from the observed DNA-content offset after
+Carbon's leading control token. Because the tokenizer is $6$\,bp, these radii are $\pm48$, $\pm384$,
+and $\pm1536$\,bp. We write $r{=}0$ for global-mean pooling over the entire window, which is
+therefore the \emph{widest} setting, not the narrowest: throughout, the pooling grid is ordered
+$r{=}8 < r{=}64 < r{=}256 < \text{global}$ by width. Reference and edited states are always pooled
+at the same centre with the same radius.
+\item[Normalization.] All geometry is defined on raw pooled states. We report only quantities that
+are explicitly scale-aware ($\lVert\D\rVert_2$) or explicitly scale-free ($\cos$,
+$\lVert\D\rVert_2/\lVert\sref\rVert_2$), so that no comparison depends on an unstated normalization
+convention.
+\end{description}
+
+\subsection{Definitions}
+For a variant $v$ with reference window $\wref$ and edited window $\walt=\mathrm{apply}(v,\wref)$,
+at pooling width $r$:
 \begin{equation}
-u_t \;=\; \mathrm{mean}\!\Big(H_L\big[c-r:\,c+r+1\big]\Big),\qquad
-\st^{\mathrm{intended}}=\frac{u_t}{\lVert u_t\rVert_2},\qquad c=1+\lfloor \text{locus}/6\rfloor,\; r=8.
+\label{eq:defs}
+\sref=\enc(\wref),\qquad
+\salt=\enc(\walt),\qquad
+\D \;=\; \salt-\sref,
 \end{equation}
-The configuration set \texttt{normalize: true}, but the released encoder returned raw pooled vectors without applying the second operation. Worse, training called the source encoder without an edit locus, which triggered global-mean fallback, while targets used a historical ``centered'' operator with $c_{\mathrm{hist}}=\lfloor\text{locus}/6\rfloor$. It omitted the leading control token, shifting every intended center one hidden token left and sometimes centering the pool on \texttt{<dna>}. Rollout generation used the same shifted rule for source and target states at the first target edit, but centered historical distractors at each distractor's own first edit. Thus the release mixed scale, coordinate frame, and token layout. The reported norm audit concerns these shifted rollout rows: $33.982/33.595$ for source/target phased states and $29.253/29.089$ for source/target synthetic states. These were not benign metadata discrepancies: they changed optimization, retrieval geometry, and every $L_2$-based score. Cache v1 also omitted the pooling center from its key, so centered states for the same sequence could collide. The $\pm 48$\,bp radius is additionally narrower than the RFC's $\pm1536$\,bp default.
-
-The pinned Carbon \texttt{tokenizer.py} created a separate reproducibility failure: it called \texttt{Qwen/Qwen3-4B-Base} without a revision or local-only constraint. Pinning and hashing the local Carbon custom-tokenizer file therefore did not bind the transitive tokenizer implementation and did not make the runtime self-contained. The corrected source path includes its local pure-DNA tokenizer implementation in encoder identity, validates the control-token/six-mer layout, and derives $c$ from the observed DNA-content start. These are code-contract repairs only; no corrected checkpoint or model-quality result follows from them.
-
-\subsection{Action encoder (trainable)}
-An edit is represented as an \texttt{EditSpec} (absolute VCF coordinates $\text{chrom},\text{pos},\text{ref},\text{alt}$) or its window-relative form \texttt{RelEdit}, with edit type derived from the $(\text{ref},\text{alt})$ lengths into $\{$SNV, INS, DEL, MNV, INDEL$\}$ and a $16$\,bp cap on either allele. The action encoder maps an edit to $\aemb\in\Real^{64}$ through four sub-encoders, namely a base-pair-resolution sinusoidal position embedding ($\Real^{128}$), a learned type embedding ($\Real^{64}$), and a \emph{shared} small Transformer (``SeqMicroEncoder'') applied to the reference and alternate alleles ($\Real^{256}$ each); these are concatenated to $\Real^{704}$ and projected by a two-layer MLP with GELU and LayerNorm. The sinusoidal schedule uses the window length as its frequency base rather than the conventional $10{,}000$.
-
-\subsection{Predictor (trainable, residual)}
-The predictor $\gpred$ is a cross-attention Transformer over $[\st\,;a_1\,;\dots;a_K]$, with six cross-attention blocks, two self-attention blocks, hidden dimension $768$, eight heads, GELU, pre-LayerNorm, learned token-type and step-position embeddings, and a causal mask. Its residual read-out is always $L_2$-normalized, with the final MLP layer zero-initialized:
+and we report the \emph{relative displacement} and the \emph{state cosine}
 \begin{equation}
-\label{eq:residual}
-\shat \;=\; \frac{\st + \mathrm{MLP}\!\big(\gpred(\st,\aemb)\big)}{\big\lVert \st + \mathrm{MLP}\!\big(\gpred(\st,\aemb)\big)\big\rVert_2}.
+\label{eq:geom}
+\mathrm{rel}\D \;=\; \frac{\lVert\D\rVert_2}{\lVert\sref\rVert_2},
+\qquad
+\cos(\sref,\salt)\;=\;\frac{\langle\sref,\salt\rangle}{\lVert\sref\rVert_2\,\lVert\salt\rVert_2}.
 \end{equation}
-Under the intended unit-norm contract, zero initialization would make $\shat=\st$. Under the released contract it instead made $\shat=u_t/\lVert u_t\rVert_2$, while the reported source-state baseline remained the raw $u_t$. Thus the previous claim that initialization exactly equaled the evaluated ``predict-no-change'' baseline was false for this run. An autoregressive wrapper (\texttt{ARPredictor}) unrolls the predictor with KV-caching and upcasts the output MLP to \texttt{fp32} beyond horizon $20$.
+$\mathrm{rel}\D$ measures how far the edit moves the state relative to the state's own scale;
+$\cos(\sref,\salt)$ measures how far it moves it in the metric a JEPA-style objective would
+actually optimize. \Cref{sec:spectroscopy} shows these two tell the same story, and that both are
+misleading about information content.
 
-\subsection{Released training objective (\texttt{phase2} label, frozen encoder)}
-The prediction term was
-\begin{equation}
-\label{eq:loss}
-\Lpred(\shat,\stp) \;=\; \alpha\,\big(1-\cos(\shat,\stp)\big)\;+\;\beta\,\frac{\lVert \shat-\stp\rVert_2^2}{d},\qquad \alpha{=}1.0,\;\beta{=}0.1,\;d{=}1024,
-\end{equation}
-averaged uniformly over rollout steps with a mask. Because $\shat$ had norm $1$ and $\stp$ had norm about $29$--$34$, the $L_2$ term did not measure the intended unit-sphere residual. The run was configured as \texttt{phase2}, so the implementation added $\gamma\Lreg$ with $\gamma{=}0.5$, where $\Lreg=\tfrac12(\lVert\mu\rVert^2+\mathrm{tr}\,\Sigma-\log\det(\Sigma+\epsilon I)-d)$. However, $\Lreg$ was computed only from frozen target states. No LoRA parameters existed, and the term was constant with respect to the predictor and action encoder; it supplied no optimization gradient. The released run used AdamW, seed $271828$, $10{,}000$ optimizer steps, $80{,}000$ samples, and deterministic mode. The previously reported seed $104729$ and $20{,}000$ steps describe a different first-experiment lineage, not \texttt{v0.2.1-r1}.
+\subsection{Cohort}
+The cohort is $14{,}000$ real GRCh38-grounded variants $\times\ 4$ pool radii $=56{,}000$ rows, with
+$0$ skips: ClinVar~\citep{clinvar2014} $1{,}572$ pathogenic / $6{,}428$ benign, and $6{,}000$ BRCA2
+saturation genome-editing variants~\citep{sahu2025} from MaveDB score set
+\texttt{urn:mavedb:00001242-a-1}~\citep{mavedb2025}. Because the initial ClinVar set was not
+SNV-only, and because indels displace the state far more than substitutions in a way that is aligned
+with the label, all headline analyses restrict to SNVs: $12{,}993$ SNVs, of which ClinVar
+contributes $899$ pathogenic and $6{,}094$ benign, with $1{,}007$ non-SNV rows excluded and counted.
+Every one of the $12{,}993$ SNVs was checked against the reference FASTA and matched its recorded
+reference base ($12{,}993/12{,}993$).
 
-\subsection{Surprise scoring}
-The intended raw surprise is the normalized-state residual $\sigma_{\mathrm{raw}}(v)=\lVert \gpred(\st,a_v)-\enc(\mathrm{apply}(v,\wref))\rVert_2$, calibrated by an empirical context-bucket CDF. In the release, the first operand was unit norm and the second was raw. Calibration can rank a flawed quantity consistently but cannot restore its intended meaning. Accordingly, all released surprise-based VEP metrics are historical implementation measurements and are withdrawn as evidence about variant effects or action conditioning.
+\subsection{Predictability protocol and its baselines}
+\label{sec:predict-protocol}
+The world-model question, correctly posed, is not ``predict $\salt$ from $\sref$''---%
+\cref{sec:spectroscopy} shows that target is $\approx99.99\%$ attained by copying the input. It is:
+\emph{predict the displacement $\D$ from the reference state and the action, without encoding the
+edited window.} That is exactly the efficiency thesis, and it is falsifiable.
 
-\subsection{Latent planning}
-Given an initial state and a target latent, the CEM planner samples discrete edit sequences, scores predictor rollouts by latent distance, and refits a factored proposal. It uses defaults of horizon $5$, five iterations, $1024$ samples, and $64$ elites. The search path executes without further encoder calls after setup, but its released distances inherited the incompatible state scales. The trace is therefore integration evidence only, not evidence that the planner optimized a scientifically meaningful objective.
+The action space is the $12$ substitution classes (ordered base-to-base pairs); position is not an
+action variable because every variant sits at the window centre by construction. We fit predictors
+$\gpred(\sref,a)\to\Dhat$ under $5$-fold cross-validation on the $12{,}993$ SNVs, at radius
+$8$---the most favourable, most local pooling width, chosen deliberately so that a failure there is
+informative about every wider setting. We evaluate two things, and keeping them separate is
+essential:
+\begin{description}[leftmargin=1.2em,itemsep=1pt,topsep=2pt]
+\item[Direction:] $\cos(\Dhat,\D)$, the fidelity of the predicted displacement direction.
+\item[Magnitude:] AUROC of $\lVert\Dhat\rVert_2$ for ClinVar pathogenic vs.\ benign---whether the
+predicted response carries the pathogenicity signal that the \emph{true} response carries.
+\end{description}
 
-\subsection{The efficiency thesis and its honest scope}
-\label{sec:method-efficiency}
-The design rationale is amortization: pay one \carbon forward pass per reference window, then issue latent queries through the smaller predictor. Rollout and planning make no further encoder calls after setup, whereas single-variant surprise scoring requires an edited-window encode. These are call-graph properties, not demonstrated efficiency or utility. The released latency benchmark exercises a cold subprocess and the model-quality path is invalid, so no end-to-end efficiency--quality claim follows.
+\paragraph{The baseline ladder.} A negative result is only as good as what it is negative against,
+so we bracket the learned predictors from below and above. From below: a \emph{global-mean $\D$}
+predictor that ignores its inputs entirely; a \emph{per-substitution-class-mean lookup}, which is a
+$12$-entry table with no learning; and \emph{the substitution class alone}, scored directly with no
+displacement at all. From above: the \emph{TRUE $\D$} ceiling---what you get by paying for the
+encoder pass. A world model is worth building only if it lands meaningfully above the lookup table
+and near the ceiling.
 
-\begin{table}[t]
-  \centering
-  \caption{\textbf{Released computation versus intended or previously reported behavior.} The released column records what produced the historical measurements; it is not a reproduction recipe for the intended method. A valid rerun must use a new identity.}
-  \label{tab:reconcile}
-  \small
-  \resizebox{\linewidth}{!}{%
-  \begin{tabular}{lll}
-    \toprule
-    Item & Released (\texttt{v0.2.1-r1}) & Intended / previously reported \\
-    \midrule
-    Encoder pooling layer $L$            & $20$                  & final ($-1$) \\
-    Pool radius $r$                      & $8$ tok ($\pm48$\,bp) & $256$ tok ($\pm1536$\,bp) \\
-    Training source pooling              & global mean fallback  & centered at edit locus \\
-    Training target pooling              & nominal center; one token left & same validated center as source \\
-    Rollout candidate pooling            & candidate-specific    & one shared comparison center \\
-    Center token index                   & $\lfloor\text{locus}/6\rfloor$ & $1+\lfloor\text{locus}/6\rfloor$ after \texttt{<dna>} \\
-    Tokenizer dependency                 & unpinned network-capable Qwen load & self-contained local pure-DNA path \\
-    Placed-window length                 & $4{,}096$\,bp          & $12{,}288$\,bp default / previously reported \\
-    Encoder state normalization          & raw; flag ignored      & unit norm (\texttt{normalize: true}) \\
-    Predictor output norm                & $1.000$                & unit norm \\
-    Source/target mean norm (phased)     & $33.982/33.595$        & $1/1$ \\
-    Source/target mean norm (synthetic)  & $29.253/29.089$        & $1/1$ \\
-    State dim $d_{\mathrm{state}}$        & $1024$                & $1024$ (package default $512$, overridden) \\
-    Action dim $d_{\mathrm{action}}$     & $64$                  & $512$ \\
-    Predictor cross\,$+$\,self blocks    & $6+2$                 & $4+2$ \\
-    Predictor hidden dim $d_{\mathrm{hidden}}$ & $768$           & $1024$ \\
-    FFN intermediate dim                 & $768$ (\ie $1{\times}$) & $2048$ ($2{\times}$) \\
-    Warmup steps                         & $1000$                & $2000$ \\
-    Weight decay                         & $0.1$                 & $0.05$ \\
-    Physical batch size                  & $8$                   & $256$ effective \\
-    Run label / adaptation               & \texttt{phase2}; no LoRA & Phase~2 with trainable LoRA \\
-    Gaussian KL                          & target-only constant; no gradient & gradient-bearing regularizer \\
-    Seed / optimizer steps / samples     & $271828$ / $10{,}000$ / $80{,}000$ & $104729$ / $20{,}000$ previously reported \\
-    Edit-source mix (gnomAD/synSNV/synINDEL/ClinVar) & $3{:}3{:}1{:}1$ & $4{:}3{:}2{:}1$ \\
-    \bottomrule
-  \end{tabular}}
-\end{table}
+\paragraph{Three method notes that constrain interpretation.}
+First, \textbf{a cosine-trained predictor's magnitude is meaningless}: the cosine objective is
+scale-invariant, so $\lVert\Dhat\rVert$ is unconstrained, and any AUROC computed from it is an
+artifact of initialization and optimizer path rather than a measurement. We therefore report
+AUROC$(\lVert\Dhat\rVert)$ \emph{only} for the MSE-trained predictor, and report the cosine-trained
+predictor's direction only.
+
+Second, the ridge baseline's $\lambda$ was swept over $1$--$10^{6}$ (best $10^{3}$) before we
+concluded anything: an under-regularised failure would prove nothing. Ridge is fit with an
+intercept. This detail is load-bearing rather than pedantic: an earlier prototype standardised a
+design matrix containing a constant column, and because that column has zero standard deviation,
+standardising annihilated it, leaving the model unable to represent $\mathbb{E}[\D]$. Every ridge
+number reported here comes from the corrected fit.
+
+Third, \textbf{AUROC is computed with averaged tied ranks}. This matters only for the model-free
+baselines and it matters a great deal there: the global-mean predictor emits $5$ distinct
+magnitudes and the class-mean lookup $60$, so ties dominate their score and a tie-naive
+implementation misreports them. The MLP-MSE predictor emits $12{,}993$ distinct values with no
+ties and is unaffected either way---which is why the headline is robust to this choice while the
+baselines are not. All predictability numbers are those emitted by
+\texttt{tools/research/delta\_predictability.py}, using the repository's tie-safe AUROC.
 
 % ======================================================================
-\section{Systems and Reproducibility}
-\label{sec:systems}
+\section{Edit-Response Spectroscopy}
+\label{sec:spectroscopy}
 
-The most defensible positive contribution of this work is infrastructural but narrower than originally stated: the released artifacts and numbers are content-addressed and replayable. The validity correction demonstrates what this does \emph{not} provide. Reproducible execution can faithfully reproduce a semantically invalid computation, so provenance must be paired with tested scientific contracts~\citep{reproducibility2021}.
+\subsection{The sensitivity ceiling: dilution is real, information loss is not}
+\label{sec:ceiling}
 
-\paragraph{Content-addressed provenance.}
-A canonical-JSON serialization (sorted keys, rejected NaN/Inf, UTF-8) feeds a SHA-256 scheme in which the model identity hashes the model manifest and its artifact files. Each scoring call emits a checksum receipt binding the model id, input commitment, output, calibration hash, and runtime metadata. These receipts certify byte-level integrity and identity for included files, not attestation or scientific validity. In particular, the input commitment recorded \texttt{normalize: true} while runtime behavior ignored it. Historical encoder identity also omitted the runtime package, and even hashing the later local \texttt{tokenizer.py} would not have bound its unpinned transitive Qwen load. The receipt therefore committed to included bytes and configuration intent without proving the state transformation or a self-contained runtime.
+\Cref{fig:sensitivity} sweeps the pooling width. Sensitivity peaks at the narrowest pool and decays
+monotonically as the pool widens: mean $\mathrm{rel}\D$ is $0.0759$ at $r{=}8$, $0.0230$ at
+$r{=}64$, $0.0101$ at $r{=}256$, and $0.0083$ at global pooling---a $9.4\times$ swing. The state
+cosine mirrors it: $\cos(\sref,\salt)$ is $0.99352$ at $r{=}8$, $0.99925$ at $r{=}64$, $0.99984$ at
+$r{=}256$, and $0.99989$ globally. Under global pooling a single-base edit is invisible to cosine at
+four decimal places.
 
-\paragraph{Evidence-bound benchmark suite.}
-The benchmark suite executes a fixed step graph and records the path, SHA-256, and size of each output. The release reported $28$ verified outputs and all required benchmark rows. That proves coverage of the declared graph, not correctness of the state representation or metric operands. The normalization contract was absent from the semantic gate.
+The natural inference is that pooling has destroyed the edit. It has not. Over the very same states,
+ClinVar pathogenic-vs-benign AUROC is \emph{flat}: $0.9259$ at $r{=}8$, $0.9278$ at $r{=}64$,
+$0.9313$ at $r{=}256$, and $0.9313$ globally (\cref{tab:controls}). The edit signal survives at
+every pooling scale. What decays is not the information but its \emph{share of the norm}.
 
-\paragraph{Why the original verifier was insufficient.}
-The paper toolchain re-renders tables from artifacts and rejects stale text, placeholders, and mutated evidence. It also required selected negative deltas to be present. Those checks prevented transcription drift but mistook sign constraints for validity constraints: they never checked source, target, and prediction norms; whether \texttt{normalize: true} affected runtime states; whether base-pair loci mapped after the DNA control token; whether tokenizer dependencies were local and pinned; whether a claimed regularizer had a gradient path; or whether train and rollout distributions matched. A corrected release gate must establish those invariants before accepting any metric sign, and the corrected run must receive a new identity rather than overwriting this historical graph.
+This dissociation is the paper's first substantive point, and it retro-diagnoses a whole class of
+experiments including our own. \textbf{``Predict-no-change'' wins on cosine because cosine is the
+wrong metric, not because the information is absent.} A predictor optimizing
+$1-\cos(\hat s_{\mathrm{alt}},\salt)$ against a target that the identity function already reaches at
+$0.99989$ is being scored almost entirely on a component of the problem that carries no signal. The
+objective is degenerate by construction. Displacement space is not a stylistic preference here; it
+is the only space in which the question is well posed.
 
-\paragraph{On-device posture.}
-The current source runtime enforces a fail-closed network guard during inference and uses a self-contained pure-DNA tokenizer; the released lineage did not satisfy that tokenizer boundary because its custom code could perform the unpinned Qwen lookup during setup. The project also ships local-first importers for consumer personal-genome formats, with a redaction filter that drops DNA-like strings and a deny-list of personal fields at the logging boundary. We describe these as current engineering choices for local execution; we explicitly do \emph{not} present them as historical runtime proof or a privacy guarantee.
+\figSensitivity
+
+\subsection{The response is interventional, not a confound}
+\label{sec:controls}
+
+An AUROC of $0.93$ from a frozen encoder invites suspicion, so we tried to break it
+(\cref{tab:controls}, \cref{fig:auroc}).
+
+\paragraph{Not indels.} The raw cohort was not SNV-only, and indels displace the state far more than
+substitutions in a way that correlates with the pathogenic label---an inflation aligned with the
+outcome. Purging them ($1{,}007$ non-SNV rows, counted and excluded) leaves AUROC at $0.9259$ at
+$r{=}8$. The signal was not the indels.
+
+\paragraph{Not the mutation spectrum.} Some substitution classes are simply more often pathogenic,
+and a model could exploit that without any geometry at all. Scoring by substitution class
+alone---no displacement, no model---gives $0.6306$. Restricting the AUROC to comparisons
+\emph{within} each of the $12$ substitution classes (covering $n{=}6{,}993$) leaves
+$0.9202$--$0.9245$ across the sweep. The geometry carries far more than the spectrum, and it carries
+it after the spectrum is held fixed.
+
+\paragraph{Not the local sequence context either---the sharpest control.} The $12$-class control is
+weaker than it looks, because it does not condition on local sequence, and a DNA language model's
+response to a base swap plausibly depends on its immediate neighbours. So we ran the standard
+mutational-signature decomposition (\cref{tab:trinuc}): condition on the full trinucleotide
+context---the $5'$ base, the reference base, the $3'$ base---\emph{and} the substitution, then score
+only within each context. This is the control a referee is most likely to demand, and it is the one
+that could most plausibly have destroyed the result. It does not. Conditioning on the exact local
+context costs $0.0059$ AUROC: $0.9305$ stratified against $0.9364$ unstratified, both measured on
+the identical $5{,}027$ variants ($745$ pathogenic) covered by the $37$ contexts with at least $10$
+variants per class. Meanwhile the trinucleotide lookup with zero geometry reaches
+$0.6618$---above the $12$-class lookup's $0.6306$, as strictly more conditioning information should
+be, and still far below the geometry. The edit response is not a restatement of mutation chemistry
+or of local $k$-mer identity.
+
+The apples-to-apples framing is load-bearing and we want to be explicit about it. The stratified
+$0.9305$ exceeds the full-cohort unstratified $0.9259$ of \cref{tab:controls}, which would look like
+stratification \emph{improving} the signal. It does not: the $37$ retained contexts cover a
+different and slightly easier subset of the cohort, and against its own subset the stratified score
+is a small \emph{decrease}. We report the comparison within the shared population because it is the
+only one that licenses a conclusion.
+
+We flag the limit of this control rather than let it be inferred: trinucleotide context spans
+$\pm1$\,bp, whereas Carbon's tokenizer packs $6$\,bp into a token. It therefore does not fully
+control for the exact ref-$6$-mer\,$\to$\,alt-$6$-mer token pair. The natural next stratification,
+$\pm2$\,bp ($5$-mers), is too sparse to be powered at $899$ pathogenic variants, so we do not report
+it (\cref{sec:limitations}).
+
+\paragraph{Not the genomic neighbourhood.} This was the most serious threat: pathogenic variants
+cluster in conserved, functionally dense regions, so a probe might recognise the \emph{locus} and
+never need the edit. A linear probe on $\sref$ alone---which never observes the edit---reaches
+$0.6392$ at $r{=}8$, and $0.5500$--$0.5741$ at the wider settings. To exclude locus leakage across
+cross-validation folds, we re-ran the probe with chromosome-disjoint folds: $0.6354$ at $r{=}8$,
+tracking the random-fold probe at every radius. There is no same-locus leakage, and the
+neighbourhood explains at most $0.64$ of the $0.93$.
+
+What remains, after the spectrum and the neighbourhood are removed and leakage is excluded, is the
+edit itself. The response is \emph{interventional}.
+
+\figAUROC
+\tabTrinuc
+
+\subsection{The encoder propagates the edit}
+\label{sec:propagation}
+
+If a single-base edit merely rewrote its own $6$\,bp token, then the displacement at a wide pool
+would be a scaled-down copy of the displacement at a narrow one, and the whole phenomenon would be
+an uninteresting artifact of averaging. We test this directly by comparing displacement
+\emph{directions} across pooling widths (\cref{fig:propagation}). Per variant,
+$\cos(\D\text{ at global pooling},\ \D\text{ at }r{=}8)$ has mean $0.4714$, median $0.4721$, and
+standard deviation $0.1905$; only a fraction $0.004$ of variants exceed $0.9$, and none exceed
+$0.99$. A pure local token swap would put this distribution at $1.0$. It sits near $0.47$.
+
+Magnitude \emph{ordering}, by contrast, is well preserved: Spearman between $\lVert\D\rVert$ at
+global pooling and at $r{=}8$ is $0.8595$. The picture is coherent: \emph{which} variants move the
+state a lot is stable across scales---which is why AUROC is flat---but \emph{where} they move it is
+not. The distal response is a genuinely different direction from the local one. This is an
+attention-mediated, context-dependent response, and the local and distal components independently
+carry the signal. It also rules out the remaining deflationary reading of \cref{sec:ceiling}: the
+flat AUROC under wide pooling is not a local vector surviving in miniature, it is a distinct global
+response.
+
+\figPropagation
 
 % ======================================================================
-\section{Experiments}
-\label{sec:experiments}
+\section{Predictability: The Core Negative Result}
+\label{sec:predict}
 
-\paragraph{Setup.}
-The historical measurements come from one released identity (\cref{tab:artifacts}): model \texttt{geno-lewm-v0.2.1-r1}, dataset snapshot \texttt{geno-lewm-data-v0.2.1-r1}, commit \texttt{d9b06815}, evaluated on one NVIDIA~H200. The checkpoint used seed $271828$, $10{,}000$ optimizer steps, and $80{,}000$ samples. Its configuration said \texttt{phase2}, but \carbon was frozen, no LoRA was present, and the target-only KL supplied no gradient. The historical baselines were \carbon zero-shot for VEP and an unchanged raw source state for rollout. We report the rows to document the invalidated release, not to compare scientific methods.
+The encoder registers the edit (\cref{sec:spectroscopy}). A world model does not need the encoder to
+register the edit; it needs to \emph{anticipate} that registration from the reference state and the
+action, because anticipating it is the only thing that saves the encoder pass. We now test that,
+under the protocol of \cref{sec:predict-protocol}, at radius~$8$---the most favourable setting
+available.
 
-\subsection{Variant-effect prediction}
-\label{sec:exp-vep}
-\Cref{tab:vep} and \cref{fig:vep} preserve the historical VEP rows. The GenoLeWM score was derived from the invalid $L_2$ residual and therefore is not a measurement of the intended surprise function. The historical values include ClinVar coding AUROC $0.734$ ($\Delta{=}-0.1875$), ClinVar non-coding AUROC $0.563$ ($\Delta{=}-0.3125$), BRCA2 Spearman $0.149$ ($\Delta{=}-0.328$), and TraitGym Spearman $-0.028$ ($\Delta{=}+0.056$). These numbers remain useful for tracing the released artifact but support neither superiority nor inferiority. Independent of the normalization bug, the slices are also small ($N{=}16$ for each ClinVar slice, $N{=}32$ for the BRCA2 continuous-score slice, and $N{=}32$ for the TraitGym binary-label slice), so a corrected rerun must be powered before interpretation.
+\Cref{tab:predict} and \cref{fig:predict} report the result. Reading the encoder's true response
+gives AUROC $0.9259$. The best learned predictor of that response, an MLP on $(\sref,a)$ trained
+with MSE, gives $0.6520$. The substitution class alone, with no model at all, gives $0.6306$. A
+$12$-entry class-mean lookup table gives $0.6079$. A predictor that ignores its inputs entirely
+gives $0.4939$, \ie chance, as it should.
+
+The gap that matters is not the one between $0.6520$ and $0.9259$, though that gap is large. It is
+the one between $0.6520$ and $0.6306$. \textbf{The entire contribution of the learned model---all of
+it, including the pooled reference state, the nonlinearity, and the training---is the difference
+between $0.6520$ and the $0.6306$ you get for free by looking up which base changed into which.}
+
+\paragraph{Conditioning on $\sref$ is worse than useless.} The stronger statement is available from
+the linear model, and it is worth stating precisely because it is counterintuitive. Ridge on
+$(\sref,a)$ scores AUROC $0.5854$---\emph{below} the $0.6079$ of the class-mean lookup, which
+ignores $\sref$ entirely and is a strictly less informed model. Direction agrees:
+$\cos(\Dhat,\D)=0.1770$ for ridge against $0.2107$ for the action-only lookup. Giving a linear
+predictor the pooled reference state does not merely fail to help; it degrades the prediction,
+because $\sref$ contributes $1024$ dimensions of neighbourhood summary that are near-irrelevant to
+the response and dilute the one signal (the substitution class) that is relevant. The nonlinear
+cosine-trained MLP improves direction to $0.3228$, so some structure is recoverable, but the
+MSE-trained model's magnitude---the component that actually carries the label---sits at $0.1949$
+cosine and $0.6520$ AUROC. That the harness is faithful is confirmed by an exact identity: ridge on
+the action alone reproduces the class-mean lookup to every digit ($\cos=0.2107$, AUROC $0.6079$),
+as it must, since one-hot ridge is class means.
+
+\paragraph{The radius trend confirms the mechanism.} If the cause is an information bottleneck in
+the pooled state, then predictability should degrade as the state is pooled more, while the ceiling
+stays flat. It does. At radius $8$ ($\pm48$\,bp, the most local state) the MLP-MSE predictor reaches
+$0.6520$ against a ceiling of $0.9259$. At global pooling it collapses to $0.5400$---essentially
+chance---with $\cos(\Dhat,\D)=0.0575$, against a ceiling that is, if anything, \emph{higher} at
+$0.9313$. The ceiling is flat in the pooling width; the predictability is not. The wider the pool,
+the less the response can be anticipated, even though the response stays equally informative. That
+is precisely the signature of a bottleneck: the pooled state summarises the neighbourhood while
+discarding the local sequence context---which $6$-mer token is being rewritten, and in what
+immediate surround---that determines the response.
+
+\paragraph{The conclusion, stated plainly.} The pathogenicity signal in the edit response is exactly
+the part that is not predictable from the pooled reference state plus the action. A latent world
+model over pooled frozen genomic FM states cannot recover it---not because the predictor is too
+small or the optimizer too weak, but because the conditioning information is not in $\sref$. The
+efficiency thesis fails at its premise. \textbf{There is no shortcut through the pooled latent: you
+must run the encoder on the edited sequence.}
+
+\figPredict
+\tabControls
+\tabPredict
+
+% ======================================================================
+\section{Baselines and Scope}
+\label{sec:scope}
+
+\subsection{Quantitative function: where the measurement is weak}
+\label{sec:brca2}
+
+The $0.93$ AUROC is on curated binary labels, and we do not want it read as a variant-effect result.
+\Cref{tab:scope} reports the harder test. On the BRCA2 saturation genome-editing assay of
+\citet{sahu2025} ($n{=}6{,}000$, radius $8$), Spearman between $\lVert\D\rVert$ and the measured
+functional score is $-0.265$ (permutation $p<0.001$). Transferring the direction learned on ClinVar
+gives $\rho=-0.155$.
+
+These correlations are statistically real and practically weak, and the contrast with $0.93$ is the
+honest content of this section. Two things differ between the evaluations. ClinVar is
+ascertainment-biased toward clear-cut variants---it is a curated record of what clinicians
+confidently called, so its positives and negatives are drawn from the tails. BRCA2 sGE, by contrast,
+spans all SNVs in one gene's exons at fixed context, including the entire ambiguous middle, and asks
+for a graded quantity rather than a binary one. Separating curated extremes is a much easier problem
+than ordering a functional gradient. \textbf{This is not a competitive variant-effect-prediction
+method and must not be presented as one.} We report the BRCA2 number because it bounds what the
+geometry measurement is good for.
+
+\tabScope
+
+\subsection{Relation to the model's own likelihood}
+\label{sec:loglik}
+
+% TODO(claude): dLogLik baselines -- NOT WRITTEN, per instruction. R5
+% (job 6a573d8485d9643ce16d38c2, Carbon delta-logLik on the same 12,993 SNVs)
+% had not landed at the time of writing, and its outcome decides the novelty
+% framing:
+%   * If |Delta| is largely ORTHOGONAL to dLogLik, the geometry carries signal
+%     the likelihood does not, and the measurement is independently useful.
+%   * If |Delta| ~ dLogLik, this is a unification: embedding displacement
+%     restates likelihood surprise. Still a real and honest finding, but the
+%     framing must change accordingly.
+% Either way this section must report: AUROC(dLogLik), Spearman(|Delta|, dLogLik),
+% and the ensemble. The abstract is gated on this. Author to write.
+\textsc{[Section pending: experiment R5.]}
+
+% ======================================================================
+\section{Why the Released Run Failed, and Why a Correct One Would Have Too}
+\label{sec:retraction}
+
+This project previously released \texttt{v0.2.1-r1}: an action-conditioned latent predictor over a
+frozen Carbon encoder, trained to predict $\hat s_{t+1}$ from $(s_t,a)$, benchmarked on ClinVar,
+BRCA2, and TraitGym, and published with content-addressed receipts binding every reported number to
+its bytes. Its results were withdrawn. This section preserves that record, and then makes the point
+that matters: the defects were real, but they are not the reason the idea could not work.
+
+\subsection{What was actually broken}
+
+A post-release audit established four defects, each verified against the released artifacts
+(\cref{tab:rollout}, \cref{tab:vep}).
+
+\paragraph{The normalization contract was ignored.} The configuration set \texttt{normalize: true},
+but the encoder returned raw pooled states while the predictor always returned a unit-norm vector.
+On the released rollout slices, mean source/target norms were $33.982/33.595$ (phased) and
+$29.253/29.089$ (synthetic), against a mean prediction norm of $1.000$. Every $L_2$ loss, surprise
+score, and rollout distance therefore compared operands differing by a factor of $\approx30$, and
+was dominated by scale rather than by content.
+
+\paragraph{Pooling coordinates were mismatched.} Training encoded source states with no edit locus
+supplied, which silently triggered global-mean fallback, while targets were pooled around the edit.
+Source and target states were thus in different coordinate frames. Separately, every ``centered''
+pool omitted Carbon's leading \texttt{<dna>} control token and was shifted one hidden token left,
+sometimes centering the pool on the control token itself.
+
+\paragraph{The regularizer had no gradient.} The run was labelled \texttt{phase2}, but the encoder
+remained frozen with no LoRA parameters, and its Gaussian KL term was computed only from frozen
+target states---constant with respect to every trainable parameter, contributing exactly zero
+gradient. No Phase-2 claim was tested by it.
+
+\paragraph{The runtime was not self-contained.} The pinned Carbon \texttt{tokenizer.py} performed an
+unpinned, network-capable transitive load of \texttt{Qwen/Qwen3-4B-Base}, so hashing the local
+tokenizer file did not define the tokenizer that actually ran.
+
+Consequently the released $L_2$ losses, surprise scores, $L_2$ rollout metrics, and every conclusion
+drawn from them do not evaluate the intended method. The released cosine values ($0.289$ and $0.302$
+prediction-to-target, versus $0.998$ and $0.991$ source-to-target) remain reproducible historical
+measurements---cosine is scale-invariant---but they are confounded by mixed-scale, mixed-pooling
+training and by train/rollout distribution shift, and they establish neither capability nor
+mechanism. The run used seed $271828$, $10{,}000$ optimizer steps, and $80{,}000$ samples; its
+ClinVar slices were $N{=}16$. We preserve these numbers in \cref{tab:vep} and \cref{tab:rollout},
+and their identity in \cref{tab:artifacts}, for auditability; we withdraw the interpretations.
+
+\subsection{The lesson the defects do not teach}
+
+That audit explains why \emph{that run} was uninterpretable. It is silent on whether the idea was
+sound. It is tempting---and it was our first reading---to conclude that the engineering was at fault
+and that a corrected rerun would settle the question. \Cref{sec:predict} says otherwise.
+
+Consider a hypothetical corrected \texttt{v0.2.1}: normalization applied consistently, source and
+target pooled at the same token-layout-derived centre, a gradient-bearing regularizer, a
+self-contained tokenizer, matched train and rollout distributions, and adequately powered slices. It
+would have failed anyway, for two compounding reasons that no amount of engineering removes.
+
+\textbf{First, its objective was degenerate.} It trained $\gpred(s_t,a)\to\hat s_{t+1}$ against a
+target with $\cos(s_t,s_{t+1})=0.99989$ at global pooling (\cref{sec:ceiling}). The identity
+function attains that target to four decimal places. A corrected run would have converged to a
+near-copy of its input and reported a good-looking loss, and the loss would have measured nothing,
+because the discriminative content lives in a residual the metric barely weighs. Fixing the
+normalization bug would have made the numbers \emph{coherent} without making them
+\emph{informative}.
+
+\textbf{Second, and fatally, the conditioning information was absent.} Even after moving to the
+correctly-posed displacement objective---which is what \cref{sec:predict} does, with a clean
+implementation on clean data---the best predictor of $\D$ from $(\sref,a)$ recovers $0.6520$ of the
+$0.9259$ available, barely above the $0.6306$ that requires no model at all. The pooled state is an
+information bottleneck that discards precisely the local sequence context determining the edit
+response. This is a property of pooled frozen genomic FM features, not of our optimizer, our
+architecture, or our bugs. It would have been true of a bug-free implementation. It would have been
+true of a better-designed one.
+
+This is why we consider the reframe honest rather than convenient. A retraction that says ``we had
+bugs'' generalises to nobody. The measurement says something stronger and more useful: this
+architecture---an action-conditioned latent world model over pooled frozen genomic FM
+states---cannot deliver its premise, and the reason is information-theoretic rather than
+engineering. That converts a local embarrassment into a result other groups can act on, and it is
+the reading the data supports.
 
 \tabVEP
-\figVEP
-
-\subsection{Latent rollout fidelity}
-\label{sec:exp-rollout}
-The rollout track (\cref{tab:rollout}, \cref{fig:rollout}) exposes the state-contract violation. Mean source/target/prediction norms are $33.982/33.595/1.000$ for phased haplotypes and $29.253/29.089/1.000$ for synthetic edit chains. Hence the historical $L_2$ values and deltas are invalid comparisons. Historical cosine remains numerically reproducible and scale-invariant: prediction-to-target cosine is $0.289$ and $0.302$, while raw-source-to-target cosine is $0.998$ and $0.991$. But the predictor was trained from global-mean source states toward targets whose intended centers were shifted one hidden token left under the invalid mixed-scale objective, then evaluated from rollout sources using the same shifted centering rule; candidate ranking also mixed loci. These cosine values cannot isolate normalization, token layout, pooling coordinates, optimization, distribution shift, action use, or encoder geometry. Recall@$k$ is $1.0$ for both predictor and baseline at $N{=}8$ and is non-discriminating.
-
 \tabRollout
-\figRollout
-
-\subsection{Inference efficiency}
-\label{sec:efficiency}
-\Cref{tab:efficiency} and \cref{fig:efficiency} report a cold \texttt{geno-lewm-score} subprocess measurement: median latency $115{,}262.94$\,ms, throughput $0.31$ variants/s, and peak memory $1.83$\,GiB. It includes interpreter startup, model loading, and two \carbon forward passes, but no component profile was recorded. Warm-cache and latent-only regimes were not measured and are shown without bars. Because the corresponding scoring and rollout quality is invalid, the release supports only implementation-level timing and call-count observations, not an efficiency--quality or deployment claim.
-
-\tabEfficiency
-\figEfficiency
-
-\subsection{Autoregressive rollout speed}
-\label{sec:exp-arspeed}
-KV-caching the action projections speeds autoregressive rollout by $2.41\times$ at $K{=}5$ (meeting its local $2\times$ target) and $2.47\times$ at $K{=}20$ (missing the $5\times$ target; \cref{fig:arspeed}). The $K{=}20$ miss remains open and was explicitly rescoped rather than closed. The published micro-benchmark used synthetic tensors on the H200 with batch $8$, $d_{\mathrm{state}}{=}1024$, $d_{\mathrm{action}}{=}64$, CUDA, and \texttt{bf16}, but a benchmark-specific predictor shape ($d_{\mathrm{hidden}}{=}1024$, $6+1$ blocks, FFN $4096$) rather than the released checkpoint's exact architecture. It measures the cache implementation, not full-checkpoint or end-to-end rollout latency.
-
-\figARspeed
-
-\subsection{Planning}
-\label{sec:exp-planning}
-The released planning demonstration loads the checkpoint through the manifest-backed runtime and runs CEM against a synthetic multi-SNV target, terminating on patience after $384$ evaluations with a historical best distance of $23.66$ in ${\approx}15.3$\,s. Because that distance compared incompatible state scales, it has no valid objective-space interpretation. The trace establishes only that the code path executed from released artifacts.
-
-% ======================================================================
-\section{Discussion: Why the Released Result Is Not Interpretable}
-\label{sec:discussion}
-
-The original paper attributed the observed metrics to a structural latent-residual trap. That attribution is withdrawn. The current evidence establishes a contract violation and several confounders, not a mechanism.
-
-\paragraph{Normalization contract violation (established).}
-The encoder accepted \texttt{normalize: true} but emitted raw pooled states, whereas the predictor explicitly normalized its output. The roughly $29$--$34\times$ norm gap makes the released $L_2$ loss and metric dominated by operand scale. It also invalidates the previous identity-at-initialization equivalence, because normalizing the raw source is not equal to returning the raw source baseline.
-
-\paragraph{Pooling-coordinate contract violation (established).}
-Training source states used global-mean fallback, targets used nominally edit-centered pooling, and rollout evaluation supplied nominally edit-centered sources. Every nominal center omitted the leading \texttt{<dna>} token and was therefore one hidden token too far left; historical candidate states could also use different loci, while cache v1 did not commit a center token. This makes the latent operands coordinate-incompatible independently of normalization and sharpens the train/rollout mismatch; no metric from this lineage isolates a learned transition.
-
-\paragraph{Transitive runtime-identity violation (established).}
-The pinned Carbon custom tokenizer source performed an unpinned, network-capable \texttt{Qwen/Qwen3-4B-Base} load. A hash of that source file identifies the call site, not the mutable transitive tokenizer it resolves. Claims that the historical runtime was fully local or that the custom-tokenizer hash alone completed its identity are withdrawn. The corrected identity includes the local pure-DNA tokenizer implementation, but that code-path repair supplies no behavioral evidence.
-
-\paragraph{Regularization mismatch (established).}
-The \texttt{phase2} label did not imply encoder adaptation. With no LoRA and a KL computed only on frozen targets, the regularizer had zero gradient with respect to all trainable parameters. The run therefore cannot test claims about Phase-2 joint representation learning or anti-collapse behavior.
-
-\paragraph{Cosine and distribution shift (unresolved).}
-Cosine removes scale at evaluation time, so the historical cosine values are not arithmetically invalid for that reason alone. They are nevertheless downstream of training with the mixed-scale $L_2$ term, and the rollout settings do not match the training distribution. Without a corrected, distribution-matched evaluation, the cosine gap cannot identify whether the cause is normalization, optimization, distribution shift, action-conditioning failure, or encoder geometry.
-
-\paragraph{Mechanistic attribution withdrawn.}
-The latent-residual trap, edit-agnostic encoder geometry, and identity attraction remain plausible hypotheses, but this release does not distinguish them. We therefore withdraw the claims that freezing caused the observed gap, that the model learned a distorted copy, or that edit-conditioned prediction is unlearnable in this regime. Those questions reopen only after the corrected control run.
 
 % ======================================================================
 \section{Limitations}
 \label{sec:limitations}
 
-The primary limitation is a validity failure, not merely low power. (i)~\emph{State contract}: \texttt{normalize: true} was ignored for source and target states, while predictions were unit norm; all $L_2$-dependent results are invalid for the intended method. (ii)~\emph{Pooling coordinates}: training sources were global, targets and rollout sources used a one-token-left ``center,'' historical candidates could use different loci, and cache v1 omitted that identity field. (iii)~\emph{Runtime identity}: the pinned custom tokenizer performed an unpinned, network-capable transitive Qwen load. (iv)~\emph{Training semantics}: the run was labeled \texttt{phase2} but used no LoRA, and its target-only KL supplied no gradient. (v)~\emph{Distribution shift}: historical rollout cosine is confounded by mismatch between training and rollout distributions. (vi)~\emph{Statistical power}: ClinVar slices are $N{=}16$ and rollout slices are $N{=}8$. (vii)~\emph{Coverage and configuration drift}: training and holdout coverage are narrow, while pooling radius and predictor depth diverge from design RFCs. (viii)~\emph{Efficiency and planning}: warm-cache latency was not measured, the AR speed test used synthetic tensors and a benchmark-specific predictor shape, and planning distances are invalid under the state mismatch. (ix)~\emph{Receipts}: checksums certify included identity, not transitive dependencies, execution semantics, scientific validity, or privacy. These limitations preclude model-quality and mechanistic conclusions from this release.
+We state these as constraints on the claim, not as caveats to it. Several are severe.
 
-% ======================================================================
-\section{Historical Released Measurements}
-\label{sec:negative}
+\paragraph{The claim is about \emph{pooled} states only.} We show that the edit response cannot be
+anticipated from a pooled reference state plus an action. Pooled states are what latent world models
+actually use, which is why the result bites. But we have \emph{not} shown that a token-level world
+model is impossible, and nothing here argues that it is. A predictor operating on the full
+hidden-state sequence retains the local context that pooling discards, and is the natural follow-up.
+Our result draws a boundary; it does not close the area behind it.
 
-For auditability, we preserve the released rows without labeling them scientific findings. Historical VEP deltas include ClinVar non-coding AUROC $-0.3125$, BRCA2 Spearman $-0.328$, and ClinVar coding AUROC $-0.1875$; they derive from an invalid $L_2$ surprise score. Historical rollout cosine deltas are $-0.709$ and $-0.690$; they are scale-invariant but confounded. Historical rollout $L_2$ deltas are $+31.19$ and $+25.64$; they are invalid because the operands had incompatible norms. The synthetic-tensor $K{=}20$ AR micro-benchmark measured $2.47\times$, the cold subprocess latency was about $115$\,s, and the planning trace stopped on patience at historical distance $23.66$. The correction changes the interpretation, not the archived bytes.
+\paragraph{One encoder.} Every number in this paper comes from \carbon at one revision, one layer,
+and one window length. Generality across genomic foundation models is untested. \textbf{A
+single-model result is an anecdote about Carbon until it is replicated}, and we ask readers to hold
+it at exactly that strength. Whether masked models, longer-context models, or single-nucleotide
+tokenizers show the same bottleneck is an open question our design cannot answer.
 
-% ======================================================================
-\section{Reproducibility}
-\label{sec:reproducibility}
+\paragraph{The action space is $12$ substitution classes.} Because every variant sits at the window
+centre by construction, position carries no information and the action reduces to which base changed
+into which. A richer action space---position, local sequence context, the identity of the rewritten
+$6$-mer---is not tested here. This cuts against us in a specific and important way: a predictor
+given the local context we withheld might do better than $0.6520$. We regard this as the most
+credible route to overturning our negative result, and it is the same route as the token-level
+follow-up above.
 
-Every historical value is bound to the included identities in \cref{tab:artifacts}; the unpinned transitive tokenizer remains outside that graph. This enables forensic inspection of the flawed run, not exact self-contained reproduction of its runtime or reproduction of the intended method. The corrected experiment must not replace files beneath the existing identity or present a patched evaluator against the old checkpoint as a corrected result. It must issue a new model id, dataset/evaluation manifest, configuration hash, and receipt graph; resolve tokenization exclusively from committed local files; verify the DNA-content offset; record observed state norms at train and evaluation time; prove that \texttt{normalize: true} changes the tensors consumed by the predictor, loss, cache, scorer, rollout, and planner; and verify nonzero gradients for every regularizer described as active. Until that evidence exists, \texttt{v0.2.1-r1} remains an archived invalidated run.
+\paragraph{The $6$-mer token pair is not fully controlled.} Our trinucleotide control
+(\cref{tab:trinuc}) conditions on $\pm1$\,bp, but Carbon's tokenizer packs $6$\,bp into a token, so
+the exact ref-$6$-mer\,$\to$\,alt-$6$-mer token-pair confound survives it. The natural fix, a
+$\pm2$\,bp ($5$-mer) stratification, is too sparse to be powered at $899$ pathogenic variants, and
+we do not report an underpowered version of it. The trinucleotide result therefore bounds the
+$k$-mer explanation without eliminating it.
 
-% ======================================================================
-\section{Future Work}
-\label{sec:future}
+\paragraph{ClinVar ascertainment bias.} ClinVar records what was confidently classified, which
+biases it toward clear-cut variants at the tails of the effect distribution. AUROC $0.9259$ should
+be read as separation of curated extremes, not as accuracy on the variants that are clinically
+difficult---which are exactly the ones anybody needs help with.
 
-The first future experiment is a correction control, not a new modeling direction. It must (1) tokenize from a self-contained committed local package and validate the DNA control-token layout; (2) apply the same explicit normalization view to live and cached source and target states; (3) use the token-layout-derived shared pooling center for every compared state and commit that center in cache identity; (4) assert unit norms before loss, scoring, rollout, and planning; (5) train a true frozen-encoder baseline under \texttt{phase1}; (6) if Phase~2 is tested, add actual LoRA parameters and verify a nonzero KL gradient into them; (7) match train and rollout distributions or pre-register the shift and corresponding stratified analysis; (8) include shuffled-action and source-state controls; (9) use adequately powered evaluation slices and repeated seeds; and (10) publish under a new run identity. Only after this control may hypotheses such as residual-centric objectives, edit-direction probes, LoRA adaptation, alternative encoders, or scaling laws be evaluated. The old mechanistic program is retained as a set of hypotheses, not as consequences of \texttt{v0.2.1-r1}.
+\paragraph{BRCA2 is one gene.} The quantitative-function evaluation ($\rho=-0.265$) covers a single
+gene's exons in a fixed context, from a single assay. It bounds the claim in the direction of
+weakness, and it should not be extrapolated in either direction to other genes or assays.
+
+\paragraph{Not a variant-effect method.} We report AUROC against controls to characterize a
+representation, not to compete on a benchmark. We do not compare against tuned VEP methods, we do
+not tune ours, and the BRCA2 result indicates it would not compete.
+
+\paragraph{No clinical claim of any kind.} Nothing in this paper is a clinical, diagnostic, or
+decision-support tool or claim. No pathogenicity label enters any encoder, and no output here should
+inform any decision about any person.
 
 % ======================================================================
 \section{Conclusion}
 \label{sec:conclusion}
 
-We built and released an action-conditioned genomic latent-prediction pipeline, but the \texttt{v0.2.1-r1} experiment did not implement its declared state contract. Raw encoder states with norms near $29$--$34$ were compared against unit-norm predictions; source, target, and candidate pooling coordinates were inconsistent and nominal centers were one hidden token left; the tokenizer could resolve an unpinned network dependency; the run was labeled Phase~2 without LoRA; and its target-only KL had no gradient. We therefore withdraw the released $L_2$-based results, all VEP and planning interpretations derived from them, the mechanistic latent-residual attribution, historical self-contained-runtime claims, and all model-capability conclusions. Historical numbers remain attached to their included identities for auditability. The scientific question remains open and requires a corrected, self-contained, coordinate-matched, distribution-aware, adequately powered rerun under a new content-addressed identity.
+We measured the edit-response geometry of a frozen genomic foundation model and found a clean
+dissociation. \carbon \emph{registers} a single-base edit richly: the pooled displacement separates
+ClinVar pathogenic from benign SNVs at AUROC $0.9259$, and it does so interventionally---not via the
+mutation spectrum ($0.6306$ with no geometry), not via the exact local sequence context
+(conditioning on the full trinucleotide context costs $0.0059$), not via the genomic neighbourhood
+($0.6392$ from a probe that never sees the edit, with no locus leakage), and not via a local token
+swap (distal and local response directions agree at only $\cos=0.4714$). The encoder propagates the edit through
+attention, and the signal survives at every pooling width, even where the edit is cosine-invisible
+($0.99989$).
+
+But that registration cannot be \emph{anticipated}. The best learned predictor of the response from
+the pooled reference state plus the action recovers AUROC $0.6520$ of the $0.9259$ available,
+against $0.6306$ free from the substitution class alone. The reference state buys almost nothing,
+and a linear model conditioned on it does worse ($0.5854$) than a lookup table that ignores it
+($0.6079$); predictability degrades toward chance as pooling widens while the ceiling stays flat.
+The pathogenicity-bearing component of the edit response is exactly the unpredictable one.
+
+The consequence for the architecture we set out to build is unambiguous, and negative. An
+action-conditioned latent world model over pooled frozen genomic FM features cannot deliver its
+premise, because the premise is that you can skip the encoder pass on the edited sequence, and the
+encoder pass is where the signal is created. Our own withdrawn \texttt{v0.2.1-r1} run had genuine
+implementation defects, but the defects were not the reason it failed; a correct implementation
+would have failed too, and now we can say why. The information exists. It is not where a latent
+world model needs it to be. \textbf{There is no shortcut through the pooled latent.}
 
 \section*{Acknowledgments}
-We thank the maintainers of the open genomic-modeling and self-supervised-learning ecosystems whose models, benchmarks, and methods this study builds on. Portions of the evidence-gathering, citation verification, and manuscript drafting were assisted by AI research tooling. The correction reflects a semantic validity audit beyond the original content-addressed checks.
+We thank the maintainers of the open genomic-modeling and self-supervised-learning ecosystems whose
+models, benchmarks, and methods this study builds on. Portions of the evidence-gathering, citation
+verification, and manuscript drafting were assisted by AI research tooling.
 
 {\small
 \bibliographystyle{plainnat}
@@ -340,28 +725,51 @@ We thank the maintainers of the open genomic-modeling and self-supervised-learni
 \toprule
 Symbol & Meaning \\
 \midrule
-$\wref,\walt$ & reference / edited DNA window ($4{,}096$\,bp released; $12{,}288$\,bp code default) \\
-$\enc(\cdot)$ & \carbon layer-$20$, centered-mean pool ($r{=}8$); normalization is a separate contract \\
-$\st=\enc(\wref)$ & reference state; raw/global in training, raw/centered in rollout \\
-$\stp=\enc(\walt)$ & post-edit target; raw/centered in the release \\
-$\shat=\gpred(\st,a)$ & predicted post-edit state; unit norm in the release (\cref{eq:residual}) \\
-$\Delta=\stp-\st$ & edit residual; released magnitude is not comparable with $\shat$ \\
-$a,\aemb$ & edit action and its embedding, $\Real^{64}$ \\
-$\gpred$ & cross-attention residual predictor ($6$ cross $+\,2$ self, $d_{\mathrm{hidden}}{=}768$) \\
-$\alpha,\beta$ & prediction-loss weights ($1.0$, $0.1$); released $\gamma{=}0.5$ KL had no gradient \\
-$\sigma_{\mathrm{raw}},\sigma_{\mathrm{cal}}$ & raw / context-calibrated surprise ($165$ buckets) \\
-$\mathrm{score}_{\mathrm{Carbon}}$ & $\log P(\wref)-\log P(\walt)$ (zero-shot baseline) \\
-$N$ & evaluated variants per slice: $16/16/32/32/8/8$ \\
+$\wref,\walt$ & reference / edited DNA window ($4{,}096$\,bp, variant at centre) \\
+$\enc(\cdot)$ & \carbon (rev.\ \texttt{5d31d59b}), layer $20$, mean pool at radius $r$, raw \\
+$\sref,\salt$ & pooled reference / edited state, $\Real^{1024}$ \\
+$\D=\salt-\sref$ & the edit response (displacement); the object of study \\
+$\mathrm{rel}\D$ & $\lVert\D\rVert_2/\lVert\sref\rVert_2$, relative displacement \\
+$r$ & pool radius in tokens; $6$\,bp per token, so $r{=}8,64,256 \equiv \pm48,\pm384,\pm1536$\,bp \\
+$r{=}0$ & global-mean pooling over the whole window (the \emph{widest} setting) \\
+$a$ & the action: one of $12$ substitution classes \\
+$\gpred(\sref,a)\to\Dhat$ & the predictor under test; the ``shortcut'' \\
+$n$ & $14{,}000$ variants; $12{,}993$ after SNV restriction; $6{,}993$ ClinVar SNVs \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\section{Artifact Identity}
+\section{Artifact Identity and Provenance}
 \label{app:artifacts}
 \tabArtifacts
 
 \section{Citation Verification Notes}
 \label{app:citations}
-Bibliography metadata was checked against publisher pages, DOIs, or arXiv where available. One source caveat applies: the \carbon entry uses an organizational author because the model card exposes no formal author list or technical-report citation. The BRCA2 score bytes used by the released benchmark are from MaveDB score set \texttt{urn:mavedb:00001242-a-1}, whose primary-publication record identifies Sahu et al.~\citep{sahu2025}; the similarly named Findlay et al.\ saturation-genome-editing study concerns BRCA1 and is not this source. A small number of page numbers in otherwise-verified entries are inferred and flagged in the bibliography file.
+Bibliography metadata was checked against publisher pages, DOIs, or arXiv where available. The
+following caveats apply and should be resolved before any camera-ready version.
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
+\item \textbf{Carbon has no archival publication.} There is a Hugging Face model card and a
+\texttt{tech-report.pdf} in \texttt{github.com/huggingface/carbon}; no arXiv or journal version
+exists. We cite it as a technical report and pin model revision \texttt{5d31d59b}. A moving GitHub
+artifact is a legitimate reviewer objection; the tech report should be archived.
+\item \textbf{LeJEPA attribution and mechanism.} LeJEPA is by Balestriero and
+LeCun~\citep{lejepa2025}, and its estimator is SIGReg (random one-dimensional projections with
+characteristic-function matching). Our withdrawn release used a closed-form Gaussian KL inspired by
+the isotropic-Gaussian rationale; it is \emph{not} SIGReg, and \cref{sec:related} states this.
+\item \textbf{BRCA2 source disambiguation.} There are two distinct Nature-2025 BRCA2 saturation
+genome-editing papers. We cite \citet{sahu2025}, DOI \texttt{10.1038/s41586-024-08349-1}, and
+\emph{not} the separate study at DOI \texttt{10.1038/s41586-024-08388-8}.
+\item \textbf{MaveDB accession.} The score set \texttt{urn:mavedb:00001242-a-1} is the identifier
+recorded by our data pipeline for the BRCA2 sGE scores. Its mapping to \citet{sahu2025} should be
+confirmed directly on mavedb.org before assertion.
+\item \textbf{Unverified author lists.} \citet{jepadna2026} is confirmed as arXiv:2602.17162
+(February 2026), but its author list was not captured and the entry currently carries a
+placeholder. \citet{vjepa2_2025}, \citet{dinov2_2024}, and \citet{mavedb2025} have truncated author
+lists.
+\item \textbf{Unconfirmed venue.} \citet{dinowm2025} is confirmed as arXiv:2411.04983; its
+ICLR-2025 acceptance is inferred from OpenReview and not confirmed.
+\item \textbf{Unconfirmed DOIs.} The \citet{evo2_2025} and \citet{alphagenome2025} entries cite
+bioRxiv DOIs, which are solid; their journal DOIs were not confirmed and are not cited.
+\end{itemize}
 
 \end{document}

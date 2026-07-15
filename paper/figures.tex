@@ -1,16 +1,47 @@
 % ======================================================================
-% figures.tex  --  all figures for the GenoLeWM paper.
+% figures.tex  --  all figures for the edit-response-geometry paper.
 % Self-contained: requires tikz, pgfplots, xcolor (loaded in main preamble).
-% Color + style definitions are guarded so this file also compiles standalone.
+%
+% NUMERIC PROVENANCE. Every coordinate below is transcribed verbatim from the
+% verified R1/R3 result tables (job 6a565de7b1669a49bf07274b, git e23fdf9;
+% analysis reproduced by tools/research/edit_response_analysis.py @ 82eb3c2),
+% with ONE exception, flagged inline at \figPropagation: the histogram bin
+% counts in Fig. 5 are not summary statistics and were recomputed from the
+% released embedding parquet.
 % ======================================================================
 \providecommand{\genocolor}{}\definecolor{genocolor}{HTML}{2F6F9F}
 \providecommand{\carboncolor}{}\definecolor{carboncolor}{HTML}{C24A3B}
 \providecommand{\baselinecolor}{}\definecolor{baselinecolor}{HTML}{8A8A8A}
 \definecolor{statefill}{HTML}{EAF1F7}
 \definecolor{actfill}{HTML}{FBE9E6}
+\definecolor{ceilingcolor}{HTML}{3E7D4F}
+\definecolor{probecolor}{HTML}{7B5EA7}
+
+% Shared x-axis for the pooling-radius sweep. The grid is ordered by pooling
+% WIDTH, not by the nominal radius integer: r=0 denotes global-mean pooling
+% over the whole 4,096 bp window and is therefore the WIDEST, not the
+% narrowest, setting.
+%
+% NB: this MUST be a pgfplotsset style, not a \newcommand. A \newcommand
+% carrying `font=\footnotesize` into the axis key parser sends \footnotesize
+% through repeated expansion (\footnotesize -> \@setfontsize\footnotesize{..},
+% whose first argument is \footnotesize again), which blows the input stack.
+\pgfplotsset{radiusaxis/.style={
+  symbolic x coords={r8,r64,r256,rG},
+  xtick=data,
+  xticklabels={%
+    {$r{=}8$\\$\pm48$\,bp},%
+    {$r{=}64$\\$\pm384$\,bp},%
+    {$r{=}256$\\$\pm1536$\,bp},%
+    {global\\$4{,}096$\,bp}},
+  xticklabel style={align=center,font=\footnotesize},
+  xlabel={pooling window (narrow $\rightarrow$ wide)},
+  xlabel style={font=\footnotesize},
+}}
 
 % ----------------------------------------------------------------------
-% Figure 1: system architecture / latent-edit pipeline
+% Figure 1: the object of study -- an action-conditioned latent world model
+% over a frozen genomic encoder.
 % ----------------------------------------------------------------------
 \newcommand{\figArchitecture}{%
 \begin{figure}[t]
@@ -25,8 +56,8 @@
     lat/.style={circle,draw,minimum size=8mm,inner sep=1pt,font=\footnotesize,align=center},
     arr/.style={-{Stealth[length=2.2mm]},thick},
   ]
-    \node[io] (edit) {edit action $a$\\[-1pt]\scriptsize(pos, type, ref, alt)};
-    \node[io,below=10mm of edit] (wref) {reference window\\[-1pt]$w_{\mathrm{ref}}$ ($4{,}096$\,bp released)};
+    \node[io] (edit) {edit action $a$\\[-1pt]\scriptsize(substitution class)};
+    \node[io,below=10mm of edit] (wref) {reference window\\[-1pt]$w_{\mathrm{ref}}$ ($4{,}096$\,bp)};
     \node[io,below=12mm of wref] (walt) {edited window\\[-1pt]$w_{\mathrm{alt}}$};
 
     \node[train,right=12mm of edit] (aenc) {action\\encoder};
@@ -34,12 +65,12 @@
     \node[frozen,right=12mm of walt] (enc2) {Carbon-500M\\encoder \textbf{(frozen)}};
 
     \node[lat,right=10mm of aenc] (aemb) {$a_{\mathrm{emb}}$};
-    \node[lat,right=10mm of enc1] (st) {$s_t$ raw\\[-2pt]\scriptsize global};
-    \node[lat,right=10mm of enc2] (stp1) {$s_{t+1}$ raw\\[-2pt]\scriptsize centered};
+    \node[lat,right=10mm of enc1] (st) {$s_{\mathrm{ref}}$};
+    \node[lat,right=10mm of enc2] (stp1) {$s_{\mathrm{alt}}$};
 
-    \node[train,right=16mm of st,minimum height=13mm] (pred) {cross-attention\\predictor $g$};
-    \node[lat,right=12mm of pred] (shat) {$\hat s_{t+1}$ unit};
-    \node[box,draw=black!55,right=10mm of shat] (loss) {$\mathcal{L}_{\mathrm{pred}}$};
+    \node[train,right=16mm of st,minimum height=13mm] (pred) {predictor $g$\\[-1pt]\scriptsize(the shortcut)};
+    \node[lat,right=12mm of pred] (shat) {$\hat\Delta$};
+    \node[box,draw=black!55,right=10mm of shat] (loss) {compare};
     \draw[arr] (edit) -- (aenc);
     \draw[arr] (wref) -- (enc1);
     \draw[arr] (walt) -- (enc2);
@@ -52,146 +83,243 @@
     \draw[arr] (shat) -- (loss);
     \draw[arr] (stp1) -| (loss.south);
     \begin{scope}[on background layer]
-      \node[fit=(enc1)(enc2)(wref)(walt),draw=genocolor,dashed,rounded corners,inner sep=6pt,
-        label={[genocolor,font=\footnotesize]above:frozen state encoder (paid once per window)}] {};
+      \node[fit=(enc2)(walt),draw=carboncolor,dashed,rounded corners,inner sep=6pt,
+        label={[carboncolor,font=\footnotesize]below:the pass a world model must avoid paying}] {};
     \end{scope}
   \end{tikzpicture}}
-  \caption{\textbf{Released v0.2.1-r1 computation, exposing the state-contract violation.}
-  A frozen Carbon-500M DNA encoder maps a reference window $w_{\mathrm{ref}}$ to a state
-  $s_t\in\mathbb{R}^{1024}$; a small trainable action encoder maps an explicit edit
-  $a=(\text{pos},\text{type},\text{ref},\text{alt})$ to $a_{\mathrm{emb}}$; and a cross-attention
-  predictor $g$ returns $\hat s_{t+1}=g(s_t,a_{\mathrm{emb}})$. Although \texttt{normalize: true} was
-  configured, released source and target encoder states were raw (rollout mean norms $29$--$34$), while
-  the predictor output was unit norm. Training sources used global pooling while targets used edit-centered
-  pooling; every nominal edit center also omitted the leading \texttt{<dna>} token and was shifted one hidden token left.
-  Rollout changed the source coordinate again. The frozen target-only KL had no gradient and no LoRA was present.
-  The diagram documents implementation flow, not validated world-model capability.}
+  \caption{\textbf{The object of study.} A latent world model over a frozen genomic encoder
+  freezes Carbon-500M, encodes a reference window once to a pooled state
+  $s_{\mathrm{ref}}\in\mathbb{R}^{1024}$, and trains a small predictor $g$ to anticipate the
+  effect of an edit action $a$ directly in latent space. Its entire value proposition is that
+  the lower (red, dashed) path---running the encoder on the edited window---never has to be
+  taken. We measure the true displacement $\Delta=s_{\mathrm{alt}}-s_{\mathrm{ref}}$ on both
+  paths and ask whether $g(s_{\mathrm{ref}},a)$ can reproduce it. \Cref{sec:predict}
+  reports that it cannot: the discarded pass is where the pathogenicity signal is created.
+  \Cref{sec:retraction} describes the released \texttt{v0.2.1-r1} instantiation of this
+  diagram and the implementation defects that made that particular run uninterpretable.}
   \label{fig:architecture}
 \end{figure}}
 
 % ----------------------------------------------------------------------
-% Figure 2: VEP results vs Carbon zero-shot
+% Figure 2: the sensitivity ceiling -- rel_delta and cos(s_ref,s_alt) vs radius.
+% Values: Result 2 of the verified summary (means over 14,000 variants).
 % ----------------------------------------------------------------------
-\newcommand{\figVEP}{%
+\newcommand{\figSensitivity}{%
 \begin{figure}[t]
   \centering
   \begin{tikzpicture}
   \begin{axis}[
-    width=\linewidth, height=6cm, ybar, bar width=9pt,
-    ymin=-0.15, ymax=1.05,
-    ylabel={score (higher is better)},
-    symbolic x coords={ClinVar coding\\(AUROC),ClinVar non-coding\\(AUROC),BRCA2\\(Spearman),TraitGym\\(Spearman)},
-    xtick=data, xticklabel style={align=center,font=\small},
-    legend pos=north east, legend style={font=\small,draw=black!30},
-    enlarge x limits=0.18, ymajorgrids, grid style=dotted,
-    nodes near coords, every node near coord/.append style={font=\tiny,/pgf/number format/.cd,fixed,precision=3},
+    width=0.84\linewidth, height=5.8cm,
+    axis y line*=left, axis x line*=bottom,
+    radiusaxis,
+    ylabel={mean $\lVert\Delta\rVert_2/\lVert s_{\mathrm{ref}}\rVert_2$},
+    ylabel style={genocolor,font=\small},
+    yticklabel style={genocolor,font=\footnotesize},
+    ymin=0, ymax=0.095,
+    enlarge x limits=0.16, ymajorgrids, grid style=dotted,
+    nodes near coords, every node near coord/.append style={font=\tiny,genocolor,anchor=south west,
+      /pgf/number format/.cd,fixed,zerofill,precision=4},
   ]
-  \addplot[fill=genocolor,draw=genocolor] coordinates {
-    ({ClinVar coding\\(AUROC)},0.734375)
-    ({ClinVar non-coding\\(AUROC)},0.5625)
-    ({BRCA2\\(Spearman)},0.149194)
-    ({TraitGym\\(Spearman)},-0.0279645)};
-  \addplot[fill=carboncolor,draw=carboncolor] coordinates {
-    ({ClinVar coding\\(AUROC)},0.921875)
-    ({ClinVar non-coding\\(AUROC)},0.875)
-    ({BRCA2\\(Spearman)},0.476907)
-    ({TraitGym\\(Spearman)},-0.0838935)};
-  \legend{GenoLeWM, Carbon zero-shot}
+  \addplot[genocolor,very thick,mark=*] coordinates {(r8,0.0759) (r64,0.0230) (r256,0.0101) (rG,0.0083)};
+  \end{axis}
+  \begin{axis}[
+    width=0.84\linewidth, height=5.8cm,
+    axis y line*=right, axis x line=none,
+    symbolic x coords={r8,r64,r256,rG}, xtick=data,
+    ylabel={mean $\cos(s_{\mathrm{ref}},s_{\mathrm{alt}})$},
+    ylabel style={carboncolor,font=\small},
+    ymin=0.9930, ymax=1.0003,
+    ytick={0.994,0.996,0.998,1.000},
+    yticklabel style={carboncolor,font=\footnotesize,/pgf/number format/.cd,fixed,zerofill,precision=3},
+    enlarge x limits=0.16,
+    nodes near coords, every node near coord/.append style={font=\tiny,carboncolor,anchor=north east,
+      /pgf/number format/.cd,fixed,zerofill,precision=5},
+  ]
+  \addplot[carboncolor,very thick,dashed,mark=square*] coordinates {(r8,0.99352) (r64,0.99925) (r256,0.99984) (rG,0.99989)};
   \end{axis}
   \end{tikzpicture}
-  \caption{\textbf{Historical v0.2.1 VEP rows; withdrawn as a method comparison.} Carbon values are
-  recovered as GenoLeWM~$-$~$\Delta$. The GenoLeWM ranking score came from an $L_2$ residual between
-  unit-norm predictions and raw target states, so bar differences do not establish better or worse
-  performance for the intended normalized-state method. The small slices add a separate power
-  limitation; see \S\ref{sec:limitations}.}
-  \label{fig:vep}
+  \caption{\textbf{The sensitivity ceiling: a single-base edit is nearly invisible to cosine at
+  every pooling width, and essentially invisible at global pooling.} Left axis (blue, solid):
+  mean relative displacement $\lVert\Delta\rVert_2/\lVert s_{\mathrm{ref}}\rVert_2$. Right axis
+  (red, dashed): mean $\cos(s_{\mathrm{ref}},s_{\mathrm{alt}})$. Both are means over the
+  $14{,}000$-variant cohort. Sensitivity peaks at the narrowest pool ($r{=}8$, $\pm48$\,bp) and
+  falls $9.4\times$ as the pool widens to the full window, where the reference and edited states
+  are cosine-identical to four decimal places ($0.99989$). \emph{This is not information loss.}
+  Pathogenicity AUROC over the same states is flat at $0.92$--$0.93$ across this entire sweep
+  (\cref{fig:auroc}). A world model trained to predict $s_{\mathrm{alt}}$ from
+  $s_{\mathrm{ref}}$ under a cosine or absolute-state objective is therefore optimising against a
+  target that ``predict-no-change'' already attains to within $10^{-4}$: the objective is
+  degenerate because the metric is wrong, not because the signal is absent.}
+  \label{fig:sensitivity}
 \end{figure}}
 
 % ----------------------------------------------------------------------
-% Figure 3: rollout fidelity vs source-state baseline (the baseline trap)
+% Figure 3: AUROC vs radius with the three control baselines overlaid.
+% Values: Result 1 control table (ClinVar pathogenic vs benign).
 % ----------------------------------------------------------------------
-\newcommand{\figRollout}{%
+\newcommand{\figAUROC}{%
 \begin{figure}[t]
   \centering
   \begin{tikzpicture}
   \begin{axis}[
-    width=0.86\linewidth, height=5.4cm, ybar, bar width=18pt,
-    ymin=0, ymax=1.08,
-    ylabel={mean cosine to true $s_{t+1}$},
-    symbolic x coords={phased haplotypes,synthetic edit chains},
-    xtick=data, xticklabel style={font=\small},
-    legend pos=south east, legend style={font=\small,draw=black!30},
-    enlarge x limits=0.5, ymajorgrids, grid style=dotted,
-    nodes near coords, every node near coord/.append style={font=\footnotesize,/pgf/number format/.cd,fixed,precision=3},
+    width=0.88\linewidth, height=6.4cm,
+    radiusaxis,
+    ylabel={ClinVar pathogenic-vs-benign AUROC},
+    ylabel style={font=\small},
+    yticklabel style={font=\footnotesize},
+    ymin=0.45, ymax=1.0,
+    enlarge x limits=0.16, ymajorgrids, grid style=dotted,
+    legend style={font=\scriptsize,draw=black!30,at={(0.5,-0.34)},anchor=north,legend columns=2},
   ]
-  \addplot[fill=genocolor,draw=genocolor] coordinates {(phased haplotypes,0.288861) (synthetic edit chains,0.301608)};
-  \addplot[fill=baselinecolor,draw=baselinecolor] coordinates {(phased haplotypes,0.997831) (synthetic edit chains,0.991239)};
-  \legend{GenoLeWM predictor, source-state baseline $\hat s_{t+1}{=}s_t$}
+  \addplot[genocolor,very thick,mark=*] coordinates {(r8,0.9259) (r64,0.9278) (r256,0.9313) (rG,0.9313)};
+  \addlegendentry{$\Delta$, SNV-only}
+  \addplot[genocolor,thick,dashed,mark=triangle*] coordinates {(r8,0.9202) (r64,0.9220) (r256,0.9245) (rG,0.9240)};
+  \addlegendentry{$\Delta$, SNV $+$ within-substitution-class}
+  \addplot[carboncolor,thick,mark=square*] coordinates {(r8,0.6306) (r64,0.6306) (r256,0.6306) (rG,0.6306)};
+  \addlegendentry{control: substitution class only (no geometry)}
+  \addplot[probecolor,thick,mark=diamond*] coordinates {(r8,0.6392) (r64,0.5741) (r256,0.5539) (rG,0.5500)};
+  \addlegendentry{control: reference-state probe (no edit)}
+  \addplot[probecolor,thick,dotted,mark=o] coordinates {(r8,0.6354) (r64,0.5753) (r256,0.5523) (rG,0.5473)};
+  \addlegendentry{control: reference probe, chromosome-held-out}
+  \draw[baselinecolor,thick,dash dot] ({rel axis cs:0,0}|-{axis cs:r8,0.5}) -- ({rel axis cs:1,0}|-{axis cs:rG,0.5});
+  \node[baselinecolor,font=\scriptsize,anchor=south east] at (axis cs:rG,0.5) {chance};
   \end{axis}
   \end{tikzpicture}
-  \caption{\textbf{Historical rollout cosine; mechanism withdrawn.} Prediction-to-target cosine is
-  $\approx0.29$--$0.30$ and raw-source-to-target cosine is $\approx0.99$. Cosine is scale-invariant, so
-  these values remain historical measurements, but the predictor was trained with a mixed-scale $L_2$
-  term, mixed pooling coordinates, a one-hidden-token centering offset, and rollout differs from the training distribution. The gap therefore does not establish a
-  latent-residual trap, action-conditioning failure, or any other mechanism (\S\ref{sec:discussion}).}
-  \label{fig:rollout}
+  \caption{\textbf{The edit response is informative and interventional, and it is flat in the
+  pooling width.} The displacement $\Delta$ separates ClinVar pathogenic from benign SNVs at
+  AUROC $0.92$--$0.93$ at every pooling width, including global pooling where
+  $\cos(s_{\mathrm{ref}},s_{\mathrm{alt}})=0.99989$ (\cref{fig:sensitivity}). Three controls
+  bound the trivial explanations. Scoring variants by \emph{substitution class alone}, with no
+  geometry and no model, reaches $0.6306$; restricting the comparison to \emph{within} a
+  substitution class leaves the signal essentially intact ($0.9202$--$0.9245$), so the signal is
+  not the mutation spectrum. A linear probe on the reference state alone---which never sees the
+  edit---reaches at most $0.6392$, and a chromosome-held-out probe tracks it ($0.6354$), so the
+  signal is not the genomic neighbourhood and is not locus leakage. What is left is the edit.
+  All numbers in \cref{tab:controls}; the sharper trinucleotide-context control is in
+  \cref{tab:trinuc}.}
+  \label{fig:auroc}
 \end{figure}}
 
 % ----------------------------------------------------------------------
-% Figure 4: AR rollout speedup vs target
+% Figure 4: predictability of Delta -- baselines vs learned models vs ceiling.
+% Values: Result 4 (radius 8, 5-fold CV, n=12,993).
 % ----------------------------------------------------------------------
-\newcommand{\figARspeed}{%
+\newcommand{\figPredict}{%
 \begin{figure}[t]
   \centering
   \begin{tikzpicture}
   \begin{axis}[
-    width=0.7\linewidth, height=4.8cm, ybar, bar width=24pt,
-    ymin=0, ymax=5.7,
-    ylabel={speedup over naive rollout ($\times$)},
-    symbolic x coords={$K{=}5$,$K{=}20$},
-    xtick=data, enlarge x limits=0.6, ymajorgrids, grid style=dotted,
-    nodes near coords, every node near coord/.append style={font=\small,/pgf/number format/.cd,fixed,precision=2},
+    width=0.96\linewidth, height=6.2cm, ybar, bar width=22pt,
+    % bar shift=0pt: each bar is its own \addplot, so without this pgfplots
+    % offsets them as if they were parallel series. xtick is listed explicitly
+    % rather than `xtick=data' because `data' only collects coordinates from
+    % series that are not `forget plot', which would yield a single tick.
+    bar shift=0pt,
+    ymin=0.45, ymax=1.0,
+    ylabel={AUROC from predicted magnitude $\lVert\hat\Delta\rVert_2$},
+    ylabel style={font=\small},
+    yticklabel style={font=\footnotesize},
+    symbolic x coords={gm,lookup,ridge,mlp,true},
+    xtick={gm,lookup,ridge,mlp,true},
+    xticklabels={%
+      {global-mean $\Delta$\\\scriptsize(knows nothing)},%
+      {class-mean lookup\\\scriptsize(ignores $s_{\mathrm{ref}}$)},%
+      {ridge$(s_{\mathrm{ref}},a)$\\\scriptsize(\emph{uses} $s_{\mathrm{ref}}$)},%
+      {MLP$(s_{\mathrm{ref}},a)$\\\scriptsize(best world model)},%
+      {TRUE $\Delta$\\\scriptsize(run the encoder)}},
+    xticklabel style={align=center,font=\footnotesize},
+    enlarge x limits=0.13, ymajorgrids, grid style=dotted,
+    nodes near coords, every node near coord/.append style={font=\footnotesize,
+      /pgf/number format/.cd,fixed,zerofill,precision=4},
   ]
-  \addplot[fill=genocolor,draw=genocolor] coordinates {({$K{=}5$},2.41386) ({$K{=}20$},2.47322)};
+  \addplot[fill=baselinecolor!55,draw=baselinecolor] coordinates {(gm,0.4939)};
+  \addplot[fill=carboncolor!55,draw=carboncolor,forget plot] coordinates {(lookup,0.6079)};
+  \addplot[fill=genocolor!40,draw=genocolor,forget plot] coordinates {(ridge,0.5854)};
+  \addplot[fill=genocolor!70,draw=genocolor,forget plot] coordinates {(mlp,0.6520)};
+  \addplot[fill=ceilingcolor!65,draw=ceilingcolor,forget plot] coordinates {(true,0.9259)};
   \draw[carboncolor,thick,dashed]
-    ({rel axis cs:0,0}|-{axis cs:$K{=}5$,5.0}) -- ({rel axis cs:1,0}|-{axis cs:$K{=}20$,5.0})
-    node[pos=0.5,above,font=\small,carboncolor]{RFC-0004 target $5.0\times$ (open, \#42)};
+    ({rel axis cs:0,0}|-{axis cs:gm,0.6306}) -- ({rel axis cs:1,0}|-{axis cs:true,0.6306});
+  \node[carboncolor,font=\scriptsize,anchor=south west] at (axis cs:gm,0.6306)
+    {free from the substitution class, no model at all: $0.6306$};
+  \draw[baselinecolor,thick,dash dot]
+    ({rel axis cs:0,0}|-{axis cs:gm,0.5}) -- ({rel axis cs:1,0}|-{axis cs:true,0.5});
+  \node[baselinecolor,font=\scriptsize,anchor=north east] at (axis cs:true,0.5) {chance};
   \end{axis}
   \end{tikzpicture}
-  \caption{\textbf{Historical KV-cache micro-benchmark.} Cached \texttt{ARPredictor} rollout is
-  $2.41\times$ ($K{=}5$) and $2.47\times$ ($K{=}20$) faster than naive repeated one-step prediction.
-  The gain is real but short of the $5\times$ target at $K{=}20$, which remains open and was explicitly rescoped.
-  Measured on synthetic tensors with batch $8$, $d_{\mathrm{state}}{=}1024$, $d_{\mathrm{action}}{=}64$, CUDA, and bf16 on H200. The benchmark-specific predictor ($d_{\mathrm{hidden}}{=}1024$, $6+1$ blocks, FFN $4096$) is not the exact released checkpoint.}
-  \label{fig:arspeed}
+  \caption{\textbf{The core negative result: the pathogenicity-bearing component of the edit
+  response is exactly the component that cannot be anticipated.} All bars are AUROC for ClinVar
+  pathogenic vs.\ benign, scored by the magnitude of a \emph{predicted} displacement, at
+  radius~$8$---the most favourable pooling width---under $5$-fold cross-validation
+  ($n{=}12{,}993$ SNVs). Reading the encoder's true response gives $0.9259$ (green). The best
+  learned predictor of that response from the pooled reference state plus the action recovers
+  $0.6520$ (blue), barely above the $0.6306$ available from the substitution class alone with no
+  model whatsoever (red dashed line). Note the third bar: ridge, which \emph{does} see
+  $s_{\mathrm{ref}}$, scores $0.5854$---\emph{below} the $0.6079$ class-mean lookup, which does
+  not. Conditioning on the pooled reference state is not merely uninformative here; under a
+  linear model it is actively harmful. The information is registered by the encoder; it is not
+  recoverable from the pooled state it leaves behind. Only the MSE-trained predictor's magnitude
+  is reported here: a cosine-trained predictor's $\lVert\hat\Delta\rVert$ is scale-free and
+  therefore meaningless as a magnitude (\cref{sec:predict-protocol}).}
+  \label{fig:predict}
 \end{figure}}
 
 % ----------------------------------------------------------------------
-% Figure: efficiency three-regime latency decomposition
+% Figure 5: cos(Delta@global, Delta@r8) -- the propagation test.
+%
+% TODO(claude): PROVENANCE EXCEPTION -- please confirm or replace.
+% The 29 bin counts below are NOT in PAPER_V2.md (which reports only summary
+% statistics for this quantity). They were recomputed from the released artifact
+%   r1-edit-response-e23fdf9/edit_response_embeddings.parquet
+% over ALL 14,000 variants (bin width 0.05 on [-0.45, 1.00]; all 14,000
+% variants are accounted for, none clipped). That recomputation reproduces the
+% brief's verified subsample statistics to within sampling error (full-cohort
+% mean 0.4736, median 0.4717, std 0.1892, frac>0.9 = 0.005 vs. the verified
+% n=2,000 subsample mean 0.4714, median 0.4721, std 0.1905, frac>0.9 = 0.004).
+% The caption and the body text quote ONLY the verified subsample statistics and
+% label them as such. Replace with the canonical binning if the analysis tool is
+% extended to emit one.
 % ----------------------------------------------------------------------
-\newcommand{\figEfficiency}{%
+\newcommand{\figPropagation}{%
 \begin{figure}[t]
   \centering
   \begin{tikzpicture}
-  \begin{semilogyaxis}[
-    width=0.92\linewidth, height=5.8cm, ybar, bar width=30pt,
-    ymin=0.3, ymax=900000, ymode=log, log origin=infty,
-    ylabel={per-variant latency (ms, log scale)},
-    symbolic x coords={Regime 1\\cold subprocess,Regime 2\\warm cache,Regime 3\\latent rollout},
-    xtick=data, xticklabel style={align=center,font=\small},
-    enlarge x limits=0.28, ymajorgrids, grid style=dotted,
-    point meta=explicit symbolic,
-    nodes near coords, every node near coord/.append style={font=\footnotesize,anchor=south},
+  \begin{axis}[
+    width=0.9\linewidth, height=5.6cm,
+    ybar interval, ymin=0, ymax=1750,
+    xmin=-0.5, xmax=1.08,
+    xlabel={$\cos\big(\Delta\ \text{at global pooling},\ \Delta\ \text{at } r{=}8\big)$},
+    ylabel={variants},
+    xlabel style={font=\small}, ylabel style={font=\small},
+    xticklabel style={font=\footnotesize,/pgf/number format/.cd,fixed,precision=2},
+    yticklabel style={font=\footnotesize},
+    xtick={-0.5,-0.25,0,0.25,0.5,0.75,1.0},
+    ymajorgrids, grid style=dotted,
   ]
-  \addplot[fill=carboncolor,draw=carboncolor] coordinates {
-    ({Regime 1\\cold subprocess},115262.94) [115{,}263\,ms]};
-  \end{semilogyaxis}
+  \addplot[fill=genocolor!45,draw=genocolor!80] coordinates {
+    (-0.45,1) (-0.40,1) (-0.35,1) (-0.30,0) (-0.25,3) (-0.20,4) (-0.15,5)
+    (-0.10,15) (-0.05,30) (0.00,61) (0.05,132) (0.10,297) (0.15,538) (0.20,700)
+    (0.25,909) (0.30,1083) (0.35,1261) (0.40,1328) (0.45,1339) (0.50,1259)
+    (0.55,1231) (0.60,1120) (0.65,946) (0.70,713) (0.75,455) (0.80,344)
+    (0.85,150) (0.90,59) (0.95,15) (1.00,0)};
+  \draw[carboncolor,very thick,dashed] (axis cs:0.4714,0) -- (axis cs:0.4714,1480)
+    node[anchor=south,font=\scriptsize,carboncolor,align=center]
+    {subsample mean\\$0.4714$};
+  \draw[ceilingcolor,very thick,dotted] (axis cs:1.0,0) -- (axis cs:1.0,1250);
+  \node[anchor=north east,font=\scriptsize,ceilingcolor,align=right,inner sep=2pt]
+    at (axis cs:0.98,1250) {a pure local token swap\\would put every variant here $\rightarrow$};
+  \end{axis}
   \end{tikzpicture}
-  \caption{\textbf{Historical cold-process timing.} Only \emph{Regime 1}, a cold \texttt{geno-lewm-score} subprocess (interpreter start,
-  ${\sim}1$\,GiB Carbon load, two Carbon forward passes), is measured, at $115{,}262.94$\,ms. The
-  release did not profile component timing, so this total cannot be apportioned between loading and compute. The
-  ``pay-Carbon-once'' thesis applies to \emph{Regime 2} (warm reference cache: one Carbon call on the
-  edited window, in-process) and \emph{Regime 3} (latent-only rollout/planning: zero further Carbon
-  calls), both \emph{unmeasured} on this checkpoint and therefore shown without bars. Because corresponding model quality is invalidated, this figure
-  supports neither a deployment claim nor an efficiency--quality comparison.}
-  \label{fig:efficiency}
+  \caption{\textbf{Carbon propagates the edit; wide pooling is not a rescaling of a local
+  vector.} Per-variant cosine between the displacement measured at global pooling and the
+  displacement measured at $r{=}8$ ($\pm48$\,bp). If a single-base edit merely rewrote its own
+  token, and wider pooling only shrank that same vector, this distribution would be a spike at
+  $1.0$. It is not: on the verified $n{=}2{,}000$ subsample the mean is $0.4714$, the median
+  $0.4721$, and the standard deviation $0.1905$; a fraction of only $0.004$ of variants exceeds
+  $0.9$ and none exceeds $0.99$. The distal response is a genuinely different direction from the
+  local one---an attention-mediated, context-dependent response rather than a token
+  substitution. Magnitude \emph{ordering}, by contrast, is preserved across pooling widths
+  (Spearman $0.8595$ between $\lVert\Delta\rVert$ at global pooling and at $r{=}8$), which is why
+  AUROC is flat in \cref{fig:auroc} while direction is not conserved. Histogram over all
+  $14{,}000$ variants; the quoted statistics are the verified subsample values.}
+  \label{fig:propagation}
 \end{figure}}
