@@ -81,6 +81,12 @@ eval = [
     "scipy>=1.12",
     "scikit-learn>=1.4",
 ]
+evidence = [
+    "huggingface-hub>=0.36,<1",
+    "jsonschema>=4",
+    # Keep the store verifier on the typed PyArrow line used by development CI.
+    "pyarrow>=15,<25",
+]
 deploy = [
     "onnx>=1.16",
     "onnxruntime>=1.18",
@@ -125,7 +131,7 @@ geno-lewm-plan = "geno_lewm.cli.plan:cli_main"
 geno-lewm-eval = "geno_lewm.cli.eval:cli_main"
 geno-lewm-eval-all = "geno_lewm.cli.eval_all:cli_main"
 geno-lewm-carbon-baseline = "geno_lewm.cli.carbon_baseline:cli_main"
-geno-lewm-calibrate = "tools.release.build_calibration:main"
+geno-lewm-calibrate = "geno_lewm.cli.calibrate:main"
 geno-lewm-export = "geno_lewm.cli.export:cli_main"
 geno-lewm-cache-windows = "geno_lewm.cli.cache_windows:cli_main"
 geno-lewm-prepare-gnomad = "geno_lewm.cli.prepare_gnomad:cli_main"

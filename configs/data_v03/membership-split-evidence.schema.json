@@ -1,0 +1,727 @@
+{
+  "$defs": {
+    "binaryCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "negative": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "positive": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "negative",
+        "positive"
+      ],
+      "type": "object"
+    },
+    "chromosomeRoles": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation": {
+          "const": [
+            "21"
+          ]
+        },
+        "train": {
+          "const": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "22"
+          ]
+        },
+        "validation": {
+          "const": [
+            "20"
+          ]
+        }
+      },
+      "required": [
+        "train",
+        "validation",
+        "evaluation"
+      ],
+      "type": "object"
+    },
+    "classCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "B": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "LB": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "LP": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "P": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "B",
+        "LB",
+        "LP",
+        "P"
+      ],
+      "type": "object"
+    },
+    "fileIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/safeRelativePath"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
+    },
+    "safeRelativePath": {
+      "allOf": [
+        {
+          "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+        },
+        {
+          "not": {
+            "pattern": "(^|/)\\.{1,2}(/|$)"
+          }
+        }
+      ],
+      "minLength": 1,
+      "type": "string"
+    },
+    "stream": {
+      "additionalProperties": false,
+      "properties": {
+        "binary_counts": {
+          "$ref": "#/$defs/binaryCounts"
+        },
+        "chromosome": {
+          "enum": [
+            "20",
+            "21"
+          ]
+        },
+        "class_counts": {
+          "$ref": "#/$defs/classCounts"
+        },
+        "keyset_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "labels_jsonl": {
+          "$ref": "#/$defs/fileIdentity"
+        },
+        "record_count": {
+          "minimum": 2,
+          "type": "integer"
+        },
+        "role": {
+          "enum": [
+            "validation",
+            "evaluation"
+          ]
+        },
+        "vcf": {
+          "$ref": "#/$defs/fileIdentity"
+        }
+      },
+      "required": [
+        "role",
+        "chromosome",
+        "record_count",
+        "class_counts",
+        "binary_counts",
+        "keyset_sha256",
+        "labels_jsonl",
+        "vcf"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/AbdelStark/GenoLeWM/raw/main/configs/data_v03/membership-split-evidence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "else": {
+        "properties": {
+          "claim_boundary": {
+            "properties": {
+              "publication_eligible": {
+                "const": false
+              }
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "membership_store": {
+            "properties": {
+              "lineage": {
+                "properties": {
+                  "evidence_profile": {
+                    "const": "official"
+                  }
+                },
+                "required": [
+                  "evidence_profile"
+                ]
+              }
+            },
+            "required": [
+              "lineage"
+            ]
+          },
+          "producer": {
+            "properties": {
+              "invocation_verified": {
+                "const": true
+              }
+            },
+            "required": [
+              "invocation_verified"
+            ]
+          }
+        },
+        "required": [
+          "membership_store",
+          "producer"
+        ]
+      },
+      "then": {
+        "properties": {
+          "claim_boundary": {
+            "properties": {
+              "publication_eligible": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "membership_store": {
+            "properties": {
+              "lineage": {
+                "properties": {
+                  "evidence_profile": {
+                    "const": "synthetic_fixture"
+                  }
+                },
+                "required": [
+                  "evidence_profile"
+                ]
+              }
+            },
+            "required": [
+              "lineage"
+            ]
+          }
+        },
+        "required": [
+          "membership_store"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "properties": {
+              "invocation_verified": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "$schema": {
+      "const": "../contract/membership-split-evidence.schema.json"
+    },
+    "artifact_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "type": "string"
+    },
+    "assembly": {
+      "const": "GRCh38"
+    },
+    "audits": {
+      "additionalProperties": false,
+      "properties": {
+        "deterministic_sample": {
+          "additionalProperties": false,
+          "properties": {
+            "algorithm": {
+              "const": "sha256-priority-v1"
+            },
+            "indexed_overlaps": {
+              "const": 0
+            },
+            "observed_size": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "policy_exclusions": {
+              "const": 0
+            },
+            "requested_size": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sample_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "seed": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "const": "passed"
+            }
+          },
+          "required": [
+            "algorithm",
+            "seed",
+            "requested_size",
+            "observed_size",
+            "sample_digest",
+            "policy_exclusions",
+            "indexed_overlaps",
+            "status"
+          ],
+          "type": "object"
+        },
+        "exhaustive": {
+          "additionalProperties": false,
+          "properties": {
+            "indexed_overlaps": {
+              "const": 0
+            },
+            "policy_exclusions": {
+              "const": 0
+            },
+            "status": {
+              "const": "passed"
+            },
+            "windows_scanned": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "windows_scanned",
+            "policy_exclusions",
+            "indexed_overlaps",
+            "status"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "exhaustive",
+        "deterministic_sample"
+      ],
+      "type": "object"
+    },
+    "claim_boundary": {
+      "additionalProperties": false,
+      "properties": {
+        "limitations": {
+          "const": [
+            "This evidence covers deterministic unphased variant memberships and placed-window nonintersection only.",
+            "It does not establish phased-haplotype membership, a released v0.3 snapshot, dataset representativeness, model quality, benchmark performance, or clinical validity."
+          ]
+        },
+        "phased_haplotype_membership": {
+          "const": false
+        },
+        "publication_eligible": {
+          "type": "boolean"
+        },
+        "released_v03_snapshot": {
+          "const": false
+        },
+        "variant_membership": {
+          "const": true
+        }
+      },
+      "required": [
+        "variant_membership",
+        "phased_haplotype_membership",
+        "released_v03_snapshot",
+        "publication_eligible",
+        "limitations"
+      ],
+      "type": "object"
+    },
+    "membership_store": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "type": "string"
+        },
+        "chromosome_roles": {
+          "$ref": "#/$defs/chromosomeRoles"
+        },
+        "content_identity": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "lineage": {
+          "additionalProperties": false,
+          "properties": {
+            "candidate_snapshot_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "evidence_profile": {
+              "enum": [
+                "official",
+                "synthetic_fixture"
+              ]
+            },
+            "lineage_id": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "candidate_snapshot_id",
+            "evidence_profile",
+            "lineage_id",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "artifact_path": {
+          "$ref": "#/$defs/safeRelativePath"
+        },
+        "physical_identity": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "repository": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        },
+        "rowset_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "revision",
+        "artifact_path",
+        "artifact_id",
+        "content_identity",
+        "physical_identity",
+        "rowset_sha256",
+        "lineage",
+        "chromosome_roles"
+      ],
+      "type": "object"
+    },
+    "ok": {
+      "const": true
+    },
+    "producer": {
+      "additionalProperties": false,
+      "properties": {
+        "container_image": {
+          "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "generated_by": {
+          "const": "tools.data.v03_membership_splits"
+        },
+        "git_commit": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        },
+        "invocation_verified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "generated_by",
+        "git_commit",
+        "container_image",
+        "invocation_verified"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "geno-lewm.membership-split-evidence.v1"
+    },
+    "streams": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stream"
+            },
+            {
+              "properties": {
+                "chromosome": {
+                  "const": "21"
+                },
+                "labels_jsonl": {
+                  "properties": {
+                    "path": {
+                      "const": "splits/evaluation/clinvar-chr21.labels.jsonl"
+                    }
+                  }
+                },
+                "role": {
+                  "const": "evaluation"
+                },
+                "vcf": {
+                  "properties": {
+                    "path": {
+                      "const": "splits/evaluation/clinvar-chr21.vcf"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "validation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stream"
+            },
+            {
+              "properties": {
+                "chromosome": {
+                  "const": "20"
+                },
+                "labels_jsonl": {
+                  "properties": {
+                    "path": {
+                      "const": "splits/validation/clinvar-chr20.labels.jsonl"
+                    }
+                  }
+                },
+                "role": {
+                  "const": "validation"
+                },
+                "vcf": {
+                  "properties": {
+                    "path": {
+                      "const": "splits/validation/clinvar-chr20.vcf"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "validation",
+        "evaluation"
+      ],
+      "type": "object"
+    },
+    "training_windows": {
+      "additionalProperties": false,
+      "properties": {
+        "assembly": {
+          "const": "GRCh38"
+        },
+        "chromosomes": {
+          "items": {
+            "enum": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "10",
+              "11",
+              "12",
+              "13",
+              "14",
+              "15",
+              "16",
+              "17",
+              "18",
+              "19",
+              "22"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "dataset_manifest": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/safeRelativePath"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size_bytes": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "snapshot_id": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "sha256",
+            "size_bytes",
+            "snapshot_id"
+          ],
+          "type": "object"
+        },
+        "record_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "record_fields": {
+          "const": [
+            "record_id",
+            "source",
+            "variant_source",
+            "chrom",
+            "start_bp",
+            "end_bp",
+            "sequence",
+            "variant_count"
+          ]
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "role": {
+          "const": "train"
+        },
+        "source": {
+          "additionalProperties": false,
+          "properties": {
+            "artifact_path": {
+              "$ref": "#/$defs/safeRelativePath"
+            },
+            "repository": {
+              "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+              "type": "string"
+            },
+            "revision": {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "revision",
+            "artifact_path"
+          ],
+          "type": "object"
+        },
+        "split": {
+          "const": "train_placed_gnomad_common"
+        }
+      },
+      "required": [
+        "source",
+        "dataset_manifest",
+        "sha256",
+        "size_bytes",
+        "record_count",
+        "assembly",
+        "split",
+        "role",
+        "chromosomes",
+        "record_fields"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "artifact_id",
+    "assembly",
+    "producer",
+    "membership_store",
+    "training_windows",
+    "streams",
+    "audits",
+    "claim_boundary",
+    "ok"
+  ],
+  "title": "GenoLeWM v0.3 membership split evidence",
+  "type": "object"
+}

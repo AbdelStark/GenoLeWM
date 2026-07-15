@@ -39,6 +39,20 @@ def test_ci_build_workflow_checks_sdist_release_assets() -> None:
     assert "python -m build" in text
     assert "twine check dist/*" in text
     assert "python -m tools.release.check_sdist_assets dist/*.tar.gz" in text
+    assert "python -m tests.wheel_membership_smoke prepare" in text
+    assert 'python -I "$GITHUB_WORKSPACE/tests/wheel_membership_smoke.py"' in text
+
+
+def test_ci_build_workflow_smokes_console_scripts_outside_the_checkout() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    smoke_step = text.split("      - name: Smoke install", maxsplit=1)[1].split(
+        "      - name: Upload dist artifacts", maxsplit=1
+    )[0]
+
+    assert 'repo_root="$PWD"' in smoke_step
+    assert 'smoke_dir="$(mktemp -d)"' in smoke_step
+    assert 'cd "$smoke_dir"' in smoke_step
+    assert 'python "$repo_root/tests/wheel_console_scripts_smoke.py"' in smoke_step
 
 
 def test_ci_type_dependencies_are_bounded_to_validated_versions() -> None:
@@ -68,6 +82,34 @@ def test_ci_workflow_runs_dedicated_ml_smoke_gate() -> None:
     assert "pytest tests/ml -q --tb=long --durations=10" in text
     assert "needs: [lint, types, gates, tests, ml-smoke, eval-smoke, build, docs, paper]" in text
     assert "needs.ml-smoke.result != 'success'" in text
+
+
+def test_ci_windows_coverage_excludes_only_the_posix_cache_module() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    pytest_step = text.split("      - name: pytest", maxsplit=1)[1].split(
+        "      - name: Upload pytest output", maxsplit=1
+    )[0]
+    windows_branch, non_windows_branch = pytest_step.split("          else", maxsplit=1)
+
+    assert "--cov-fail-under=0" in windows_branch
+    assert "coverage report --show-missing --fail-under=84" in windows_branch
+    assert '--omit="*/encoder/cache.py"' in windows_branch
+    assert "coverage report" not in non_windows_branch
+    assert "--cov-report=xml" in non_windows_branch
+    assert "--omit=" not in non_windows_branch
+    assert pytest_step.count('tee "$RUNNER_TEMP/pytest.out"') == 2
+    assert "tee pytest.out" not in pytest_step
+
+    changed_files_gate = text.split("      - name: Changed-files coverage gate", maxsplit=1)[
+        1
+    ].split("  ml-smoke:", maxsplit=1)[0]
+    assert "matrix.os == 'ubuntu-latest'" in changed_files_gate
+    assert "--threshold 0.84" in changed_files_gate
+
+    upload_step = text.split("      - name: Upload pytest output", maxsplit=1)[1].split(
+        "      - name: Upload coverage to Codecov", maxsplit=1
+    )[0]
+    assert "path: ${{ runner.temp }}/pytest.out" in upload_step
 
 
 def test_ci_workflow_runs_dedicated_eval_smoke_gate() -> None:

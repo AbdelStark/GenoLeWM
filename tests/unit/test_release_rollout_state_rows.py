@@ -66,7 +66,8 @@ def test_rollout_state_rows_generate_ranked_jsonl_and_report(
         "dtype": "bf16",
         "normalize": False,
         "d_state": 2,
-        "cache_schema_version": "2.0.0",
+        "cache_schema_version": "3.0.0",
+        "cache_physical_encoding": "fixed_size_list<float32>",
         "cached_state_value_contract": "raw_pooled_v1",
         "validated_against_examples": True,
     }
@@ -97,6 +98,23 @@ def test_rollout_state_examples_reject_stale_schema_version(tmp_path: Path) -> N
     examples.write_text(json.dumps(row) + "\n", encoding="utf-8")
 
     with pytest.raises(InputError, match="unsupported rollout-state example schema_version"):
+        rollout_state_rows.load_rollout_state_examples(examples)
+
+
+@pytest.mark.parametrize("value", [None, "list<float16>"])
+def test_rollout_state_examples_require_exact_cache_physical_encoding(
+    tmp_path: Path,
+    value: str | None,
+) -> None:
+    examples = tmp_path / "rollout_state_examples.jsonl"
+    row = _example_row()
+    if value is None:
+        row.pop("cache_physical_encoding")
+    else:
+        row["cache_physical_encoding"] = value
+    examples.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="cache_physical_encoding"):
         rollout_state_rows.load_rollout_state_examples(examples)
 
 
@@ -224,9 +242,10 @@ def _example_row(
     source_key = _state_key("1", state_layer=state_layer)
     target_key = _state_key("2", state_layer=state_layer)
     row: dict[str, object] = {
-        "schema_version": "1.2.0",
+        "schema_version": "1.3.0",
         "generated_by": "tools.release.rollout_state_examples",
-        "cache_schema_version": "2.0.0",
+        "cache_schema_version": "3.0.0",
+        "cache_physical_encoding": "fixed_size_list<float32>",
         "cached_state_value_contract": "raw_pooled_v1",
         "materialized_state_contract": ("l2_normalized_v2" if normalize else "legacy_raw_v1"),
         "id": "phased-k2-a",

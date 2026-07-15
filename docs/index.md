@@ -32,6 +32,8 @@ benchmarked, and published with public artifacts.
 - [Architecture](architecture.md)
 - [v0.3 snapshot-lineage assembly](data-v03-snapshot-lineage.md)
 - [Public API contract](api/public-surface.md)
+- [v0.3 membership-store contract](data-v03-membership-store.md)
+- [v0.3 membership split evidence](data-v03-membership-splits.md)
 - [API reference](reference/index.md)
 - [GenoLeWM-FX contract](research/fx-experiment-contract.md)
 - [GenoLeWM-FX feasibility report](research/fx-feasibility-report.md)
@@ -50,6 +52,7 @@ benchmarked, and published with public artifacts.
 | Source/wheel release | <https://github.com/AbdelStark/GenoLeWM/releases/tag/v0.2.1> |
 | Model package | <https://huggingface.co/abdelstark/geno-lewm> |
 | Dataset package | <https://huggingface.co/datasets/abdelstark/geno-lewm-data> |
+| Verified v0.3 variant-membership candidate | [Exact Hub commit `96e97a7f…`](https://huggingface.co/datasets/abdelstark/geno-lewm-data/tree/96e97a7ffe1e9ad8f9a98f690b220a32ac75ddc2/candidates/v0.3/geno-lewm-data-v0.3.0-r1/membership/geno-lewm-v03-membership-fd7f4bbde476-r1/success) |
 | Historical v0.2.1 benchmark/planning/paper tree | <https://huggingface.co/abdelstark/geno-lewm-runs/tree/main/geno-lewm-v021-strong-4f36eef-10k-r1> |
 | Historical v0.2.1 generated paper | <https://huggingface.co/abdelstark/geno-lewm-runs/resolve/main/geno-lewm-v021-strong-4f36eef-10k-r1/paper/paper.serious-completion.md> |
 
@@ -75,6 +78,11 @@ for Carbon-backed training paths.
 - No broad model-quality claim.
 - No K=20 rollout-speed closure.
 - No useful-planning claim from the current planning demo.
+- A real checksum-closed v0.3 variant-membership candidate is published and
+  independently verified at exact Hub commit
+  `96e97a7ffe1e9ad8f9a98f690b220a32ac75ddc2`. It is not a released v0.3
+  snapshot or phased-haplotype holdout; placed-window split evidence remains a
+  separate artifact and claim boundary.
 - No GenoLeWM-FX model or demo ships; the FX pivot is stopped at the
   feasibility gate.
 - The FX precomputed-Borzoi rescue is complete as a no-positive-claim

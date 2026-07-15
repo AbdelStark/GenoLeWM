@@ -30,14 +30,14 @@ from geno_lewm.encoder.cache import (
     CACHE_SCHEMA_VERSION,
     INDEX_DB_NAME,
     WindowCacheKey,
-    read_embedding,
+    read_cache_entry,
 )
-from geno_lewm.errors import GenoLeWMError, InputError, exit_code_for
+from geno_lewm.errors import CacheCorruptError, GenoLeWMError, InputError, exit_code_for
 from geno_lewm.provenance import sha256_file
 
 SCHEMA_VERSION: Final = "1.0.0"
 SPEC_SCHEMA_VERSION: Final = "1.2.0"
-EXAMPLE_SCHEMA_VERSION: Final = "1.2.0"
+EXAMPLE_SCHEMA_VERSION: Final = "1.3.0"
 GENERATED_BY: Final = "tools.release.rollout_state_examples"
 SPEC_GENERATED_BY: Final = "tools.release.rollout_state_example_specs"
 ISSUE_REFS: Final = ("#57", "#197")
@@ -175,6 +175,7 @@ def generate_rollout_state_examples(
                 "schema_version": EXAMPLE_SCHEMA_VERSION,
                 "generated_by": GENERATED_BY,
                 "cache_schema_version": CACHE_SCHEMA_VERSION,
+                "cache_physical_encoding": "fixed_size_list<float32>",
                 "cached_state_value_contract": "raw_pooled_v1",
                 "materialized_state_contract": (
                     "l2_normalized_v2" if spec.normalize else "legacy_raw_v1"
@@ -374,13 +375,25 @@ def _read_state(
     label: str,
     normalize: bool,
 ) -> tuple[float, ...]:
-    value = read_embedding(cache_dir, key)
-    if value is None:
+    result = read_cache_entry(cache_dir, key, policy="require_v3")
+    if result is None:
         raise InputError(
             "rollout-state example references a missing cache embedding",
             details={"field": label, "state_key": _state_key_dict(key)},
         )
-    state = _state_vector(value, field=label)
+    if (
+        result.provenance.cache_schema_version != CACHE_SCHEMA_VERSION
+        or result.provenance.physical_encoding != "fixed_size_list<float32>"
+    ):
+        raise CacheCorruptError(
+            "corrected rollout evidence requires canonical cache schema 3 provenance",
+            details={
+                "field": label,
+                "cache_schema_version": result.provenance.cache_schema_version,
+                "physical_encoding": result.provenance.physical_encoding,
+            },
+        )
+    state = _state_vector(result.embedding, field=label)
     return l2_normalize_state(state) if normalize else state
 
 
@@ -518,6 +531,7 @@ def _build_report(
         "horizons": horizons,
         "normalization_views": sorted({spec.normalize for spec in specs}),
         "cache_schema_version": CACHE_SCHEMA_VERSION,
+        "cache_physical_encoding": "fixed_size_list<float32>",
         "cached_state_value_contract": "raw_pooled_v1",
         "unique_cache_state_keys": len(unique_state_keys),
         "negative_findings": [

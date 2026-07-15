@@ -54,7 +54,7 @@ uv pip install -e ".[dev,docs]"
 | Python package | `geno-lewm==0.2.1` on PyPI |
 | Core data model | `EditSpec`, `RelEdit`, edit application, typed errors, metrics, redaction-safe logs |
 | Model code | action encoder, cross-attention predictor, AR rollout wrapper, CEM planner |
-| Data pipeline | local gnomAD/ClinVar VCF-to-Parquet builders, tuple builder, holdout filtering, dataset packaging |
+| Data pipeline | local gnomAD/ClinVar VCF-to-Parquet builders, tuple builder, indexed membership-store contract, dataset packaging |
 | Training | fixture smoke trainer, Carbon preflight, single-process Carbon trainer, packaged run evidence |
 | Evaluation | scorer, Carbon baseline scorer, binary metrics, Spearman metrics, rollout-fidelity metrics, eval aggregation |
 | Demo | terminal scoring demo, checksum receipts, runtime preflight, batch receipt report, planning demo |

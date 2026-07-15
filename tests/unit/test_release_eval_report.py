@@ -12,6 +12,15 @@ from geno_lewm.provenance import sha256_bytes
 from tools.release.eval_report import main, parse_report_input, render_report
 
 
+def test_release_tool_wrapper_delegates_to_installable_report_core() -> None:
+    from geno_lewm import _evaluation_report
+    from tools.release import eval_report
+
+    assert eval_report.main is _evaluation_report.main
+    assert eval_report.parse_report_input is _evaluation_report.parse_report_input
+    assert eval_report.render_report is _evaluation_report.render_report
+
+
 def test_render_report_includes_release_sections_and_measured_metrics() -> None:
     report_input = parse_report_input(_payload())
 

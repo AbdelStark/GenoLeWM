@@ -31,6 +31,10 @@ python -m pip install "geno-lewm[eval]"
 python -m pip install "geno-lewm[train]"
 ```
 
+The wheel-installed calibration and evaluation aggregation commands run
+without the repository's source-only `tools` package. Training release-run
+assembly via `geno-lewm-train --package-release-run` is wheel-contained too.
+
 Source checkout:
 
 ```bash
