@@ -102,7 +102,7 @@ dev = [
     "pyarrow>=15,<25",
     "ruff>=0.5",
     # Upgrade deliberately after reconciling new strict diagnostics.
-    "mypy>=1.10,<2.3",
+    "mypy>=1.10,<2.4",
     "types-PyYAML>=6",
     "pre-commit>=3.7",
     "build>=1.2",
