@@ -330,7 +330,7 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: Install Tectonic
-        uses: wtfjoke/setup-tectonic@8a63d072f8390efdff59da7fa08aa49e3c1f5e1b # v3.1.5
+        uses: wtfjoke/setup-tectonic@eb29fd68b7d3f76011906b6e45ea4320c8de5d2f # v4.0.5
         with:
           tectonic-version: "0.16.9"
       - name: Build checked paper PDF
