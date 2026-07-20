@@ -82,7 +82,7 @@ eval = [
     "scikit-learn>=1.4",
 ]
 evidence = [
-    "huggingface-hub>=0.36,<1",
+    "huggingface-hub>=0.36,<2",
     "jsonschema>=4",
     # Keep the store verifier on the typed PyArrow line used by development CI.
     "pyarrow>=15,<25",
