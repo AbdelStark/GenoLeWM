@@ -85,7 +85,7 @@ evidence = [
     "huggingface-hub>=0.36,<1",
     "jsonschema>=4",
     # Keep the store verifier on the typed PyArrow line used by development CI.
-    "pyarrow>=15,<25",
+    "pyarrow>=15,<26",
 ]
 deploy = [
     "onnx>=1.16",
@@ -99,7 +99,7 @@ dev = [
     "hypothesis>=6.100",
     "jsonschema>=4",
     # PyArrow 25 dropped the typed-package marker consumed by strict mypy CI.
-    "pyarrow>=15,<25",
+    "pyarrow>=15,<26",
     "ruff>=0.5",
     # Upgrade deliberately after reconciling new strict diagnostics.
     "mypy>=1.10,<2.3",
